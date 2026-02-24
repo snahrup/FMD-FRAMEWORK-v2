@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Database,
   Server,
@@ -17,7 +18,14 @@ import {
   Loader2,
   AlertTriangle,
   Info,
+  Trash2,
+  X,
+  Square,
+  CheckSquare,
+  MinusSquare,
+  Route,
 } from 'lucide-react';
+import { SourceOnboardingWizard } from '@/components/sources/SourceOnboardingWizard';
 
 // ── Types matching API responses ──
 
@@ -62,16 +70,11 @@ interface RegisteredEntity {
   DataSourceName: string;
 }
 
-const DATA_SOURCE_TYPES = [
-  { value: 'ASQL_01', label: 'Azure SQL / On-Prem SQL', pipeline: 'PL_FMD_LDZ_COPY_FROM_ASQL_01' },
-  { value: 'ONELAKE_TABLES_01', label: 'OneLake Tables', pipeline: 'PL_FMD_LDZ_COPY_FROM_ONELAKE_TABLES_01' },
-  { value: 'ONELAKE_FILES_01', label: 'OneLake Files', pipeline: 'PL_FMD_LDZ_COPY_FROM_ONELAKE_FILES_01' },
-  { value: 'ADLS_01', label: 'Azure Data Lake', pipeline: 'PL_FMD_LDZ_COPY_FROM_ADLS_01' },
-  { value: 'FTP_01', label: 'FTP', pipeline: 'PL_FMD_LDZ_COPY_FROM_FTP_01' },
-  { value: 'SFTP_01', label: 'SFTP', pipeline: 'PL_FMD_LDZ_COPY_FROM_SFTP_01' },
-  { value: 'ORACLE_01', label: 'Oracle', pipeline: 'PL_FMD_LDZ_COPY_FROM_ORACLE_01' },
-  { value: 'NOTEBOOK', label: 'Custom Notebook', pipeline: 'PL_FMD_LDZ_COPY_FROM_CUSTOM_NB' },
-];
+interface CascadeImpact {
+  landing: { LandingzoneEntityId: number; SourceSchema: string; SourceName: string; DataSourceName: string }[];
+  bronze: { BronzeLayerEntityId: number; SourceSchema: string; SourceName: string; DestinationName: string }[];
+  silver: { SilverLayerEntityId: number; SourceSchema: string; SourceName: string; DestinationName: string }[];
+}
 
 export default function SourceManager() {
   // ── Data state (live from API) ──
@@ -80,39 +83,185 @@ export default function SourceManager() {
   const [registeredDataSources, setRegisteredDataSources] = useState<RegisteredDataSource[]>([]);
   const [registeredEntities, setRegisteredEntities] = useState<RegisteredEntity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // ── UI state ──
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedConnection, setExpandedConnection] = useState<string | null>(null);
-  const [showAddSource, setShowAddSource] = useState(false);
-  const [showAddEntity, setShowAddEntity] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // ── Form states ──
-  const [newSource, setNewSource] = useState({
-    connectionName: '',
-    name: '',
-    namespace: '',
-    type: 'ASQL_01',
-    description: '',
-  });
+  // ── Entity delete state ──
+  const [deleteTarget, setDeleteTarget] = useState<RegisteredEntity | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const [newEntity, setNewEntity] = useState({
-    dataSourceName: '',
-    dataSourceType: 'ASQL_01',
-    sourceSchema: 'dbo',
-    sourceName: '',
-    fileName: '',
-    filePath: 'm3cloud',
-    isIncremental: false,
-    incrementalColumn: '',
-  });
+  // ── Multi-select state ──
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+
+  // ── Cascade impact state ──
+  const [cascadeImpact, setCascadeImpact] = useState<CascadeImpact | null>(null);
+  const [loadingImpact, setLoadingImpact] = useState(false);
+
+  // ── Entity group expand state (by data source name — start all expanded) ──
+  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
+  const [sourcesInitialized, setSourcesInitialized] = useState(false);
+
+  // Auto-expand all sources on first data load
+  useEffect(() => {
+    if (!sourcesInitialized && registeredEntities.length > 0) {
+      setExpandedSources(new Set(registeredEntities.map(e => e.DataSourceName)));
+      setSourcesInitialized(true);
+    }
+  }, [registeredEntities, sourcesInitialized]);
+
+  const toggleSource = (sourceName: string) => {
+    setExpandedSources(prev => {
+      const next = new Set(prev);
+      if (next.has(sourceName)) next.delete(sourceName);
+      else next.add(sourceName);
+      return next;
+    });
+  };
+
+  const expandAllSources = () => {
+    const allNames = new Set(registeredEntities.map(e => e.DataSourceName));
+    setExpandedSources(allNames);
+  };
+
+  // Friendly label: strip underscores → spaces, trim
+  const friendlyLabel = (name: string) => (name.replace(/_/g, ' ').trim() || name).toUpperCase();
+
+  // Group entities by data source
+  const entityGroups = registeredEntities.reduce<Record<string, RegisteredEntity[]>>((acc, e) => {
+    const key = e.DataSourceName || 'Unknown';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(e);
+    return acc;
+  }, {});
+
+  // ── Multi-select helpers ──
+  const toggleEntity = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleGroupAll = (sourceName: string) => {
+    const groupIds = (entityGroups[sourceName] || []).map(e => e.LandingzoneEntityId);
+    const allSelected = groupIds.every(id => selectedIds.has(id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        groupIds.forEach(id => next.delete(id));
+      } else {
+        groupIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const groupSelectionState = (sourceName: string): 'none' | 'some' | 'all' => {
+    const groupIds = (entityGroups[sourceName] || []).map(e => e.LandingzoneEntityId);
+    const count = groupIds.filter(id => selectedIds.has(id)).length;
+    if (count === 0) return 'none';
+    if (count === groupIds.length) return 'all';
+    return 'some';
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const selectedEntitiesList = registeredEntities.filter(e => selectedIds.has(e.LandingzoneEntityId));
+
+  // Fetch cascade impact for given entity IDs
+  const fetchCascadeImpact = async (ids: string[]) => {
+    setLoadingImpact(true);
+    setCascadeImpact(null);
+    try {
+      const res = await fetch(`/api/entities/cascade-impact?ids=${ids.join(',')}`);
+      if (res.ok) setCascadeImpact(await res.json());
+    } catch (e) {
+      console.warn('Cascade impact lookup failed:', e);
+    }
+    setLoadingImpact(false);
+  };
+
+  // Trigger single delete modal with cascade impact
+  const openDeleteModal = (entity: RegisteredEntity) => {
+    setDeleteTarget(entity);
+    fetchCascadeImpact([entity.LandingzoneEntityId]);
+  };
+
+  // Trigger bulk delete modal with cascade impact
+  const openBulkDeleteModal = () => {
+    setShowBulkConfirm(true);
+    fetchCascadeImpact(Array.from(selectedIds));
+  };
+
+  // Delete single entity handler
+  const handleDeleteEntity = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/entities/${deleteTarget.LandingzoneEntityId}`, { method: 'DELETE' });
+      const result = await res.json();
+      if (result.success) {
+        setRegisteredEntities(prev => prev.filter(e => e.LandingzoneEntityId !== deleteTarget.LandingzoneEntityId));
+        setSelectedIds(prev => { const next = new Set(prev); next.delete(deleteTarget.LandingzoneEntityId); return next; });
+        setActionStatus({ type: 'success', message: result.message });
+      } else {
+        setActionStatus({ type: 'error', message: result.error || 'Delete failed' });
+      }
+    } catch (e) {
+      setActionStatus({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' });
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+      setCascadeImpact(null);
+    }
+  };
+
+  // Bulk delete handler
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setDeleting(true);
+    try {
+      const ids = Array.from(selectedIds).map(id => parseInt(id, 10));
+      const res = await fetch('/api/entities/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        const deletedSet = new Set((result.deletedIds as number[]).map(String));
+        setRegisteredEntities(prev => prev.filter(e => !deletedSet.has(e.LandingzoneEntityId)));
+        setSelectedIds(new Set());
+        setActionStatus({ type: 'success', message: result.message });
+      } else {
+        setActionStatus({ type: 'error', message: result.error || 'Bulk delete failed' });
+      }
+    } catch (e) {
+      setActionStatus({ type: 'error', message: e instanceof Error ? e.message : 'Bulk delete failed' });
+    } finally {
+      setDeleting(false);
+      setShowBulkConfirm(false);
+      setCascadeImpact(null);
+    }
+  };
 
   // ── Data loading ──
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (background = false) => {
+    if (background) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const [gwRes, connRes, dsRes, entRes] = await Promise.all([
@@ -134,19 +283,15 @@ export default function SourceManager() {
       setRegisteredConnections(conn);
       setRegisteredDataSources(ds);
       setRegisteredEntities(ent);
-
-      // Set default data source for entity form
-      const sqlSources = (ds as RegisteredDataSource[]).filter(d => d.Type === 'ASQL_01');
-      if (sqlSources.length > 0 && !newEntity.dataSourceName) {
-        setNewEntity(prev => ({ ...prev, dataSourceName: sqlSources[0].Name }));
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load data');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
+  // Initial load only — no re-fetch on StrictMode re-mount since loadData identity is stable
   useEffect(() => { loadData(); }, [loadData]);
 
   // ── Check if a gateway connection is registered ──
@@ -183,57 +328,7 @@ export default function SourceManager() {
       const data = await res.json();
       if (res.ok) {
         setActionStatus({ type: 'success', message: data.message || `Registered ${fmdName}` });
-        await loadData();
-      } else {
-        setActionStatus({ type: 'error', message: data.error || 'Registration failed' });
-      }
-    } catch (e) {
-      setActionStatus({ type: 'error', message: e instanceof Error ? e.message : 'Network error' });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const registerDataSource = async () => {
-    setSubmitting(true);
-    setActionStatus(null);
-    try {
-      const res = await fetch('/api/datasources', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newSource),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setActionStatus({ type: 'success', message: data.message || 'Data source registered' });
-        setNewSource({ connectionName: '', name: '', namespace: '', type: 'ASQL_01', description: '' });
-        setShowAddSource(false);
-        await loadData();
-      } else {
-        setActionStatus({ type: 'error', message: data.error || 'Registration failed' });
-      }
-    } catch (e) {
-      setActionStatus({ type: 'error', message: e instanceof Error ? e.message : 'Network error' });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const registerEntity = async () => {
-    setSubmitting(true);
-    setActionStatus(null);
-    try {
-      const res = await fetch('/api/entities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newEntity),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setActionStatus({ type: 'success', message: data.message || 'Entity registered' });
-        setNewEntity({ dataSourceName: '', dataSourceType: 'ASQL_01', sourceSchema: 'dbo', sourceName: '', fileName: '', filePath: 'm3cloud', isIncremental: false, incrementalColumn: '' });
-        setShowAddEntity(false);
-        await loadData();
+        await loadData(true);
       } else {
         setActionStatus({ type: 'error', message: data.error || 'Registration failed' });
       }
@@ -295,11 +390,20 @@ export default function SourceManager() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">Source Manager</h1>
-        <p className="text-muted-foreground mt-1">
-          Register gateway connections, configure data sources, and manage landing zone entities
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">Source Manager</h1>
+          <p className="text-muted-foreground mt-1">
+            Register gateway connections, configure data sources, and manage landing zone entities
+          </p>
+        </div>
+        <button
+          onClick={() => setShowOnboarding(true)}
+          className="flex items-center gap-2 px-4 py-2.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium shrink-0"
+        >
+          <Plus className="h-4 w-4" />
+          New Data Source
+        </button>
       </div>
 
       {/* Action Status Banner */}
@@ -325,7 +429,7 @@ export default function SourceManager() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-card rounded-xl border border-border p-5">
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/10 rounded-xl border border-blue-200/50 dark:border-blue-800/30 p-5 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 bg-blue-100 dark:bg-blue-950/30 rounded-lg flex items-center justify-center">
               <Cable className="w-5 h-5 text-blue-600 dark:text-blue-400" />
@@ -338,7 +442,7 @@ export default function SourceManager() {
           </p>
         </div>
 
-        <div className="bg-card rounded-xl border border-border p-5">
+        <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/10 rounded-xl border border-purple-200/50 dark:border-purple-800/30 p-5 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 bg-purple-100 dark:bg-purple-950/30 rounded-lg flex items-center justify-center">
               <Database className="w-5 h-5 text-purple-600 dark:text-purple-400" />
@@ -351,7 +455,7 @@ export default function SourceManager() {
           </p>
         </div>
 
-        <div className="bg-card rounded-xl border border-border p-5">
+        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/20 dark:to-amber-900/10 rounded-xl border border-amber-200/50 dark:border-amber-800/30 p-5 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 bg-amber-100 dark:bg-amber-950/30 rounded-lg flex items-center justify-center">
               <TableProperties className="w-5 h-5 text-amber-600 dark:text-amber-400" />
@@ -362,7 +466,7 @@ export default function SourceManager() {
           <p className="text-xs text-muted-foreground mt-2">Tables configured for ingestion</p>
         </div>
 
-        <div className="bg-card rounded-xl border border-border p-5">
+        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/20 dark:to-emerald-900/10 rounded-xl border border-emerald-200/50 dark:border-emerald-800/30 p-5 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-950/30 rounded-lg flex items-center justify-center">
               <FolderInput className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
@@ -375,7 +479,7 @@ export default function SourceManager() {
       </div>
 
       {/* Gateway Connections */}
-      <div className="bg-card rounded-xl border border-border p-6">
+      <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 rounded-xl border border-slate-200/50 dark:border-slate-800/30 p-6 shadow-sm">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-lg font-semibold text-foreground">Gateway Connections</h2>
@@ -395,10 +499,10 @@ export default function SourceManager() {
               />
             </div>
             <button
-              onClick={loadData}
+              onClick={() => loadData(true)}
               className="flex items-center gap-2 px-3 py-2 text-sm bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
             >
-              <RefreshCw className="h-4 w-4" />
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
               Refresh
             </button>
           </div>
@@ -547,330 +651,375 @@ export default function SourceManager() {
         </div>
       </div>
 
-      {/* Add Data Source Form */}
+      {/* Registered Entities — Grouped by Data Source */}
       <div className="bg-card rounded-xl border border-border p-6">
-        <button
-          onClick={() => setShowAddSource(!showAddSource)}
-          className="w-full flex items-center justify-between"
-        >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Database className="w-5 h-5 text-primary" />
+            Registered Entities
+            <span className="text-sm font-normal text-muted-foreground ml-1">({registeredEntities.length})</span>
+          </h2>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-purple-100 dark:bg-purple-950/30 rounded-lg flex items-center justify-center">
-              <Plus className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-            </div>
-            <div className="text-left">
-              <h2 className="text-lg font-semibold text-foreground">Add Data Source</h2>
-              <p className="text-sm text-muted-foreground">Link a registered connection to a specific database</p>
-            </div>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={clearSelection}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Clear Selection
+              </button>
+            )}
+            {Object.keys(entityGroups).length > 0 && (
+              <button
+                onClick={expandAllSources}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Expand All
+              </button>
+            )}
           </div>
-          {showAddSource ? <ChevronDown className="h-5 w-5 text-muted-foreground" /> : <ChevronRight className="h-5 w-5 text-muted-foreground" />}
-        </button>
+        </div>
+        {registeredEntities.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-8 text-center">No entities registered yet. Use "New Data Source" to onboard one.</p>
+        ) : (
+          <div className="space-y-2">
+            {Object.entries(entityGroups).sort(([a], [b]) => a.localeCompare(b)).map(([sourceName, entities]) => {
+              const isExpanded = expandedSources.has(sourceName);
+              const activeCount = entities.filter(e => e.IsActive === 'True').length;
+              const selState = groupSelectionState(sourceName);
+              return (
+                <div key={sourceName} className="border border-border rounded-lg overflow-hidden">
+                  {/* Source group header */}
+                  <div className="flex items-center bg-muted/30 hover:bg-muted/50 transition-colors">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleGroupAll(sourceName); }}
+                      className="pl-3 pr-1 py-3 text-muted-foreground hover:text-foreground transition-colors"
+                      title={selState === 'all' ? 'Deselect all' : 'Select all'}
+                    >
+                      {selState === 'all' ? (
+                        <CheckSquare className="w-4 h-4 text-primary" />
+                      ) : selState === 'some' ? (
+                        <MinusSquare className="w-4 h-4 text-primary/60" />
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => toggleSource(sourceName)}
+                      className="flex-1 flex items-center justify-between p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                        <Database className="w-4 h-4 text-primary" />
+                        <span className="font-semibold text-sm text-foreground">{(entities[0]?.FilePath || sourceName).toUpperCase()}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {entities.length} table{entities.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 font-medium">
+                        {activeCount} active
+                      </span>
+                    </button>
+                  </div>
 
-        {showAddSource && (
-          <div className="mt-6 pt-6 border-t border-border">
-            <div className="bg-muted/50 rounded-lg p-4 mb-6 text-sm text-muted-foreground">
-              <p><strong className="text-foreground">How it works:</strong> A Data Source links a registered Connection to a specific database. The <code className="bg-muted px-1 rounded">Type</code> field determines which pipeline runs. For SQL Server connections, use <code className="bg-muted px-1 rounded">ASQL_01</code>.</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Connection</label>
-                <select
-                  value={newSource.connectionName}
-                  onChange={(e) => setNewSource({ ...newSource, connectionName: e.target.value })}
-                  className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground"
-                >
-                  <option value="">Select a registered connection...</option>
-                  {registeredConnections.filter(c => c.Type === 'SqlServer').map(c => (
-                    <option key={c.ConnectionId} value={c.Name}>{c.Name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Database Name</label>
-                <input
-                  type="text"
-                  value={newSource.name}
-                  onChange={(e) => setNewSource({ ...newSource, name: e.target.value })}
-                  placeholder="e.g. DI_PRD_Staging"
-                  className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground"
-                />
-                <p className="text-xs text-muted-foreground mt-1">This becomes <code>@item().DatasourceName</code> in the pipeline</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Namespace</label>
-                <input
-                  type="text"
-                  value={newSource.namespace}
-                  onChange={(e) => setNewSource({ ...newSource, namespace: e.target.value })}
-                  placeholder="e.g. M3CLOUD"
-                  className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Logical grouping label for organization</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Source Type</label>
-                <select
-                  value={newSource.type}
-                  onChange={(e) => setNewSource({ ...newSource, type: e.target.value })}
-                  className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground"
-                >
-                  {DATA_SOURCE_TYPES.map(t => (
-                    <option key={t.value} value={t.value}>{t.label} ({t.value})</option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted-foreground mt-1">Routes to: {DATA_SOURCE_TYPES.find(t => t.value === newSource.type)?.pipeline}</p>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-foreground mb-1.5">Description</label>
-                <input
-                  type="text"
-                  value={newSource.description}
-                  onChange={(e) => setNewSource({ ...newSource, description: e.target.value })}
-                  placeholder="e.g. M3 Cloud DI_PRD_Staging on sql2016live via PowerBIGateway"
-                  className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-center gap-3">
-              <button
-                onClick={registerDataSource}
-                disabled={submitting || !newSource.connectionName || !newSource.name}
-                className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium disabled:opacity-50"
-              >
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                Register Data Source
-              </button>
-              <button
-                onClick={() => setShowAddSource(false)}
-                className="px-4 py-2 text-sm bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
+                  {/* Expanded entity table */}
+                  {isExpanded && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-t border-border bg-muted/20">
+                            <th className="w-10 py-2 px-3"></th>
+                            <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Schema.Table</th>
+                            <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Output File</th>
+                            <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Path</th>
+                            <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Load Type</th>
+                            <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Status</th>
+                            <th className="text-right py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium w-16"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {entities.map(entity => {
+                            const isChecked = selectedIds.has(entity.LandingzoneEntityId);
+                            return (
+                              <tr key={entity.LandingzoneEntityId} className={`border-t border-border/50 last:border-0 hover:bg-muted/20 transition-colors group ${isChecked ? 'bg-primary/5' : ''}`}>
+                                <td className="py-2.5 px-3">
+                                  <button
+                                    onClick={() => toggleEntity(entity.LandingzoneEntityId)}
+                                    className="text-muted-foreground hover:text-foreground transition-colors"
+                                  >
+                                    {isChecked ? (
+                                      <CheckSquare className="w-4 h-4 text-primary" />
+                                    ) : (
+                                      <Square className="w-4 h-4" />
+                                    )}
+                                  </button>
+                                </td>
+                                <td className="py-2.5 px-3 font-mono text-foreground">{entity.SourceSchema}.{entity.SourceName}</td>
+                                <td className="py-2.5 px-3 font-mono text-muted-foreground text-xs">{entity.FileName}.{entity.FileType}</td>
+                                <td className="py-2.5 px-3 font-mono text-muted-foreground text-xs">{entity.FilePath}</td>
+                                <td className="py-2.5 px-3">
+                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                    entity.IsIncremental === 'True'
+                                      ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400'
+                                      : 'bg-muted text-muted-foreground'
+                                  }`}>
+                                    {entity.IsIncremental === 'True' ? 'Incremental' : 'Full'}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                    entity.IsActive === 'True'
+                                      ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400'
+                                      : 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400'
+                                  }`}>
+                                    {entity.IsActive === 'True' ? 'Active' : 'Inactive'}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Link
+                                      to={`/journey?entity=${entity.LandingzoneEntityId}`}
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary"
+                                      title={`View data journey for ${entity.SourceSchema}.${entity.SourceName}`}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <Route className="w-3.5 h-3.5" />
+                                    </Link>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); openDeleteModal(entity); }}
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-500"
+                                      title={`Delete ${entity.SourceSchema}.${entity.SourceName}`}
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* Add Entity Form */}
-      <div className="bg-card rounded-xl border border-border p-6">
-        <button
-          onClick={() => setShowAddEntity(!showAddEntity)}
-          className="w-full flex items-center justify-between"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-amber-100 dark:bg-amber-950/30 rounded-lg flex items-center justify-center">
-              <Plus className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+      {/* ── Bulk Delete Floating Action Bar ── */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 bg-background/95 backdrop-blur-md border border-border rounded-xl shadow-2xl px-6 py-3">
+          <span className="text-sm font-medium text-foreground">
+            {selectedIds.size} {selectedIds.size === 1 ? 'entity' : 'entities'} selected
+          </span>
+          <button
+            onClick={clearSelection}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-muted"
+          >
+            Clear
+          </button>
+          <button
+            onClick={openBulkDeleteModal}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete Selected
+          </button>
+        </div>
+      )}
+
+      {/* ── Delete Confirmation Modal ── */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !deleting && setDeleteTarget(null)} />
+          <div className="relative bg-background border border-border rounded-xl shadow-2xl p-6 max-w-lg w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30">
+                <Trash2 className="w-5 h-5 text-red-500" />
+              </div>
+              <div>
+                <h3 className="font-bold text-foreground">Delete Entity</h3>
+                <p className="text-xs text-muted-foreground">This will remove data across all layers</p>
+              </div>
             </div>
-            <div className="text-left">
-              <h2 className="text-lg font-semibold text-foreground">Add Landing Zone Entity</h2>
-              <p className="text-sm text-muted-foreground">Register a source table for ingestion into the lakehouse</p>
+            <div className="p-3 bg-muted/30 rounded-lg border border-border mb-4">
+              <p className="text-sm text-foreground">
+                Are you sure you want to delete <span className="font-bold font-mono">{deleteTarget.SourceSchema}.{deleteTarget.SourceName}</span> from <span className="font-semibold">{friendlyLabel(deleteTarget.DataSourceName)}</span>?
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Output: {deleteTarget.FileName}.{deleteTarget.FileType} | Path: {deleteTarget.FilePath}
+              </p>
             </div>
-          </div>
-          {showAddEntity ? <ChevronDown className="h-5 w-5 text-muted-foreground" /> : <ChevronRight className="h-5 w-5 text-muted-foreground" />}
-        </button>
-
-        {showAddEntity && (
-          <div className="mt-6 pt-6 border-t border-border">
-            <div className="bg-muted/50 rounded-lg p-4 mb-6 text-sm text-muted-foreground">
-              <p><strong className="text-foreground">How it works:</strong> Each entity = one source table. The pipeline loops through all active entities for a data source and copies each as a parquet file into <code className="bg-muted px-1 rounded">LH_DATA_LANDINGZONE</code>.</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Data Source</label>
-                <select
-                  value={newEntity.dataSourceName}
-                  onChange={(e) => {
-                    const ds = registeredDataSources.find(d => d.Name === e.target.value);
-                    setNewEntity({ ...newEntity, dataSourceName: e.target.value, dataSourceType: ds?.Type || 'ASQL_01' });
-                  }}
-                  className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground"
-                >
-                  <option value="">Select a data source...</option>
-                  {registeredDataSources.filter(ds => ds.Type === 'ASQL_01').map(ds => (
-                    <option key={ds.DataSourceId} value={ds.Name}>{ds.Name} ({ds.Namespace})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Source Schema</label>
-                <input
-                  type="text"
-                  value={newEntity.sourceSchema}
-                  onChange={(e) => setNewEntity({ ...newEntity, sourceSchema: e.target.value })}
-                  placeholder="dbo"
-                  className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Source Table Name</label>
-                <input
-                  type="text"
-                  value={newEntity.sourceName}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setNewEntity({ ...newEntity, sourceName: val, fileName: val });
-                  }}
-                  placeholder="e.g. CustomerMaster"
-                  className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Output File Name</label>
-                <input
-                  type="text"
-                  value={newEntity.fileName}
-                  onChange={(e) => setNewEntity({ ...newEntity, fileName: e.target.value })}
-                  placeholder="Auto-filled from table name"
-                  className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Parquet file name in lakehouse (no extension)</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Folder Path</label>
-                <input
-                  type="text"
-                  value={newEntity.filePath}
-                  onChange={(e) => setNewEntity({ ...newEntity, filePath: e.target.value })}
-                  placeholder="m3cloud"
-                  className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Folder in lakehouse Files area</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1.5">Load Type</label>
-                <div className="flex items-center gap-4 mt-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      checked={!newEntity.isIncremental}
-                      onChange={() => setNewEntity({ ...newEntity, isIncremental: false, incrementalColumn: '' })}
-                      className="text-primary"
-                    />
-                    <span className="text-sm text-foreground">Full Load</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      checked={newEntity.isIncremental}
-                      onChange={() => setNewEntity({ ...newEntity, isIncremental: true })}
-                      className="text-primary"
-                    />
-                    <span className="text-sm text-foreground">Incremental</span>
-                  </label>
+            {/* Cascade Impact */}
+            <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg border border-amber-200/50 dark:border-amber-800/30 mb-4">
+              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-2 uppercase tracking-wider">Cascade Impact</p>
+              {loadingImpact ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Checking linked entities...
                 </div>
-              </div>
-
-              {newEntity.isIncremental && (
-                <div className="md:col-span-3">
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Incremental Column (Watermark)</label>
-                  <input
-                    type="text"
-                    value={newEntity.incrementalColumn}
-                    onChange={(e) => setNewEntity({ ...newEntity, incrementalColumn: e.target.value })}
-                    placeholder="e.g. ModifiedDate"
-                    className="w-full px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground md:max-w-sm"
-                  />
+              ) : cascadeImpact ? (
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-400" />
+                    <span className="text-foreground font-medium">Landing Zone:</span>
+                    <span className="text-muted-foreground">{cascadeImpact.landing.length} table{cascadeImpact.landing.length !== 1 ? 's' : ''} + parquet files</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-400" />
+                    <span className="text-foreground font-medium">Bronze:</span>
+                    <span className="text-muted-foreground">
+                      {cascadeImpact.bronze.length > 0
+                        ? `${cascadeImpact.bronze.length} table${cascadeImpact.bronze.length !== 1 ? 's' : ''} (${cascadeImpact.bronze.map(b => b.DestinationName || b.SourceName).join(', ')})`
+                        : 'none'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-400" />
+                    <span className="text-foreground font-medium">Silver:</span>
+                    <span className="text-muted-foreground">
+                      {cascadeImpact.silver.length > 0
+                        ? `${cascadeImpact.silver.length} table${cascadeImpact.silver.length !== 1 ? 's' : ''} (${cascadeImpact.silver.map(s => s.DestinationName || s.SourceName).join(', ')})`
+                        : 'none'}
+                    </span>
+                  </div>
                 </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Unable to check cascade impact</p>
               )}
             </div>
-
-            {/* SQL Preview */}
-            {newEntity.sourceName && (
-              <div className="mt-4 bg-muted rounded-lg p-4 border border-border">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">SQL that will execute</p>
-                <pre className="text-xs font-mono text-foreground whitespace-pre-wrap">{`EXEC [integration].[sp_UpsertLandingzoneEntity]
-    @SourceSchema = '${newEntity.sourceSchema}',
-    @SourceName = '${newEntity.sourceName}',
-    @FileName = '${newEntity.fileName}',
-    @FilePath = '${newEntity.filePath}',
-    @FileType = 'parquet',
-    @IsIncremental = ${newEntity.isIncremental ? 1 : 0},
-    @IsIncrementalColumn = '${newEntity.incrementalColumn}',
-    @IsActive = 1;`}</pre>
-              </div>
-            )}
-
-            <div className="mt-4 flex items-center gap-3">
+            <div className="flex items-center justify-end gap-2">
               <button
-                onClick={registerEntity}
-                disabled={submitting || !newEntity.dataSourceName || !newEntity.sourceName}
-                className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium disabled:opacity-50"
-              >
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                Register Entity
-              </button>
-              <button
-                onClick={() => setShowAddEntity(false)}
-                className="px-4 py-2 text-sm bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
+                onClick={() => { setDeleteTarget(null); setCascadeImpact(null); }}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors rounded-lg border border-border hover:bg-muted/50"
               >
                 Cancel
               </button>
+              <button
+                onClick={handleDeleteEntity}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-70"
+              >
+                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                {deleting ? 'Deleting...' : 'Delete All'}
+              </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Registered Entities Table */}
-      <div className="bg-card rounded-xl border border-border p-6">
-        <h2 className="text-lg font-semibold text-foreground mb-4">Registered Entities</h2>
-        {registeredEntities.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-8 text-center">No entities registered yet. Add one above to start ingesting data.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Source</th>
-                  <th className="text-left py-3 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Schema.Table</th>
-                  <th className="text-left py-3 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Output File</th>
-                  <th className="text-left py-3 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Path</th>
-                  <th className="text-left py-3 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Load Type</th>
-                  <th className="text-left py-3 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {registeredEntities.map(entity => (
-                  <tr key={entity.LandingzoneEntityId} className="border-b border-border last:border-0">
-                    <td className="py-3 px-3 text-foreground">{entity.DataSourceName}</td>
-                    <td className="py-3 px-3 font-mono text-foreground">{entity.SourceSchema}.{entity.SourceName}</td>
-                    <td className="py-3 px-3 font-mono text-muted-foreground">{entity.FileName}.{entity.FileType}</td>
-                    <td className="py-3 px-3 font-mono text-muted-foreground">{entity.FilePath}</td>
-                    <td className="py-3 px-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        entity.IsIncremental === 'True'
-                          ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400'
-                          : 'bg-muted text-muted-foreground'
-                      }`}>
-                        {entity.IsIncremental === 'True' ? 'Incremental' : 'Full'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        entity.IsActive === 'True'
-                          ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400'
-                          : 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400'
-                      }`}>
-                        {entity.IsActive === 'True' ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                  </tr>
+      {/* ── Bulk Delete Confirmation Modal ── */}
+      {showBulkConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !deleting && setShowBulkConfirm(false)} />
+          <div className="relative bg-background border border-border rounded-xl shadow-2xl p-6 max-w-lg w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30">
+                <Trash2 className="w-5 h-5 text-red-500" />
+              </div>
+              <div>
+                <h3 className="font-bold text-foreground">Delete {selectedIds.size} {selectedIds.size === 1 ? 'Entity' : 'Entities'}</h3>
+                <p className="text-xs text-muted-foreground">This will remove data across all layers</p>
+              </div>
+            </div>
+            <div className="p-3 bg-muted/30 rounded-lg border border-border mb-3 max-h-48 overflow-y-auto">
+              <p className="text-sm text-foreground mb-2">Are you sure you want to delete these entities?</p>
+              <ul className="space-y-1">
+                {selectedEntitiesList.map(e => (
+                  <li key={e.LandingzoneEntityId} className="text-xs text-muted-foreground flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                    <span className="font-mono">{e.SourceSchema}.{e.SourceName}</span>
+                    <span className="text-muted-foreground/60">({friendlyLabel(e.DataSourceName)})</span>
+                  </li>
                 ))}
-              </tbody>
-            </table>
+              </ul>
+            </div>
+            {/* Cascade Impact */}
+            <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg border border-amber-200/50 dark:border-amber-800/30 mb-4">
+              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-2 uppercase tracking-wider">Cascade Impact</p>
+              {loadingImpact ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Checking linked entities...
+                </div>
+              ) : cascadeImpact ? (
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-400" />
+                    <span className="text-foreground font-medium">Landing Zone:</span>
+                    <span className="text-muted-foreground">{cascadeImpact.landing.length} table{cascadeImpact.landing.length !== 1 ? 's' : ''} + parquet files</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-400" />
+                    <span className="text-foreground font-medium">Bronze:</span>
+                    <span className="text-muted-foreground">
+                      {cascadeImpact.bronze.length > 0
+                        ? `${cascadeImpact.bronze.length} table${cascadeImpact.bronze.length !== 1 ? 's' : ''}`
+                        : 'none'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-400" />
+                    <span className="text-foreground font-medium">Silver:</span>
+                    <span className="text-muted-foreground">
+                      {cascadeImpact.silver.length > 0
+                        ? `${cascadeImpact.silver.length} table${cascadeImpact.silver.length !== 1 ? 's' : ''}`
+                        : 'none'}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Unable to check cascade impact</p>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => { setShowBulkConfirm(false); setCascadeImpact(null); }}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors rounded-lg border border-border hover:bg-muted/50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-70"
+              >
+                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                {deleting ? 'Deleting...' : `Delete All ${selectedIds.size}`}
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Onboarding Modal */}
+      {showOnboarding && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowOnboarding(false)}
+          />
+          {/* Modal */}
+          <div className="relative w-full max-w-4xl max-h-[85vh] overflow-y-auto mx-4 rounded-xl shadow-2xl">
+            <SourceOnboardingWizard
+              gatewayConnections={gatewayConnections}
+              registeredConnections={registeredConnections}
+              registeredDataSources={registeredDataSources}
+              registeredEntities={registeredEntities}
+              onRefresh={() => loadData(true)}
+            />
+            {/* Close button */}
+            <button
+              onClick={() => setShowOnboarding(false)}
+              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground text-sm bg-muted/80 hover:bg-muted rounded-lg px-3 py-1.5 transition-colors z-10"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

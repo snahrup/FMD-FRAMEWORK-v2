@@ -246,7 +246,7 @@
                     "artifactId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_database_guid"
                   },
                   "externalReferences": {
-                    "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+                    "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
                   }
                 }
               }
@@ -372,7 +372,7 @@
                     "artifactId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_database_guid"
                   },
                   "externalReferences": {
-                    "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+                    "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
                   }
                 }
               }
@@ -435,7 +435,7 @@
                     "artifactId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_database_guid"
                   },
                   "externalReferences": {
-                    "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+                    "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
                   }
                 }
               }
@@ -487,7 +487,7 @@
                     "artifactId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_database_guid"
                   },
                   "externalReferences": {
-                    "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+                    "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
                   }
                 }
               }
@@ -606,7 +606,7 @@
                     "artifactId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_database_guid"
                   },
                   "externalReferences": {
-                    "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+                    "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
                   }
                 }
               }
@@ -719,7 +719,7 @@
               "artifactId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_database_guid"
             },
             "externalReferences": {
-              "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+              "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
             }
           }
         }
@@ -836,7 +836,7 @@
               "artifactId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_database_guid"
             },
             "externalReferences": {
-              "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+              "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
             }
           }
         }
@@ -883,7 +883,7 @@
                   "artifactId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_database_guid"
                 },
                 "externalReferences": {
-                  "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+                  "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
                 }
               }
             },
@@ -1008,7 +1008,7 @@
               "artifactId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_database_guid"
             },
             "externalReferences": {
-              "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+              "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
             }
           }
         }

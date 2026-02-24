@@ -5,6 +5,8 @@ import {
   ArrowRight,
   Layers,
   Loader2,
+  ChevronRight,
+  ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -129,6 +131,8 @@ export default function AdminGovernance() {
   const [bronzeEntities, setBronzeEntities] = useState<BronzeEntity[]>([]);
   const [silverEntities, setSilverEntities] = useState<SilverEntity[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [hoveredLane, setHoveredLane] = useState<string | null>(null);
+  const [expandedLane, setExpandedLane] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -181,50 +185,37 @@ export default function AdminGovernance() {
   const prodWorkspaces = workspaces.filter(w => w.Name.includes('(P)'));
   const configWorkspaces = workspaces.filter(w => !w.Name.includes('(D)') && !w.Name.includes('(P)'));
 
-  // Build lineage from real data
-  const lineageNodes: { id: string; name: string; layer: string }[] = [];
-  const lineageEdges: { source: string; target: string }[] = [];
+  // Build swim lane data grouped by data source
+  const sourceLanes = dataSources
+    .filter(ds => ds.IsActive === 'True')
+    .map(ds => {
+      const conn = connections.find(c => c.Name === ds.ConnectionName);
+      const lzEnts = entities.filter(e => e.DataSourceName === ds.Name);
+      const lzIds = new Set(lzEnts.map(e => e.LandingzoneEntityId));
+      const brzEnts = bronzeEntities.filter(b => lzIds.has(b.LandingzoneEntityId));
+      const brzIds = new Set(brzEnts.map(b => b.BronzeLayerEntityId));
+      const slvEnts = silverEntities.filter(s => brzIds.has(s.BronzeLayerEntityId));
+      return {
+        id: ds.DataSourceId,
+        connectionName: conn?.Name || ds.ConnectionName,
+        dataSourceName: ds.Name,
+        namespace: ds.Namespace,
+        type: ds.Type,
+        landingCount: lzEnts.length,
+        bronzeCount: brzEnts.length,
+        silverCount: slvEnts.length,
+        landingEntities: lzEnts,
+        bronzeEntities: brzEnts,
+        silverEntities: slvEnts,
+      };
+    });
 
-  // Sources (connections)
-  connections.filter(c => c.IsActive === 'True' && c.Name !== 'ONELAKE').forEach(c => {
-    lineageNodes.push({ id: `conn-${c.ConnectionId}`, name: c.Name, layer: 'source' });
-  });
+  // Connections with no data source registered yet
+  const orphanConnections = connections
+    .filter(c => c.IsActive === 'True' && c.Name !== 'ONELAKE')
+    .filter(c => !dataSources.some(ds => ds.ConnectionName === c.Name));
 
-  // Data sources → linked to connections
-  dataSources.filter(ds => ds.IsActive === 'True').forEach(ds => {
-    const connNode = connections.find(c => c.Name === ds.ConnectionName);
-    if (connNode) {
-      const dsId = `ds-${ds.DataSourceId}`;
-      if (!lineageNodes.find(n => n.id === dsId)) {
-        lineageNodes.push({ id: dsId, name: ds.Name, layer: 'landing' });
-      }
-      lineageEdges.push({ source: `conn-${connNode.ConnectionId}`, target: dsId });
-    }
-  });
-
-  // Landing zone entities → linked to datasources
-  entities.forEach(e => {
-    const ds = dataSources.find(d => d.Name === e.DataSourceName);
-    if (ds) {
-      const entId = `lz-${e.LandingzoneEntityId}`;
-      lineageNodes.push({ id: entId, name: `${e.SourceSchema}.${e.SourceName}`, layer: 'landing' });
-      lineageEdges.push({ source: `ds-${ds.DataSourceId}`, target: entId });
-    }
-  });
-
-  // Bronze entities → linked to landing zone
-  bronzeEntities.forEach(b => {
-    const bronzeId = `brz-${b.BronzeLayerEntityId}`;
-    lineageNodes.push({ id: bronzeId, name: `${b.Schema}.${b.Name}`, layer: 'bronze' });
-    lineageEdges.push({ source: `lz-${b.LandingzoneEntityId}`, target: bronzeId });
-  });
-
-  // Silver entities → linked to bronze
-  silverEntities.forEach(s => {
-    const silverId = `slv-${s.SilverLayerEntityId}`;
-    lineageNodes.push({ id: silverId, name: `${s.Schema}.${s.Name}`, layer: 'silver' });
-    lineageEdges.push({ source: `brz-${s.BronzeLayerEntityId}`, target: silverId });
-  });
+  const hasLineageData = sourceLanes.length > 0 || orphanConnections.length > 0;
 
   if (loading) {
     return (
@@ -263,7 +254,7 @@ export default function AdminGovernance() {
       </div>
 
       {/* Health Scorecard — LIVE DATA */}
-      <div className="bg-card rounded-xl border border-border p-6">
+      <div className="bg-gradient-to-br from-emerald-50 to-blue-50/50 dark:from-emerald-950/20 dark:to-blue-950/10 rounded-xl border border-emerald-200/50 dark:border-emerald-800/30 p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-foreground mb-6 flex items-center gap-2">
           <FabricIcon name="fabric" />
           Framework Health
@@ -347,10 +338,371 @@ export default function AdminGovernance() {
         </div>
       </div>
 
+      {/* Entity Inventory by Layer */}
+      <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/10 rounded-xl border border-purple-200/50 dark:border-purple-800/30 p-6 shadow-sm">
+        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+          <Layers className="w-5 h-5" />
+          Entity Inventory by Layer
+        </h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: 'Connections', count: connections.filter(c => c.IsActive === 'True').length, color: layerColors.source, icon: 'sql_database' },
+            { label: 'Landing Zone', count: entities.length, color: layerColors.landing, icon: 'lakehouse' },
+            { label: 'Bronze', count: bronzeEntities.length, color: layerColors.bronze, icon: 'lakehouse' },
+            { label: 'Silver', count: silverEntities.length, color: layerColors.silver, icon: 'lakehouse' },
+          ].map((item, index) => (
+            <div key={item.label} className="relative bg-muted rounded-lg p-5 border border-border overflow-hidden">
+              <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: item.color }}></div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center">
+                  <FabricIcon name={item.icon} className="w-5 h-5 mr-2" />
+                  <span className="font-medium text-foreground">{item.label}</span>
+                </div>
+                <span className="text-xs px-2 py-1 rounded-full font-medium" style={{
+                  backgroundColor: `${item.color}15`,
+                  color: item.color,
+                }}>
+                  Layer {index}
+                </span>
+              </div>
+              <p className="text-3xl font-bold text-foreground">{item.count}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {item.count === 0 ? 'Not yet registered' : `${item.count} registered`}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Data Lineage — Enhanced Swim Lane Flow */}
+      <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 rounded-xl border border-slate-200/50 dark:border-slate-800/30 p-6 shadow-sm overflow-hidden">
+        <style>{`
+          @keyframes flowRight {
+            from { background-position: 0 0; }
+            to { background-position: 16px 0; }
+          }
+          .flow-active {
+            height: 2px;
+            background: repeating-linear-gradient(90deg,
+              var(--fc) 0px, var(--fc) 6px,
+              transparent 6px, transparent 10px
+            );
+            background-size: 16px 2px;
+            animation: flowRight 0.6s linear infinite;
+          }
+          .flow-empty {
+            height: 2px;
+            background: repeating-linear-gradient(90deg,
+              var(--fc) 0px, var(--fc) 2px,
+              transparent 2px, transparent 8px
+            );
+            background-size: 8px 2px;
+            opacity: 0.15;
+          }
+        `}</style>
+
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Data Lineage</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Live data flow traced through the medallion architecture
+            </p>
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center space-x-6 mb-4 pb-4 border-b border-border">
+          <span className="text-sm font-medium text-muted-foreground">Layers:</span>
+          {[
+            { label: 'Source', color: layerColors.source },
+            { label: 'Landing', color: layerColors.landing },
+            { label: 'Bronze', color: layerColors.bronze },
+            { label: 'Silver', color: layerColors.silver },
+            { label: 'Gold', color: layerColors.gold },
+          ].map((item) => (
+            <div key={item.label} className="flex items-center">
+              <div className="w-3 h-3 rounded-full mr-1.5" style={{ backgroundColor: item.color }}></div>
+              <span className="text-sm text-muted-foreground">{item.label}</span>
+            </div>
+          ))}
+        </div>
+
+        {!hasLineageData ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <FabricIcon name="databases" className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p className="font-medium">No lineage data yet</p>
+            <p className="text-sm mt-1">Register connections, data sources, and entities in Source Manager to build the lineage graph</p>
+          </div>
+        ) : (
+          <>
+            {/* Column headers */}
+            <div className="flex items-center mb-2 px-1">
+              <div className="w-[170px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center" style={{ color: layerColors.source }}>Source</div>
+              <div className="flex-1" />
+              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center" style={{ color: layerColors.landing }}>Landing Zone</div>
+              <div className="flex-1" />
+              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center" style={{ color: layerColors.bronze }}>Bronze</div>
+              <div className="flex-1" />
+              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center" style={{ color: layerColors.silver }}>Silver</div>
+              <div className="flex-1" />
+              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center" style={{ color: layerColors.gold }}>Gold</div>
+            </div>
+
+            {/* Swim lanes */}
+            <div className="space-y-1">
+              {sourceLanes.map(lane => {
+                const isDimmed = hoveredLane !== null && hoveredLane !== lane.id;
+                const isExpanded = expandedLane === lane.id;
+
+                return (
+                  <div key={lane.id}>
+                    {/* Lane row */}
+                    <div
+                      className={`flex items-center px-1 py-1.5 rounded-lg cursor-pointer hover:bg-muted/50 transition-all duration-200 ${isDimmed ? 'opacity-[0.12]' : ''}`}
+                      onMouseEnter={() => setHoveredLane(lane.id)}
+                      onMouseLeave={() => setHoveredLane(null)}
+                      onClick={() => setExpandedLane(isExpanded ? null : lane.id)}
+                    >
+                      {/* Source node */}
+                      <div className="w-[170px] shrink-0">
+                        <div className="rounded-lg border-2 px-3 py-2 bg-card relative overflow-hidden" style={{ borderColor: layerColors.source }}>
+                          <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: layerColors.source }} />
+                          <div className="flex items-center gap-1.5 ml-1">
+                            {isExpanded
+                              ? <ChevronDown className="w-3 h-3 shrink-0 text-muted-foreground" />
+                              : <ChevronRight className="w-3 h-3 shrink-0 text-muted-foreground" />
+                            }
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-foreground truncate">{lane.dataSourceName}</p>
+                              <p className="text-[10px] text-muted-foreground truncate">{lane.connectionName}</p>
+                            </div>
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
+                              {lane.type.replace('_01', '')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Connector → Landing */}
+                      <div className="flex-1 mx-1.5">
+                        <div className={lane.landingCount > 0 ? 'flow-active' : 'flow-empty'} style={{ '--fc': layerColors.landing } as React.CSSProperties} />
+                      </div>
+
+                      {/* Landing node */}
+                      <div className="w-[120px] shrink-0">
+                        {lane.landingCount > 0 ? (
+                          <div className="rounded-lg border-2 px-2 py-2 bg-card relative overflow-hidden text-center" style={{ borderColor: layerColors.landing }}>
+                            <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: layerColors.landing }} />
+                            <p className="text-xl font-bold leading-none" style={{ color: layerColors.landing }}>{lane.landingCount}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">entities</p>
+                          </div>
+                        ) : (
+                          <div className="rounded-lg border-2 border-dashed px-2 py-2 text-center" style={{ borderColor: `${layerColors.landing}30` }}>
+                            <p className="text-xl font-bold leading-none text-muted-foreground/20">0</p>
+                            <p className="text-[10px] text-muted-foreground/30 mt-0.5">pending</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Connector → Bronze */}
+                      <div className="flex-1 mx-1.5">
+                        <div className={lane.bronzeCount > 0 ? 'flow-active' : 'flow-empty'} style={{ '--fc': layerColors.bronze } as React.CSSProperties} />
+                      </div>
+
+                      {/* Bronze node */}
+                      <div className="w-[120px] shrink-0">
+                        {lane.bronzeCount > 0 ? (
+                          <div className="rounded-lg border-2 px-2 py-2 bg-card relative overflow-hidden text-center" style={{ borderColor: layerColors.bronze }}>
+                            <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: layerColors.bronze }} />
+                            <p className="text-xl font-bold leading-none" style={{ color: layerColors.bronze }}>{lane.bronzeCount}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">entities</p>
+                          </div>
+                        ) : (
+                          <div className="rounded-lg border-2 border-dashed px-2 py-2 text-center" style={{ borderColor: `${layerColors.bronze}30` }}>
+                            <p className="text-xl font-bold leading-none text-muted-foreground/20">0</p>
+                            <p className="text-[10px] text-muted-foreground/30 mt-0.5">pending</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Connector → Silver */}
+                      <div className="flex-1 mx-1.5">
+                        <div className={lane.silverCount > 0 ? 'flow-active' : 'flow-empty'} style={{ '--fc': layerColors.silver } as React.CSSProperties} />
+                      </div>
+
+                      {/* Silver node */}
+                      <div className="w-[120px] shrink-0">
+                        {lane.silverCount > 0 ? (
+                          <div className="rounded-lg border-2 px-2 py-2 bg-card relative overflow-hidden text-center" style={{ borderColor: layerColors.silver }}>
+                            <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: layerColors.silver }} />
+                            <p className="text-xl font-bold leading-none" style={{ color: layerColors.silver }}>{lane.silverCount}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">entities</p>
+                          </div>
+                        ) : (
+                          <div className="rounded-lg border-2 border-dashed px-2 py-2 text-center" style={{ borderColor: `${layerColors.silver}30` }}>
+                            <p className="text-xl font-bold leading-none text-muted-foreground/20">0</p>
+                            <p className="text-[10px] text-muted-foreground/30 mt-0.5">pending</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Connector → Gold */}
+                      <div className="flex-1 mx-1.5">
+                        <div className="flow-empty" style={{ '--fc': layerColors.gold } as React.CSSProperties} />
+                      </div>
+
+                      {/* Gold node (future - MLVs) */}
+                      <div className="w-[120px] shrink-0">
+                        <div className="rounded-lg border-2 border-dashed px-2 py-2 text-center" style={{ borderColor: `${layerColors.gold}30` }}>
+                          <p className="text-xl font-bold leading-none text-muted-foreground/20">0</p>
+                          <p className="text-[10px] text-muted-foreground/30 mt-0.5">MLV</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expanded detail panel */}
+                    {isExpanded && (
+                      <div className="ml-[170px] mt-1 mb-2 bg-muted/40 rounded-lg border border-border p-4 animate-in slide-in-from-top-2 duration-200">
+                        <div className="grid grid-cols-3 gap-6">
+                          {/* Landing entities */}
+                          <div>
+                            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5" style={{ color: layerColors.landing }}>
+                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: layerColors.landing }} />
+                              Landing Zone ({lane.landingCount})
+                            </p>
+                            <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                              {lane.landingEntities.map(e => (
+                                <div key={e.LandingzoneEntityId} className="flex items-center gap-2 text-[11px]">
+                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{e.SourceSchema}</span>
+                                  <span className="font-mono text-foreground/80 truncate">{e.SourceName}</span>
+                                  <span className={`ml-auto text-[9px] px-1 py-0.5 rounded shrink-0 ${
+                                    e.IsIncremental === 'True'
+                                      ? 'bg-blue-100 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400'
+                                      : 'bg-muted text-muted-foreground'
+                                  }`}>
+                                    {e.IsIncremental === 'True' ? 'INC' : 'FULL'}
+                                  </span>
+                                </div>
+                              ))}
+                              {lane.landingCount === 0 && <p className="text-[11px] text-muted-foreground italic">No entities registered</p>}
+                            </div>
+                          </div>
+
+                          {/* Bronze entities */}
+                          <div>
+                            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5" style={{ color: layerColors.bronze }}>
+                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: layerColors.bronze }} />
+                              Bronze ({lane.bronzeCount})
+                            </p>
+                            <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                              {lane.bronzeEntities.map(b => (
+                                <div key={b.BronzeLayerEntityId} className="flex items-center gap-2 text-[11px]">
+                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{b.Schema}</span>
+                                  <span className="font-mono text-foreground/80 truncate">{b.Name}</span>
+                                </div>
+                              ))}
+                              {lane.bronzeCount === 0 && <p className="text-[11px] text-muted-foreground italic">Not yet processed</p>}
+                            </div>
+                          </div>
+
+                          {/* Silver entities */}
+                          <div>
+                            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5" style={{ color: layerColors.silver }}>
+                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: layerColors.silver }} />
+                              Silver ({lane.silverCount})
+                            </p>
+                            <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                              {lane.silverEntities.map(s => (
+                                <div key={s.SilverLayerEntityId} className="flex items-center gap-2 text-[11px]">
+                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{s.Schema}</span>
+                                  <span className="font-mono text-foreground/80 truncate">{s.Name}</span>
+                                </div>
+                              ))}
+                              {lane.silverCount === 0 && <p className="text-[11px] text-muted-foreground italic">Not yet processed</p>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Orphan connections (no data source yet) */}
+              {orphanConnections.map(conn => {
+                const isDimmed = hoveredLane !== null && hoveredLane !== `orphan-${conn.ConnectionId}`;
+                return (
+                  <div
+                    key={`orphan-${conn.ConnectionId}`}
+                    className={`flex items-center px-1 py-1.5 rounded-lg transition-all duration-200 ${isDimmed ? 'opacity-[0.12]' : ''}`}
+                    onMouseEnter={() => setHoveredLane(`orphan-${conn.ConnectionId}`)}
+                    onMouseLeave={() => setHoveredLane(null)}
+                  >
+                    {/* Source node (dashed - pending) */}
+                    <div className="w-[170px] shrink-0">
+                      <div className="rounded-lg border-2 border-dashed px-3 py-2 bg-card relative" style={{ borderColor: `${layerColors.source}50` }}>
+                        <div className="flex items-center gap-1.5">
+                          <FabricIcon name="sql_database" className="w-3.5 h-3.5 shrink-0 opacity-40" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-muted-foreground truncate">{conn.Name}</p>
+                            <p className="text-[10px] text-muted-foreground/50">No data source</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Empty connectors + placeholder nodes */}
+                    {[layerColors.landing, layerColors.bronze, layerColors.silver, layerColors.gold].map((color, i) => (
+                      <div key={i} className="contents">
+                        <div className="flex-1 mx-1.5">
+                          <div className="flow-empty" style={{ '--fc': color } as React.CSSProperties} />
+                        </div>
+                        <div className="w-[120px] shrink-0">
+                          <div className="rounded-lg border-2 border-dashed px-2 py-2 text-center" style={{ borderColor: `${color}15` }}>
+                            <p className="text-xl font-bold leading-none text-muted-foreground/10">—</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Flow Summary */}
+            <div className="mt-6 pt-4 border-t border-border">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {sourceLanes.length} source{sourceLanes.length !== 1 ? 's' : ''} registered
+                  {orphanConnections.length > 0 && ` \u00b7 ${orphanConnections.length} connection${orphanConnections.length !== 1 ? 's' : ''} pending`}
+                </span>
+                <div className="flex items-center space-x-6">
+                  <span className="text-muted-foreground">
+                    <span className="font-medium text-foreground">{connections.filter(c => c.IsActive === 'True').length}</span> connections
+                  </span>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">
+                    <span className="font-medium text-foreground">{entities.length}</span> landing
+                  </span>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">
+                    <span className="font-medium text-foreground">{bronzeEntities.length}</span> bronze
+                  </span>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">
+                    <span className="font-medium text-foreground">{silverEntities.length}</span> silver
+                  </span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
       {/* Workspaces & Lakehouses + Pipeline Inventory */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Workspaces */}
-        <div className="bg-card rounded-xl border border-border p-6">
+        <div className="bg-gradient-to-br from-blue-50 to-purple-50/50 dark:from-blue-950/20 dark:to-purple-950/10 rounded-xl border border-blue-200/50 dark:border-blue-800/30 p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
             <FabricIcon name="folder" />
             Workspaces & Lakehouses
@@ -425,7 +777,7 @@ export default function AdminGovernance() {
         </div>
 
         {/* Pipeline Inventory */}
-        <div className="bg-card rounded-xl border border-border p-6">
+        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/20 dark:to-amber-900/10 rounded-xl border border-amber-200/50 dark:border-amber-800/30 p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
             <FabricIcon name="pipeline" />
             Pipeline Inventory ({activePipelines.length} active)
@@ -456,174 +808,6 @@ export default function AdminGovernance() {
             </div>
           ))}
         </div>
-      </div>
-
-      {/* Entity Inventory by Layer */}
-      <div className="bg-card rounded-xl border border-border p-6">
-        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-          <Layers className="w-5 h-5" />
-          Entity Inventory by Layer
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label: 'Connections', count: connections.filter(c => c.IsActive === 'True').length, color: layerColors.source, icon: 'sql_database' },
-            { label: 'Landing Zone', count: entities.length, color: layerColors.landing, icon: 'lakehouse' },
-            { label: 'Bronze', count: bronzeEntities.length, color: layerColors.bronze, icon: 'lakehouse' },
-            { label: 'Silver', count: silverEntities.length, color: layerColors.silver, icon: 'lakehouse' },
-          ].map((item, index) => (
-            <div key={item.label} className="relative bg-muted rounded-lg p-5 border border-border overflow-hidden">
-              <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: item.color }}></div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center">
-                  <FabricIcon name={item.icon} className="w-5 h-5 mr-2" />
-                  <span className="font-medium text-foreground">{item.label}</span>
-                </div>
-                <span className="text-xs px-2 py-1 rounded-full font-medium" style={{
-                  backgroundColor: `${item.color}15`,
-                  color: item.color,
-                }}>
-                  Layer {index}
-                </span>
-              </div>
-              <p className="text-3xl font-bold text-foreground">{item.count}</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {item.count === 0 ? 'Not yet registered' : `${item.count} registered`}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Data Lineage — LIVE from registered entities */}
-      <div className="bg-card rounded-xl border border-border p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Data Lineage</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Live lineage built from registered connections, data sources, and entities
-            </p>
-          </div>
-        </div>
-
-        {/* Legend */}
-        <div className="flex items-center space-x-6 mb-6 pb-4 border-b border-border">
-          <span className="text-sm font-medium text-muted-foreground">Layers:</span>
-          {[
-            { label: 'Source', color: layerColors.source },
-            { label: 'Landing', color: layerColors.landing },
-            { label: 'Bronze', color: layerColors.bronze },
-            { label: 'Silver', color: layerColors.silver },
-            { label: 'Gold', color: layerColors.gold },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center">
-              <div className="w-3 h-3 rounded-full mr-1.5" style={{ backgroundColor: item.color }}></div>
-              <span className="text-sm text-muted-foreground">{item.label}</span>
-            </div>
-          ))}
-        </div>
-
-        {lineageNodes.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <FabricIcon name="databases" className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No lineage data yet</p>
-            <p className="text-sm mt-1">Register connections, data sources, and entities in Source Manager to build the lineage graph</p>
-          </div>
-        ) : (
-          <>
-            {/* Lineage as a horizontal flow diagram using CSS grid */}
-            <div className="overflow-x-auto">
-              <div className="flex items-start gap-6 min-w-[700px] py-4">
-                {/* Sources column */}
-                <div className="flex flex-col gap-2 min-w-[140px]">
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-1 text-center">Sources</div>
-                  {lineageNodes.filter(n => n.layer === 'source').map(node => (
-                    <div key={node.id} className="px-3 py-2 rounded-lg border-2 text-center text-xs font-medium" style={{ borderColor: layerColors.source, backgroundColor: `${layerColors.source}15`, color: layerColors.source }}>
-                      {node.name}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex items-center self-center text-muted-foreground">
-                  <ArrowRight className="w-5 h-5" />
-                </div>
-
-                {/* Landing column */}
-                <div className="flex flex-col gap-2 min-w-[160px]">
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-1 text-center">Landing Zone</div>
-                  {lineageNodes.filter(n => n.layer === 'landing').map(node => (
-                    <div key={node.id} className="px-3 py-2 rounded-lg border-2 text-center text-xs font-medium" style={{ borderColor: layerColors.landing, backgroundColor: `${layerColors.landing}15`, color: layerColors.landing }}>
-                      {node.name}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex items-center self-center text-muted-foreground">
-                  <ArrowRight className="w-5 h-5" />
-                </div>
-
-                {/* Bronze column */}
-                <div className="flex flex-col gap-2 min-w-[160px]">
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-1 text-center">Bronze</div>
-                  {lineageNodes.filter(n => n.layer === 'bronze').length > 0 ? (
-                    lineageNodes.filter(n => n.layer === 'bronze').map(node => (
-                      <div key={node.id} className="px-3 py-2 rounded-lg border-2 text-center text-xs font-medium" style={{ borderColor: layerColors.bronze, backgroundColor: `${layerColors.bronze}15`, color: layerColors.bronze }}>
-                        {node.name}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="px-3 py-2 rounded-lg border-2 border-dashed text-center text-xs text-muted-foreground" style={{ borderColor: layerColors.bronze }}>
-                      No entities yet
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex items-center self-center text-muted-foreground">
-                  <ArrowRight className="w-5 h-5" />
-                </div>
-
-                {/* Silver column */}
-                <div className="flex flex-col gap-2 min-w-[160px]">
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-1 text-center">Silver</div>
-                  {lineageNodes.filter(n => n.layer === 'silver').length > 0 ? (
-                    lineageNodes.filter(n => n.layer === 'silver').map(node => (
-                      <div key={node.id} className="px-3 py-2 rounded-lg border-2 text-center text-xs font-medium" style={{ borderColor: layerColors.silver, backgroundColor: `${layerColors.silver}15`, color: layerColors.silver }}>
-                        {node.name}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="px-3 py-2 rounded-lg border-2 border-dashed text-center text-xs text-muted-foreground" style={{ borderColor: layerColors.silver }}>
-                      No entities yet
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Flow Summary */}
-            <div className="mt-6 pt-4 border-t border-border">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Data Flow Summary</span>
-                <div className="flex items-center space-x-6">
-                  <span className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{connections.filter(c => c.IsActive === 'True').length}</span> connections
-                  </span>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{entities.length}</span> landing entities
-                  </span>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{bronzeEntities.length}</span> bronze
-                  </span>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{silverEntities.length}</span> silver
-                  </span>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
       </div>
     </div>
   );

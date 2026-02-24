@@ -6,27 +6,100 @@ import {
   ShieldCheck,
   GitBranch,
   Menu,
-  Server,
   Cable,
   PanelLeftClose,
   PanelLeftOpen,
+  FlaskConical,
+  Gauge,
+  ScrollText,
+  Hash,
+  Settings,
+  Sparkles,
+  ClipboardCheck,
+  Layers3,
+  Route,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { useState } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { getLabsFlags, anyLabsEnabled, type LabsFlags } from "@/lib/featureFlags";
 
-const sidebarItems = [
-  { icon: LayoutDashboard, label: "Pipeline Monitor", href: "/" },
-  { icon: Activity, label: "Error Intelligence", href: "/errors" },
-  { icon: GitBranch, label: "Flow Explorer", href: "/flow" },
-  { icon: Cable, label: "Source Manager", href: "/sources" },
-  { icon: ShieldCheck, label: "Admin & Governance", href: "/admin" },
+interface NavItem {
+  icon: LucideIcon;
+  label: string;
+  href: string;
+}
+
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const CORE_GROUPS: NavGroup[] = [
+  {
+    label: "Operations",
+    items: [
+      { icon: LayoutDashboard, label: "Pipeline Monitor", href: "/" },
+      { icon: Gauge, label: "Control Plane", href: "/control" },
+      { icon: Activity, label: "Error Intelligence", href: "/errors" },
+      { icon: ScrollText, label: "Execution Log", href: "/logs" },
+    ],
+  },
+  {
+    label: "Data",
+    items: [
+      { icon: Cable, label: "Source Manager", href: "/sources" },
+      { icon: FlaskConical, label: "Data Blender", href: "/blender" },
+      { icon: GitBranch, label: "Flow Explorer", href: "/flow" },
+      { icon: Route, label: "Data Journey", href: "/journey" },
+      { icon: Hash, label: "Record Counts", href: "/counts" },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [
+      { icon: ShieldCheck, label: "Admin & Governance", href: "/admin" },
+      { icon: Settings, label: "Settings", href: "/settings" },
+    ],
+  },
 ];
+
+function buildLabsGroup(flags: LabsFlags): NavGroup | null {
+  const items: NavItem[] = [];
+  if (flags.cleansingRuleEditor) items.push({ icon: Sparkles, label: "Cleansing Rules", href: "/labs/cleansing" });
+  if (flags.scdAuditView) items.push({ icon: ClipboardCheck, label: "SCD Audit", href: "/labs/scd-audit" });
+  if (flags.goldMlvManager) items.push({ icon: Layers3, label: "Gold / MLV", href: "/labs/gold-mlv" });
+  if (flags.dqScorecard) items.push({ icon: ShieldCheck, label: "DQ Scorecard", href: "/labs/dq-scorecard" });
+  return items.length > 0 ? { label: "Labs", items } : null;
+}
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [labsFlags, setLabsFlags] = useState<LabsFlags>(getLabsFlags);
+
+  // Listen for flag changes from the Settings page
+  const onLabsChanged = useCallback((e: Event) => {
+    const detail = (e as CustomEvent<LabsFlags>).detail;
+    setLabsFlags(detail);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("fmd-labs-changed", onLabsChanged);
+    return () => window.removeEventListener("fmd-labs-changed", onLabsChanged);
+  }, [onLabsChanged]);
+
+  // Build sidebar groups with optional Labs section (memoized — only recomputes when flags change)
+  const sidebarGroups = useMemo(() => {
+    const groups: NavGroup[] = [...CORE_GROUPS];
+    const labsGroup = buildLabsGroup(labsFlags);
+    if (labsGroup) {
+      groups.splice(groups.length - 1, 0, labsGroup);
+    }
+    return groups;
+  }, [labsFlags]);
 
   const sidebarWidth = isCollapsed ? "w-16" : "w-64";
   const mainMargin = isCollapsed ? "md:ml-16" : "md:ml-64";
@@ -46,40 +119,55 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
-        <nav className="space-y-1">
-          {sidebarItems.map((item) => {
-            const isActive = location.pathname === item.href;
-            return (
-              <Link key={item.href} to={item.href} title={isCollapsed ? item.label : undefined}>
-                <div className={cn(
-                  "flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-sm transition-all group relative overflow-hidden cursor-pointer",
-                  "duration-[var(--duration-fast)]",
-                  isCollapsed && "justify-center px-2",
-                  isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium shadow-[var(--shadow-sm)]"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )}>
-                  <item.icon className={cn("h-4 w-4 flex-shrink-0", isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground/60 group-hover:text-sidebar-accent-foreground")} />
-                  {!isCollapsed && item.label}
-                  {isActive && (
-                    <div className="absolute inset-0 bg-white/10 mix-blend-overlay pointer-events-none" />
-                  )}
-                </div>
-              </Link>
-            );
-          })}
+        <nav className="space-y-4">
+          {sidebarGroups.map((group) => (
+            <div key={group.label}>
+              {isCollapsed ? (
+                <div className="h-px bg-sidebar-border mx-2 mb-2" />
+              ) : (
+                <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
+                  {group.label}
+                </p>
+              )}
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const isActive = location.pathname === item.href;
+                  return (
+                    <Link key={item.href} to={item.href} title={isCollapsed ? item.label : undefined}>
+                      <div className={cn(
+                        "flex items-center gap-3 px-3 py-2 rounded-[var(--radius-md)] text-sm transition-all group relative overflow-hidden cursor-pointer",
+                        "duration-[var(--duration-fast)]",
+                        isCollapsed && "justify-center px-2",
+                        isActive
+                          ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium shadow-[var(--shadow-sm)]"
+                          : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      )}>
+                        <item.icon className={cn("h-4 w-4 flex-shrink-0", isActive ? "text-sidebar-primary-foreground" : "text-sidebar-foreground/60 group-hover:text-sidebar-accent-foreground")} />
+                        {!isCollapsed && item.label}
+                        {isActive && (
+                          <div className="absolute inset-0 bg-white/10 mix-blend-overlay pointer-events-none" />
+                        )}
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
       </div>
 
-      {/* Collapse toggle */}
-      <div className={cn("px-4 py-2", isCollapsed && "px-2")}>
+      <div className={cn("mt-auto p-4 border-t border-sidebar-border", isCollapsed && "p-2")}>
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md)] text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-all text-xs w-full cursor-pointer"
+          className={cn(
+            "flex items-center gap-2 px-3 py-2 rounded-[var(--radius-md)] text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-all text-xs w-full cursor-pointer justify-end",
+            isCollapsed && "justify-center px-2"
+          )}
           title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {isCollapsed ? (
-            <PanelLeftOpen className="h-4 w-4 mx-auto" />
+            <PanelLeftOpen className="h-4 w-4" />
           ) : (
             <>
               <PanelLeftClose className="h-4 w-4" />
@@ -87,20 +175,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </>
           )}
         </button>
-      </div>
-
-      <div className={cn("mt-auto p-6 border-t border-sidebar-border", isCollapsed && "p-3")}>
-        <div className={cn("flex items-center gap-3", isCollapsed && "justify-center")}>
-          <div className="h-8 w-8 rounded-full bg-sidebar-accent flex items-center justify-center text-[10px] font-medium text-sidebar-accent-foreground flex-shrink-0">
-            SN
-          </div>
-          {!isCollapsed && (
-            <div className="flex flex-col">
-              <span className="text-sm font-medium">Steve Nahrup</span>
-              <span className="text-[10px] text-sidebar-foreground/60 tracking-wider uppercase">Data Engineer</span>
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );
@@ -139,9 +213,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
            <div className="flex items-center gap-2">
              <ThemeToggle />
-             <Button variant="outline" size="sm" className="hidden sm:flex gap-2 h-8 text-xs">
-               <Server className="h-3.5 w-3.5 text-muted-foreground" />
-               <span>Production</span>
+             <Button variant="outline" size="sm" className="hidden sm:flex gap-2 h-8 text-xs border-amber-300/50 dark:border-amber-700/50 bg-amber-50/50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100/50 dark:hover:bg-amber-950/30">
+               <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+               <span className="font-semibold">DEV · MVP</span>
              </Button>
            </div>
         </header>
@@ -149,8 +223,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex-1 cowork-grid">
           <div className={cn(
             "w-full animate-[fadeIn_0.25s_var(--ease-claude)]",
-            location.pathname === "/flow"
-              ? "p-0"
+            (location.pathname === "/flow" || location.pathname === "/blender" || location.pathname === "/journey")
+              ? "p-0 h-full"
               : "p-6 md:p-8 max-w-7xl mx-auto"
           )}>
             {children}

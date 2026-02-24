@@ -24,6 +24,18 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: Kill previous instances on ports 8787 (API) and 5173 (Vite)
+echo  Cleaning up previous instances...
+for /f "tokens=5" %%p in ('netstat -aon ^| findstr ":8787 " ^| findstr "LISTENING"') do (
+    echo    Killing PID %%p on port 8787
+    taskkill /PID %%p /F >nul 2>&1
+)
+for /f "tokens=5" %%p in ('netstat -aon ^| findstr ":5173 " ^| findstr "LISTENING"') do (
+    echo    Killing PID %%p on port 5173
+    taskkill /PID %%p /F >nul 2>&1
+)
+timeout /t 1 /nobreak >nul
+
 :: Install npm deps if needed
 if not exist "node_modules" (
     echo  [SETUP] Installing npm dependencies...

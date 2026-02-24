@@ -1,0 +1,420 @@
+{
+  "health": "healthy",
+  "lastRefreshed": "2026-02-23T20:07:28.427312Z",
+  "_fromSnapshot": false,
+  "summary": {
+    "connections": {
+      "total": 6,
+      "active": 6
+    },
+    "dataSources": {
+      "total": 6,
+      "active": 6
+    },
+    "entities": {
+      "landing": {
+        "total": 107,
+        "active": 106
+      },
+      "bronze": {
+        "total": 1,
+        "active": 1
+      },
+      "silver": {
+        "total": 1,
+        "active": 1
+      }
+    },
+    "pipelines": {
+      "total": 44,
+      "active": 44
+    },
+    "lakehouses": 6,
+    "workspaces": 5
+  },
+  "pipelineHealth": {
+    "recentRuns": 10,
+    "succeeded": 0,
+    "failed": 0,
+    "running": 0
+  },
+  "sourceSystems": [
+    {
+      "namespace": "ETQ",
+      "connections": [
+        {
+          "name": "CON_FMD_M3DB3_ETQSTAGINGPRD",
+          "type": "SQL",
+          "isActive": "True"
+        }
+      ],
+      "dataSources": [
+        {
+          "name": "ETQStagingPRD",
+          "type": "ASQL_01",
+          "isActive": "True",
+          "connectionName": "CON_FMD_M3DB3_ETQSTAGINGPRD"
+        }
+      ],
+      "entities": {
+        "landing": 29,
+        "bronze": 0,
+        "silver": 0
+      },
+      "activeEntities": {
+        "landing": 29,
+        "bronze": 0,
+        "silver": 0
+      }
+    },
+    {
+      "namespace": "M3",
+      "connections": [
+        {
+          "name": "CON_FMD_SQLLOGSHIPPRD_M3FDBPRD",
+          "type": "SqlServer",
+          "isActive": "True"
+        }
+      ],
+      "dataSources": [
+        {
+          "name": "m3fdbprd",
+          "type": "ASQL_01",
+          "isActive": "True",
+          "connectionName": "CON_FMD_SQLLOGSHIPPRD_M3FDBPRD"
+        }
+      ],
+      "entities": {
+        "landing": 0,
+        "bronze": 0,
+        "silver": 0
+      },
+      "activeEntities": {
+        "landing": 0,
+        "bronze": 0,
+        "silver": 0
+      }
+    },
+    {
+      "namespace": "MES",
+      "connections": [
+        {
+          "name": "CON_FMD_M3DB1_MES",
+          "type": "SqlServer",
+          "isActive": "True"
+        }
+      ],
+      "dataSources": [
+        {
+          "name": "mes",
+          "type": "ASQL_01",
+          "isActive": "True",
+          "connectionName": "CON_FMD_M3DB1_MES"
+        }
+      ],
+      "entities": {
+        "landing": 77,
+        "bronze": 0,
+        "silver": 0
+      },
+      "activeEntities": {
+        "landing": 77,
+        "bronze": 0,
+        "silver": 0
+      }
+    },
+    {
+      "namespace": "NB",
+      "connections": [
+        {
+          "name": "CON_FMD_NOTEBOOK",
+          "type": "NOTEBOOK",
+          "isActive": "True"
+        }
+      ],
+      "dataSources": [
+        {
+          "name": "CUSTOM_NOTEBOOK",
+          "type": "NOTEBOOK",
+          "isActive": "True",
+          "connectionName": "CON_FMD_NOTEBOOK"
+        }
+      ],
+      "entities": {
+        "landing": 0,
+        "bronze": 0,
+        "silver": 0
+      },
+      "activeEntities": {
+        "landing": 0,
+        "bronze": 0,
+        "silver": 0
+      }
+    },
+    {
+      "namespace": "ONELAKE",
+      "connections": [
+        {
+          "name": "CON_FMD_ONELAKE",
+          "type": "ONELAKE",
+          "isActive": "True"
+        }
+      ],
+      "dataSources": [
+        {
+          "name": "LH_DATA_LANDINGZONE",
+          "type": "ONELAKE_TABLES_01",
+          "isActive": "True",
+          "connectionName": "CON_FMD_ONELAKE"
+        },
+        {
+          "name": "LH_DATA_LANDINGZONE",
+          "type": "ONELAKE_FILES_01",
+          "isActive": "True",
+          "connectionName": "CON_FMD_ONELAKE"
+        }
+      ],
+      "entities": {
+        "landing": 1,
+        "bronze": 0,
+        "silver": 0
+      },
+      "activeEntities": {
+        "landing": 0,
+        "bronze": 0,
+        "silver": 0
+      }
+    },
+    {
+      "namespace": "Unlinked",
+      "connections": [
+        {
+          "name": "CON_FMD_FABRIC_PIPELINES",
+          "type": "FabricDataPipelines",
+          "isActive": "True"
+        }
+      ],
+      "dataSources": [],
+      "entities": {
+        "landing": 0,
+        "bronze": 0,
+        "silver": 0
+      },
+      "activeEntities": {
+        "landing": 0,
+        "bronze": 0,
+        "silver": 0
+      }
+    }
+  ],
+  "lakehouses": [
+    {
+      "LakehouseId": "2",
+      "Name": "LH_BRONZE_LAYER"
+    },
+    {
+      "LakehouseId": "5",
+      "Name": "LH_BRONZE_LAYER"
+    },
+    {
+      "LakehouseId": "1",
+      "Name": "LH_DATA_LANDINGZONE"
+    },
+    {
+      "LakehouseId": "4",
+      "Name": "LH_DATA_LANDINGZONE"
+    },
+    {
+      "LakehouseId": "3",
+      "Name": "LH_SILVER_LAYER"
+    },
+    {
+      "LakehouseId": "6",
+      "Name": "LH_SILVER_LAYER"
+    }
+  ],
+  "workspaces": [
+    {
+      "WorkspaceId": "1",
+      "Name": "INTEGRATION CODE (D)"
+    },
+    {
+      "WorkspaceId": "3",
+      "Name": "INTEGRATION CODE (P)"
+    },
+    {
+      "WorkspaceId": "5",
+      "Name": "INTEGRATION CONFIG"
+    },
+    {
+      "WorkspaceId": "2",
+      "Name": "INTEGRATION DATA (D)"
+    },
+    {
+      "WorkspaceId": "4",
+      "Name": "INTEGRATION DATA (P)"
+    }
+  ],
+  "recentRuns": [
+    {
+      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
+      "PipelineRunGuid": "754D306A-AFD4-4AE8-B00B-CA7C0B3BCBBE",
+      "PipelineParentRunGuid": null,
+      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
+      "PipelineName": "PL_FMD_LOAD_ALL",
+      "PipelineParameters": null,
+      "EntityId": null,
+      "EntityLayer": "Control",
+      "TriggerType": "Manual",
+      "TriggerGuid": "B282C1EA-9D6E-438F-96A1-07B1B391E377",
+      "TriggerTime": "2026-02-23 18:29:46.573333",
+      "LogType": "StartPipeline",
+      "LogDateTime": "2026-02-23 18:30:09.206667",
+      "LogData": "{ \"Action\" : \"Start\" }"
+    },
+    {
+      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
+      "PipelineRunGuid": "7569BBE5-91D5-4A6C-BAFB-FD013EF77882",
+      "PipelineParentRunGuid": null,
+      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
+      "PipelineName": "PL_FMD_LOAD_ALL",
+      "PipelineParameters": null,
+      "EntityId": null,
+      "EntityLayer": "Control",
+      "TriggerType": "Manual",
+      "TriggerGuid": "30596E78-2FA4-4AD3-A3BC-4F4F4E26C811",
+      "TriggerTime": "2026-02-23 17:02:36.490000",
+      "LogType": "FailedPipeline",
+      "LogDateTime": "2026-02-23 17:03:51.236667",
+      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"SLV failed\"}"
+    },
+    {
+      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
+      "PipelineRunGuid": "6FF9885A-1F8D-455C-B437-A6325C151640",
+      "PipelineParentRunGuid": null,
+      "PipelineGuid": "C2BE11EC-4294-4CD0-AA51-9CD984C7F01A",
+      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
+      "PipelineParameters": null,
+      "EntityId": null,
+      "EntityLayer": "Landingzone",
+      "TriggerType": "Manual",
+      "TriggerGuid": "E17A2C47-53B7-4108-89F3-4030CD9280EC",
+      "TriggerTime": "2026-02-23 18:54:54.266667",
+      "LogType": "StartPipeline",
+      "LogDateTime": "2026-02-23 18:55:17.980000",
+      "LogData": "{ \"Action\" : \"Start\" }"
+    },
+    {
+      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
+      "PipelineRunGuid": "754D306A-AFD4-4AE8-B00B-CA7C0B3BCBBE",
+      "PipelineParentRunGuid": null,
+      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
+      "PipelineName": "PL_FMD_LOAD_ALL",
+      "PipelineParameters": null,
+      "EntityId": null,
+      "EntityLayer": "Control",
+      "TriggerType": "Manual",
+      "TriggerGuid": "B282C1EA-9D6E-438F-96A1-07B1B391E377",
+      "TriggerTime": "2026-02-23 18:29:46.573333",
+      "LogType": "FailedPipeline",
+      "LogDateTime": "2026-02-23 18:30:41.950000",
+      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"SLV failed\"}"
+    },
+    {
+      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
+      "PipelineRunGuid": "754D306A-AFD4-4AE8-B00B-CA7C0B3BCBBE",
+      "PipelineParentRunGuid": null,
+      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
+      "PipelineName": "PL_FMD_LOAD_ALL",
+      "PipelineParameters": null,
+      "EntityId": null,
+      "EntityLayer": "Control",
+      "TriggerType": "Manual",
+      "TriggerGuid": "B282C1EA-9D6E-438F-96A1-07B1B391E377",
+      "TriggerTime": "2026-02-23 18:29:46.573333",
+      "LogType": "FailedPipeline",
+      "LogDateTime": "2026-02-23 18:30:34.690000",
+      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"BRZ failed\"}"
+    },
+    {
+      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
+      "PipelineRunGuid": "754D306A-AFD4-4AE8-B00B-CA7C0B3BCBBE",
+      "PipelineParentRunGuid": null,
+      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
+      "PipelineName": "PL_FMD_LOAD_ALL",
+      "PipelineParameters": null,
+      "EntityId": null,
+      "EntityLayer": "Control",
+      "TriggerType": "Manual",
+      "TriggerGuid": "B282C1EA-9D6E-438F-96A1-07B1B391E377",
+      "TriggerTime": "2026-02-23 18:29:46.573333",
+      "LogType": "FailedPipeline",
+      "LogDateTime": "2026-02-23 18:30:27.110000",
+      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"BRZ failed\"}"
+    },
+    {
+      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
+      "PipelineRunGuid": "7569BBE5-91D5-4A6C-BAFB-FD013EF77882",
+      "PipelineParentRunGuid": null,
+      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
+      "PipelineName": "PL_FMD_LOAD_ALL",
+      "PipelineParameters": null,
+      "EntityId": null,
+      "EntityLayer": "Control",
+      "TriggerType": "Manual",
+      "TriggerGuid": "30596E78-2FA4-4AD3-A3BC-4F4F4E26C811",
+      "TriggerTime": "2026-02-23 17:02:36.490000",
+      "LogType": "FailedPipeline",
+      "LogDateTime": "2026-02-23 17:03:41.960000",
+      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"BRZ failed\"}"
+    },
+    {
+      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
+      "PipelineRunGuid": "7569BBE5-91D5-4A6C-BAFB-FD013EF77882",
+      "PipelineParentRunGuid": null,
+      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
+      "PipelineName": "PL_FMD_LOAD_ALL",
+      "PipelineParameters": null,
+      "EntityId": null,
+      "EntityLayer": "Control",
+      "TriggerType": "Manual",
+      "TriggerGuid": "30596E78-2FA4-4AD3-A3BC-4F4F4E26C811",
+      "TriggerTime": "2026-02-23 17:02:36.490000",
+      "LogType": "FailedPipeline",
+      "LogDateTime": "2026-02-23 17:03:28.920000",
+      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"BRZ failed\"}"
+    },
+    {
+      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
+      "PipelineRunGuid": "7569BBE5-91D5-4A6C-BAFB-FD013EF77882",
+      "PipelineParentRunGuid": null,
+      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
+      "PipelineName": "PL_FMD_LOAD_ALL",
+      "PipelineParameters": null,
+      "EntityId": null,
+      "EntityLayer": "Control",
+      "TriggerType": "Manual",
+      "TriggerGuid": "30596E78-2FA4-4AD3-A3BC-4F4F4E26C811",
+      "TriggerTime": "2026-02-23 17:02:36.490000",
+      "LogType": "StartPipeline",
+      "LogDateTime": "2026-02-23 17:03:11.583333",
+      "LogData": "{ \"Action\" : \"Start\" }"
+    },
+    {
+      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
+      "PipelineRunGuid": "2285F3C2-A4D9-4B2C-9248-DEC0323F97AB",
+      "PipelineParentRunGuid": null,
+      "PipelineGuid": "C2BE11EC-4294-4CD0-AA51-9CD984C7F01A",
+      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
+      "PipelineParameters": null,
+      "EntityId": null,
+      "EntityLayer": "Landingzone",
+      "TriggerType": "Manual",
+      "TriggerGuid": "3D67318A-4249-4F18-A285-9CED1ED90230",
+      "TriggerTime": "2026-02-23 16:51:22.680000",
+      "LogType": "StartPipeline",
+      "LogDateTime": "2026-02-23 16:51:53.430000",
+      "LogData": "{ \"Action\" : \"Start\" }"
+    }
+  ]
+}

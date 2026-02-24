@@ -1,663 +1,565 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import cytoscape from "cytoscape";
-import dagre from "cytoscape-dagre";
-import { Search, RotateCcw, Maximize, Layers } from "lucide-react";
-
-// Register dagre layout
-cytoscape.use(dagre);
+import { useEffect, useState, useCallback } from "react";
+import { Link } from "react-router-dom";
+import {
+  Search,
+  RotateCcw,
+  RefreshCw,
+  Loader2,
+  XCircle,
+  ChevronRight,
+  ChevronDown,
+  ArrowRight,
+  Layers,
+  Database,
+  HardDrive,
+  Table2,
+  Sparkles,
+  Crown,
+  X,
+  Route,
+} from "lucide-react";
 
 // ============================================================================
-// NODE TYPE DEFINITIONS
+// TYPES (same as AdminGovernance)
 // ============================================================================
 
-const NODE_TYPES: Record<string, { label: string; color: string; shape: string }> = {
-  source:     { label: "SQL Source",            color: "#3B82F6", shape: "cut-rectangle" },
-  connection: { label: "Connection",            color: "#8B5CF6", shape: "diamond" },
-  datasource: { label: "Data Source",           color: "#F59E0B", shape: "round-hexagon" },
-  orch:       { label: "Orchestrator Pipeline", color: "#EF4444", shape: "octagon" },
-  command:    { label: "Command Pipeline",      color: "#F97316", shape: "round-pentagon" },
-  copy:       { label: "Copy Pipeline",         color: "#06B6D4", shape: "round-rectangle" },
-  lakehouse:  { label: "Lakehouse",             color: "#10B981", shape: "barrel" },
-  notebook:   { label: "Notebook",              color: "#A855F7", shape: "round-diamond" },
-  config:     { label: "Config / Variable Lib", color: "#64748B", shape: "ellipse" },
-  tooling:    { label: "Tooling Pipeline",      color: "#22C55E", shape: "tag" },
+interface Connection {
+  ConnectionId: string;
+  ConnectionGuid: string;
+  Name: string;
+  Type: string;
+  IsActive: string;
+}
+
+interface DataSource {
+  DataSourceId: string;
+  Name: string;
+  Namespace: string;
+  Type: string;
+  Description: string | null;
+  IsActive: string;
+  ConnectionName: string;
+}
+
+interface Entity {
+  LandingzoneEntityId: string;
+  SourceSchema: string;
+  SourceName: string;
+  FileName: string;
+  FilePath: string;
+  FileType: string;
+  IsIncremental: string;
+  IsActive: string;
+  DataSourceName: string;
+}
+
+interface BronzeEntity {
+  BronzeLayerEntityId: string;
+  LandingzoneEntityId: string;
+  LakehouseId: string;
+  Schema: string;
+  Name: string;
+  PrimaryKeys: string;
+  FileType: string;
+  IsActive: string;
+}
+
+interface SilverEntity {
+  SilverLayerEntityId: string;
+  BronzeLayerEntityId: string;
+  LakehouseId: string;
+  Schema: string;
+  Name: string;
+  FileType: string;
+  IsActive: string;
+}
+
+interface Pipeline {
+  PipelineId: string;
+  PipelineGuid: string;
+  WorkspaceGuid: string;
+  Name: string;
+  IsActive: string;
+}
+
+// ============================================================================
+// LAYER DEFINITIONS — plain English, idiot-proof
+// ============================================================================
+
+const LAYERS = [
+  {
+    key: "source",
+    label: "Source",
+    color: "#64748b",
+    icon: Database,
+    description: "Where your data lives. Databases on company servers.",
+  },
+  {
+    key: "landing",
+    label: "Landing Zone",
+    color: "#3b82f6",
+    icon: HardDrive,
+    description: "Raw copies staged here first. Like a loading dock.",
+  },
+  {
+    key: "bronze",
+    label: "Bronze",
+    color: "#f59e0b",
+    icon: Table2,
+    description: "Organized into structured tables. Sorted and shelved.",
+  },
+  {
+    key: "silver",
+    label: "Silver",
+    color: "#8b5cf6",
+    icon: Sparkles,
+    description: "Cleaned, validated, business rules applied. Ready to use.",
+  },
+  {
+    key: "gold",
+    label: "Gold",
+    color: "#10b981",
+    icon: Crown,
+    description: "Polished data shaped for reports and dashboards.",
+  },
+];
+
+// ============================================================================
+// ENTITY FLOW — represents one entity's journey through all layers
+// ============================================================================
+
+interface EntityFlow {
+  id: string;
+  dataSourceName: string;
+  dataSourceType: string;
+  connectionName: string;
+  namespace: string;
+  // Source
+  sourceSchema: string;
+  sourceName: string;
+  // Landing Zone
+  lzEntityId: string;
+  lzFileName: string;
+  lzFilePath: string;
+  lzFileType: string;
+  isIncremental: boolean;
+  // Bronze (may not exist yet)
+  bronzeEntityId: string | null;
+  bronzeSchema: string | null;
+  bronzeName: string | null;
+  bronzeFileType: string | null;
+  bronzePrimaryKeys: string | null;
+  // Silver (may not exist yet)
+  silverEntityId: string | null;
+  silverSchema: string | null;
+  silverName: string | null;
+  silverFileType: string | null;
+  // Gold (future)
+  goldEntityId: string | null;
+  goldName: string | null;
+  // How far the entity has progressed
+  maxLayer: "source" | "landing" | "bronze" | "silver" | "gold";
+}
+
+interface SourceGroup {
+  dataSourceName: string;
+  dataSourceType: string;
+  connectionName: string;
+  namespace: string;
+  flows: EntityFlow[];
+  landingCount: number;
+  bronzeCount: number;
+  silverCount: number;
+  goldCount: number;
+}
+
+// ============================================================================
+// API HELPER
+// ============================================================================
+
+const API = "http://localhost:8787/api";
+
+async function fetchJson<T>(path: string): Promise<T> {
+  const res = await fetch(`${API}${path}`);
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+/** Format numbers with commas for readability (1234 → "1,234") */
+function fmt(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+// ============================================================================
+// NARRATIVE BUILDER — plain English flow description
+// ============================================================================
+
+function buildNarrative(flow: EntityFlow): { step: string; title: string; detail: string; layer: string; reached: boolean }[] {
+  const steps = [
+    {
+      step: "1",
+      title: "Originates from Source Database",
+      detail: `This data lives in the ${flow.sourceSchema}.${flow.sourceName} table inside the ${flow.dataSourceName} database. It's connected through a ${flow.dataSourceType === "ASQL_01" ? "SQL Server gateway" : flow.dataSourceType} connection.`,
+      layer: "source",
+      reached: true,
+    },
+    {
+      step: "2",
+      title: "Copied to Landing Zone",
+      detail: `A raw copy is extracted and saved as "${flow.lzFileName}" (${flow.lzFileType} format) in the Landing Zone lakehouse. ${flow.isIncremental ? "Only new/changed rows are copied each run (incremental)." : "The entire table is copied fresh each run (full load)."}`,
+      layer: "landing",
+      reached: true,
+    },
+    {
+      step: "3",
+      title: "Structured in Bronze Layer",
+      detail: flow.bronzeName
+        ? `Raw files are converted into a structured Delta table called "${flow.bronzeSchema}.${flow.bronzeName}". Data types are enforced and the table is queryable.${flow.bronzePrimaryKeys ? ` Primary key: ${flow.bronzePrimaryKeys}.` : ""}`
+        : "Not yet processed. The Bronze layer conversion has not been configured for this entity.",
+      layer: "bronze",
+      reached: !!flow.bronzeName,
+    },
+    {
+      step: "4",
+      title: "Cleaned & Validated in Silver",
+      detail: flow.silverName
+        ? `Business rules and data quality checks are applied, producing the clean "${flow.silverSchema}.${flow.silverName}" table. This data is analytics-ready.`
+        : "Not yet configured. Silver layer transformations have not been set up for this entity.",
+      layer: "silver",
+      reached: !!flow.silverName,
+    },
+    {
+      step: "5",
+      title: "Shaped for Reports in Gold",
+      detail: flow.goldName
+        ? `Data is shaped into a dimensional model (${flow.goldName}) optimized for dashboards and reports.`
+        : "Coming soon. The Gold layer dimensional model has not been created yet.",
+      layer: "gold",
+      reached: !!flow.goldName,
+    },
+  ];
+  return steps;
+}
+
+// ============================================================================
+// SOURCE TYPE BADGE
+// ============================================================================
+
+function sourceTypeBadge(type: string) {
+  const labels: Record<string, string> = {
+    ASQL_01: "SQL Server",
+    ORACLE_01: "Oracle",
+    ADLS_01: "Azure Storage",
+    FTP_01: "FTP",
+    SFTP_01: "Secure FTP",
+    ONELAKE_TABLES: "OneLake Tables",
+    ONELAKE_FILES: "OneLake Files",
+    ADF_01: "Data Factory",
+    CUSTOM_NB: "Custom Notebook",
+  };
+  return labels[type] || type;
+}
+
+// ============================================================================
+// FRAMEWORK ARCHITECTURE — single-node topology with fan-out
+// Shared nodes appear ONCE. Source-specific pipelines fan out in the middle.
+//
+// Layout:
+//   [Config DB] → [Orchestrator] ──┬── [Route SQL] → [Copy SQL] ──┬── [Landing Zone] → [Notebook] → [Bronze] → [Silver]
+//                                  ├── [Route Oracle] → [Copy Oracle]┤
+//                                  └── [Route FTP] → [Copy FTP] ────┘
+// ============================================================================
+
+interface ArchSourcePath {
+  id: string;
+  sourceType: string;
+  friendlySource: string;
+  connectionName: string;
+  commandName: string;
+  friendlyCommand: string;
+  copyName: string;
+  friendlyCopy: string;
+}
+
+function buildArchSourcePaths(pipelines: Pipeline[], connections: Connection[]): ArchSourcePath[] {
+  const active = pipelines.filter(p => p.IsActive === "True");
+
+  const sourceTypes: { key: string; friendly: string; cmdMatch: string; copyMatch: string }[] = [
+    { key: "ASQL", friendly: "SQL Server", cmdMatch: "COMMAND_ASQL", copyMatch: "COPY_FROM_ASQL_01" },
+    { key: "ORACLE", friendly: "Oracle", cmdMatch: "COMMAND_ORACLE", copyMatch: "COPY_FROM_ORACLE_01" },
+    { key: "ADLS", friendly: "Azure Storage", cmdMatch: "COMMAND_ADLS", copyMatch: "COPY_FROM_ADLS_01" },
+    { key: "FTP", friendly: "FTP", cmdMatch: "COMMAND_FTP", copyMatch: "COPY_FROM_FTP_01" },
+    { key: "SFTP", friendly: "Secure FTP", cmdMatch: "COMMAND_SFTP", copyMatch: "COPY_FROM_SFTP_01" },
+    { key: "ONELAKE_T", friendly: "OneLake Tables", cmdMatch: "COMMAND_ONELAKE", copyMatch: "COPY_FROM_ONELAKE_TABLES" },
+    { key: "ONELAKE_F", friendly: "OneLake Files", cmdMatch: "COMMAND_ONELAKE", copyMatch: "COPY_FROM_ONELAKE_FILES" },
+    { key: "ADF", friendly: "Data Factory", cmdMatch: "COMMAND_ADF", copyMatch: "COPY_FROM_ADF" },
+    { key: "NOTEBOOK", friendly: "Custom Notebook", cmdMatch: "COMMAND_NOTEBOOK", copyMatch: "COPY_FROM_CUSTOM_NB" },
+  ];
+
+  return sourceTypes.map(st => {
+    const cmd = active.find(p => p.Name.includes(st.cmdMatch));
+    const copy = active.find(p => p.Name.includes(st.copyMatch));
+    const conn = connections.find(c => c.IsActive === "True" && c.Name.includes(st.key.replace("_T", "").replace("_F", "")));
+    return {
+      id: st.key,
+      sourceType: st.key,
+      friendlySource: st.friendly,
+      connectionName: conn?.Name || `CON_FMD_${st.key}`,
+      commandName: cmd?.Name || `PL_FMD_LDZ_${st.cmdMatch}`,
+      friendlyCommand: `Route ${st.friendly}`,
+      copyName: copy?.Name || `PL_FMD_LDZ_${st.copyMatch}`,
+      friendlyCopy: `Copy ${st.friendly}`,
+    };
+  }).filter(row => {
+    return active.some(p => p.Name.includes(row.sourceType.replace("_T", "").replace("_F", "")));
+  });
+}
+
+// Colors for shared infrastructure nodes
+const NODE_COLORS = {
+  config: "#64748B",
+  orchestrator: "#EF4444",
+  command: "#F97316",
+  copy: "#06B6D4",
+  landing: "#3b82f6",
+  notebook: "#A855F7",
+  bronze: "#f59e0b",
+  silver: "#8b5cf6",
 };
 
-// ============================================================================
-// GRAPH DATA
-// ============================================================================
-
-interface NodeDef {
-  id: string;
-  type: string;
-  techLabel: string;
-  execLabel: string;
-  desc: string;
-  layer: string;
-}
-
-interface EdgeDef {
-  source: string;
-  target: string;
-  label?: string;
-  style?: string;
-}
-
-const nodes: NodeDef[] = [
-  // Sources
-  { id: "src_powerdata", type: "source", techLabel: "SQL2019Dev\nIPC_PowerData", execLabel: "PowerData\nDatabase", desc: "Production PowerData database on SQL Server 2019. Contains core business intelligence and reporting data.", layer: "Source" },
-  { id: "src_m3fdb", type: "source", techLabel: "M3Dev-DB1\nM3FDBTST", execLabel: "M3 ERP\nDatabase", desc: "M3 ERP (Infor) foundation database. Master data for customers, vendors, items, and transactions.", layer: "Source" },
-  { id: "src_m3etl", type: "source", techLabel: "SQL2016Dev\nM3TST-ETL", execLabel: "M3 ETL\nStaging DB", desc: "M3 ETL staging database. Pre-processed extracts optimized for downstream analytics.", layer: "Source" },
-  { id: "src_mes", type: "source", techLabel: "SQL2012Test\nMES", execLabel: "Manufacturing\n(MES)", desc: "Manufacturing Execution System. Production orders, work centers, quality metrics, shop floor data.", layer: "Source" },
-  // Gateway Connections
-  { id: "con_powerdata", type: "connection", techLabel: "CON_FMD_\nSQL2019DEV_POWERDATA", execLabel: "PowerData\nGateway Link", desc: "On-premises data gateway connection to the PowerData SQL Server instance.", layer: "Connection" },
-  { id: "con_m3fdb", type: "connection", techLabel: "CON_FMD_\nM3DEV_M3FDBTST", execLabel: "M3 ERP\nGateway Link", desc: "On-premises data gateway connection to the M3 ERP SQL Server instance.", layer: "Connection" },
-  { id: "con_m3etl", type: "connection", techLabel: "CON_FMD_\nSQL2016DEV_M3TSTETL", execLabel: "M3 ETL\nGateway Link", desc: "On-premises data gateway connection to the M3 ETL SQL Server instance.", layer: "Connection" },
-  { id: "con_mes", type: "connection", techLabel: "CON_FMD_\nSQL2012TEST_MES", execLabel: "MES\nGateway Link", desc: "On-premises data gateway connection to the MES SQL Server instance.", layer: "Connection" },
-  // Framework Connections
-  { id: "con_fabric_sql", type: "connection", techLabel: "CON_FMD_\nFABRIC_SQL", execLabel: "Config DB\nConnection", desc: "Internal Fabric connection to the framework metadata database.", layer: "Connection" },
-  { id: "con_fabric_pipelines", type: "connection", techLabel: "CON_FMD_\nFABRIC_PIPELINES", execLabel: "Pipeline\nInvoker", desc: "Internal connection used by pipelines to call other pipelines.", layer: "Connection" },
-  { id: "con_fabric_notebooks", type: "connection", techLabel: "CON_FMD_\nFABRIC_NOTEBOOKS", execLabel: "Notebook\nInvoker", desc: "Internal connection used by pipelines to launch notebooks.", layer: "Connection" },
-  { id: "con_onelake", type: "connection", techLabel: "CON_FMD_\nONELAKE", execLabel: "OneLake\nInternal", desc: "Internal OneLake connection for lakehouse-to-lakehouse data movement.", layer: "Connection" },
-  // Data Sources
-  { id: "ds_powerdata", type: "datasource", techLabel: "DS: IPC_PowerData\n(ASQL_01)", execLabel: "PowerData\nSQL Source", desc: "Registered data source for PowerData. Routes to the SQL Server copy pipeline at runtime.", layer: "DataSource" },
-  { id: "ds_m3fdb", type: "datasource", techLabel: "DS: M3FDBTST\n(ASQL_01)", execLabel: "M3 ERP\nSQL Source", desc: "Registered data source for M3 ERP. Routes to the SQL Server copy pipeline at runtime.", layer: "DataSource" },
-  { id: "ds_m3etl", type: "datasource", techLabel: "DS: M3TST-ETL\n(ASQL_01)", execLabel: "M3 ETL\nSQL Source", desc: "Registered data source for M3 ETL. Routes to the SQL Server copy pipeline at runtime.", layer: "DataSource" },
-  { id: "ds_mes", type: "datasource", techLabel: "DS: MES\n(ASQL_01)", execLabel: "MES\nSQL Source", desc: "Registered data source for MES. Routes to the SQL Server copy pipeline at runtime.", layer: "DataSource" },
-  { id: "ds_onelake_t", type: "datasource", techLabel: "DS: OneLake\n(TABLES)", execLabel: "OneLake\nTable Source", desc: "OneLake Tables data source for internal Delta table transfers between lakehouses.", layer: "DataSource" },
-  { id: "ds_onelake_f", type: "datasource", techLabel: "DS: OneLake\n(FILES)", execLabel: "OneLake\nFile Source", desc: "OneLake Files data source for file-based transfers between lakehouses.", layer: "DataSource" },
-  // Orchestration Pipelines
-  { id: "pl_load_all", type: "orch", techLabel: "PL_FMD_\nLOAD_ALL", execLabel: "Run Everything\n(Master)", desc: "Master orchestrator. Runs the entire pipeline chain end-to-end: ingest from sources, process to Bronze, transform to Silver.", layer: "Orchestration" },
-  { id: "pl_load_ldz", type: "orch", techLabel: "PL_FMD_\nLOAD_LANDINGZONE", execLabel: "Ingest from\nSources", desc: "Reads the metadata database to find all active entities, then routes each one to the correct source connector (SQL, Oracle, FTP, etc.).", layer: "Orchestration" },
-  { id: "pl_load_brz", type: "orch", techLabel: "PL_FMD_\nLOAD_BRONZE", execLabel: "Process to\nBronze", desc: "Takes raw ingested files from Landing Zone and converts them into structured Bronze Delta tables. No business logic yet.", layer: "Orchestration" },
-  { id: "pl_load_slv", type: "orch", techLabel: "PL_FMD_\nLOAD_SILVER", execLabel: "Transform to\nSilver", desc: "Applies business rules, data quality checks, and transformations to produce clean, analytics-ready Silver tables.", layer: "Orchestration" },
-  // Command Pipelines
-  { id: "pl_cmd_asql", type: "command", techLabel: "PL_FMD_LDZ_\nCOMMAND_ASQL", execLabel: "Route SQL\nServer Data", desc: "Routes all SQL Server entities (PowerData, M3, MES) to the SQL copy pipeline.", layer: "Command" },
-  { id: "pl_cmd_oracle", type: "command", techLabel: "PL_FMD_LDZ_\nCOMMAND_ORACLE", execLabel: "Route Oracle\nData", desc: "Routes Oracle database entities to the Oracle copy pipeline.", layer: "Command" },
-  { id: "pl_cmd_adls", type: "command", techLabel: "PL_FMD_LDZ_\nCOMMAND_ADLS", execLabel: "Route Azure\nStorage Data", desc: "Routes Azure Data Lake Storage files to the ADLS copy pipeline.", layer: "Command" },
-  { id: "pl_cmd_ftp", type: "command", techLabel: "PL_FMD_LDZ_\nCOMMAND_FTP", execLabel: "Route FTP\nFiles", desc: "Routes FTP server files to the FTP copy pipeline.", layer: "Command" },
-  { id: "pl_cmd_sftp", type: "command", techLabel: "PL_FMD_LDZ_\nCOMMAND_SFTP", execLabel: "Route Secure\nFTP Files", desc: "Routes SFTP server files to the SFTP copy pipeline.", layer: "Command" },
-  { id: "pl_cmd_onelake", type: "command", techLabel: "PL_FMD_LDZ_\nCOMMAND_ONELAKE", execLabel: "Route OneLake\nData", desc: "Routes internal OneLake data to the OneLake copy pipeline.", layer: "Command" },
-  { id: "pl_cmd_adf", type: "command", techLabel: "PL_FMD_LDZ_\nCOMMAND_ADF", execLabel: "Route Azure\nData Factory", desc: "Routes ADF pipeline outputs to the ADF copy pipeline.", layer: "Command" },
-  { id: "pl_cmd_nb", type: "command", techLabel: "PL_FMD_LDZ_\nCOMMAND_NOTEBOOK", execLabel: "Route Custom\nNotebook", desc: "Routes custom notebook-based ingestion to the notebook pipeline.", layer: "Command" },
-  // Copy Pipelines
-  { id: "pl_copy_asql", type: "copy", techLabel: "PL_FMD_LDZ_COPY_\nFROM_ASQL_01", execLabel: "Copy SQL\nTables", desc: "Connects to SQL Server via gateway, runs SELECT queries, writes Parquet files to Landing Zone.", layer: "Copy" },
-  { id: "pl_copy_oracle", type: "copy", techLabel: "PL_FMD_LDZ_COPY_\nFROM_ORACLE_01", execLabel: "Copy Oracle\nTables", desc: "Connects to Oracle database, extracts table data into Landing Zone.", layer: "Copy" },
-  { id: "pl_copy_adls", type: "copy", techLabel: "PL_FMD_LDZ_COPY_\nFROM_ADLS_01", execLabel: "Copy Azure\nStorage Files", desc: "Downloads files from Azure Data Lake Storage Gen2 into Landing Zone.", layer: "Copy" },
-  { id: "pl_copy_ftp", type: "copy", techLabel: "PL_FMD_LDZ_COPY_\nFROM_FTP_01", execLabel: "Copy FTP\nFiles", desc: "Downloads files from FTP servers into Landing Zone.", layer: "Copy" },
-  { id: "pl_copy_sftp", type: "copy", techLabel: "PL_FMD_LDZ_COPY_\nFROM_SFTP_01", execLabel: "Copy Secure\nFTP Files", desc: "Downloads files from SFTP servers into Landing Zone.", layer: "Copy" },
-  { id: "pl_copy_onelake_t", type: "copy", techLabel: "PL_FMD_LDZ_COPY_\nFROM_ONELAKE_TABLES", execLabel: "Copy OneLake\nTables", desc: "Copies Delta tables from other OneLake lakehouse locations.", layer: "Copy" },
-  { id: "pl_copy_onelake_f", type: "copy", techLabel: "PL_FMD_LDZ_COPY_\nFROM_ONELAKE_FILES", execLabel: "Copy OneLake\nFiles", desc: "Copies raw files from other OneLake file locations.", layer: "Copy" },
-  { id: "pl_copy_adf", type: "copy", techLabel: "PL_FMD_LDZ_COPY_\nFROM_ADF", execLabel: "Pull from\nData Factory", desc: "Triggers an Azure Data Factory pipeline and captures its output.", layer: "Copy" },
-  { id: "pl_copy_nb", type: "copy", techLabel: "PL_FMD_LDZ_COPY_\nFROM_CUSTOM_NB", execLabel: "Run Custom\nIngestion", desc: "Executes a user-defined Spark notebook for custom data ingestion logic.", layer: "Copy" },
-  // Lakehouses
-  { id: "lh_ldz", type: "lakehouse", techLabel: "LH_DATA_\nLANDINGZONE", execLabel: "Raw Data\nLanding Zone", desc: "Where source data first arrives. Raw Parquet files organized by source system. No transformations applied.", layer: "Landing Zone" },
-  { id: "lh_bronze", type: "lakehouse", techLabel: "LH_BRONZE_\nLAYER", execLabel: "Structured Data\n(Bronze)", desc: "Raw data converted to structured Delta Lake tables. Schema enforced, data typed, but no business logic applied yet.", layer: "Bronze" },
-  { id: "lh_silver", type: "lakehouse", techLabel: "LH_SILVER_\nLAYER", execLabel: "Clean Data\n(Silver)", desc: "Business-ready data. Transformations applied, quality validated, ready for reporting and analytics.", layer: "Silver" },
-  // Notebooks
-  { id: "nb_ldz_brz", type: "notebook", techLabel: "NB_FMD_LOAD_\nLANDING_BRONZE", execLabel: "Convert Raw\nto Structured", desc: "Reads Parquet files from Landing Zone, applies schema, writes Delta tables to Bronze lakehouse.", layer: "Bronze" },
-  { id: "nb_brz_slv", type: "notebook", techLabel: "NB_FMD_LOAD_\nBRONZE_SILVER", execLabel: "Apply Business\nRules", desc: "Reads Bronze tables, applies business transformations, and writes cleansed data to Silver lakehouse.", layer: "Silver" },
-  { id: "nb_dq", type: "notebook", techLabel: "NB_FMD_\nDQ_CLEANSING", execLabel: "Data Quality\nChecks", desc: "Runs data validation rules, flags bad records, applies cleansing logic, and writes quality metrics.", layer: "Silver" },
-  { id: "nb_parallel", type: "notebook", techLabel: "NB_FMD_PROCESSING_\nPARALLEL_MAIN", execLabel: "Parallel\nProcessor", desc: "Runs multiple entities concurrently for faster throughput. Used by both Bronze and Silver pipelines.", layer: "Processing" },
-  { id: "nb_ldz_main", type: "notebook", techLabel: "NB_FMD_PROCESSING_\nLDZ_MAIN", execLabel: "Batch Ingestion\nCoordinator", desc: "Coordinates multi-entity batch ingestion into Landing Zone.", layer: "Processing" },
-  { id: "nb_utility", type: "notebook", techLabel: "NB_FMD_\nUTILITY_FUNCTIONS", execLabel: "Shared\nHelper Code", desc: "Common functions used by all notebooks: connection management, Spark utilities, logging, etc.", layer: "Shared" },
-  // Configuration
-  { id: "sql_fmd", type: "config", techLabel: "SQL_FMD_\nFRAMEWORK", execLabel: "Framework\nConfig DB", desc: "The brain of the framework. Stores all metadata: which sources to connect to, which tables to pull, how to transform them, and where to put them.", layer: "Config" },
-  { id: "var_fmd", type: "config", techLabel: "VAR_FMD", execLabel: "Security\nSecrets", desc: "Stores sensitive configuration: Key Vault URI, tenant ID, client credentials. Never hardcoded in pipelines.", layer: "Config" },
-  { id: "var_cfg_fmd", type: "config", techLabel: "VAR_CONFIG_\nFMD", execLabel: "Framework\nSettings", desc: "Framework runtime settings: database connection string, workspace GUIDs, database GUIDs.", layer: "Config" },
-  { id: "env_fmd", type: "config", techLabel: "ENV_FMD", execLabel: "Spark\nEnvironment", desc: "Defines the Spark runtime: Python version, Spark version, and required library dependencies.", layer: "Config" },
-  // Tooling
-  { id: "pl_tooling", type: "tooling", techLabel: "PL_TOOLING_\nPOST_ASQL_TO_FMD", execLabel: "SQL Query\nUtility", desc: "Utility pipeline for ad-hoc SQL query execution against the framework database.", layer: "Tooling" },
-];
-
-const edges: EdgeDef[] = [
-  { source: "src_powerdata", target: "con_powerdata", label: "gateway" },
-  { source: "src_m3fdb", target: "con_m3fdb", label: "gateway" },
-  { source: "src_m3etl", target: "con_m3etl", label: "gateway" },
-  { source: "src_mes", target: "con_mes", label: "gateway" },
-  { source: "con_powerdata", target: "ds_powerdata" },
-  { source: "con_m3fdb", target: "ds_m3fdb" },
-  { source: "con_m3etl", target: "ds_m3etl" },
-  { source: "con_mes", target: "ds_mes" },
-  { source: "con_onelake", target: "ds_onelake_t" },
-  { source: "con_onelake", target: "ds_onelake_f" },
-  { source: "pl_load_all", target: "pl_load_ldz", label: "step 1" },
-  { source: "pl_load_all", target: "pl_load_brz", label: "step 2" },
-  { source: "pl_load_all", target: "pl_load_slv", label: "step 3" },
-  { source: "sql_fmd", target: "pl_load_ldz", label: "metadata", style: "dashed" },
-  { source: "sql_fmd", target: "pl_load_brz", label: "metadata", style: "dashed" },
-  { source: "sql_fmd", target: "pl_load_slv", label: "metadata", style: "dashed" },
-  { source: "pl_load_ldz", target: "pl_cmd_asql" },
-  { source: "pl_load_ldz", target: "pl_cmd_oracle" },
-  { source: "pl_load_ldz", target: "pl_cmd_adls" },
-  { source: "pl_load_ldz", target: "pl_cmd_ftp" },
-  { source: "pl_load_ldz", target: "pl_cmd_sftp" },
-  { source: "pl_load_ldz", target: "pl_cmd_onelake" },
-  { source: "pl_load_ldz", target: "pl_cmd_adf" },
-  { source: "pl_load_ldz", target: "pl_cmd_nb" },
-  { source: "pl_cmd_asql", target: "pl_copy_asql" },
-  { source: "pl_cmd_oracle", target: "pl_copy_oracle" },
-  { source: "pl_cmd_adls", target: "pl_copy_adls" },
-  { source: "pl_cmd_ftp", target: "pl_copy_ftp" },
-  { source: "pl_cmd_sftp", target: "pl_copy_sftp" },
-  { source: "pl_cmd_onelake", target: "pl_copy_onelake_t" },
-  { source: "pl_cmd_onelake", target: "pl_copy_onelake_f" },
-  { source: "pl_cmd_adf", target: "pl_copy_adf" },
-  { source: "pl_cmd_nb", target: "pl_copy_nb" },
-  { source: "ds_powerdata", target: "pl_copy_asql", label: "feeds", style: "dashed" },
-  { source: "ds_m3fdb", target: "pl_copy_asql", label: "feeds", style: "dashed" },
-  { source: "ds_m3etl", target: "pl_copy_asql", label: "feeds", style: "dashed" },
-  { source: "ds_mes", target: "pl_copy_asql", label: "feeds", style: "dashed" },
-  { source: "ds_onelake_t", target: "pl_copy_onelake_t", label: "feeds", style: "dashed" },
-  { source: "ds_onelake_f", target: "pl_copy_onelake_f", label: "feeds", style: "dashed" },
-  { source: "pl_copy_asql", target: "lh_ldz" },
-  { source: "pl_copy_oracle", target: "lh_ldz" },
-  { source: "pl_copy_adls", target: "lh_ldz" },
-  { source: "pl_copy_ftp", target: "lh_ldz" },
-  { source: "pl_copy_sftp", target: "lh_ldz" },
-  { source: "pl_copy_onelake_t", target: "lh_ldz" },
-  { source: "pl_copy_onelake_f", target: "lh_ldz" },
-  { source: "pl_copy_adf", target: "lh_ldz" },
-  { source: "pl_copy_nb", target: "lh_ldz" },
-  { source: "pl_load_brz", target: "nb_ldz_brz", label: "invokes" },
-  { source: "pl_load_brz", target: "nb_parallel", label: "invokes" },
-  { source: "lh_ldz", target: "nb_ldz_brz", label: "reads" },
-  { source: "nb_ldz_brz", target: "lh_bronze", label: "writes" },
-  { source: "pl_load_slv", target: "nb_brz_slv", label: "invokes" },
-  { source: "pl_load_slv", target: "nb_dq", label: "invokes" },
-  { source: "pl_load_slv", target: "nb_parallel", label: "invokes" },
-  { source: "lh_bronze", target: "nb_brz_slv", label: "reads" },
-  { source: "nb_brz_slv", target: "lh_silver", label: "writes" },
-  { source: "nb_dq", target: "lh_silver", label: "validates" },
-  { source: "nb_utility", target: "nb_ldz_brz", label: "%run", style: "dashed" },
-  { source: "nb_utility", target: "nb_brz_slv", label: "%run", style: "dashed" },
-  { source: "nb_utility", target: "nb_dq", label: "%run", style: "dashed" },
-  { source: "var_fmd", target: "pl_load_all", label: "config", style: "dashed" },
-  { source: "var_cfg_fmd", target: "pl_load_all", label: "config", style: "dashed" },
-  { source: "con_fabric_sql", target: "sql_fmd", style: "dashed" },
-  { source: "con_fabric_pipelines", target: "pl_load_all", label: "invoke", style: "dashed" },
-  { source: "con_fabric_notebooks", target: "nb_ldz_brz", label: "invoke", style: "dashed" },
-  { source: "pl_tooling", target: "sql_fmd", label: "writes" },
-];
-
-// ============================================================================
-// HELPERS
-// ============================================================================
-
-function buildCyElements() {
-  const elements: cytoscape.ElementDefinition[] = [];
-
-  nodes.forEach((n) => {
-    const t = NODE_TYPES[n.type];
-    elements.push({
-      group: "nodes",
-      data: {
-        id: n.id,
-        label: n.techLabel,
-        techLabel: n.techLabel,
-        execLabel: n.execLabel,
-        nodeType: n.type,
-        color: t.color,
-        nodeShape: t.shape,
-        desc: n.desc,
-        layer: n.layer,
-      },
-    });
-  });
-
-  edges.forEach((e, i) => {
-    elements.push({
-      group: "edges",
-      data: {
-        id: `e${i}`,
-        source: e.source,
-        target: e.target,
-        label: e.label || "",
-        edgeStyle: e.style || "solid",
-      },
-    });
-  });
-
-  return elements;
-}
-
-function getOrderedPath(cy: cytoscape.Core, nodeId: string): string[] {
-  const visitedUp = new Set<string>();
-  const visitedDown = new Set<string>();
-  const upstream: string[] = [];
-  const downstream: string[] = [];
-
-  function walkUp(id: string) {
-    if (visitedUp.has(id)) return;
-    visitedUp.add(id);
-    cy.getElementById(id).predecessors("node").forEach((p: cytoscape.NodeSingular) => {
-      upstream.push(p.id());
-      walkUp(p.id());
-    });
-  }
-  walkUp(nodeId);
-
-  function walkDown(id: string) {
-    if (visitedDown.has(id)) return;
-    visitedDown.add(id);
-    cy.getElementById(id).successors("node").forEach((s: cytoscape.NodeSingular) => {
-      downstream.push(s.id());
-      walkDown(s.id());
-    });
-  }
-  walkDown(nodeId);
-
-  const ordered = [...[...new Set(upstream)].reverse(), nodeId, ...new Set(downstream)];
-  const seen = new Set<string>();
-  return ordered.filter((id) => {
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
-}
-
-// ============================================================================
-// CYTOSCAPE STYLE (theme-aware via CSS class detection)
-// ============================================================================
-
-function getCyStyle(): any[] {
-  const isDark = document.documentElement.classList.contains("dark");
-  const edgeColor = isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.15)";
-  const edgeLabelColor = isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)";
-  const textOutline = isDark ? "#2B2A27" : "#F5F5F0";
-
-  const selectColor = isDark ? "#F8FAFC" : "#0F172A";
-
-  return [
-    {
-      selector: "node",
-      style: {
-        label: "data(label)",
-        "text-wrap": "wrap",
-        "text-valign": "center",
-        "text-halign": "center",
-        "font-size": "11px",
-        "font-weight": 600,
-        "font-family": "DM Sans, -apple-system, system-ui, sans-serif",
-        color: "#fff",
-        "text-outline-color": "data(color)",
-        "text-outline-width": "2px",
-        "background-color": "data(color)",
-        "background-opacity": 0.95,
-        "border-width": "2px",
-        "border-color": isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.1)",
-        "border-opacity": 1,
-        shape: "data(nodeShape)" as unknown as cytoscape.Css.NodeShape,
-        width: 160,
-        height: 64,
-        padding: "8px",
-        "transition-property": "background-opacity, border-opacity, border-width, opacity, width, height",
-        "transition-duration": "0.3s",
-      },
-    },
-    // Per-type sizing & styling
-    { selector: 'node[nodeType="source"]', style: { width: 155, height: 62, "font-size": "10px" } },
-    { selector: 'node[nodeType="connection"]', style: { width: 145, height: 70, "font-size": "9px" } },
-    { selector: 'node[nodeType="datasource"]', style: { width: 155, height: 64, "font-size": "10px" } },
-    { selector: 'node[nodeType="orch"]', style: { width: 175, height: 72, "font-size": "12px", "font-weight": 700, "border-width": "3px", "border-color": isDark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.15)" } },
-    { selector: 'node[nodeType="command"]', style: { width: 150, height: 64, "font-size": "10px" } },
-    { selector: 'node[nodeType="copy"]', style: { width: 155, height: 60, "font-size": "10px" } },
-    { selector: 'node[nodeType="lakehouse"]', style: { width: 180, height: 78, "font-size": "13px", "font-weight": 700, "border-width": "3px", "border-color": isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.18)" } },
-    { selector: 'node[nodeType="notebook"]', style: { width: 165, height: 68, "font-size": "11px" } },
-    { selector: 'node[nodeType="config"]', style: { width: 135, height: 56, "font-size": "9px", "background-opacity": 0.8 } },
-    { selector: 'node[nodeType="tooling"]', style: { width: 140, height: 58, "font-size": "9px" } },
-    {
-      selector: "edge",
-      style: {
-        width: 2,
-        "line-color": edgeColor,
-        "target-arrow-color": edgeColor,
-        "target-arrow-shape": "triangle",
-        "arrow-scale": 0.9,
-        "curve-style": "bezier",
-        label: "data(label)",
-        "font-size": "8px",
-        color: edgeLabelColor,
-        "text-rotation": "autorotate",
-        "text-outline-color": textOutline,
-        "text-outline-width": "2px",
-        "transition-property": "line-color, target-arrow-color, width, opacity",
-        "transition-duration": "0.3s",
-      },
-    },
-    {
-      selector: 'edge[edgeStyle="dashed"]',
-      style: { "line-style": "dashed", "line-dash-pattern": [6, 4] as unknown as string },
-    },
-    // Highlighted
-    {
-      selector: "node.highlighted",
-      style: { "background-opacity": 1, "border-width": "3px", "border-color": isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.2)", "z-index": 10 },
-    },
-    {
-      selector: "node.selected-node",
-      style: {
-        "background-opacity": 1,
-        "border-color": selectColor,
-        "border-width": "3px",
-        "z-index": 20,
-        "overlay-color": selectColor,
-        "overlay-opacity": 0.08,
-        "overlay-padding": 8,
-      },
-    },
-    {
-      selector: "edge.highlighted",
-      style: {
-        "line-color": isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)",
-        "target-arrow-color": isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)",
-        width: 2.5,
-        "z-index": 10,
-        color: isDark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.6)",
-        "text-outline-color": textOutline,
-      },
-    },
-    {
-      selector: "edge.flow-animated",
-      style: { "line-color": isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)", "target-arrow-color": isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)", width: 2.5, "z-index": 10 },
-    },
-    // Isolated path — larger nodes
-    {
-      selector: "node.isolated-node",
-      style: {
-        width: 220,
-        height: 90,
-        "font-size": "14px",
-        "border-width": "3px",
-        "background-opacity": 1,
-        "text-outline-width": "2px",
-      },
-    },
-    // Dimmed
-    { selector: "node.dimmed", style: { opacity: 0.06 } },
-    { selector: "edge.dimmed", style: { opacity: 0.02 } },
-    // Search
-    {
-      selector: "node.search-match",
-      style: { "border-color": "#FBBF24", "border-width": "3px", "background-opacity": 1 },
-    },
-  ] as any[];
-}
-
-// ============================================================================
-// FLOW DOT ANIMATION
-// ============================================================================
-
-interface FlowDot {
-  srcX: number;
-  srcY: number;
-  tgtX: number;
-  tgtY: number;
-  progress: number;
-  speed: number;
-  edge: cytoscape.EdgeSingular;
-}
-
-function startFlowAnimation(
-  container: HTMLElement,
-  highlightedEdges: cytoscape.EdgeCollection,
-  animIdRef: React.MutableRefObject<number | null>,
-  dotsRef: React.MutableRefObject<FlowDot[]>
-) {
-  stopFlowAnimation(animIdRef, dotsRef);
-
-  const canvas = document.createElement("canvas");
-  canvas.id = "flowCanvas";
-  canvas.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:4;";
-  canvas.width = container.offsetWidth * window.devicePixelRatio;
-  canvas.height = container.offsetHeight * window.devicePixelRatio;
-  canvas.style.width = container.offsetWidth + "px";
-  canvas.style.height = container.offsetHeight + "px";
-  container.appendChild(canvas);
-
-  const ctx = canvas.getContext("2d")!;
-  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-
-  const dots: FlowDot[] = [];
-  highlightedEdges.forEach((edge) => {
-    const srcPos = edge.source().renderedPosition();
-    const tgtPos = edge.target().renderedPosition();
-    for (let i = 0; i < 3; i++) {
-      dots.push({
-        srcX: srcPos.x, srcY: srcPos.y,
-        tgtX: tgtPos.x, tgtY: tgtPos.y,
-        progress: (i * 0.33) % 1,
-        speed: 0.004 + Math.random() * 0.002,
-        edge,
-      });
-    }
-  });
-  dotsRef.current = dots;
-
-  function animate() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    dotsRef.current.forEach((dot) => {
-      const src = dot.edge.source().renderedPosition();
-      const tgt = dot.edge.target().renderedPosition();
-      dot.srcX = src.x;
-      dot.srcY = src.y;
-      dot.tgtX = tgt.x;
-      dot.tgtY = tgt.y;
-
-      dot.progress += dot.speed;
-      if (dot.progress > 1) dot.progress -= 1;
-
-      const x = dot.srcX + (dot.tgtX - dot.srcX) * dot.progress;
-      const y = dot.srcY + (dot.tgtY - dot.srcY) * dot.progress;
-
-      const gradient = ctx.createRadialGradient(x, y, 0, x, y, 10);
-      gradient.addColorStop(0, "rgba(174,86,48,1)");
-      gradient.addColorStop(0.35, "rgba(174,86,48,0.35)");
-      gradient.addColorStop(1, "rgba(174,86,48,0)");
-      ctx.beginPath();
-      ctx.arc(x, y, 10, 0, Math.PI * 2);
-      ctx.fillStyle = gradient;
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
-      ctx.fillStyle = "#AE5630";
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(x, y, 1.5, 0, Math.PI * 2);
-      ctx.fillStyle = "#fff";
-      ctx.fill();
-    });
-
-    animIdRef.current = requestAnimationFrame(animate);
-  }
-
-  animate();
-}
-
-function stopFlowAnimation(
-  animIdRef: React.MutableRefObject<number | null>,
-  dotsRef: React.MutableRefObject<FlowDot[]>
-) {
-  if (animIdRef.current) {
-    cancelAnimationFrame(animIdRef.current);
-    animIdRef.current = null;
-  }
-  dotsRef.current = [];
-  const canvas = document.getElementById("flowCanvas");
-  if (canvas) canvas.remove();
-}
-
-// ============================================================================
-// DETAIL PANEL COMPONENT
-// ============================================================================
-
-interface NodeDetail {
-  id: string;
-  execLabel: string;
-  techLabel: string;
-  desc: string;
-  layer: string;
-  nodeType: string;
-  upstreamCount: number;
-  downstreamCount: number;
-  path: { id: string; label: string; color: string; isCurrent: boolean }[];
-}
-
-function DetailPanel({
-  detail,
+function FrameworkArchView({
+  pipelines,
+  connections,
   labelMode,
-  onSelectNode,
+  searchQuery,
 }: {
-  detail: NodeDetail | null;
+  pipelines: Pipeline[];
+  connections: Connection[];
   labelMode: "tech" | "exec";
-  onSelectNode: (id: string) => void;
+  searchQuery: string;
 }) {
-  if (!detail) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground gap-2 px-6">
-        <Layers className="w-12 h-12 opacity-20" />
-        <p className="text-[13px] leading-relaxed">
-          Select a node to isolate its path
-          <br />
-          and see the full data flow
-        </p>
-      </div>
-    );
-  }
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [hoveredPath, setHoveredPath] = useState<string | null>(null);
 
-  const t = NODE_TYPES[detail.nodeType];
+  const sourcePaths = buildArchSourcePaths(pipelines, connections);
+  const activePipes = pipelines.filter(p => p.IsActive === "True");
+  const orchPipeline = activePipes.find(p => p.Name === "PL_FMD_LOAD_ALL") || activePipes.find(p => p.Name.includes("LOAD_LANDINGZONE"));
 
-  return (
-    <div className="animate-[fadeIn_0.2s_var(--ease-claude)]">
-      <div className="mb-4">
-        <div
-          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-sm)] text-[10px] font-semibold uppercase tracking-wider mb-2"
-          style={{ background: `${t.color}12`, color: t.color, border: `1px solid ${t.color}25` }}
-        >
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: t.color }} />
-          {t.label}
-        </div>
-        <div className="text-base font-semibold tracking-tight text-foreground">
-          {detail.execLabel.replace(/\n/g, " ")}
-        </div>
-        <div className="text-[11px] text-muted-foreground font-mono mt-1 px-1.5 py-0.5 bg-muted/50 rounded-[var(--radius-sm)] inline-block border border-border/50">
-          {detail.techLabel.replace(/\n/g, " ")}
-        </div>
-        <div className="text-[13px] text-muted-foreground mt-2 leading-relaxed">{detail.desc}</div>
-      </div>
+  const filtered = searchQuery.trim()
+    ? sourcePaths.filter(r => {
+        const q = searchQuery.toLowerCase();
+        return r.friendlySource.toLowerCase().includes(q) ||
+               r.commandName.toLowerCase().includes(q) ||
+               r.copyName.toLowerCase().includes(q);
+      })
+    : sourcePaths;
 
-      <div className="mt-4">
-        <div className="grid grid-cols-2 gap-2">
-          <div className="p-2.5 rounded-[var(--radius-md)] bg-muted/50 border border-border/50">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Layer</div>
-            <div className="text-sm font-semibold mt-0.5">{detail.layer}</div>
-          </div>
-          <div className="p-2.5 rounded-[var(--radius-md)] bg-muted/50 border border-border/50">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Type</div>
-            <div className="text-sm font-semibold mt-0.5">{t.label.split(" ")[0]}</div>
-          </div>
-          <div className="p-2.5 rounded-[var(--radius-md)] bg-muted/50 border border-border/50">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Upstream</div>
-            <div className="text-sm font-semibold mt-0.5" style={{ color: "#3D8C5C" }}>{detail.upstreamCount}</div>
-          </div>
-          <div className="p-2.5 rounded-[var(--radius-md)] bg-muted/50 border border-border/50">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Downstream</div>
-            <div className="text-sm font-semibold mt-0.5" style={{ color: "#3D7BB8" }}>{detail.downstreamCount}</div>
-          </div>
-        </div>
-      </div>
+  const anyActive = selectedPath || hoveredPath;
+  const isPathActive = (id: string) => id === selectedPath || (!selectedPath && id === hoveredPath);
 
-      <div className="mt-4">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-          Full Data Path ({detail.path.length} nodes)
-        </div>
-        <div className="flex flex-col gap-0.5">
-          {detail.path.map((p, i) => (
-            <div key={p.id}>
-              <div
-                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-[var(--radius-md)] text-xs cursor-pointer transition-all duration-[var(--duration-fast)] border ${
-                  p.isCurrent
-                    ? "border-primary bg-primary/10 text-primary font-semibold"
-                    : "border-transparent bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:border-border hover:text-foreground"
-                }`}
-                onClick={() => onSelectNode(p.id)}
-              >
-                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: p.color }} />
-                <span>{p.label}</span>
-              </div>
-              {i < detail.path.length - 1 && (
-                <div className="text-center text-muted-foreground/40 text-[10px] py-0">&#x25BC;</div>
-              )}
-            </div>
-          ))}
-        </div>
+  // Shared node style helper
+  const sharedNode = (label: string, techLabel: string, subtitle: string, color: string, isHighlighted: boolean) => (
+    <div
+      className={`flow-node rounded-lg border-2 px-3 py-2 bg-card transition-all duration-300 ${
+        isHighlighted ? "flow-node-active" : anyActive ? "opacity-40" : ""
+      }`}
+      style={{ borderColor: `${color}50`, minWidth: 110 }}
+      title={techLabel}
+    >
+      <div className="text-[11px] font-bold truncate" style={{ color }}>
+        {labelMode === "exec" ? label : techLabel}
       </div>
+      <div className="text-[8px] text-muted-foreground font-medium">{subtitle}</div>
     </div>
   );
-}
 
-// ============================================================================
-// AUDIT MATRIX COMPONENT
-// ============================================================================
+  // Connector between shared nodes
+  const sharedConnector = (color: string, isHighlighted: boolean) => (
+    <div className="w-8 flex items-center justify-center flex-shrink-0">
+      <div
+        className={`w-full ${isHighlighted ? "flow-connector-active" : anyActive ? "flow-connector-dimmed" : "flow-connector-inactive"}`}
+        style={{ "--fc": color } as React.CSSProperties}
+      />
+    </div>
+  );
 
-function AuditMatrix({
-  cy: cyInstance,
-  labelMode,
-  onSelectNode,
-}: {
-  cy: cytoscape.Core | null;
-  labelMode: "tech" | "exec";
-  onSelectNode: (id: string) => void;
-}) {
-  if (!cyInstance) return null;
+  // Is any path highlighted (for shared nodes glow)
+  const sharedHighlight = !!selectedPath || !!hoveredPath;
 
   return (
-    <table className="w-full border-collapse text-[11px]">
-      <thead>
-        <tr>
-          {["Type", "Name", "Layer", "In", "Out"].map((h) => (
-            <th
-              key={h}
-              className="text-left px-2 py-1.5 font-semibold text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0 bg-card z-[1]"
-            >
-              {h}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {nodes.map((n) => {
-          const t = NODE_TYPES[n.type];
-          const preds = cyInstance.getElementById(n.id).predecessors("node").length;
-          const succs = cyInstance.getElementById(n.id).successors("node").length;
-          const displayLabel = labelMode === "exec" ? n.execLabel : n.techLabel;
-          return (
-            <tr
-              key={n.id}
-              className="cursor-pointer hover:bg-muted/40 transition-colors duration-[var(--duration-fast)]"
-              onClick={() => onSelectNode(n.id)}
-            >
-              <td className="px-2 py-1 border-b border-border/30">
-                <span
-                  className="inline-block px-1.5 py-px rounded-[var(--radius-sm)] text-[9px] font-semibold"
-                  style={{ background: `${t.color}15`, color: t.color }}
+    <div>
+      {/* Architecture topology: shared → fan-out → shared */}
+      <div className="flex items-stretch gap-0">
+
+        {/* ── LEFT SHARED: Config DB → Orchestrator ── */}
+        <div className="flex flex-col justify-center flex-shrink-0 pr-1">
+          <div className="flex items-center">
+            {sharedNode("Config DB", "SQL_FMD_FRAMEWORK", "metadata store", NODE_COLORS.config, sharedHighlight)}
+            {sharedConnector(NODE_COLORS.orchestrator, sharedHighlight)}
+            {sharedNode("Orchestrator", orchPipeline?.Name || "PL_FMD_LOAD_ALL", "coordinates all", NODE_COLORS.orchestrator, sharedHighlight)}
+          </div>
+        </div>
+
+        {/* ── FAN-OUT BRACKET (left) ── */}
+        <div className="flex items-stretch flex-shrink-0 mx-1">
+          <div className="w-6 flex items-center justify-center">
+            <div
+              className={`w-full transition-all duration-300 ${sharedHighlight ? "flow-connector-active" : "flow-connector-inactive"}`}
+              style={{ "--fc": NODE_COLORS.command } as React.CSSProperties}
+            />
+          </div>
+          <div
+            className={`w-1.5 rounded-r-md transition-all duration-300 ${
+              sharedHighlight
+                ? "border-t-2 border-r-2 border-b-2"
+                : anyActive ? "border-t border-r border-b border-border/20" : "border-t border-r border-b border-border/40"
+            }`}
+            style={sharedHighlight ? { borderColor: `${NODE_COLORS.command}60` } : undefined}
+          />
+        </div>
+
+        {/* ── MIDDLE FAN-OUT: source-specific Command Router → Copy Pipeline ── */}
+        <div className="flex-1 min-w-0 py-1">
+          <div className="space-y-1">
+            {filtered.map(path => {
+              const active = isPathActive(path.id);
+              const isDimmed = anyActive && !active;
+
+              return (
+                <div
+                  key={path.id}
+                  className={`flex items-center gap-0 px-1 py-1.5 rounded-md border cursor-pointer transition-all duration-300 ${
+                    isDimmed ? "opacity-[0.10] border-transparent" :
+                    active ? "border-primary/30 bg-primary/[0.03]" :
+                    "border-border/20 hover:border-border/40 hover:bg-muted/20"
+                  }`}
+                  onClick={() => setSelectedPath(selectedPath === path.id ? null : path.id)}
+                  onMouseEnter={() => !selectedPath && setHoveredPath(path.id)}
+                  onMouseLeave={() => setHoveredPath(null)}
                 >
-                  {t.label}
-                </span>
-              </td>
-              <td className="px-2 py-1 border-b border-border/30 font-semibold text-foreground text-[11px]">
-                {displayLabel.replace(/\n/g, " ")}
-              </td>
-              <td className="px-2 py-1 border-b border-border/30 text-muted-foreground">{n.layer}</td>
-              <td className="px-2 py-1 border-b border-border/30 text-center text-muted-foreground">{preds}</td>
-              <td className="px-2 py-1 border-b border-border/30 text-center text-muted-foreground">{succs}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+                  {/* Command Router */}
+                  <div
+                    className={`flow-node rounded border px-2 py-1.5 bg-card flex-1 min-w-0 ${active ? "flow-node-active" : ""}`}
+                    style={{ borderColor: `${NODE_COLORS.command}30` }}
+                    title={path.commandName}
+                  >
+                    <div className="text-[10px] font-semibold truncate" style={{ color: NODE_COLORS.command }}>
+                      {labelMode === "exec" ? path.friendlyCommand : path.commandName}
+                    </div>
+                    <div className="text-[8px] text-muted-foreground">command router</div>
+                  </div>
+
+                  {/* → */}
+                  <div className="w-5 flex items-center justify-center flex-shrink-0">
+                    <div
+                      className={`w-full ${active ? "flow-connector-active" : "flow-connector-inactive"}`}
+                      style={{ "--fc": NODE_COLORS.copy } as React.CSSProperties}
+                    />
+                  </div>
+
+                  {/* Copy Pipeline */}
+                  <div
+                    className={`flow-node rounded border px-2 py-1.5 bg-card flex-1 min-w-0 ${active ? "flow-node-active" : ""}`}
+                    style={{ borderColor: `${NODE_COLORS.copy}30` }}
+                    title={path.copyName}
+                  >
+                    <div className="text-[10px] font-semibold truncate" style={{ color: NODE_COLORS.copy }}>
+                      {labelMode === "exec" ? path.friendlyCopy : path.copyName}
+                    </div>
+                    <div className="text-[8px] text-muted-foreground">data extractor</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── FAN-IN BRACKET (right) ── */}
+        <div className="flex items-stretch flex-shrink-0 mx-1">
+          <div
+            className={`w-1.5 rounded-l-md transition-all duration-300 ${
+              sharedHighlight
+                ? "border-t-2 border-l-2 border-b-2"
+                : anyActive ? "border-t border-l border-b border-border/20" : "border-t border-l border-b border-border/40"
+            }`}
+            style={sharedHighlight ? { borderColor: `${NODE_COLORS.landing}60` } : undefined}
+          />
+          <div className="w-6 flex items-center justify-center">
+            <div
+              className={`w-full transition-all duration-300 ${sharedHighlight ? "flow-connector-active" : "flow-connector-inactive"}`}
+              style={{ "--fc": NODE_COLORS.landing } as React.CSSProperties}
+            />
+          </div>
+        </div>
+
+        {/* ── RIGHT SHARED: Landing Zone → Notebook → Bronze → Silver ── */}
+        <div className="flex flex-col justify-center flex-shrink-0 pl-1">
+          <div className="flex items-center">
+            {sharedNode("Landing Zone", "LH_DATA_LANDINGZONE", "raw files", NODE_COLORS.landing, sharedHighlight)}
+            {sharedConnector(NODE_COLORS.notebook, sharedHighlight)}
+            {sharedNode("Notebook", "NB_FMD_LOAD_*", "transforms", NODE_COLORS.notebook, sharedHighlight)}
+            {sharedConnector(NODE_COLORS.bronze, sharedHighlight)}
+            {sharedNode("Bronze", "LH_BRONZE_LAYER", "structured", NODE_COLORS.bronze, sharedHighlight)}
+            {sharedConnector(NODE_COLORS.silver, sharedHighlight)}
+            {sharedNode("Silver", "LH_SILVER_LAYER", "clean data", NODE_COLORS.silver, sharedHighlight)}
+          </div>
+        </div>
+      </div>
+
+      {/* Narrative: explain what clicking does */}
+      {selectedPath && (() => {
+        const path = sourcePaths.find(p => p.id === selectedPath);
+        if (!path) return null;
+        return (
+          <div className="mt-4 px-4 py-3 rounded-lg border border-primary/20 bg-primary/[0.02] narrative-panel">
+            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+              {path.friendlySource} Pipeline Path
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              When the <span className="font-semibold" style={{ color: NODE_COLORS.orchestrator }}>Orchestrator</span> finds
+              {" "}<span className="font-semibold" style={{ color: NODE_COLORS.command }}>{path.friendlySource}</span> sources
+              to process, it hands them to the{" "}
+              <span className="font-semibold" style={{ color: NODE_COLORS.command }}>{labelMode === "exec" ? path.friendlyCommand : path.commandName}</span> pipeline,
+              which determines how to connect and extract from that source type.
+              It then calls{" "}
+              <span className="font-semibold" style={{ color: NODE_COLORS.copy }}>{labelMode === "exec" ? path.friendlyCopy : path.copyName}</span> to
+              pull the data into the <span className="font-semibold" style={{ color: NODE_COLORS.landing }}>Landing Zone</span>.
+              From there, the standard transformation path takes over: notebooks process the raw files
+              through <span className="font-semibold" style={{ color: NODE_COLORS.bronze }}>Bronze</span> and{" "}
+              <span className="font-semibold" style={{ color: NODE_COLORS.silver }}>Silver</span> layers.
+              The only thing unique to {path.friendlySource} is the command router and copy pipeline. Everything else is shared infrastructure.
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* How it works */}
+      {!selectedPath && (
+        <div className="mt-4 px-3 py-3 rounded-lg border border-border/30 bg-muted/[0.03]">
+          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">How the framework works</div>
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
+            The <span className="font-semibold" style={{ color: NODE_COLORS.config }}>Config Database</span> tells
+            the <span className="font-semibold" style={{ color: NODE_COLORS.orchestrator }}>Orchestrator</span> what to load.
+            The orchestrator fans out to <span className="font-semibold" style={{ color: NODE_COLORS.command }}>Command Routers</span> (one per source type),
+            each calling the matching <span className="font-semibold" style={{ color: NODE_COLORS.copy }}>Copy Pipeline</span> to extract data.
+            All paths converge into a single <span className="font-semibold" style={{ color: NODE_COLORS.landing }}>Landing Zone</span>,
+            then flow through shared <span className="font-semibold" style={{ color: NODE_COLORS.notebook }}>Notebooks</span>,{" "}
+            <span className="font-semibold" style={{ color: NODE_COLORS.bronze }}>Bronze</span>, and{" "}
+            <span className="font-semibold" style={{ color: NODE_COLORS.silver }}>Silver</span> layers.
+            Click any source type to trace its path. No pipeline contains source-specific logic beyond the command router and copy pipeline.
+          </p>
+        </div>
+      )}
+
+      {/* Stats */}
+      <div className="mt-2 flex items-center gap-4 text-[10px] text-muted-foreground px-2">
+        <span>{fmt(filtered.length)} source type paths</span>
+        <span className="text-border">|</span>
+        <span>{fmt(activePipes.length)} active pipelines</span>
+        <span className="text-border">|</span>
+        <span>{fmt(connections.filter(c => c.IsActive === "True").length)} connections</span>
+      </div>
+    </div>
   );
 }
 
@@ -666,297 +568,266 @@ function AuditMatrix({
 // ============================================================================
 
 export default function FlowExplorer() {
-  const cyRef = useRef<cytoscape.Core | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const graphWrapperRef = useRef<HTMLDivElement>(null);
-  const flowAnimIdRef = useRef<number | null>(null);
-  const flowDotsRef = useRef<FlowDot[]>([]);
+  // Data state
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [dataSources, setDataSources] = useState<DataSource[]>([]);
+  const [entities, setEntities] = useState<Entity[]>([]);
+  const [bronzeEntities, setBronzeEntities] = useState<BronzeEntity[]>([]);
+  const [silverEntities, setSilverEntities] = useState<SilverEntity[]>([]);
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
 
-  const [labelMode, setLabelMode] = useState<"tech" | "exec">("tech");
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [isIsolated, setIsIsolated] = useState(false);
+  // UI state
   const [searchQuery, setSearchQuery] = useState("");
-  const [panelTab, setPanelTab] = useState<"detail" | "matrix">("detail");
-  const [nodeDetail, setNodeDetail] = useState<NodeDetail | null>(null);
-  const [stats, setStats] = useState({ nodes: 0, edges: 0, inPath: 0 });
-  const [highlightedType, setHighlightedType] = useState<string | null>(null);
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; type: string; label: string; desc: string } | null>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [labelMode, setLabelMode] = useState<"tech" | "exec">("exec");
+  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
+  const [selectedFlow, setSelectedFlow] = useState<EntityFlow | null>(null);
+  const [hoveredSource, setHoveredSource] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"data" | "arch">("data");
+  // Scaling: progressive reveal per source group
+  const PAGE_SIZE = 25;
+  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
+  const [groupSearch, setGroupSearch] = useState<Record<string, string>>({});
+  // Fetch data
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [conn, ds, ent, bronze, silver, pipes] = await Promise.all([
+        fetchJson<Connection[]>("/connections"),
+        fetchJson<DataSource[]>("/datasources"),
+        fetchJson<Entity[]>("/entities"),
+        fetchJson<BronzeEntity[]>("/bronze-entities"),
+        fetchJson<SilverEntity[]>("/silver-entities"),
+        fetchJson<Pipeline[]>("/pipelines"),
+      ]);
+      setConnections(conn);
+      setDataSources(ds);
+      setEntities(ent);
+      setBronzeEntities(bronze);
+      setSilverEntities(silver);
+      setPipelines(pipes);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  // Initialize Cytoscape
-  useEffect(() => {
-    if (!containerRef.current) return;
+  useEffect(() => { loadData(); }, [loadData]);
 
-    const cy = cytoscape({
-      container: containerRef.current,
-      elements: buildCyElements(),
-      style: getCyStyle(),
-      layout: {
-        name: "dagre",
-        rankDir: "LR",
-        nodeSep: 50,
-        rankSep: 120,
-        edgeSep: 25,
-        animate: true,
-        animationDuration: 600,
-        fit: true,
-        padding: 50,
-      } as cytoscape.LayoutOptions,
-      minZoom: 0.15,
-      maxZoom: 3,
-      wheelSensitivity: 0.3,
-    });
+  // Build entity flows
+  const sourceGroups: SourceGroup[] = dataSources
+    .filter((ds) => ds.IsActive === "True")
+    .map((ds) => {
+      const conn = connections.find((c) => c.Name === ds.ConnectionName);
+      const lzEnts = entities.filter((e) => e.DataSourceName === ds.Name);
 
-    cyRef.current = cy;
-    setStats({ nodes: cy.nodes().length, edges: cy.edges().length, inPath: 0 });
+      const flows: EntityFlow[] = lzEnts.map((ent) => {
+        const brz = bronzeEntities.find((b) => b.LandingzoneEntityId === ent.LandingzoneEntityId);
+        const slv = brz ? silverEntities.find((s) => s.BronzeLayerEntityId === brz.BronzeLayerEntityId) : null;
 
-    // Node click
-    cy.on("tap", "node", (e) => {
-      selectNode(e.target.id());
-    });
+        let maxLayer: EntityFlow["maxLayer"] = "landing";
+        if (slv) maxLayer = "silver";
+        else if (brz) maxLayer = "bronze";
 
-    // Background click
-    cy.on("tap", (e) => {
-      if (e.target === cy) restoreFullView();
-    });
-
-    // Hover tooltip + cursor
-    cy.on("mouseover", "node", (e) => {
-      const node = e.target;
-      const data = node.data();
-      const nt = NODE_TYPES[data.nodeType];
-      const renderedPos = node.renderedPosition();
-      const container = containerRef.current;
-      if (!container) return;
-      container.style.cursor = "pointer";
-      const rect = container.getBoundingClientRect();
-      setTooltip({
-        x: rect.left + renderedPos.x,
-        y: rect.top + renderedPos.y - node.renderedHeight() / 2 - 12,
-        type: nt?.label || data.nodeType,
-        label: data.techLabel?.replace(/\n/g, " ") || data.label,
-        desc: data.desc || "",
+        return {
+          id: ent.LandingzoneEntityId,
+          dataSourceName: ds.Name,
+          dataSourceType: ds.Type,
+          connectionName: conn?.Name || ds.ConnectionName,
+          namespace: ds.Namespace,
+          sourceSchema: ent.SourceSchema,
+          sourceName: ent.SourceName,
+          lzEntityId: ent.LandingzoneEntityId,
+          lzFileName: ent.FileName,
+          lzFilePath: ent.FilePath,
+          lzFileType: ent.FileType,
+          isIncremental: ent.IsIncremental === "True",
+          bronzeEntityId: brz?.BronzeLayerEntityId || null,
+          bronzeSchema: brz?.Schema || null,
+          bronzeName: brz?.Name || null,
+          bronzeFileType: brz?.FileType || null,
+          bronzePrimaryKeys: brz?.PrimaryKeys || null,
+          silverEntityId: slv?.SilverLayerEntityId || null,
+          silverSchema: slv?.Schema || null,
+          silverName: slv?.Name || null,
+          silverFileType: slv?.FileType || null,
+          goldEntityId: null,
+          goldName: null,
+          maxLayer,
+        };
       });
-    });
-    cy.on("mouseout", "node", () => {
-      setTooltip(null);
-      if (containerRef.current) containerRef.current.style.cursor = "default";
-    });
-    cy.on("viewport", () => {
-      setTooltip(null);
-    });
-
-    return () => {
-      stopFlowAnimation(flowAnimIdRef, flowDotsRef);
-      cy.destroy();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Theme observer — update styles when dark/light changes
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      if (cyRef.current) {
-        cyRef.current.style(getCyStyle());
-      }
-    });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-    return () => observer.disconnect();
-  }, []);
-
-  const buildNodeDetail = useCallback(
-    (nodeId: string): NodeDetail | null => {
-      const cy = cyRef.current;
-      if (!cy) return null;
-
-      const node = cy.getElementById(nodeId);
-      const data = node.data();
-      const path = getOrderedPath(cy, nodeId);
 
       return {
-        id: nodeId,
-        execLabel: data.execLabel,
-        techLabel: data.techLabel,
-        desc: data.desc,
-        layer: data.layer,
-        nodeType: data.nodeType,
-        upstreamCount: node.predecessors("node").length,
-        downstreamCount: node.successors("node").length,
-        path: path.map((id) => {
-          const n = cy.getElementById(id).data();
-          const nt = NODE_TYPES[n.nodeType];
-          const displayLabel = labelMode === "exec" ? n.execLabel : n.techLabel;
-          return {
-            id,
-            label: displayLabel.replace(/\n/g, " "),
-            color: nt.color,
-            isCurrent: id === nodeId,
-          };
-        }),
+        dataSourceName: ds.Name,
+        dataSourceType: ds.Type,
+        connectionName: conn?.Name || ds.ConnectionName,
+        namespace: ds.Namespace,
+        flows,
+        landingCount: flows.length,
+        bronzeCount: flows.filter((f) => f.bronzeName).length,
+        silverCount: flows.filter((f) => f.silverName).length,
+        goldCount: 0,
       };
-    },
-    [labelMode]
-  );
-
-  const selectNode = useCallback(
-    (nodeId: string) => {
-      const cy = cyRef.current;
-      if (!cy || !graphWrapperRef.current) return;
-
-      cy.elements().removeClass("highlighted selected-node dimmed flow-animated isolated-node");
-      stopFlowAnimation(flowAnimIdRef, flowDotsRef);
-
-      const node = cy.getElementById(nodeId);
-      const predecessors = node.predecessors();
-      const successors = node.successors();
-      const connected = predecessors.union(successors).union(node);
-      const uniquePath = getOrderedPath(cy, nodeId);
-
-      cy.elements().addClass("dimmed");
-      connected.removeClass("dimmed");
-      connected.nodes().addClass("highlighted isolated-node");
-      connected.edges().addClass("highlighted flow-animated");
-      node.addClass("selected-node").removeClass("highlighted");
-
-      const spacing = 220;
-      const totalWidth = (uniquePath.length - 1) * spacing;
-      const startX = -totalWidth / 2;
-
-      const animPromises: Promise<unknown>[] = [];
-      uniquePath.forEach((id, i) => {
-        const n = cy.getElementById(id);
-        animPromises.push(
-          n
-            .animation({ position: { x: startX + i * spacing, y: 0 }, duration: 600, easing: "ease-in-out-cubic" } as any)
-            .play()
-            .promise()
-        );
-      });
-
-      Promise.all(animPromises).then(() => {
-        cy.animate({ fit: { eles: connected.nodes(), padding: 80 }, duration: 400 });
-        setTimeout(() => {
-          if (graphWrapperRef.current) {
-            startFlowAnimation(graphWrapperRef.current, connected.edges(), flowAnimIdRef, flowDotsRef);
-          }
-        }, 200);
-      });
-
-      setSelectedNodeId(nodeId);
-      setIsIsolated(true);
-      setStats((s) => ({ ...s, inPath: connected.nodes().length }));
-      setNodeDetail(buildNodeDetail(nodeId));
-      setPanelTab("detail");
-    },
-    [buildNodeDetail]
-  );
-
-  const restoreFullView = useCallback(() => {
-    const cy = cyRef.current;
-    if (!cy) return;
-
-    cy.elements().removeClass("highlighted selected-node dimmed search-match flow-animated isolated-node");
-    stopFlowAnimation(flowAnimIdRef, flowDotsRef);
-
-    cy.layout({
-      name: "dagre",
-      rankDir: "LR",
-      nodeSep: 30,
-      rankSep: 80,
-      edgeSep: 15,
-      animate: true,
-      animationDuration: 600,
-      fit: true,
-      padding: 40,
-    } as cytoscape.LayoutOptions).run();
-
-    setSelectedNodeId(null);
-    setIsIsolated(false);
-    setNodeDetail(null);
-    setStats((s) => ({ ...s, inPath: 0 }));
-    setHighlightedType(null);
-  }, []);
-
-  // Label mode toggle
-  useEffect(() => {
-    const cy = cyRef.current;
-    if (!cy) return;
-
-    cy.nodes().forEach((n) => {
-      const newLabel = labelMode === "exec" ? n.data("execLabel") : n.data("techLabel");
-      n.data("label", newLabel);
     });
 
-    if (selectedNodeId) {
-      setNodeDetail(buildNodeDetail(selectedNodeId));
-    }
-  }, [labelMode, selectedNodeId, buildNodeDetail]);
+  // Search filter
+  const filteredGroups = sourceGroups.map((g) => {
+    if (!searchQuery.trim()) return g;
+    const q = searchQuery.toLowerCase();
+    const filtered = g.flows.filter(
+      (f) =>
+        f.sourceName.toLowerCase().includes(q) ||
+        f.sourceSchema.toLowerCase().includes(q) ||
+        f.lzFileName.toLowerCase().includes(q) ||
+        (f.bronzeName || "").toLowerCase().includes(q) ||
+        (f.silverName || "").toLowerCase().includes(q) ||
+        f.dataSourceName.toLowerCase().includes(q)
+    );
+    return { ...g, flows: filtered, landingCount: filtered.length, bronzeCount: filtered.filter((f) => f.bronzeName).length, silverCount: filtered.filter((f) => f.silverName).length };
+  }).filter((g) => g.flows.length > 0);
 
-  // Search
-  useEffect(() => {
-    const cy = cyRef.current;
-    if (!cy) return;
+  // Stats
+  const totalFlows = sourceGroups.reduce((acc, g) => acc + g.flows.length, 0);
+  const totalBronze = sourceGroups.reduce((acc, g) => acc + g.bronzeCount, 0);
+  const totalSilver = sourceGroups.reduce((acc, g) => acc + g.silverCount, 0);
+  const activePipelines = pipelines.filter((p) => p.IsActive === "True").length;
 
-    cy.nodes().removeClass("search-match");
-    if (!searchQuery.trim()) return;
-
-    const q = searchQuery.toLowerCase().trim();
-    cy.nodes().forEach((n) => {
-      const techLabel = (n.data("techLabel") || "").toLowerCase();
-      const execLabel = (n.data("execLabel") || "").toLowerCase();
-      const desc = (n.data("desc") || "").toLowerCase();
-      const layer = (n.data("layer") || "").toLowerCase();
-      if (techLabel.includes(q) || execLabel.includes(q) || desc.includes(q) || layer.includes(q)) {
-        n.addClass("search-match");
-      }
+  const toggleSource = (name: string) => {
+    setExpandedSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
     });
-  }, [searchQuery]);
+  };
 
-  const handleLegendClick = useCallback(
-    (typeKey: string) => {
-      if (highlightedType === typeKey) {
-        restoreFullView();
-        return;
-      }
-      restoreFullView();
-      setTimeout(() => {
-        const cy = cyRef.current;
-        if (!cy) return;
-        cy.elements().addClass("dimmed");
-        const typeNodes = cy.nodes(`[nodeType="${typeKey}"]`);
-        typeNodes.removeClass("dimmed").addClass("highlighted");
-        typeNodes.connectedEdges().removeClass("dimmed");
-        setStats((s) => ({ ...s, inPath: typeNodes.length }));
-        setHighlightedType(typeKey);
-      }, 700);
-    },
-    [highlightedType, restoreFullView]
-  );
+  const selectEntity = (flow: EntityFlow) => {
+    setSelectedFlow(flow);
+  };
+
+  const clearSelection = () => {
+    setSelectedFlow(null);
+  };
+
+  // Loading / error states
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-48px)]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <span className="ml-3 text-muted-foreground">Loading framework data from Fabric...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-48px)] gap-4">
+        <XCircle className="w-12 h-12 text-destructive" />
+        <p className="text-destructive font-medium">{error}</p>
+        <button onClick={loadData} className="px-4 py-2 rounded-md border border-border bg-card text-sm hover:bg-muted">
+          <RefreshCw className="w-4 h-4 inline mr-2" />Retry
+        </button>
+      </div>
+    );
+  }
+
+  const narrative = selectedFlow ? buildNarrative(selectedFlow) : [];
 
   return (
     <div className="flex flex-col h-[calc(100vh-48px)]">
+      {/* CSS Animations */}
+      <style>{`
+        @keyframes flowRight {
+          from { background-position: 0 0; }
+          to { background-position: 16px 0; }
+        }
+        @keyframes pulseGlow {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(var(--flow-rgb), 0.3); }
+          50% { box-shadow: 0 0 12px 4px rgba(var(--flow-rgb), 0.15); }
+        }
+        @keyframes slideInRight {
+          from { opacity: 0; transform: translateX(20px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .flow-connector-active {
+          height: 2px;
+          background: repeating-linear-gradient(90deg, var(--fc) 0px, var(--fc) 6px, transparent 6px, transparent 10px);
+          background-size: 16px 2px;
+          animation: flowRight 0.6s linear infinite;
+        }
+        .flow-connector-inactive {
+          height: 2px;
+          background: repeating-linear-gradient(90deg, var(--fc) 0px, var(--fc) 4px, transparent 4px, transparent 8px);
+          background-size: 8px 2px;
+          opacity: 0.15;
+        }
+        .flow-connector-dimmed {
+          height: 1px;
+          background: rgba(128,128,128,0.08);
+        }
+        .flow-node {
+          transition: all 0.3s ease;
+        }
+        .flow-node-active {
+          --flow-rgb: 139, 92, 246;
+          animation: pulseGlow 2s ease-in-out infinite;
+        }
+        .lane-row {
+          transition: opacity 0.3s ease, transform 0.2s ease;
+        }
+        .narrative-panel {
+          animation: slideInRight 0.3s ease-out;
+        }
+      `}</style>
+
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card/50 flex-shrink-0">
         <div className="flex items-center gap-4">
           <div>
             <h1 className="font-display text-base font-semibold tracking-tight">Flow Explorer</h1>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Pipeline Dependency Map</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+              {viewMode === "data" ? "How your data moves through the system" : "The complete framework infrastructure"}
+            </p>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground pl-4 border-l border-border">
-            <span className="w-1.5 h-1.5 rounded-full bg-[var(--cl-success,#3D8C5C)] inline-block" />
-            <span className="font-mono text-[10px]">{stats.nodes} Nodes</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+            <span className="font-mono text-[10px]">{fmt(totalFlows)} Tables</span>
             <span className="text-border mx-1">|</span>
-            <span className="font-mono text-[10px]">{stats.edges} Edges</span>
-            {stats.inPath > 0 && (
-              <>
-                <span className="text-border mx-1">|</span>
-                <span className="font-mono text-[10px] text-primary">{stats.inPath} In Path</span>
-              </>
-            )}
+            <span className="font-mono text-[10px]">{fmt(sourceGroups.length)} Sources</span>
+            <span className="text-border mx-1">|</span>
+            <span className="font-mono text-[10px]">{fmt(activePipelines)} Pipelines</span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* View Mode Toggle */}
+          <div className="flex items-center h-8 rounded-md border border-border overflow-hidden">
+            <button
+              className={`px-3 h-full text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+                viewMode === "data" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              }`}
+              onClick={() => setViewMode("data")}
+            >
+              Data Flow
+            </button>
+            <div className="w-px h-4 bg-border" />
+            <button
+              className={`px-3 h-full text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+                viewMode === "arch" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              }`}
+              onClick={() => setViewMode("arch")}
+            >
+              Framework
+            </button>
+          </div>
+
           {/* Tech / Exec Toggle */}
           <div className="flex items-center gap-2 px-3 border-l border-r border-border h-8">
             <span
@@ -968,18 +839,14 @@ export default function FlowExplorer() {
               Technical
             </span>
             <div
-              className={`relative w-10 h-5 rounded-full cursor-pointer transition-all duration-[var(--duration-smooth)] ${
-                labelMode === "exec"
-                  ? "bg-primary/15 border border-primary/30"
-                  : "bg-muted border border-border"
+              className={`relative w-10 h-5 rounded-full cursor-pointer transition-all duration-300 ${
+                labelMode === "exec" ? "bg-primary/15 border border-primary/30" : "bg-muted border border-border"
               }`}
               onClick={() => setLabelMode((m) => (m === "tech" ? "exec" : "tech"))}
             >
               <div
-                className={`absolute top-0.5 w-3.5 h-3.5 rounded-full transition-all duration-[var(--duration-smooth)] ${
-                  labelMode === "exec"
-                    ? "left-[22px] bg-primary shadow-[0_0_6px_rgba(174,86,48,0.25)]"
-                    : "left-0.5 bg-muted-foreground"
+                className={`absolute top-0.5 w-3.5 h-3.5 rounded-full transition-all duration-300 ${
+                  labelMode === "exec" ? "left-[22px] bg-primary" : "left-0.5 bg-muted-foreground"
                 }`}
               />
             </div>
@@ -989,150 +856,552 @@ export default function FlowExplorer() {
               }`}
               onClick={() => setLabelMode("exec")}
             >
-              Executive
+              Simple
             </span>
           </div>
 
           <button
-            className="inline-flex items-center gap-1.5 px-3 h-8 rounded-[var(--radius-md)] border border-border bg-card text-muted-foreground text-xs font-medium cursor-pointer transition-all duration-[var(--duration-normal)] hover:bg-muted hover:text-foreground hover:border-border active:scale-95 shadow-[var(--shadow-sm)]"
-            onClick={() => cyRef.current?.animate({ fit: { eles: cyRef.current.elements(), padding: 40 }, duration: 400 })}
-          >
-            <Maximize className="w-3.5 h-3.5" />
-            Fit
-          </button>
-          <button
-            className="inline-flex items-center gap-1.5 px-3 h-8 rounded-[var(--radius-md)] border border-border bg-card text-muted-foreground text-xs font-medium cursor-pointer transition-all duration-[var(--duration-normal)] hover:bg-muted hover:text-foreground hover:border-border active:scale-95 shadow-[var(--shadow-sm)]"
-            onClick={() => {
-              restoreFullView();
-              setSearchQuery("");
-            }}
+            onClick={() => { clearSelection(); setSearchQuery(""); setExpandedSources(new Set()); }}
+            className="inline-flex items-center gap-1.5 px-3 h-8 rounded-md border border-border bg-card text-muted-foreground text-xs font-medium cursor-pointer hover:bg-muted hover:text-foreground"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            Clear
+            Reset
+          </button>
+          <button
+            onClick={loadData}
+            className="inline-flex items-center gap-1.5 px-3 h-8 rounded-md border border-border bg-card text-muted-foreground text-xs font-medium cursor-pointer hover:bg-muted hover:text-foreground"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Refresh
           </button>
         </div>
       </div>
 
       {/* Main Area */}
       <div className="flex flex-1 min-h-0">
-        {/* Graph */}
-        <div className="flex-1 relative bg-background" ref={graphWrapperRef}>
-          {/* Legend */}
-          <div className="absolute top-3 left-3 flex gap-1 flex-wrap z-[5] pointer-events-none">
-            {Object.entries(NODE_TYPES).map(([key, val]) => (
-              <div
-                key={key}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-sm)] text-[10px] font-medium pointer-events-auto cursor-pointer transition-all duration-[var(--duration-normal)] border backdrop-blur-sm ${
-                  highlightedType === key
-                    ? "border-primary text-primary bg-primary/5"
-                    : "border-border/30 text-muted-foreground bg-card/80 hover:bg-card hover:text-foreground hover:border-border"
-                }`}
-                style={{ boxShadow: "var(--shadow-sm)" }}
-                onClick={() => handleLegendClick(key)}
-              >
-                <span className="w-[7px] h-[7px] rounded-full flex-shrink-0" style={{ background: val.color }} />
-                {val.label}
+        {viewMode === "arch" ? (
+          /* ============ FRAMEWORK ARCHITECTURE VIEW ============ */
+          <div className="flex-1 overflow-auto p-4">
+            {/* Search (shared) */}
+            <div className="mb-4 max-w-md">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  className="w-full pl-8 pr-3 py-1.5 rounded-md border border-border bg-background text-foreground text-xs outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 placeholder:text-muted-foreground"
+                  placeholder="Search pipelines, notebooks, connections..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
-            ))}
-          </div>
-
-          {/* Mode Badge */}
-          <div
-            className={`absolute top-3 right-3 px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider z-[5] pointer-events-none backdrop-blur-sm border ${
-              labelMode === "exec"
-                ? "bg-primary/8 text-primary border-primary/15"
-                : "bg-[var(--cl-info,#3D7BB8)]/8 text-[var(--cl-info,#3D7BB8)] border-[var(--cl-info,#3D7BB8)]/15"
-            }`}
-            style={{ boxShadow: "var(--shadow-sm)" }}
-          >
-            {labelMode === "exec" ? "Executive View" : "Technical View"}
-          </div>
-
-          {/* Cytoscape container */}
-          <div ref={containerRef} className="w-full h-full" />
-
-          {/* Hover tooltip */}
-          {tooltip && (
-            <div
-              ref={tooltipRef}
-              className="fixed z-[100] pointer-events-none"
-              style={{
-                left: tooltip.x,
-                top: tooltip.y,
-                transform: "translate(-50%, -100%)",
-              }}
-            >
-              <div className="bg-card/95 backdrop-blur-md border border-border rounded-[var(--radius-md)] shadow-[var(--shadow-lg)] px-3 py-2.5 max-w-[280px]">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-primary mb-1">{tooltip.type}</div>
-                <div className="text-xs font-semibold text-foreground leading-tight">{tooltip.label}</div>
-                {tooltip.desc && (
-                  <div className="text-[11px] text-muted-foreground mt-1.5 leading-snug">{tooltip.desc}</div>
-                )}
-              </div>
-              <div className="w-2 h-2 bg-card/95 border-r border-b border-border rotate-45 mx-auto -mt-1" />
             </div>
-          )}
-
-          {/* Hint */}
-          {!isIsolated && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-card/90 backdrop-blur-sm text-xs text-muted-foreground z-[5] pointer-events-none border border-border/30 shadow-[var(--shadow-sm)] transition-opacity duration-500">
-              Click any node to isolate and zoom into its data path
-            </div>
-          )}
-
-          {/* Back button */}
-          {isIsolated && (
-            <button
-              className="absolute bottom-4 left-1/2 -translate-x-1/2 px-5 py-2 rounded-full bg-primary text-primary-foreground text-xs font-semibold z-[6] cursor-pointer border-none shadow-[0_2px_12px_rgba(174,86,48,0.3),0_0_0_0.5px_rgba(174,86,48,0.2)] transition-all duration-[var(--duration-normal)] hover:shadow-[0_4px_16px_rgba(174,86,48,0.4)] hover:-translate-x-1/2 hover:-translate-y-px active:scale-95"
-              onClick={restoreFullView}
-            >
-              Back to Full View
-            </button>
-          )}
-        </div>
-
-        {/* Right Panel */}
-        <div className="w-[340px] border-l border-border bg-card flex flex-col flex-shrink-0">
+            <FrameworkArchView pipelines={pipelines} connections={connections} labelMode={labelMode} searchQuery={searchQuery} />
+          </div>
+        ) : (
+        /* ============ DATA FLOW VIEW ============ */
+        <>
+        <div className="flex-1 overflow-auto p-4">
           {/* Search */}
-          <div className="px-4 py-2 border-b border-border flex-shrink-0">
+          <div className="mb-4 max-w-md">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
               <input
                 type="text"
-                className="w-full pl-8 pr-3 py-1.5 rounded-[var(--radius-md)] border border-border bg-background text-foreground text-xs outline-none transition-all duration-[var(--duration-normal)] focus:border-[var(--cl-border-focus,rgba(0,0,0,0.2))] focus:shadow-[0_0_0_3px_var(--cl-accent-soft,rgba(174,86,48,0.1))] placeholder:text-muted-foreground"
-                placeholder="Search nodes..."
+                className="w-full pl-8 pr-3 py-1.5 rounded-md border border-border bg-background text-foreground text-xs outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 placeholder:text-muted-foreground"
+                placeholder="Search tables, sources, schemas..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
           </div>
 
-          {/* Tabs */}
-          <div className="flex border-b border-border flex-shrink-0">
-            {(["detail", "matrix"] as const).map((tab) => (
-              <button
-                key={tab}
-                className={`flex-1 px-3 py-2.5 text-center text-xs font-medium cursor-pointer transition-all duration-[var(--duration-normal)] border-b-2 ${
-                  panelTab === tab
-                    ? "text-primary border-primary"
-                    : "text-muted-foreground border-transparent hover:text-foreground"
-                }`}
-                onClick={() => setPanelTab(tab)}
-              >
-                {tab === "detail" ? "Details" : "Audit Matrix"}
-              </button>
-            ))}
+          {/* Layer Headers */}
+          <div className="flex items-stretch gap-0 mb-2 px-2">
+            {LAYERS.map((layer, i) => {
+              const Icon = layer.icon;
+              return (
+                <div key={layer.key} className="flex items-center" style={{ width: i === 0 ? 200 : undefined, flex: i === 0 ? undefined : 1 }}>
+                  {i > 0 && (
+                    <div className="flex-shrink-0 w-8 flex items-center justify-center">
+                      <ArrowRight className="w-3 h-3 text-muted-foreground/30" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: layer.color }} />
+                      <span className="text-[11px] font-semibold" style={{ color: layer.color }}>{layer.label}</span>
+                    </div>
+                    <p className="text-[9px] text-muted-foreground leading-tight">{layer.description}</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
-          {/* Panel Content */}
-          <div className="flex-1 overflow-y-auto p-4">
-            {panelTab === "detail" ? (
-              <DetailPanel detail={nodeDetail} labelMode={labelMode} onSelectNode={selectNode} />
-            ) : (
-              <AuditMatrix cy={cyRef.current} labelMode={labelMode} onSelectNode={(id) => { selectNode(id); setPanelTab("detail"); }} />
-            )}
-          </div>
+          <div className="border-b border-border/50 mb-3" />
+
+          {/* Source Groups */}
+          {filteredGroups.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+              <Layers className="w-12 h-12 opacity-20 mb-3" />
+              <p className="text-sm">
+                {searchQuery ? "No tables match your search." : "No data sources registered yet."}
+              </p>
+              <p className="text-xs mt-1">
+                {searchQuery ? "Try a different search term." : "Register sources in the Source Manager to see data flow."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {filteredGroups.map((group) => {
+                const isExpanded = expandedSources.has(group.dataSourceName);
+                const isSelected = selectedFlow?.dataSourceName === group.dataSourceName;
+                const isDimmed = selectedFlow && !isSelected;
+
+                return (
+                  <div key={group.dataSourceName} className={`lane-row rounded-lg border transition-all duration-300 ${
+                    isDimmed ? "opacity-[0.12] border-border/20" : "border-border/50"
+                  } ${isSelected && !selectedFlow ? "border-primary/30 bg-primary/[0.02]" : ""}`}>
+                    {/* Source Header Row */}
+                    <div
+                      className="flex items-center gap-0 px-2 py-2.5 cursor-pointer hover:bg-muted/30 rounded-t-lg"
+                      onClick={() => toggleSource(group.dataSourceName)}
+                      onMouseEnter={() => !selectedFlow && setHoveredSource(group.dataSourceName)}
+                      onMouseLeave={() => setHoveredSource(null)}
+                    >
+                      {/* Expand icon */}
+                      <div className="w-5 flex-shrink-0">
+                        {isExpanded
+                          ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                          : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+                      </div>
+
+                      {/* Source node */}
+                      <div className="flow-node rounded-md border px-3 py-1.5 bg-card" style={{ width: 175, borderColor: `${LAYERS[0].color}30` }}>
+                        <div className="text-[11px] font-semibold text-foreground truncate" title={labelMode === "exec" ? group.dataSourceName : group.connectionName}>
+                          {labelMode === "exec" ? group.dataSourceName : group.connectionName}
+                        </div>
+                        <div className="text-[9px] text-muted-foreground">
+                          {sourceTypeBadge(group.dataSourceType)}
+                        </div>
+                      </div>
+
+                      {/* Connector → Landing */}
+                      <div className="flex-1 min-w-4 flex items-center px-1">
+                        <div className={`w-full ${hoveredSource === group.dataSourceName || isSelected ? "flow-connector-active" : "flow-connector-inactive"}`}
+                          style={{ "--fc": LAYERS[1].color } as React.CSSProperties} />
+                      </div>
+
+                      {/* Landing node */}
+                      <div className="flow-node rounded-md border px-3 py-1.5 bg-card" style={{ minWidth: 100, borderColor: `${LAYERS[1].color}30` }}>
+                        <div className="text-[11px] font-semibold tabular-nums" style={{ color: LAYERS[1].color }}>{fmt(group.landingCount)}</div>
+                        <div className="text-[9px] text-muted-foreground">{group.landingCount === 1 ? "table" : "tables"}</div>
+                      </div>
+
+                      {/* Connector → Bronze */}
+                      <div className="flex-1 min-w-4 flex items-center px-1">
+                        <div className={`w-full ${group.bronzeCount > 0 && (hoveredSource === group.dataSourceName || isSelected) ? "flow-connector-active" : group.bronzeCount > 0 ? "flow-connector-inactive" : "flow-connector-dimmed"}`}
+                          style={{ "--fc": LAYERS[2].color } as React.CSSProperties} />
+                      </div>
+
+                      {/* Bronze node */}
+                      <div className={`flow-node rounded-md border px-3 py-1.5 ${group.bronzeCount > 0 ? "bg-card" : "bg-muted/30"}`}
+                        style={{ minWidth: 100, borderColor: group.bronzeCount > 0 ? `${LAYERS[2].color}30` : "transparent" }}>
+                        <div className="text-[11px] font-semibold tabular-nums" style={{ color: group.bronzeCount > 0 ? LAYERS[2].color : "var(--muted-foreground)" }}>
+                          {group.bronzeCount ? fmt(group.bronzeCount) : "—"}
+                        </div>
+                        <div className="text-[9px] text-muted-foreground">{group.bronzeCount > 0 ? (group.bronzeCount === 1 ? "table" : "tables") : "pending"}</div>
+                      </div>
+
+                      {/* Connector → Silver */}
+                      <div className="flex-1 min-w-4 flex items-center px-1">
+                        <div className={`w-full ${group.silverCount > 0 && (hoveredSource === group.dataSourceName || isSelected) ? "flow-connector-active" : group.silverCount > 0 ? "flow-connector-inactive" : "flow-connector-dimmed"}`}
+                          style={{ "--fc": LAYERS[3].color } as React.CSSProperties} />
+                      </div>
+
+                      {/* Silver node */}
+                      <div className={`flow-node rounded-md border px-3 py-1.5 ${group.silverCount > 0 ? "bg-card" : "bg-muted/30"}`}
+                        style={{ minWidth: 100, borderColor: group.silverCount > 0 ? `${LAYERS[3].color}30` : "transparent" }}>
+                        <div className="text-[11px] font-semibold tabular-nums" style={{ color: group.silverCount > 0 ? LAYERS[3].color : "var(--muted-foreground)" }}>
+                          {group.silverCount ? fmt(group.silverCount) : "—"}
+                        </div>
+                        <div className="text-[9px] text-muted-foreground">{group.silverCount > 0 ? (group.silverCount === 1 ? "table" : "tables") : "pending"}</div>
+                      </div>
+
+                      {/* Connector → Gold */}
+                      <div className="flex-1 min-w-4 flex items-center px-1">
+                        <div className="w-full flow-connector-dimmed" style={{ "--fc": LAYERS[4].color } as React.CSSProperties} />
+                      </div>
+
+                      {/* Gold node */}
+                      <div className="flow-node rounded-md border px-3 py-1.5 bg-muted/30" style={{ width: 120, borderColor: "transparent" }}>
+                        <div className="text-[11px] font-semibold text-muted-foreground">—</div>
+                        <div className="text-[9px] text-muted-foreground">coming soon</div>
+                      </div>
+                    </div>
+
+                    {/* Expanded: Individual Entity Rows with progressive loading */}
+                    {isExpanded && (() => {
+                      const gsKey = group.dataSourceName;
+                      const gsq = groupSearch[gsKey] || "";
+                      const allFlows = gsq.trim()
+                        ? group.flows.filter(f => {
+                            const q = gsq.toLowerCase();
+                            return f.sourceName.toLowerCase().includes(q) ||
+                                   f.sourceSchema.toLowerCase().includes(q) ||
+                                   f.lzFileName.toLowerCase().includes(q) ||
+                                   (f.bronzeName || "").toLowerCase().includes(q) ||
+                                   (f.silverName || "").toLowerCase().includes(q);
+                          })
+                        : group.flows;
+                      const visCount = visibleCounts[gsKey] || PAGE_SIZE;
+                      const visibleFlows = allFlows.slice(0, visCount);
+                      const remaining = allFlows.length - visibleFlows.length;
+
+                      return (
+                      <div className="border-t border-border/30 bg-muted/[0.03]">
+                        {/* In-group search bar — only shows for large groups */}
+                        {group.flows.length > PAGE_SIZE && (
+                          <div className="px-3 py-2 border-b border-border/20 flex items-center gap-2">
+                            <Search className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                            <input
+                              type="text"
+                              className="flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/50"
+                              placeholder={`Filter ${fmt(group.flows.length)} tables...`}
+                              value={gsq}
+                              onChange={(e) => setGroupSearch(prev => ({ ...prev, [gsKey]: e.target.value }))}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            {gsq && (
+                              <span className="text-[9px] text-muted-foreground">{fmt(allFlows.length)} match{allFlows.length !== 1 ? "es" : ""}</span>
+                            )}
+                          </div>
+                        )}
+
+                        {visibleFlows.map((flow) => {
+                          const isFlowSelected = selectedFlow?.id === flow.id;
+                          const isFlowDimmed = selectedFlow && !isFlowSelected;
+
+                          return (
+                            <div
+                              key={flow.id}
+                              className={`lane-row flex items-center gap-0 px-2 py-1.5 cursor-pointer border-b border-border/10 last:border-b-0 transition-all duration-300 ${
+                                isFlowSelected
+                                  ? "bg-primary/[0.04]"
+                                  : isFlowDimmed
+                                    ? "opacity-[0.12]"
+                                    : "hover:bg-muted/40"
+                              }`}
+                              onClick={() => isFlowSelected ? clearSelection() : selectEntity(flow)}
+                            >
+                              {/* Indent spacer */}
+                              <div className="w-5 flex-shrink-0" />
+
+                              {/* Source */}
+                              <div
+                                className={`flow-node rounded border px-2 py-1 ${isFlowSelected ? "flow-node-active border-[#64748b]/50 bg-[#64748b]/5" : "border-border/30 bg-card"}`}
+                                style={{ width: 175 }}
+                                title={`${flow.sourceSchema}.${flow.sourceName}`}
+                              >
+                                <div className="text-[10px] font-semibold text-foreground truncate">
+                                  {labelMode === "exec" ? flow.sourceName : `${flow.sourceSchema}.${flow.sourceName}`}
+                                </div>
+                                <div className="text-[8px] text-muted-foreground truncate">
+                                  {labelMode === "exec" ? flow.dataSourceName : flow.sourceSchema}
+                                </div>
+                              </div>
+
+                              {/* → Landing */}
+                              <div className="flex-1 min-w-4 flex items-center px-1">
+                                <div className={`w-full ${isFlowSelected ? "flow-connector-active" : "flow-connector-inactive"}`}
+                                  style={{ "--fc": LAYERS[1].color } as React.CSSProperties} />
+                              </div>
+                              <div
+                                className={`flow-node rounded border px-2 py-1 ${isFlowSelected ? "flow-node-active border-[#3b82f6]/50 bg-[#3b82f6]/5" : "border-border/30 bg-card"}`}
+                                style={{ width: 120 }}
+                                title={`${flow.lzFilePath}/${flow.lzFileName}`}
+                              >
+                                <div className="text-[10px] font-medium truncate" style={{ color: LAYERS[1].color }}>
+                                  {labelMode === "exec" ? flow.lzFileName.replace(/\.[^.]+$/, "") : flow.lzFileName}
+                                </div>
+                                <div className="text-[8px] text-muted-foreground">
+                                  {flow.lzFileType} {flow.isIncremental ? "INC" : "FULL"}
+                                </div>
+                              </div>
+
+                              {/* → Bronze */}
+                              <div className="flex-1 min-w-4 flex items-center px-1">
+                                <div className={`w-full ${flow.bronzeName ? (isFlowSelected ? "flow-connector-active" : "flow-connector-inactive") : "flow-connector-dimmed"}`}
+                                  style={{ "--fc": LAYERS[2].color } as React.CSSProperties} />
+                              </div>
+                              <div
+                                className={`flow-node rounded border px-2 py-1 ${
+                                  !flow.bronzeName ? "border-dashed border-border/20 bg-muted/20" :
+                                  isFlowSelected ? "flow-node-active border-[#f59e0b]/50 bg-[#f59e0b]/5" : "border-border/30 bg-card"
+                                }`}
+                                style={{ width: 120 }}
+                                title={flow.bronzeName ? `${flow.bronzeSchema}.${flow.bronzeName}` : undefined}
+                              >
+                                {flow.bronzeName ? (
+                                  <>
+                                    <div className="text-[10px] font-medium truncate" style={{ color: LAYERS[2].color }}>
+                                      {labelMode === "exec" ? flow.bronzeName : `${flow.bronzeSchema}.${flow.bronzeName}`}
+                                    </div>
+                                    <div className="text-[8px] text-muted-foreground">{flow.bronzeFileType}</div>
+                                  </>
+                                ) : (
+                                  <div className="text-[9px] text-muted-foreground/50 italic">not yet</div>
+                                )}
+                              </div>
+
+                              {/* → Silver */}
+                              <div className="flex-1 min-w-4 flex items-center px-1">
+                                <div className={`w-full ${flow.silverName ? (isFlowSelected ? "flow-connector-active" : "flow-connector-inactive") : "flow-connector-dimmed"}`}
+                                  style={{ "--fc": LAYERS[3].color } as React.CSSProperties} />
+                              </div>
+                              <div
+                                className={`flow-node rounded border px-2 py-1 ${
+                                  !flow.silverName ? "border-dashed border-border/20 bg-muted/20" :
+                                  isFlowSelected ? "flow-node-active border-[#8b5cf6]/50 bg-[#8b5cf6]/5" : "border-border/30 bg-card"
+                                }`}
+                                style={{ width: 120 }}
+                                title={flow.silverName ? `${flow.silverSchema}.${flow.silverName}` : undefined}
+                              >
+                                {flow.silverName ? (
+                                  <>
+                                    <div className="text-[10px] font-medium truncate" style={{ color: LAYERS[3].color }}>
+                                      {labelMode === "exec" ? flow.silverName : `${flow.silverSchema}.${flow.silverName}`}
+                                    </div>
+                                    <div className="text-[8px] text-muted-foreground">{flow.silverFileType}</div>
+                                  </>
+                                ) : (
+                                  <div className="text-[9px] text-muted-foreground/50 italic">not yet</div>
+                                )}
+                              </div>
+
+                              {/* → Gold */}
+                              <div className="flex-1 min-w-4 flex items-center px-1">
+                                <div className="w-full flow-connector-dimmed" style={{ "--fc": LAYERS[4].color } as React.CSSProperties} />
+                              </div>
+                              <div className="flow-node rounded border border-dashed border-border/20 bg-muted/20 px-2 py-1" style={{ width: 120 }}>
+                                <div className="text-[9px] text-muted-foreground/50 italic">coming soon</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Show more button */}
+                        {remaining > 0 && (
+                          <div
+                            className="px-2 py-2 text-center cursor-pointer hover:bg-muted/30 border-t border-border/20 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setVisibleCounts(prev => ({ ...prev, [gsKey]: visCount + PAGE_SIZE }));
+                            }}
+                          >
+                            <span className="text-[10px] font-medium text-primary">
+                              Show {fmt(Math.min(remaining, PAGE_SIZE))} more
+                            </span>
+                            <span className="text-[10px] text-muted-foreground ml-1">
+                              ({fmt(remaining)} remaining of {fmt(allFlows.length)})
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      );
+                    })()}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Flow Summary Footer */}
+          {filteredGroups.length > 0 && (
+            <div className="mt-4 flex items-center gap-4 text-[10px] text-muted-foreground px-2">
+              <span>{fmt(totalFlows)} total tables across {fmt(sourceGroups.length)} sources</span>
+              <span className="text-border">|</span>
+              <span style={{ color: LAYERS[1].color }}>{fmt(totalFlows)} in Landing Zone</span>
+              <span style={{ color: LAYERS[2].color }}>{fmt(totalBronze)} in Bronze</span>
+              <span style={{ color: LAYERS[3].color }}>{fmt(totalSilver)} in Silver</span>
+              <span style={{ color: LAYERS[4].color }}>0 in Gold</span>
+            </div>
+          )}
         </div>
+
+        {/* Right Panel — Detail / Narrative */}
+        <div className="w-[360px] border-l border-border bg-card flex flex-col flex-shrink-0">
+          {selectedFlow ? (
+            <div className="narrative-panel flex flex-col h-full">
+              {/* Header */}
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-shrink-0">
+                <div>
+                  <div className="text-xs font-semibold text-foreground">
+                    {selectedFlow.sourceName}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {selectedFlow.dataSourceName} &middot; {sourceTypeBadge(selectedFlow.dataSourceType)}
+                  </div>
+                </div>
+                <button onClick={clearSelection} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Progress bar */}
+              <div className="px-4 py-3 border-b border-border/50 flex-shrink-0">
+                <div className="text-[10px] font-medium text-muted-foreground mb-2 uppercase tracking-wider">Data Journey Progress</div>
+                <div className="flex items-center gap-1">
+                  {LAYERS.map((layer, i) => {
+                    const step = narrative[i];
+                    const reached = step?.reached;
+                    return (
+                      <div key={layer.key} className="flex items-center flex-1">
+                        <div
+                          className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${reached ? "" : "bg-muted"}`}
+                          style={reached ? { backgroundColor: layer.color } : undefined}
+                        />
+                        {i < LAYERS.length - 1 && <div className="w-0.5" />}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex justify-between mt-1">
+                  {LAYERS.map((layer) => (
+                    <span key={layer.key} className="text-[8px] text-muted-foreground">{layer.label}</span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Narrative Steps */}
+              <div className="flex-1 overflow-y-auto px-4 py-3">
+                <div className="text-[10px] font-medium text-muted-foreground mb-3 uppercase tracking-wider">
+                  What happens to this data
+                </div>
+                <div className="space-y-0">
+                  {narrative.map((step, i) => {
+                    const layer = LAYERS[i];
+                    const Icon = layer.icon;
+                    return (
+                      <div key={step.step} className="flex gap-3">
+                        {/* Vertical connector */}
+                        <div className="flex flex-col items-center flex-shrink-0">
+                          <div
+                            className={`w-7 h-7 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
+                              step.reached
+                                ? "border-current bg-current/10"
+                                : "border-muted bg-muted/30"
+                            }`}
+                            style={step.reached ? { color: layer.color, borderColor: layer.color } : undefined}
+                          >
+                            <Icon className="w-3.5 h-3.5" style={step.reached ? { color: layer.color } : { color: "var(--muted-foreground)" }} />
+                          </div>
+                          {i < narrative.length - 1 && (
+                            <div
+                              className={`w-0.5 flex-1 min-h-4 ${step.reached && narrative[i + 1]?.reached ? "" : "bg-muted"}`}
+                              style={step.reached && narrative[i + 1]?.reached ? { backgroundColor: layer.color, opacity: 0.3 } : undefined}
+                            />
+                          )}
+                        </div>
+
+                        {/* Content */}
+                        <div className={`pb-4 flex-1 min-w-0 ${!step.reached ? "opacity-40" : ""}`}>
+                          <div className="text-[11px] font-semibold text-foreground">{step.title}</div>
+                          <p className="text-[10px] text-muted-foreground leading-relaxed mt-0.5">{step.detail}</p>
+
+                          {/* Technical details for reached steps */}
+                          {step.reached && step.layer === "landing" && (
+                            <div className="mt-1.5 px-2 py-1 rounded bg-muted/50 border border-border/30">
+                              <div className="text-[9px] font-mono text-muted-foreground">
+                                {selectedFlow.lzFilePath}/{selectedFlow.lzFileName}
+                              </div>
+                            </div>
+                          )}
+                          {step.reached && step.layer === "bronze" && selectedFlow.bronzeName && (
+                            <div className="mt-1.5 px-2 py-1 rounded bg-muted/50 border border-border/30">
+                              <div className="text-[9px] font-mono text-muted-foreground">
+                                {selectedFlow.bronzeSchema}.{selectedFlow.bronzeName}
+                              </div>
+                            </div>
+                          )}
+                          {step.reached && step.layer === "silver" && selectedFlow.silverName && (
+                            <div className="mt-1.5 px-2 py-1 rounded bg-muted/50 border border-border/30">
+                              <div className="text-[9px] font-mono text-muted-foreground">
+                                {selectedFlow.silverSchema}.{selectedFlow.silverName}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Entity details footer */}
+              <div className="px-4 py-3 border-t border-border flex-shrink-0 bg-muted/30">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="px-2 py-1.5 rounded bg-card border border-border/30">
+                    <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Load Type</div>
+                    <div className="text-[11px] font-semibold text-foreground mt-0.5">
+                      {selectedFlow.isIncremental ? "Incremental" : "Full Load"}
+                    </div>
+                  </div>
+                  <div className="px-2 py-1.5 rounded bg-card border border-border/30">
+                    <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Format</div>
+                    <div className="text-[11px] font-semibold text-foreground mt-0.5">{selectedFlow.lzFileType}</div>
+                  </div>
+                  <div className="px-2 py-1.5 rounded bg-card border border-border/30">
+                    <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Connection</div>
+                    <div className="text-[11px] font-semibold text-foreground mt-0.5 truncate" title={selectedFlow.connectionName}>{selectedFlow.connectionName}</div>
+                  </div>
+                  <div className="px-2 py-1.5 rounded bg-card border border-border/30">
+                    <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Progress</div>
+                    <div className="text-[11px] font-semibold mt-0.5" style={{ color: LAYERS[LAYERS.findIndex(l => l.key === selectedFlow.maxLayer)].color }}>
+                      {selectedFlow.maxLayer === "landing" ? "Landing Zone" : selectedFlow.maxLayer.charAt(0).toUpperCase() + selectedFlow.maxLayer.slice(1)} Layer
+                    </div>
+                  </div>
+                </div>
+                <Link
+                  to={`/journey?entity=${selectedFlow.lzEntityId}`}
+                  className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md border border-primary/30 bg-primary/5 text-primary text-[11px] font-medium hover:bg-primary/10 transition-colors"
+                >
+                  <Route className="w-3.5 h-3.5" />
+                  Deep Dive — Schema &amp; Transformation Details
+                </Link>
+              </div>
+            </div>
+          ) : (
+            /* Empty state */
+            <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground gap-3 px-8">
+              <Layers className="w-14 h-14 opacity-15" />
+              <div>
+                <p className="text-[13px] font-medium text-foreground/60 mb-1">Select a table to explore</p>
+                <p className="text-[11px] leading-relaxed">
+                  Expand a data source on the left, then click any table to see exactly how your data flows through
+                  each layer of the system, explained in plain English.
+                </p>
+              </div>
+              <div className="mt-4 text-left w-full space-y-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">How to read the flow</div>
+                {LAYERS.map((layer) => {
+                  const Icon = layer.icon;
+                  return (
+                    <div key={layer.key} className="flex items-start gap-2">
+                      <Icon className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style={{ color: layer.color }} />
+                      <div>
+                        <span className="text-[10px] font-semibold" style={{ color: layer.color }}>{layer.label}</span>
+                        <span className="text-[10px] text-muted-foreground ml-1">{layer.description}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+        </>
+        )}
       </div>
     </div>
   );

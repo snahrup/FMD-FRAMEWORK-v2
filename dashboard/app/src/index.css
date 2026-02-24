@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ============================================================
    CLAUDE DESIGN SYSTEM — All 12 Phases
    FMD Pipeline Dashboard
@@ -157,7 +159,7 @@
   --accent-soft: rgba(174, 86, 48, 0.1);
 
   /* CDS Borders — Light */
-  --cl-border: rgba(0, 0, 0, 0.08);
+  --cl-border: rgba(0, 0, 0, 0.06);
   --border-light: rgba(0, 0, 0, 0.12);
   --border-focus: rgba(0, 0, 0, 0.18);
   --border-subtle: rgba(0, 0, 0, 0.04);

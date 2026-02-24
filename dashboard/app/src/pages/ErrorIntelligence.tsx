@@ -55,6 +55,36 @@ const aiAnalysisResponses: Record<string, string> = {
 **Action needed:** If \`warehouse_zone_id\` is business-relevant (check with the warehouse team), add it to your Bronze layer schema and transformation logic. If not, no action needed — the pipeline will continue to work fine without it.`,
 };
 
+// ===== Weekly Trend Data (mock — will be driven by execution logs) =====
+interface WeekTrend {
+  label: string;       // e.g. "Nov 23"
+  weekOf: string;      // ISO date
+  critical: number;
+  warning: number;
+  info: number;
+}
+
+const weeklyTrends: WeekTrend[] = [
+  { label: "Nov 23", weekOf: "2025-11-23", critical: 2, warning: 5, info: 3 },
+  { label: "Aug 23", weekOf: "2025-08-23", critical: 0, warning: 3, info: 6 },
+  { label: "Aug 26", weekOf: "2025-08-26", critical: 1, warning: 4, info: 2 },
+  { label: "Aug 29", weekOf: "2025-08-29", critical: 0, warning: 1, info: 1 },
+  { label: "Nov 25", weekOf: "2025-11-25", critical: 3, warning: 8, info: 4 },
+  { label: "Feb 23", weekOf: "2026-02-03", critical: 0, warning: 2, info: 5 },
+  { label: "Nov 25", weekOf: "2025-11-25", critical: 1, warning: 3, info: 2 },
+  { label: "Feb 15", weekOf: "2026-02-15", critical: 2, warning: 6, info: 3 },
+  { label: "Feb 18", weekOf: "2026-02-18", critical: 1, warning: 4, info: 2 },
+];
+
+function getTrendColor(w: WeekTrend): string {
+  if (w.critical >= 3) return "bg-red-500";
+  if (w.critical >= 1) return "bg-red-400/80";
+  if (w.warning >= 5) return "bg-amber-500";
+  if (w.warning >= 1) return "bg-amber-400/70";
+  if (w.info >= 1) return "bg-emerald-400/60";
+  return "bg-emerald-500/40";
+}
+
 const weeklyInsight = `I've analyzed **47 pipeline errors** across your FMD framework this week. Here's what I found:
 
 **3 critical patterns** are driving 78% of all failures:
@@ -172,6 +202,7 @@ export default function ErrorIntelligence() {
   const [askInput, setAskInput] = useState("");
   const [hasLiveData, setHasLiveData] = useState<boolean | null>(null);
   const [demoMode, setDemoMode] = useState(false);
+  const [selectedWeekIdx, setSelectedWeekIdx] = useState<number>(weeklyTrends.length - 1);
 
   // Check if live execution data exists
   useEffect(() => {
@@ -181,7 +212,7 @@ export default function ErrorIntelligence() {
       .catch(() => setHasLiveData(false));
   }, []);
 
-  const showMockData = demoMode || hasLiveData === true;
+  const showMockData = demoMode;
 
   const filteredErrors = !showMockData ? [] : filterSeverity === 'all'
     ? errorSummaries
@@ -256,22 +287,90 @@ export default function ErrorIntelligence() {
         </div>
       )}
 
-      {/* ===== Claude Weekly Insights ===== */}
-      <div className="rounded-[var(--radius-xl)] border border-border bg-card overflow-hidden shadow-[var(--shadow-card)]">
+      {/* ===== Claude Weekly Insights with Trend Timeline ===== */}
+      <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 rounded-xl border border-slate-200/50 dark:border-slate-800/30 overflow-hidden shadow-sm">
+        {/* Title row */}
         <div
-          className="flex items-center gap-3 px-5 py-3 bg-muted/50 cursor-pointer hover:bg-muted/70 transition-colors"
+          className="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
           onClick={() => { setWeeklyExpanded(!weeklyExpanded); if (!showWeeklyInsight) setShowWeeklyInsight(true); }}
         >
-          <div className="h-7 w-7 rounded-[var(--radius-md)] bg-primary/10 border border-primary/20 flex items-center justify-center">
+          <div className="h-7 w-7 rounded-[var(--radius-md)] bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
             <BarChart3 className="h-4 w-4 text-primary" />
           </div>
           <div className="flex-1">
             <span className="text-sm font-medium text-foreground">Weekly Error Analysis</span>
             <span className="text-[10px] text-muted-foreground ml-2 font-mono">auto-generated</span>
           </div>
-          <span className="text-[10px] font-mono text-muted-foreground mr-2">Feb 18, 2026</span>
-          {weeklyExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+          {weeklyExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />}
         </div>
+
+        {/* Trend Timeline Bar */}
+        <div className="px-5 pb-3">
+          <div className="flex items-end gap-1.5">
+            {/* Left nav arrow */}
+            <button
+              onClick={() => setSelectedWeekIdx(Math.max(0, selectedWeekIdx - 1))}
+              disabled={selectedWeekIdx === 0}
+              className="flex-shrink-0 p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20 cursor-pointer disabled:cursor-default transition-colors mb-3"
+            >
+              <ChevronRight className="h-4 w-4 rotate-180" />
+            </button>
+
+            {/* Week segments */}
+            <div className="flex-1 flex items-end gap-1.5">
+              {weeklyTrends.map((w, i) => {
+                const total = w.critical + w.warning + w.info;
+                const isSelected = i === selectedWeekIdx;
+                // Scale bar height relative to max error count
+                const maxTotal = Math.max(...weeklyTrends.map(t => t.critical + t.warning + t.info), 1);
+                const heightPct = Math.max(25, (total / maxTotal) * 100);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setSelectedWeekIdx(i)}
+                    className="flex-1 flex flex-col items-center gap-1 cursor-pointer group"
+                  >
+                    {/* Bar */}
+                    <div
+                      className={cn(
+                        "w-full rounded-md transition-all duration-200",
+                        getTrendColor(w),
+                        isSelected
+                          ? "ring-2 ring-primary/80 ring-offset-2 ring-offset-background shadow-md"
+                          : "opacity-50 hover:opacity-80"
+                      )}
+                      style={{ height: `${Math.round(heightPct * 0.36)}px`, minHeight: "10px" }}
+                      title={`${w.label}: ${total} errors (${w.critical}c / ${w.warning}w / ${w.info}i)`}
+                    />
+                    {/* Label */}
+                    <span className={cn(
+                      "text-[8px] font-mono leading-none transition-colors",
+                      isSelected ? "text-foreground font-semibold" : "text-muted-foreground/60"
+                    )}>
+                      {w.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Right nav arrow + date */}
+            <div className="flex-shrink-0 flex items-center gap-1 mb-3">
+              <button
+                onClick={() => setSelectedWeekIdx(Math.min(weeklyTrends.length - 1, selectedWeekIdx + 1))}
+                disabled={selectedWeekIdx === weeklyTrends.length - 1}
+                className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20 cursor-pointer disabled:cursor-default transition-colors"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+              <span className="text-[10px] font-mono text-muted-foreground ml-1 min-w-[72px] text-right">
+                {weeklyTrends[selectedWeekIdx]?.label ?? ""}, 2026
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Expanded AI analysis */}
         {weeklyExpanded && (
           <div className="p-5 border-t border-border">
             {weeklyStream.isThinking ? (
@@ -288,7 +387,7 @@ export default function ErrorIntelligence() {
 
       {/* ===== Summary Cards ===== */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="p-4">
+        <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 rounded-xl border border-slate-200/50 dark:border-slate-800/30 p-4 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Total Errors</p>
@@ -298,8 +397,8 @@ export default function ErrorIntelligence() {
               <AlertCircle className="w-5 h-5 text-muted-foreground" />
             </div>
           </div>
-        </Card>
-        <Card className={cn("p-4 border-red-200 dark:border-red-800/50")}>
+        </div>
+        <div className="bg-gradient-to-br from-red-50 to-red-100/50 dark:from-red-950/20 dark:to-red-900/10 rounded-xl border border-red-200/50 dark:border-red-800/30 p-4 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[10px] font-medium text-red-600 dark:text-red-400 uppercase tracking-wider">Critical</p>
@@ -309,8 +408,8 @@ export default function ErrorIntelligence() {
               <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
             </div>
           </div>
-        </Card>
-        <Card className={cn("p-4 border-amber-200 dark:border-amber-800/50")}>
+        </div>
+        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/20 dark:to-amber-900/10 rounded-xl border border-amber-200/50 dark:border-amber-800/30 p-4 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[10px] font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">Warnings</p>
@@ -320,8 +419,8 @@ export default function ErrorIntelligence() {
               <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
             </div>
           </div>
-        </Card>
-        <Card className={cn("p-4 border-blue-200 dark:border-blue-800/50")}>
+        </div>
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/10 rounded-xl border border-blue-200/50 dark:border-blue-800/30 p-4 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[10px] font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wider">Info</p>
@@ -331,11 +430,11 @@ export default function ErrorIntelligence() {
               <Info className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             </div>
           </div>
-        </Card>
+        </div>
       </div>
 
       {/* ===== MINIMAX Error Pattern Analysis - PRESERVED ===== */}
-      {showMockData && <Card className="p-5">
+      {showMockData && <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/10 rounded-xl border border-purple-200/50 dark:border-purple-800/30 p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-foreground mb-4">Error Pattern Analysis</h2>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {errorPatterns.map((pattern, index) => (
@@ -346,7 +445,7 @@ export default function ErrorIntelligence() {
             </div>
           ))}
         </div>
-      </Card>}
+      </div>}
 
       {/* Severity Filter */}
       <div className="flex items-center gap-2">
@@ -403,7 +502,7 @@ export default function ErrorIntelligence() {
       </div>
 
       {filteredErrors.length === 0 && (
-        <Card className="p-12 text-center">
+        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/20 dark:to-emerald-900/10 rounded-xl border border-emerald-200/50 dark:border-emerald-800/30 p-12 text-center shadow-sm">
           <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-950/30 rounded-full flex items-center justify-center mx-auto">
             <CheckCircle className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />
           </div>
@@ -413,7 +512,7 @@ export default function ErrorIntelligence() {
               ? 'All pipelines are running successfully.'
               : `No ${filterSeverity} errors found.`}
           </p>
-        </Card>
+        </div>
       )}
     </div>
   );

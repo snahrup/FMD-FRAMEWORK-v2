@@ -11,7 +11,7 @@
           "operationType": "InvokeFabricPipeline"
         },
         "externalReferences": {
-          "connection": "6d8146c6-a438-47df-94e2-540c552eb6d7"
+          "connection": "6b2e33a1-b441-4137-b41d-260ffa8258cf"
         },
         "policy": {
           "timeout": "0.01:00:00",
@@ -40,7 +40,7 @@
           "operationType": "InvokeFabricPipeline"
         },
         "externalReferences": {
-          "connection": "6d8146c6-a438-47df-94e2-540c552eb6d7"
+          "connection": "6b2e33a1-b441-4137-b41d-260ffa8258cf"
         },
         "policy": {
           "timeout": "0.01:00:00",
@@ -154,7 +154,7 @@
               "workspaceId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_workspace_guid"
             },
             "externalReferences": {
-              "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+              "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
             },
             "annotations": []
           }
@@ -265,7 +265,7 @@
               "workspaceId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_workspace_guid"
             },
             "externalReferences": {
-              "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+              "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
             },
             "annotations": []
           }
@@ -382,7 +382,7 @@
               "workspaceId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_workspace_guid"
             },
             "externalReferences": {
-              "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+              "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
             },
             "annotations": []
           }
@@ -499,7 +499,7 @@
               "workspaceId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_workspace_guid"
             },
             "externalReferences": {
-              "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+              "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
             },
             "annotations": []
           }
@@ -531,7 +531,7 @@
           "operationType": "InvokeFabricPipeline"
         },
         "externalReferences": {
-          "connection": "6d8146c6-a438-47df-94e2-540c552eb6d7"
+          "connection": "6b2e33a1-b441-4137-b41d-260ffa8258cf"
         },
         "policy": {
           "timeout": "0.01:00:00",
@@ -645,7 +645,7 @@
               "workspaceId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_workspace_guid"
             },
             "externalReferences": {
-              "connection": "372237f9-709a-48f8-8fb2-ce06940c990e"
+              "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
             },
             "annotations": []
           }
