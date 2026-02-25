@@ -823,6 +823,93 @@ def get_notebook_executions() -> list[dict]:
         log.warning(f'NotebookExecution query failed (table may not exist yet): {e}')
         return []
 
+def get_live_monitor() -> dict:
+    """Real-time pipeline monitoring: pipeline runs, entity progress, notebook/copy activity."""
+    result = {}
+
+    # 1. Recent pipeline events (last 4 hours)
+    try:
+        result['pipelineEvents'] = query_sql("""
+            SELECT TOP 30 PipelineName, LogType, LogDateTime, LogData,
+                   CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid,
+                   EntityLayer
+            FROM [logging].[PipelineExecution]
+            WHERE LogDateTime > DATEADD(HOUR, -4, GETUTCDATE())
+            ORDER BY LogDateTime DESC
+        """)
+    except Exception:
+        result['pipelineEvents'] = []
+
+    # 2. Recent notebook executions (entity-level, last 4 hours)
+    try:
+        result['notebookEvents'] = query_sql("""
+            SELECT TOP 100 NotebookName, LogType, LogDateTime, LogData,
+                   EntityId, EntityLayer,
+                   CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid
+            FROM [logging].[NotebookExecution]
+            WHERE LogDateTime > DATEADD(HOUR, -4, GETUTCDATE())
+            ORDER BY LogDateTime DESC
+        """)
+    except Exception:
+        result['notebookEvents'] = []
+
+    # 3. Recent copy activity (LZ loads, last 4 hours)
+    try:
+        result['copyEvents'] = query_sql("""
+            SELECT TOP 50 CopyActivityName, CopyActivityParameters AS EntityName,
+                   LogType, LogDateTime, LogData, EntityId, EntityLayer,
+                   CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid
+            FROM [logging].[CopyActivityExecution]
+            WHERE LogDateTime > DATEADD(HOUR, -4, GETUTCDATE())
+            ORDER BY LogDateTime DESC
+        """)
+    except Exception:
+        result['copyEvents'] = []
+
+    # 4. Processing counts
+    try:
+        counts_rows = query_sql("""
+            SELECT
+                (SELECT COUNT(*) FROM [integration].[LandingzoneEntity]) AS lzRegistered,
+                (SELECT COUNT(*) FROM [execution].[PipelineLandingzoneEntity]) AS lzPipelineTotal,
+                (SELECT COUNT(*) FROM [execution].[PipelineLandingzoneEntity] WHERE IsProcessed = 1) AS lzProcessed,
+                (SELECT COUNT(*) FROM [integration].[BronzeLayerEntity]) AS brzRegistered,
+                (SELECT COUNT(*) FROM [execution].[PipelineBronzeLayerEntity]) AS brzPipelineTotal,
+                (SELECT COUNT(*) FROM [execution].[PipelineBronzeLayerEntity] WHERE IsProcessed = 1) AS brzProcessed,
+                (SELECT COUNT(*) FROM [integration].[SilverLayerEntity]) AS slvRegistered,
+                (SELECT COUNT(*) FROM [execution].[vw_LoadToBronzeLayer]) AS brzViewPending,
+                (SELECT COUNT(*) FROM [execution].[vw_LoadToSilverLayer]) AS slvViewPending
+        """)
+        result['counts'] = counts_rows[0] if counts_rows else {}
+    except Exception:
+        result['counts'] = {}
+
+    # 5. Recently processed Bronze entities
+    try:
+        result['bronzeEntities'] = query_sql("""
+            SELECT TOP 20 pbe.BronzeLayerEntityId, pbe.SchemaName, pbe.TableName,
+                   pbe.InsertDateTime, pbe.IsProcessed, pbe.LoadEndDateTime
+            FROM [execution].[PipelineBronzeLayerEntity] pbe
+            ORDER BY pbe.InsertDateTime DESC
+        """)
+    except Exception:
+        result['bronzeEntities'] = []
+
+    # 6. Recently processed LZ entities
+    try:
+        result['lzEntities'] = query_sql("""
+            SELECT TOP 20 ple.LandingzoneEntityId, ple.FilePath, ple.FileName,
+                   ple.InsertDateTime, ple.IsProcessed, ple.LoadEndDateTime
+            FROM [execution].[PipelineLandingzoneEntity] ple
+            ORDER BY ple.InsertDateTime DESC
+        """)
+    except Exception:
+        result['lzEntities'] = []
+
+    result['serverTime'] = datetime.utcnow().isoformat() + 'Z'
+    return result
+
+
 def get_bronze_view() -> list[dict]:
     return query_sql('SELECT * FROM [execution].[vw_LoadToBronzeLayer]')
 
@@ -1396,6 +1483,16 @@ def get_fabric_job_instances(force_refresh: bool = False) -> list[dict]:
     return result
 
 
+def _safe_int(val) -> int | None:
+    """Coerce a value to int, or return None if not parseable."""
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return None
+
+
 def get_pipeline_activity_runs(workspace_guid: str, job_instance_id: str) -> list[dict]:
     """Query Fabric REST API for activity-level runs within a specific pipeline job instance."""
     token = get_fabric_token('https://api.fabric.microsoft.com/.default')
@@ -1420,6 +1517,29 @@ def get_pipeline_activity_runs(workspace_guid: str, job_instance_id: str) -> lis
         # Normalize and clean up for frontend
         result = []
         for act in activities:
+            out = act.get('output', {}) or {}
+            # Extract row counts from output — Copy activities report these
+            rows_read = out.get('rowsRead') or out.get('rows_read') or out.get('recordsRead')
+            rows_written = out.get('rowsCopied') or out.get('rowsWritten') or out.get('rows_written') or out.get('recordsWritten')
+            data_read = out.get('dataRead') or out.get('data_read') or out.get('bytesRead')
+            data_written = out.get('dataWritten') or out.get('data_written') or out.get('bytesWritten')
+            # Some activities nest counts under billingDetails or copyDuration
+            if not rows_read and 'billingDetails' in out:
+                bd = out['billingDetails']
+                rows_read = bd.get('rowsRead')
+                rows_written = bd.get('rowsCopied') or bd.get('rowsWritten')
+                data_read = bd.get('dataRead')
+                data_written = bd.get('dataWritten')
+
+            row_counts = None
+            if rows_read is not None or rows_written is not None:
+                row_counts = {
+                    'rowsRead': _safe_int(rows_read),
+                    'rowsWritten': _safe_int(rows_written),
+                    'dataRead': _safe_int(data_read),
+                    'dataWritten': _safe_int(data_written),
+                }
+
             result.append({
                 'activityName': act.get('activityName', ''),
                 'activityType': act.get('activityType', ''),
@@ -1429,8 +1549,9 @@ def get_pipeline_activity_runs(workspace_guid: str, job_instance_id: str) -> lis
                 'durationMs': act.get('durationInMs', 0),
                 'error': act.get('error', {}),
                 'input': act.get('input', {}),
-                'output': act.get('output', {}),
+                'output': out,
                 'activityRunId': act.get('activityRunId', ''),
+                'rowCounts': row_counts,
             })
         return result
     except urllib.error.HTTPError as e:
@@ -1565,6 +1686,76 @@ def _classify_error(raw: str) -> str:
     return 'other'
 
 
+import re as _re
+
+def _extract_error_context(raw: str) -> dict:
+    """Parse a raw error message into structured context for the UI.
+    Returns {summary, entityName, errorType}."""
+    summary = ''
+    entity_name = ''
+    error_type = ''
+    lower = raw.lower()
+
+    # Try to extract entity/table name from file paths
+    # Pattern: /Files/LZ_RAW/namespace/TableName or similar
+    path_match = _re.search(r'/Files/[^/]+/([^/]+/[^/\s\'"]+)', raw)
+    if path_match:
+        entity_name = path_match.group(1)  # e.g. "etqdb/WorkItem"
+
+    # Try schema.table patterns
+    if not entity_name:
+        table_match = _re.search(r'(?:table|from|into)\s+["\[]?(\w+)["\]]?\.["\[]?(\w+)["\]]?', raw, _re.IGNORECASE)
+        if table_match:
+            entity_name = f'{table_match.group(1)}.{table_match.group(2)}'
+
+    # Classify specific error type and build summary
+    if 'file not found' in lower or 'path does not exist' in lower or 'not found' in lower and 'file' in lower:
+        error_type = 'FILE_NOT_FOUND'
+        summary = f'File not found{": " + entity_name if entity_name else ""}'
+    elif 'gateway' in lower and ('offline' in lower or 'unreachable' in lower or 'not available' in lower):
+        error_type = 'GATEWAY_OFFLINE'
+        summary = 'Gateway machine is offline or unreachable'
+    elif 'login failed' in lower:
+        error_type = 'LOGIN_FAILED'
+        user_match = _re.search(r"login failed for user '([^']+)'", raw, _re.IGNORECASE)
+        summary = f'Login failed{" for " + user_match.group(1) if user_match else ""}'
+    elif 'cannot open database' in lower or 'cannot connect' in lower:
+        error_type = 'CONNECTION_REFUSED'
+        summary = 'Cannot connect to database'
+    elif 'timeout' in lower or 'timed out' in lower:
+        error_type = 'TIMEOUT'
+        summary = f'Query timed out{" on " + entity_name if entity_name else ""}'
+    elif 'certificate' in lower or 'ssl' in lower or 'tls' in lower:
+        error_type = 'SSL_ERROR'
+        summary = 'SSL/TLS certificate validation failed'
+    elif 'column' in lower and ('not found' in lower or 'does not exist' in lower or 'invalid' in lower):
+        error_type = 'SCHEMA_MISMATCH'
+        col_match = _re.search(r"column '([^']+)'", raw, _re.IGNORECASE)
+        summary = f'Column mismatch{": " + col_match.group(1) if col_match else ""}'
+    elif 'unauthorized' in lower or 'forbidden' in lower or 'access denied' in lower:
+        error_type = 'AUTH_DENIED'
+        summary = 'Access denied or unauthorized'
+    elif 'cancel' in lower or 'abort' in lower:
+        error_type = 'CANCELLED'
+        summary = 'Run was cancelled'
+    elif 'notebook' in lower and 'failed' in lower:
+        error_type = 'NOTEBOOK_FAILED'
+        summary = f'Notebook execution failed{" for " + entity_name if entity_name else ""}'
+    elif 'throttl' in lower or '429' in lower or 'capacity' in lower:
+        error_type = 'THROTTLED'
+        summary = 'Capacity throttled — too many concurrent requests'
+    elif 'delta' in lower and ('conflict' in lower or 'concurrent' in lower):
+        error_type = 'DELTA_CONFLICT'
+        summary = f'Delta write conflict{" on " + entity_name if entity_name else ""}'
+    else:
+        error_type = 'UNKNOWN'
+        # Use first 120 chars of raw error as summary, strip newlines
+        clean = raw.replace('\n', ' ').replace('\r', '').strip()
+        summary = clean[:120] + ('...' if len(clean) > 120 else '')
+
+    return {'summary': summary, 'entityName': entity_name, 'errorType': error_type}
+
+
 _ERROR_CATEGORY_META = {
     'gateway':        {'title': 'Gateway Unreachable',          'severity': 'critical', 'suggestion': 'Verify the gateway machine is powered on, the gateway service is running, and VPN is connected.'},
     'connection':     {'title': 'Database Connection Failed',   'severity': 'critical', 'suggestion': 'SQL Server may be down, database name changed, or credentials expired. Check connection in Fabric > Manage connections.'},
@@ -1599,6 +1790,7 @@ def get_error_intelligence() -> dict:
                 raw = raw.get('message', '') or json.dumps(raw)
             if not raw or raw == '{}':
                 raw = 'Pipeline execution failed (no details available)'
+            ctx = _extract_error_context(raw)
             errors.append({
                 'id': job.get('id', ''),
                 'source': 'fabric',
@@ -1610,6 +1802,9 @@ def get_error_intelligence() -> dict:
                 'category': _classify_error(raw),
                 'jobInstanceId': job.get('id', ''),
                 'workspaceGuid': job.get('workspaceGuid', ''),
+                'summary': ctx['summary'],
+                'entityName': ctx['entityName'],
+                'errorType': ctx['errorType'],
             })
     except Exception as e:
         log.warning(f'Error intelligence - Fabric jobs failed: {e}')
@@ -1631,6 +1826,7 @@ def get_error_intelligence() -> dict:
             # Avoid duplicates if Fabric API already returned this same failure
             if any(e['id'] == exec_id for e in errors):
                 continue
+            ctx = _extract_error_context(raw)
             errors.append({
                 'id': f'sql-{exec_id}',
                 'source': 'sql',
@@ -1642,6 +1838,9 @@ def get_error_intelligence() -> dict:
                 'category': _classify_error(raw),
                 'jobInstanceId': '',
                 'workspaceGuid': '',
+                'summary': ctx['summary'],
+                'entityName': ctx['entityName'],
+                'errorType': ctx['errorType'],
             })
     except Exception as e:
         log.warning(f'Error intelligence - SQL logging query failed: {e}')
@@ -1681,12 +1880,51 @@ def get_error_intelligence() -> dict:
         if sev in severity_counts:
             severity_counts[sev] += s['occurrenceCount']
 
+    # Compute top issue — most common errorType across all errors
+    top_issue = None
+    if errors:
+        type_counts: dict[str, int] = {}
+        for err in errors:
+            et = err.get('errorType', 'UNKNOWN')
+            type_counts[et] = type_counts.get(et, 0) + 1
+        if type_counts:
+            top_type = max(type_counts, key=type_counts.get)
+            top_count = type_counts[top_type]
+            # Find the category for this error type to get suggestion
+            sample_err = next((e for e in errors if e.get('errorType') == top_type), {})
+            cat = sample_err.get('category', 'other')
+            meta = _ERROR_CATEGORY_META.get(cat, _ERROR_CATEGORY_META['other'])
+            # Build human-readable description
+            type_labels = {
+                'FILE_NOT_FOUND': 'File Not Found — Landing Zone data missing',
+                'GATEWAY_OFFLINE': 'Gateway Offline — on-prem gateway unreachable',
+                'LOGIN_FAILED': 'Login Failed — database credentials rejected',
+                'CONNECTION_REFUSED': 'Connection Refused — database unreachable',
+                'TIMEOUT': 'Timeout — query took too long',
+                'SSL_ERROR': 'SSL Error — certificate validation failed',
+                'SCHEMA_MISMATCH': 'Schema Mismatch — column structure changed',
+                'AUTH_DENIED': 'Access Denied — permission missing',
+                'CANCELLED': 'Cancelled — run manually stopped',
+                'NOTEBOOK_FAILED': 'Notebook Failed — Spark execution error',
+                'THROTTLED': 'Throttled — capacity limit hit',
+                'DELTA_CONFLICT': 'Delta Conflict — concurrent write collision',
+                'UNKNOWN': 'Unknown Error',
+            }
+            top_issue = {
+                'errorType': top_type,
+                'label': type_labels.get(top_type, top_type),
+                'count': top_count,
+                'totalErrors': len(errors),
+                'suggestion': meta['suggestion'],
+            }
+
     return {
         'summaries': summaries,
         'errors': errors[:100],  # Individual errors (cap at 100)
         'patternCounts': pattern_counts,
         'severityCounts': severity_counts,
         'totalErrors': len(errors),
+        'topIssue': top_issue,
     }
 
 
@@ -4408,18 +4646,60 @@ def notebook_debug_list() -> dict:
 
 
 def notebook_debug_get_entities(layer: str = 'bronze') -> dict:
-    """Get the entity list from the stored proc (same as what the pipeline passes)."""
+    """Get the entity list from the stored proc (same as what the pipeline passes).
+
+    Uses _Full variants of stored procs because the originals now return
+    lightweight signals (to bypass ADF 1MB pipeline parameter limit).
+    The _Full procs return the complete JSON payload that the dashboard needs.
+    """
     try:
         if layer == 'bronze':
-            sp = '[execution].[sp_GetBronzelayerEntity]'
+            rows = query_sql('EXEC [execution].[sp_GetBronzelayerEntity_Full]')
         elif layer == 'silver':
-            sp = '[execution].[sp_GetSilverlayerEntity]'
+            rows = query_sql('EXEC [execution].[sp_GetSilverlayerEntity_Full]')
         elif layer == 'landing':
-            sp = '[execution].[sp_GetLandingzoneEntity]'
+            # No stored proc exists for landing zone — query the view directly
+            lz_rows = query_sql('''
+                SELECT EntityId, DataSourceName, DataSourceNamespace, SourceSchema,
+                       SourceName, TargetFilePath, TargetFileName, TargetFileType,
+                       LOWER(CONVERT(NVARCHAR(36), TargetLakehouseGuid)) AS TargetLakehouseGuid,
+                       LOWER(CONVERT(NVARCHAR(36), WorkspaceGuid)) AS WorkspaceGuid,
+                       ConnectionGuid, ConnectionType, IsIncremental
+                FROM [execution].[vw_LoadSourceToLandingzone]
+            ''')
+            if not lz_rows:
+                return {'entities': [], 'totalCount': 0, 'notebookParams': None}
+            entity_summary = []
+            params = []
+            for r in lz_rows:
+                entity_summary.append({
+                    'namespace': (r.get('DataSourceNamespace') or '').lower(),
+                    'schema': r.get('SourceSchema', ''),
+                    'table': r.get('SourceName', ''),
+                    'fileName': r.get('TargetFileName', ''),
+                })
+                params.append({
+                    'path': 'PL_FMD_LOAD_LANDINGZONE',
+                    'params': {
+                        'DataSourceNamespace': (r.get('DataSourceNamespace') or '').lower(),
+                        'TargetSchema': r.get('SourceSchema', ''),
+                        'TargetName': r.get('SourceName', ''),
+                        'SourceFileName': r.get('TargetFileName', ''),
+                        'TargetLakehouse': r.get('TargetLakehouseGuid', ''),
+                        'TargetWorkspace': r.get('WorkspaceGuid', ''),
+                        'ConnectionGuid': r.get('ConnectionGuid', ''),
+                        'LandingzoneEntityId': r.get('EntityId', ''),
+                    }
+                })
+            return {
+                'entities': entity_summary,
+                'totalCount': len(entity_summary),
+                'notebookParams': params,
+                '_note': 'Landing zone uses pipeline Copy Activities, not notebooks',
+            }
         else:
             return {'error': f'Unknown layer: {layer}'}
 
-        rows = query_sql(f'EXEC {sp}')
         if not rows:
             return {'entities': [], 'totalCount': 0, 'notebookParams': None}
 
@@ -4545,30 +4825,44 @@ def notebook_debug_run(body: dict) -> dict:
         return {'error': f'Fabric API error {e.code}: {err_body[:300]}'}
 
 
-def notebook_debug_job_status(job_id: str) -> dict:
-    """Get status of a specific notebook debug run job."""
+def notebook_debug_job_status(job_id: str, notebook_id: str = '') -> dict:
+    """Get status of a specific notebook debug run job by job instance ID."""
     code_ws = CONFIG['fabric'].get('workspace_code_id', '')
     if not code_ws:
         return {'error': 'workspace_code_id not configured'}
     try:
-        # List recent jobs for the notebook and find this one
-        # The job URL includes the notebook ID, but we may not have it
-        # Try to find via the operation URL pattern
-        url = f'https://api.fabric.microsoft.com/v1/operations/{job_id}'
+        if notebook_id:
+            # Use the correct job instances API (not the operations API)
+            url = (
+                f'https://api.fabric.microsoft.com/v1/workspaces/{code_ws}'
+                f'/items/{notebook_id}/jobs/instances/{job_id}'
+            )
+        else:
+            # Fallback to operations API if no notebook ID provided
+            url = f'https://api.fabric.microsoft.com/v1/operations/{job_id}'
         token = get_fabric_token('https://api.fabric.microsoft.com/.default')
         req = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}'})
         resp = urllib.request.urlopen(req)
         data = json.loads(resp.read())
-        return {
-            'status': data.get('status', 'Unknown'),
-            'percentComplete': data.get('percentComplete', 0),
-            'startTime': data.get('createdTimeUtc', ''),
-            'endTime': data.get('lastUpdatedTimeUtc', ''),
-            'error': data.get('error'),
-        }
+        # Job instances API returns different field names than operations API
+        if notebook_id:
+            return {
+                'status': data.get('status', 'Unknown'),
+                'startTime': data.get('startTimeUtc', ''),
+                'endTime': data.get('endTimeUtc', ''),
+                'failureReason': data.get('failureReason'),
+            }
+        else:
+            return {
+                'status': data.get('status', 'Unknown'),
+                'percentComplete': data.get('percentComplete', 0),
+                'startTime': data.get('createdTimeUtc', ''),
+                'endTime': data.get('lastUpdatedTimeUtc', ''),
+                'error': data.get('error'),
+            }
     except urllib.error.HTTPError as e:
-        # Try alternative: get job instance directly
-        return {'error': f'Could not get job status: {e.code}'}
+        err_body = e.read().decode('utf-8', errors='replace')
+        return {'error': f'Could not get job status: {e.code} — {err_body[:200]}'}
     except Exception as ex:
         return {'error': str(ex)}
 
@@ -5644,6 +5938,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('workspaceGuid and jobInstanceId are required', 400)
                 else:
                     self._json_response(get_pipeline_activity_runs(ws, job_id))
+            elif self.path == '/api/live-monitor':
+                self._json_response(get_live_monitor())
             elif self.path == '/api/copy-executions':
                 self._json_response(get_copy_executions())
             elif self.path == '/api/notebook-executions':
@@ -5799,13 +6095,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 job_id = qs.get('jobId', [''])[0]
                 nb_id = qs.get('notebookId', [''])[0]
-                if job_id:
+                if job_id and nb_id:
+                    self._json_response(notebook_debug_job_status(job_id, nb_id))
+                elif job_id:
                     self._json_response(notebook_debug_job_status(job_id))
                 elif nb_id:
                     code_ws = CONFIG['fabric'].get('workspace_code_id', '')
                     self._json_response(get_notebook_job_status(code_ws, nb_id))
                 else:
                     self._error_response('jobId or notebookId required', 400)
+            # Diagnostic: list stored procedures
+            elif self.path == '/api/diag/stored-procs':
+                try:
+                    rows = query_sql("SELECT s.name as [schema], p.name as [proc] FROM sys.procedures p JOIN sys.schemas s ON p.schema_id = s.schema_id ORDER BY s.name, p.name")
+                    self._json_response({'procs': rows or []})
+                except Exception as ex:
+                    self._json_response({'error': str(ex)})
             # Deploy pre-flight check
             elif self.path == '/api/deploy/preflight':
                 self._json_response(deploy_preflight())

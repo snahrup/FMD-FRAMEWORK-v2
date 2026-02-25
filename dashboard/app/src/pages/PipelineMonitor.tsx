@@ -96,34 +96,34 @@ async function postJson<T>(path: string, body: Record<string, unknown>): Promise
 
 const displayNameOverrides: Record<string, string> = {
   // ── Orchestration ──
-  'PL_FMD_LOAD_ALL':                       'Full Pipeline Run',
-  'PL_FMD_LOAD_LANDINGZONE':               'Load Landing Zone',
-  'PL_FMD_LOAD_BRONZE':                    'Load Bronze Layer',
-  'PL_FMD_LOAD_SILVER':                    'Load Silver Layer',
+  'PL_FMD_LOAD_ALL': 'Full Pipeline Run',
+  'PL_FMD_LOAD_LANDINGZONE': 'Load Landing Zone',
+  'PL_FMD_LOAD_BRONZE': 'Load Bronze Layer',
+  'PL_FMD_LOAD_SILVER': 'Load Silver Layer',
 
   // ── Landing Zone: Command (dispatch) pipelines ──
-  'PL_FMD_LDZ_COMMAND_ADF':                'Landing Zone: ADF Dispatch',
-  'PL_FMD_LDZ_COMMAND_ADLS':               'Landing Zone: ADLS Dispatch',
-  'PL_FMD_LDZ_COMMAND_ASQL':               'Landing Zone: SQL Server Dispatch',
-  'PL_FMD_LDZ_COMMAND_FTP':                'Landing Zone: FTP Dispatch',
-  'PL_FMD_LDZ_COMMAND_NOTEBOOK':           'Landing Zone: Notebook Dispatch',
-  'PL_FMD_LDZ_COMMAND_ONELAKE':            'Landing Zone: OneLake Dispatch',
-  'PL_FMD_LDZ_COMMAND_ORACLE':             'Landing Zone: Oracle Dispatch',
-  'PL_FMD_LDZ_COMMAND_SFTP':               'Landing Zone: SFTP Dispatch',
+  'PL_FMD_LDZ_COMMAND_ADF': 'Landing Zone: ADF Dispatch',
+  'PL_FMD_LDZ_COMMAND_ADLS': 'Landing Zone: ADLS Dispatch',
+  'PL_FMD_LDZ_COMMAND_ASQL': 'Landing Zone: SQL Server Dispatch',
+  'PL_FMD_LDZ_COMMAND_FTP': 'Landing Zone: FTP Dispatch',
+  'PL_FMD_LDZ_COMMAND_NOTEBOOK': 'Landing Zone: Notebook Dispatch',
+  'PL_FMD_LDZ_COMMAND_ONELAKE': 'Landing Zone: OneLake Dispatch',
+  'PL_FMD_LDZ_COMMAND_ORACLE': 'Landing Zone: Oracle Dispatch',
+  'PL_FMD_LDZ_COMMAND_SFTP': 'Landing Zone: SFTP Dispatch',
 
   // ── Landing Zone: Copy (worker) pipelines ──
-  'PL_FMD_LDZ_COPY_FROM_ADF':             'Copy from ADF',
-  'PL_FMD_LDZ_COPY_FROM_ADLS_01':         'Copy from ADLS',
-  'PL_FMD_LDZ_COPY_FROM_ASQL_01':         'Copy from SQL Server',
-  'PL_FMD_LDZ_COPY_FROM_CUSTOM_NB':       'Copy via Custom Notebook',
-  'PL_FMD_LDZ_COPY_FROM_FTP_01':          'Copy from FTP',
-  'PL_FMD_LDZ_COPY_FROM_ONELAKE_FILES_01':    'Copy from OneLake Files',
-  'PL_FMD_LDZ_COPY_FROM_ONELAKE_TABLES_01':   'Copy from OneLake Tables',
-  'PL_FMD_LDZ_COPY_FROM_ORACLE_01':       'Copy from Oracle',
-  'PL_FMD_LDZ_COPY_FROM_SFTP_01':         'Copy from SFTP',
+  'PL_FMD_LDZ_COPY_FROM_ADF': 'Copy from ADF',
+  'PL_FMD_LDZ_COPY_FROM_ADLS_01': 'Copy from ADLS',
+  'PL_FMD_LDZ_COPY_FROM_ASQL_01': 'Copy from SQL Server',
+  'PL_FMD_LDZ_COPY_FROM_CUSTOM_NB': 'Copy via Custom Notebook',
+  'PL_FMD_LDZ_COPY_FROM_FTP_01': 'Copy from FTP',
+  'PL_FMD_LDZ_COPY_FROM_ONELAKE_FILES_01': 'Copy from OneLake Files',
+  'PL_FMD_LDZ_COPY_FROM_ONELAKE_TABLES_01': 'Copy from OneLake Tables',
+  'PL_FMD_LDZ_COPY_FROM_ORACLE_01': 'Copy from Oracle',
+  'PL_FMD_LDZ_COPY_FROM_SFTP_01': 'Copy from SFTP',
 
   // ── Utility ──
-  'PL_TOOLING_POST_ASQL_TO_FMD':           'SQL to FMD Utility',
+  'PL_TOOLING_POST_ASQL_TO_FMD': 'SQL to FMD Utility',
 };
 
 function getDisplayName(technicalName: string): string {
@@ -196,8 +196,8 @@ const layers = ['Landing Zone', 'Bronze', 'Silver', 'Gold'] as const;
 function MedallionProgress({ category }: { category: PipelineCategory }) {
   const layerIndex = category === 'Landing Zone' ? 0
     : category === 'Bronze' ? 1
-    : category === 'Silver' ? 2
-    : category === 'Orchestration' ? 3 : -1;
+      : category === 'Silver' ? 2
+        : category === 'Orchestration' ? 3 : -1;
 
   return (
     <div className="flex flex-col gap-1.5 mt-3 w-full max-w-md">
@@ -241,11 +241,15 @@ function normalizeFabricStatus(raw?: string): FabricStatus {
 }
 
 /** Parse a Fabric ISO timestamp into epoch ms.
- *  Fabric timestamps are real UTC — parse directly so the browser
- *  converts to the user's local timezone for display. */
+ *  Fabric timestamps are real UTC but may arrive WITHOUT the Z suffix.
+ *  Without Z, JavaScript treats them as local time (wrong by UTC offset).
+ *  Always ensure Z suffix so the browser correctly converts UTC → local. */
 function parseFabricTime(iso?: string | null): number {
   if (!iso) return Date.now();
-  return new Date(iso).getTime();
+  const s = String(iso).trim();
+  // Append Z if missing — Fabric times are always UTC despite missing suffix
+  const utcStr = s.endsWith('Z') || s.endsWith('z') || s.includes('+') || s.includes('-', 10) ? s : s + 'Z';
+  return new Date(utcStr).getTime();
 }
 
 const fabricStatusConfig: Record<FabricStatus, {
@@ -672,7 +676,7 @@ function PipelineStatusDetail({ job }: { job?: FabricJob }) {
   return (
     <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-0.5">
       {job.startTimeUtc && (
-        <span title={new Date(job.startTimeUtc).toLocaleString()}>
+        <span title={new Date(parseFabricTime(job.startTimeUtc)).toLocaleString()}>
           {isActive ? 'Started' : 'Ran'} {formatTimeAgo(job.startTimeUtc)}
         </span>
       )}
@@ -707,6 +711,13 @@ function PipelineStatusDetail({ job }: { job?: FabricJob }) {
 // ── Execution Log Modal ──
 
 // ── Activity Run types ──
+interface RowCounts {
+  rowsRead: number | null;
+  rowsWritten: number | null;
+  dataRead: number | null;
+  dataWritten: number | null;
+}
+
 interface ActivityRun {
   activityName: string;
   activityType: string;
@@ -718,6 +729,7 @@ interface ActivityRun {
   input: Record<string, unknown>;
   output: Record<string, unknown>;
   activityRunId: string;
+  rowCounts: RowCounts | null;
 }
 
 function ActivityStatusIcon({ status }: { status: string }) {
@@ -741,6 +753,19 @@ function activityTypeIcon(type: string): string {
   if (t === 'lookup') return 'Lookup';
   if (t === 'executedataflow') return 'Dataflow';
   return type;
+}
+
+function formatNumber(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return n.toLocaleString('en-US');
+}
+
+function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || bytes === 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 function formatDurationMs(ms: number): string {
@@ -868,7 +893,7 @@ function ExecutionLogModal({
     }
     if (key.toLowerCase().includes('time') || key.toLowerCase().includes('date')) {
       try {
-        const d = new Date(value);
+        const d = new Date(parseFabricTime(value));
         if (!isNaN(d.getTime())) {
           return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         }
@@ -887,8 +912,8 @@ function ExecutionLogModal({
 
   const activeData = activeTab === 'pipeline' ? pipelineExecs
     : activeTab === 'copy' ? copyExecs
-    : activeTab === 'notebook' ? notebookExecs
-    : [];
+      : activeTab === 'notebook' ? notebookExecs
+        : [];
 
   const columns = getColumns(activeData);
 
@@ -897,6 +922,13 @@ function ExecutionLogModal({
   const completedActivities = activityRuns.filter(a => a.status.toLowerCase() === 'succeeded').length;
   const failedActivities = activityRuns.filter(a => a.status.toLowerCase() === 'failed').length;
   const runningActivities = activityRuns.filter(a => ['inprogress', 'running'].includes(a.status.toLowerCase())).length;
+
+  // Aggregate row counts across all activities that report them
+  const totalRowsRead = activityRuns.reduce((sum, a) => sum + (a.rowCounts?.rowsRead ?? 0), 0);
+  const totalRowsWritten = activityRuns.reduce((sum, a) => sum + (a.rowCounts?.rowsWritten ?? 0), 0);
+  const totalDataRead = activityRuns.reduce((sum, a) => sum + (a.rowCounts?.dataRead ?? 0), 0);
+  const totalDataWritten = activityRuns.reduce((sum, a) => sum + (a.rowCounts?.dataWritten ?? 0), 0);
+  const hasAnyRowCounts = activityRuns.some(a => a.rowCounts != null);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -1021,6 +1053,40 @@ function ExecutionLogModal({
                   </div>
                 </div>
 
+                {/* Data Summary — row counts across all activities */}
+                {hasAnyRowCounts && (
+                  <div className="flex items-center gap-6 p-3 bg-emerald-50/50 dark:bg-emerald-950/10 rounded-lg border border-emerald-200/50 dark:border-emerald-800/30">
+                    <div className="flex items-center gap-1.5">
+                      <Download className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Data Moved</span>
+                    </div>
+                    {totalRowsRead > 0 && (
+                      <div className="text-center">
+                        <p className="text-sm font-mono font-bold text-foreground">{formatNumber(totalRowsRead)}</p>
+                        <p className="text-[10px] text-muted-foreground">rows read</p>
+                      </div>
+                    )}
+                    {totalRowsWritten > 0 && (
+                      <div className="text-center">
+                        <p className="text-sm font-mono font-bold text-foreground">{formatNumber(totalRowsWritten)}</p>
+                        <p className="text-[10px] text-muted-foreground">rows written</p>
+                      </div>
+                    )}
+                    {totalDataRead > 0 && (
+                      <div className="text-center">
+                        <p className="text-sm font-mono font-bold text-foreground">{formatBytes(totalDataRead)}</p>
+                        <p className="text-[10px] text-muted-foreground">data read</p>
+                      </div>
+                    )}
+                    {totalDataWritten > 0 && (
+                      <div className="text-center">
+                        <p className="text-sm font-mono font-bold text-foreground">{formatBytes(totalDataWritten)}</p>
+                        <p className="text-[10px] text-muted-foreground">data written</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Activity list */}
                 {activityRuns.map((activity, idx) => {
                   const s = activity.status.toLowerCase();
@@ -1045,61 +1111,81 @@ function ExecutionLogModal({
                       )}
                     >
                       <div className="flex items-center gap-4 p-3">
-                      {/* Step number */}
-                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
-                        {idx + 1}
-                      </div>
-
-                      {/* Status icon */}
-                      <div className="flex-shrink-0">
-                        <ActivityStatusIcon status={activity.status} />
-                      </div>
-
-                      {/* Activity details */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm text-foreground truncate">
-                            {activity.activityName}
-                          </span>
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground flex-shrink-0">
-                            {activityTypeIcon(activity.activityType)}
-                          </span>
+                        {/* Step number */}
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
+                          {idx + 1}
                         </div>
-                        {isFailed && !activityErrorInfo && errorMsg && (
-                          <p className="text-xs text-red-500 dark:text-red-400 mt-0.5 truncate" title={errorMsg}>
-                            {errorMsg}
-                          </p>
-                        )}
-                        {activity.startTime && (
-                          <p className="text-[11px] text-muted-foreground mt-0.5">
-                            {new Date(activity.startTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                            {activity.endTime && ` → ${new Date(activity.endTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`}
-                          </p>
-                        )}
-                      </div>
 
-                      {/* Duration */}
-                      <div className="flex-shrink-0 text-right">
-                        <span className={cn(
-                          "text-sm font-mono font-medium",
-                          isActive ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground",
-                        )}>
-                          {isActive
-                            ? formatDuration(activity.startTime, undefined)
-                            : formatDurationMs(activity.durationMs)}
-                        </span>
-                        <p className={cn(
-                          "text-[10px] font-semibold uppercase tracking-wider",
-                          isActive ? "text-blue-500" : isFailed ? "text-red-500" : isSucceeded ? "text-emerald-500" : "text-muted-foreground",
-                        )}>
-                          {activity.status}
-                        </p>
-                      </div>
+                        {/* Status icon */}
+                        <div className="flex-shrink-0">
+                          <ActivityStatusIcon status={activity.status} />
+                        </div>
 
-                      {/* Connector line to next */}
-                      {idx < activityRuns.length - 1 && (
-                        <div className="absolute left-[2.35rem] mt-[4.5rem] w-0.5 h-3 bg-border" />
-                      )}
+                        {/* Activity details */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-sm text-foreground truncate">
+                              {activity.activityName}
+                            </span>
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground flex-shrink-0">
+                              {activityTypeIcon(activity.activityType)}
+                            </span>
+                          </div>
+                          {isFailed && !activityErrorInfo && errorMsg && (
+                            <p className="text-xs text-red-500 dark:text-red-400 mt-0.5 truncate" title={errorMsg}>
+                              {errorMsg}
+                            </p>
+                          )}
+                          {activity.startTime && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              {new Date(parseFabricTime(activity.startTime)).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              {activity.endTime && ` → ${new Date(parseFabricTime(activity.endTime)).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`}
+                            </p>
+                          )}
+                          {/* Inline row counts for activities that report them */}
+                          {activity.rowCounts && (
+                            <div className="flex items-center gap-3 mt-1">
+                              {activity.rowCounts.rowsRead != null && activity.rowCounts.rowsRead > 0 && (
+                                <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
+                                  {formatNumber(activity.rowCounts.rowsRead)} rows read
+                                </span>
+                              )}
+                              {activity.rowCounts.rowsWritten != null && activity.rowCounts.rowsWritten > 0 && (
+                                <span className="text-[11px] font-mono text-blue-600 dark:text-blue-400">
+                                  → {formatNumber(activity.rowCounts.rowsWritten)} written
+                                </span>
+                              )}
+                              {activity.rowCounts.dataWritten != null && activity.rowCounts.dataWritten > 0 && (
+                                <span className="text-[10px] text-muted-foreground">
+                                  ({formatBytes(activity.rowCounts.dataWritten)})
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Duration */}
+                        <div className="flex-shrink-0 text-right">
+                          <span className={cn(
+                            "text-sm font-mono font-medium",
+                            isActive ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground",
+                          )}>
+                            {isActive
+                              ? formatDuration(activity.startTime, undefined)
+                              : formatDurationMs(activity.durationMs)}
+                          </span>
+                          <p className={cn(
+                            "text-[10px] font-semibold uppercase tracking-wider",
+                            isActive ? "text-blue-500" : isFailed ? "text-red-500" : isSucceeded ? "text-emerald-500" : "text-muted-foreground",
+                          )}>
+                            {activity.status}
+                          </p>
+                        </div>
+
+                        {/* Connector line to next */}
+                        {idx < activityRuns.length - 1 && (
+                          <div className="absolute left-[2.35rem] mt-[4.5rem] w-0.5 h-3 bg-border" />
+                        )}
                       </div>
                       {/* Error interpretation for failed activities */}
                       {isFailed && activityErrorInfo && (
@@ -1214,6 +1300,7 @@ function ExecutionLogModal({
 
 export default function PipelineMonitor() {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [executions, setExecutions] = useState<PipelineExecution[]>([]);
@@ -1257,8 +1344,11 @@ export default function PipelineMonitor() {
   const [modalPipeline, setModalPipeline] = useState<string | null>(null);
   const [fabricJobs, setFabricJobs] = useState<FabricJob[]>([]);
 
+  const hasLoadedOnce = useRef(false);
   const loadData = useCallback(async () => {
-    setLoading(true);
+    // Only show full-page spinner on first load — subsequent refreshes keep existing data visible
+    if (!hasLoadedOnce.current) setLoading(true);
+    setRefreshing(true);
     setError(null);
     try {
       const [pipes, execs, ws] = await Promise.all([
@@ -1269,10 +1359,12 @@ export default function PipelineMonitor() {
       setPipelines(pipes);
       setExecutions(execs);
       setWorkspaces(ws);
+      hasLoadedOnce.current = true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
 
     // Fetch Fabric jobs in background — page is already interactive at this point
@@ -1398,11 +1490,11 @@ export default function PipelineMonitor() {
           }
         } catch { /* continue */ }
       }, 5000);
-    }
-    if (!hasActiveRuns && pollRef.current) {
+    } else if (!hasActiveRuns && pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
+
     return () => {
       if (pollRef.current) {
         clearInterval(pollRef.current);
@@ -1410,7 +1502,6 @@ export default function PipelineMonitor() {
       }
     };
   }, [hasActiveRuns, syncFabricJobsToActiveRuns]);
-
   const triggerPipeline = async (pipelineName: string) => {
     setTriggeringPipeline(pipelineName);
     setTriggerError(null);
@@ -1556,9 +1647,9 @@ export default function PipelineMonitor() {
             {showTechnicalNames ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
             {showTechnicalNames ? 'Business Names' : 'Technical Names'}
           </Button>
-          <Button onClick={loadData} variant="outline" size="sm" className="gap-2">
-            <RefreshCw className="h-4 w-4" />
-            Refresh
+          <Button onClick={loadData} variant="outline" size="sm" className="gap-2" disabled={refreshing}>
+            <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
           </Button>
         </div>
       </div>
@@ -1729,10 +1820,10 @@ export default function PipelineMonitor() {
 
                     const fmtDate = (iso?: string | null) => {
                       if (!iso) return '—';
-                      const d = new Date(iso);
+                      const d = new Date(parseFabricTime(iso));
                       return d.toLocaleString('en-US', {
                         month: 'numeric', day: 'numeric', year: 'numeric',
-                        hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+                        hour: 'numeric', minute: '2-digit', hour12: true,
                       });
                     };
 

@@ -46,6 +46,9 @@ def fabric_py_to_ipynb(py_content):
         # Notebook-level metadata (before any cells)
         if line.strip() == "# METADATA ********************" and not cells:
             i += 1
+            # Skip blank lines between METADATA header and META content
+            while i < len(lines) and lines[i].strip() == "":
+                i += 1
             meta_lines = []
             while i < len(lines) and lines[i].startswith("# META"):
                 mt = lines[i]

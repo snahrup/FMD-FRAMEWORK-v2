@@ -1,6 +1,6 @@
 {
   "health": "healthy",
-  "lastRefreshed": "2026-02-25T14:05:00.308961Z",
+  "lastRefreshed": "2026-02-25T19:37:50.169121Z",
   "_fromSnapshot": false,
   "summary": {
     "connections": {
@@ -18,7 +18,7 @@
       },
       "bronze": {
         "total": 659,
-        "active": 29
+        "active": 659
       },
       "silver": {
         "total": 659,
@@ -33,10 +33,10 @@
     "workspaces": 5
   },
   "pipelineHealth": {
-    "recentRuns": 40,
-    "succeeded": 17,
+    "recentRuns": 51,
+    "succeeded": 18,
     "failed": 0,
-    "running": 23
+    "running": 32
   },
   "sourceSystems": [
     {
@@ -119,7 +119,7 @@
       },
       "activeEntities": {
         "landing": 185,
-        "bronze": 0,
+        "bronze": 185,
         "silver": 185
       }
     },
@@ -147,7 +147,7 @@
       },
       "activeEntities": {
         "landing": 445,
-        "bronze": 0,
+        "bronze": 445,
         "silver": 445
       }
     },
@@ -296,6 +296,127 @@
   ],
   "recentRuns": [
     {
+      "RunGuid": "38FDB52E-47D5-48C4-88E9-CA7D2F7D1DB5",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 19:35:01.846667",
+      "EndTime": "2026-02-25 19:36:12.600000",
+      "Status": "Succeeded",
+      "Duration": "1m 10s",
+      "DurationSec": 70.753333
+    },
+    {
+      "RunGuid": "0192DDD3-735B-483E-BD04-331A2400421F",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 19:01:39.480000",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "783E31D1-2C4A-4952-B543-424A61D1B5AE",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 18:44:49.583333",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "D8296483-D38E-4AC7-934A-DB526B2C241A",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 16:13:41.643333",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "E1AED5AA-591F-4725-839F-BC48436BCA7D",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 16:11:06.760000",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "3D8AA758-933F-47D2-8E93-D6CAD48FBEE9",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 14:48:31.626667",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "80E3E31F-FB39-4210-98A9-CAC7A6912C56",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": null,
+      "EndTime": null,
+      "Status": "Unknown",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "F4DA0031-541A-4499-A654-73B33A8A3EAC",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 14:28:51.806667",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "1DE26627-6422-4BD0-8193-779FCE10FC52",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 14:15:16.353333",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "AF0CEF13-5BB7-4812-BEA0-81E8F876C897",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 14:09:20.776667",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "64168D00-2A29-4F80-A22F-51B494E47775",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 14:07:15.966667",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
       "RunGuid": "F8AFD627-4381-42F3-8F6E-16345AA08181",
       "PipelineName": "PL_FMD_LDZ_COPY_FROM_ASQL_01",
       "EntityLayer": "Landingzone",
@@ -338,127 +459,6 @@
       "Status": "InProgress",
       "Duration": null,
       "DurationSec": null
-    },
-    {
-      "RunGuid": "25EA19D3-8C84-4DF1-BCB1-A2C3400CE59B",
-      "PipelineName": "PL_FMD_LDZ_COMMAND_ASQL",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-25 12:26:51.166667",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "49EC817E-B6DB-401A-81A5-C92791ACEE68",
-      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-25 12:26:20.040000",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "91FBFDB5-F673-404B-A943-F06F71AB1E45",
-      "PipelineName": "PL_FMD_LOAD_ALL",
-      "EntityLayer": "Control",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-25 12:26:00.640000",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "5783DEC4-4B27-4AC3-8CAA-AD5B30EFAEEA",
-      "PipelineName": "PL_FMD_LOAD_SILVER",
-      "EntityLayer": "Silver",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-25 05:54:35.850000",
-      "EndTime": "2026-02-25 05:54:51.480000",
-      "Status": "Succeeded",
-      "Duration": "15s",
-      "DurationSec": 15.63
-    },
-    {
-      "RunGuid": "A6B70F16-D74A-4716-8A69-4615D0D9CDCD",
-      "PipelineName": "PL_FMD_LOAD_BRONZE",
-      "EntityLayer": "Bronze",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-25 05:51:21.600000",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "878C1830-FD64-4226-B04D-033D09338594",
-      "PipelineName": "PL_FMD_LDZ_COPY_FROM_ASQL_01",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-25 04:52:47.826667",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "FCC95DEB-2D42-4B46-B634-035ECEBCED3E",
-      "PipelineName": "PL_FMD_LDZ_COMMAND_ASQL",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-25 04:52:21.716667",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "C70436EC-DA71-4434-9AC7-345B2FC9A929",
-      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-25 04:51:19.590000",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "5FE151E3-4D00-489F-BFCD-BE8FCC191DA9",
-      "PipelineName": "PL_FMD_LOAD_ALL",
-      "EntityLayer": "Control",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-25 04:51:00.313333",
-      "EndTime": "2026-02-25 05:55:47.266667",
-      "Status": "Succeeded",
-      "Duration": "1h 4m",
-      "DurationSec": 3886.953334
-    },
-    {
-      "RunGuid": "0E209DDE-4F2B-46E5-A4A9-E1C16C7EAA76",
-      "PipelineName": "PL_FMD_LOAD_SILVER",
-      "EntityLayer": "Silver",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-24 23:35:43.210000",
-      "EndTime": "2026-02-24 23:35:59.896667",
-      "Status": "Succeeded",
-      "Duration": "16s",
-      "DurationSec": 16.686667
-    },
-    {
-      "RunGuid": "7B3B9B9B-44F8-4A55-AFAE-FD7E2E45B7D7",
-      "PipelineName": "PL_FMD_LOAD_BRONZE",
-      "EntityLayer": "Bronze",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-24 23:33:51.953333",
-      "EndTime": "2026-02-24 23:34:08.220000",
-      "Status": "Succeeded",
-      "Duration": "16s",
-      "DurationSec": 16.266667
     }
   ]
 }

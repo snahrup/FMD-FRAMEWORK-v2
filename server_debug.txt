@@ -1,0 +1,474 @@
+2026-02-25 13:29:50 [INFO] ============================================================
+2026-02-25 13:29:50 [INFO] FMD Operations Dashboard
+2026-02-25 13:29:50 [INFO] ============================================================
+2026-02-25 13:29:50 [INFO]   Mode:       production
+2026-02-25 13:29:50 [INFO]   Server:     http://0.0.0.0:8787
+2026-02-25 13:29:50 [INFO]   SQL:        7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llun...
+2026-02-25 13:29:50 [INFO]   Database:   SQL_INTEGRATION_FRAMEWORK-501d6b17-fcee-...
+2026-02-25 13:29:50 [INFO]   Static:     C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\..\dist
+2026-02-25 13:29:50 [INFO]   Log file:   fmd-dashboard.log
+2026-02-25 13:29:50 [INFO] 
+2026-02-25 13:29:50 [INFO] API Endpoints:
+2026-02-25 13:29:50 [INFO]   GET  /api/gateway-connections
+2026-02-25 13:29:50 [INFO]   GET  /api/connections
+2026-02-25 13:29:50 [INFO]   GET  /api/datasources
+2026-02-25 13:29:50 [INFO]   GET  /api/entities
+2026-02-25 13:29:50 [INFO]   GET  /api/pipeline-view
+2026-02-25 13:29:50 [INFO]   GET  /api/health
+2026-02-25 13:29:50 [INFO]   POST /api/connections
+2026-02-25 13:29:50 [INFO]   POST /api/datasources
+2026-02-25 13:29:50 [INFO]   POST /api/entities
+2026-02-25 13:29:50 [INFO]   GET  /api/onboarding
+2026-02-25 13:29:50 [INFO]   POST /api/onboarding
+2026-02-25 13:29:50 [INFO]   POST /api/onboarding/step
+2026-02-25 13:29:50 [INFO]   POST /api/onboarding/delete
+2026-02-25 13:29:50 [INFO]   GET  /api/control-plane
+2026-02-25 13:29:50 [INFO]   POST /api/deploy/start
+2026-02-25 13:29:50 [INFO]   GET  /api/deploy/stream      (SSE)
+2026-02-25 13:29:50 [INFO]   GET  /api/deploy/state
+2026-02-25 13:29:50 [INFO]   POST /api/deploy/cancel
+2026-02-25 13:29:50 [INFO]   GET  /api/analyze-source     (Load Optimization)
+2026-02-25 13:29:50 [INFO]   GET  /api/load-config
+2026-02-25 13:29:50 [INFO]   POST /api/register-bronze-silver
+2026-02-25 13:29:50 [INFO]   POST /api/load-config        (update)
+2026-02-25 13:29:50 [INFO]   Snapshot:   C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\control_plane_snapshot.json
+2026-02-25 13:29:50 [INFO] 
+2026-02-25 13:29:50 [INFO]   /*   \u2192 Static files from dist/
+2026-02-25 13:29:50 [INFO] ============================================================
+2026-02-25 13:29:51 [INFO] Token refreshed for scope: https://database.windows.net/.default...
+2026-02-25 13:29:52 [INFO]   SourceOnboarding table: ensured
+2026-02-25 13:29:52 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 13:29:52 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 13:29:52 [INFO] Token refreshed for scope: https://api.fabric.microsoft.com/.default...
+2026-02-25 13:29:53 [INFO] GET /api/diag/stored-procs
+2026-02-25 13:29:53 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 13:29:54 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 13:30:09 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 13:30:18 [INFO] GET /api/notebook-config
+2026-02-25 13:35:33 [INFO] Notebook debug run started: cfb8ed97-eb04-469d-9994-91ab4114282a with 1 entities (job=3f150619-5b17-49a2-a5f0-e0ee1e411e58)
+2026-02-25 13:35:53 [INFO] GET /api/notebook-debug/job-status?jobId=3f150619-5b17-49a2-a5f0-e0ee1e411e58&notebookId=cfb8ed97-eb04-469d-9994-91ab4114282a
+2026-02-25 13:36:05 [INFO] GET /api/notebook-debug/job-status?jobId=3f150619-5b17-49a2-a5f0-e0ee1e411e58&notebookId=cfb8ed97-eb04-469d-9994-91ab4114282a
+2026-02-25 13:36:16 [INFO] GET /api/notebook-debug/job-status?jobId=3f150619-5b17-49a2-a5f0-e0ee1e411e58&notebookId=cfb8ed97-eb04-469d-9994-91ab4114282a
+2026-02-25 13:36:28 [INFO] GET /api/notebook-debug/job-status?jobId=3f150619-5b17-49a2-a5f0-e0ee1e411e58&notebookId=cfb8ed97-eb04-469d-9994-91ab4114282a
+2026-02-25 13:36:40 [INFO] GET /api/notebook-debug/job-status?jobId=3f150619-5b17-49a2-a5f0-e0ee1e411e58&notebookId=cfb8ed97-eb04-469d-9994-91ab4114282a
+2026-02-25 13:36:51 [INFO] GET /api/notebook-debug/job-status?jobId=3f150619-5b17-49a2-a5f0-e0ee1e411e58&notebookId=cfb8ed97-eb04-469d-9994-91ab4114282a
+2026-02-25 13:37:01 [INFO] GET /api/notebook-debug/job-status?jobId=3f150619-5b17-49a2-a5f0-e0ee1e411e58&notebookId=cfb8ed97-eb04-469d-9994-91ab4114282a
+2026-02-25 13:37:47 [INFO] Notebook debug run started: cfb8ed97-eb04-469d-9994-91ab4114282a with 1 entities (job=c2a02b3d-8890-4966-bcdb-17067e615bf6)
+2026-02-25 13:39:25 [INFO] GET /api/notebook-debug/job-status?jobId=c2a02b3d-8890-4966-bcdb-17067e615bf6&notebookId=cfb8ed97-eb04-469d-9994-91ab4114282a
+2026-02-25 13:45:37 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 13:45:37 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 13:45:37 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 13:45:39 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 13:45:40 [INFO] GET /api/notebook-debug/entities?layer=landing
+2026-02-25 13:46:23 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 13:46:23 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 13:46:23 [INFO] GET /api/notebook-debug/entities?layer=landing
+2026-02-25 13:46:25 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 13:46:28 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 13:46:28 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 13:46:28 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 13:46:28 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 13:46:29 [INFO] GET /api/notebook-debug/entities?layer=landing
+2026-02-25 13:59:57 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 13:59:57 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 13:59:58 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:00:00 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:00:04 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:00:08 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:00:15 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:00:17 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:34:05 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:34:05 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:34:05 [INFO] Token refreshed for scope: https://database.windows.net/.default...
+2026-02-25 14:34:05 [INFO] Token refreshed for scope: https://api.fabric.microsoft.com/.default...
+2026-02-25 14:34:07 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:34:07 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:34:08 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:34:08 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:34:10 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:34:11 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:37:41 [INFO] GET /api/pipelines
+2026-02-25 14:37:41 [INFO] GET /api/pipeline-executions
+2026-02-25 14:37:41 [INFO] GET /api/workspaces
+2026-02-25 14:37:43 [INFO] GET /api/pipeline-executions
+2026-02-25 14:37:43 [INFO] GET /api/pipelines
+2026-02-25 14:37:43 [INFO] GET /api/workspaces
+2026-02-25 14:37:43 [INFO] GET /api/fabric-jobs
+2026-02-25 14:37:48 [INFO] GET /api/pipelines
+2026-02-25 14:37:48 [INFO] GET /api/workspaces
+2026-02-25 14:37:48 [INFO] GET /api/pipeline-executions
+2026-02-25 14:37:50 [INFO] GET /api/control-plane
+2026-02-25 14:37:50 [INFO] GET /api/load-config
+C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py:2594: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  now_utc = datetime.utcnow().isoformat() + 'Z'
+2026-02-25 14:37:51 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:37:51 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:37:51 [ERROR] Error handling GET /api/load-config
+Traceback (most recent call last):
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5894, in do_GET
+    # Pipeline failure trace — recursively finds the root cause in nested pipelines
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5494, in _json_response
+    }
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+2026-02-25 14:37:52 [ERROR] /api/load-config \u2192 500: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 64395)
+Traceback (most recent call last):
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5894, in do_GET
+    # Pipeline failure trace — recursively finds the root cause in nested pipelines
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5494, in _json_response
+    }
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 697, in process_request_thread
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 766, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 447, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 435, in handle_one_request
+    method()
+    ~~~~~~^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5903, in do_GET
+    result = trace_pipeline_failure(ws, ji, pn)
+    ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5498, in _error_response
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5493, in _json_response
+    'cancel_requested': False,
+    ^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 549, in end_headers
+    self.flush_headers()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 553, in flush_headers
+    self.wfile.write(b"".join(self._headers_buffer))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+2026-02-25 14:37:52 [INFO] GET /api/pipeline-executions
+2026-02-25 14:37:52 [INFO] GET /api/copy-executions
+2026-02-25 14:37:52 [INFO] GET /api/notebook-executions
+2026-02-25 14:37:53 [INFO] Fabric jobs: fetched 57 jobs from 44 pipelines in 9.1s
+2026-02-25 14:37:53 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:37:53 [INFO] GET /api/fabric-jobs
+2026-02-25 14:37:53 [INFO] Control plane: 9 queries in 3.5s (parallel)
+2026-02-25 14:37:53 [ERROR] Error handling GET /api/control-plane
+Traceback (most recent call last):
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5679, in do_GET
+    elif self.path == '/api/error-intelligence':
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5494, in _json_response
+    }
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+2026-02-25 14:37:53 [ERROR] /api/control-plane \u2192 500: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 64394)
+Traceback (most recent call last):
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5679, in do_GET
+    elif self.path == '/api/error-intelligence':
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5494, in _json_response
+    }
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 697, in process_request_thread
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 766, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 447, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 435, in handle_one_request
+    method()
+    ~~~~~~^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5903, in do_GET
+    result = trace_pipeline_failure(ws, ji, pn)
+    ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5498, in _error_response
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5493, in _json_response
+    'cancel_requested': False,
+    ^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 549, in end_headers
+    self.flush_headers()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 553, in flush_headers
+    self.wfile.write(b"".join(self._headers_buffer))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+2026-02-25 14:37:53 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:37:54 [ERROR] Error handling GET /api/notebook-executions
+Traceback (most recent call last):
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5664, in do_GET
+    self._json_response(get_bronze_view())
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5494, in _json_response
+    }
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+2026-02-25 14:37:54 [ERROR] /api/notebook-executions \u2192 500: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 50568)
+Traceback (most recent call last):
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5664, in do_GET
+    self._json_response(get_bronze_view())
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5494, in _json_response
+    }
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 697, in process_request_thread
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 766, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 447, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 435, in handle_one_request
+    method()
+    ~~~~~~^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5903, in do_GET
+    result = trace_pipeline_failure(ws, ji, pn)
+    ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5498, in _error_response
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5493, in _json_response
+    'cancel_requested': False,
+    ^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 549, in end_headers
+    self.flush_headers()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 553, in flush_headers
+    self.wfile.write(b"".join(self._headers_buffer))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+2026-02-25 14:37:54 [ERROR] Error handling GET /api/pipeline-executions
+Traceback (most recent call last):
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5636, in do_GET
+    break
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5494, in _json_response
+    }
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+2026-02-25 14:37:54 [ERROR] /api/pipeline-executions \u2192 500: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 50565)
+Traceback (most recent call last):
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5636, in do_GET
+    break
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5494, in _json_response
+    }
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 697, in process_request_thread
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 766, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 447, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 435, in handle_one_request
+    method()
+    ~~~~~~^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5903, in do_GET
+    result = trace_pipeline_failure(ws, ji, pn)
+    ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5498, in _error_response
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5493, in _json_response
+    'cancel_requested': False,
+    ^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 549, in end_headers
+    self.flush_headers()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 553, in flush_headers
+    self.wfile.write(b"".join(self._headers_buffer))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+2026-02-25 14:37:54 [INFO] GET /api/pipeline-executions
+2026-02-25 14:37:54 [INFO] GET /api/copy-executions
+2026-02-25 14:37:54 [INFO] GET /api/notebook-executions
+2026-02-25 14:37:55 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:37:55 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:37:58 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:37:59 [INFO] GET /api/notebook-executions
+2026-02-25 14:37:59 [INFO] GET /api/pipeline-executions
+2026-02-25 14:38:00 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:38:00 [INFO] GET /api/error-intelligence
+2026-02-25 14:38:05 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")
+2026-02-25 14:38:06 [INFO] GET /api/error-intelligence
+2026-02-25 14:38:10 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")
+2026-02-25 14:38:14 [INFO] GET /api/copy-executions
+2026-02-25 14:38:16 [ERROR] Error handling GET /api/copy-executions
+Traceback (most recent call last):
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5662, in do_GET
+    self._json_response(get_pipeline_view())
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5494, in _json_response
+    }
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+2026-02-25 14:38:16 [ERROR] /api/copy-executions \u2192 500: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 50567)
+Traceback (most recent call last):
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5662, in do_GET
+    self._json_response(get_pipeline_view())
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5494, in _json_response
+    }
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 697, in process_request_thread
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 766, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 447, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 435, in handle_one_request
+    method()
+    ~~~~~~^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5903, in do_GET
+    result = trace_pipeline_failure(ws, ji, pn)
+    ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5498, in _error_response
+  File "C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\server.py", line 5493, in _json_response
+    'cancel_requested': False,
+    ^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 549, in end_headers
+    self.flush_headers()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\http\server.py", line 553, in flush_headers
+    self.wfile.write(b"".join(self._headers_buffer))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
+2026-02-25 14:41:47 [INFO] GET /api/runner/sources
+2026-02-25 14:41:47 [INFO] GET /api/runner/state
+2026-02-25 14:41:48 [INFO] GET /api/runner/state
+2026-02-25 14:41:57 [INFO] GET /api/runner/sources
+2026-02-25 14:43:07 [INFO] Runner scope applied: kept 214 LZ, 214 Bronze, 214 Silver; deactivated 445 LZ, 445 Bronze, 445 Silver
+2026-02-25 14:43:10 [INFO] GET /api/runner/sources
+2026-02-25 14:43:10 [INFO] GET /api/runner/state
+2026-02-25 14:43:10 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:43:10 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:43:10 [INFO] GET /api/runner/state
+2026-02-25 14:43:11 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:43:12 [INFO] Triggering pipeline: PL_FMD_LOAD_ALL (guid=7079544a-fa8c-4ed1-94f4-ca997e825da1) in workspace 146fe38c-f6c3-4e9d-a18c-5c01cad5941e
+2026-02-25 14:43:12 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:43:12 [INFO] Pipeline triggered successfully: PL_FMD_LOAD_ALL — jobInstanceId: 2ee92218-6eab-4b41-98e8-8ae77d393c4d
+2026-02-25 14:43:14 [INFO] GET /api/runner/sources
+2026-02-25 14:43:14 [INFO] GET /api/runner/state
+2026-02-25 14:43:14 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:43:14 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:43:14 [INFO] GET /api/runner/state
+2026-02-25 14:43:15 [INFO] GET /api/notebook-debug/notebooks
+2026-02-25 14:43:15 [INFO] GET /api/notebook-debug/entities?layer=bronze
+2026-02-25 14:43:23 [INFO] GET /api/runner/sources
+2026-02-25 14:46:40 [INFO] GET /api/error-intelligence
+2026-02-25 14:46:49 [INFO] Fabric jobs: fetched 61 jobs from 44 pipelines in 9.1s
+2026-02-25 14:46:51 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")
+2026-02-25 14:46:51 [INFO] GET /api/error-intelligence
+2026-02-25 14:46:52 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")
+2026-02-25 15:02:13 [INFO] GET /api/error-intelligence
+2026-02-25 15:02:22 [INFO] Fabric jobs: fetched 61 jobs from 44 pipelines in 9.4s
+2026-02-25 15:02:22 [INFO] GET /api/error-intelligence
+2026-02-25 15:02:24 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")
+2026-02-25 15:02:24 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")
+2026-02-25 15:02:24 [INFO] GET /api/error-intelligence
+2026-02-25 15:02:26 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")
+2026-02-25 15:02:34 [INFO] GET /api/error-intelligence
+2026-02-25 15:02:36 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")
+2026-02-25 15:02:36 [INFO] GET /api/error-intelligence
+2026-02-25 15:02:37 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")
+2026-02-25 15:02:49 [INFO] GET /api/error-intelligence
+2026-02-25 15:02:58 [INFO] Fabric jobs: fetched 9 jobs from 44 pipelines in 8.7s
+2026-02-25 15:03:00 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")
+2026-02-25 15:03:00 [INFO] GET /api/error-intelligence
+2026-02-25 15:03:01 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")
+2026-02-25 15:04:50 [INFO] GET /api/error-intelligence
+2026-02-25 15:05:00 [INFO] Fabric jobs: fetched 61 jobs from 44 pipelines in 9.8s
+2026-02-25 15:05:01 [WARNING] Error intelligence - SQL logging query failed: ('42S22', "[42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'Status'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'StartDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'EndDateTime'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'ErrorMessage'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'WorkspaceName'. (207); [42S22] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]Invalid column name 'PipelineExecutionId'. (207)")

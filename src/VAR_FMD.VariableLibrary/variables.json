@@ -11,25 +11,25 @@
       "name": "key_vault_tenant_id",
       "note": "",
       "type": "String",
-      "value": ""
+      "value": "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
     },
     {
       "name": "key_vault_client_id",
       "note": "",
       "type": "String",
-      "value": ""
+      "value": "ac937c5d-4bdd-438f-be8b-84a850021d2d"
     },
     {
       "name": "key_vault_client_secret",
       "note": "",
       "type": "String",
-      "value": ""
+      "value": "Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu"
     },
     {
       "name": "lakehouse_schema_enabled",
       "note": "",
       "type": "String",
-      "value": "true"
+      "value": "True"
     }
   ]
 }

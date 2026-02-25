@@ -22,6 +22,7 @@ import {
   BookOpen,
   Play,
   Bug,
+  Radio,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -46,12 +47,13 @@ const CORE_GROUPS: NavGroup[] = [
   {
     label: "Operations",
     items: [
+      { icon: Radio, label: "Live Monitor", href: "/live" },
       { icon: LayoutDashboard, label: "Pipeline Monitor", href: "/" },
       { icon: Gauge, label: "Control Plane", href: "/control" },
       { icon: Activity, label: "Error Intelligence", href: "/errors" },
       { icon: ScrollText, label: "Execution Log", href: "/logs" },
       { icon: Play, label: "Pipeline Runner", href: "/runner" },
-      { icon: Bug, label: "Notebook Debug", href: "/notebook-debug" },
+      { icon: ClipboardCheck, label: "Pipeline Testing", href: "/notebook-debug" },
     ],
   },
   {
@@ -236,7 +238,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex-1 cowork-grid">
           <div className={cn(
             "w-full animate-[fadeIn_0.25s_var(--ease-claude)]",
-            (location.pathname === "/flow" || location.pathname === "/blender" || location.pathname === "/journey" || location.pathname === "/notebook-debug")
+            (location.pathname === "/flow" || location.pathname === "/blender" || location.pathname === "/journey")
               ? "p-0 h-full"
               : "p-6 md:p-8 max-w-7xl mx-auto"
           )}>

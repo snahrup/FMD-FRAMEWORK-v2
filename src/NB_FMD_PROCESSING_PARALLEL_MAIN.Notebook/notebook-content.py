@@ -8,9 +8,17 @@
 # META   },
 # META   "dependencies": {
 # META     "lakehouse": {
-# META       "default_lakehouse_name": "",
-# META       "default_lakehouse_workspace_id": "",
-# META       "known_lakehouses": []
+# META       "default_lakehouse": "cf57e8bf-7b34-471b-adea-ed80d05a4fdb",
+# META       "default_lakehouse_name": "LH_BRONZE_LAYER",
+# META       "default_lakehouse_workspace_id": "a3a180ff-fbc2-48fd-a65f-27ae7bb6709a",
+# META       "known_lakehouses": [
+# META         {
+# META           "id": "cf57e8bf-7b34-471b-adea-ed80d05a4fdb"
+# META         },
+# META         {
+# META           "id": "2aef4ede-2918-4a6b-8ec6-a42108c67806"
+# META         }
+# META       ]
 # META     },
 # META     "environment": {}
 # META   }
@@ -302,6 +310,66 @@ elif isinstance(Path, List):
     path_data = Path
 elif isinstance(Path, dict):
     path_data = [Path]
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# --- FETCH_FROM_SQL: Bypass ADF/Fabric 1MB pipeline parameter limit ---
+# When the stored proc returns a lightweight signal instead of the full entity
+# payload, the notebook fetches entities directly from SQL via pyodbc.
+# This avoids the 1MB limit on pipeline parameters while keeping the pipeline
+# JSON completely unchanged — the Lookup still calls the same stored proc name.
+if (len(path_data) == 1
+    and isinstance(path_data[0], dict)
+    and path_data[0].get("path") == "FETCH_FROM_SQL"):
+
+    import struct as _struct
+    import pyodbc as _pyodbc
+
+    _signal = path_data[0]["params"]
+    _proc = _signal["proc"]
+    _layer = _signal["layer"]
+    _count = _signal.get("count", "?")
+
+    print(f"FETCH_FROM_SQL: {_layer} layer — fetching {_count} entities directly from SQL...")
+
+    _config = notebookutils.variableLibrary.getLibrary("VAR_CONFIG_FMD")
+    _connstring = _config.fmd_fabric_db_connection
+    _database = _config.fmd_fabric_db_name
+
+    _token = notebookutils.credentials.getToken(
+        'https://analysis.windows.net/powerbi/api'
+    ).encode("UTF-16-LE")
+    _token_struct = _struct.pack(f'<I{len(_token)}s', len(_token), _token)
+
+    _conn = _pyodbc.connect(
+        f"DRIVER={{ODBC Driver 18 for SQL Server}};SERVER={_connstring};PORT=1433;DATABASE={_database};",
+        attrs_before={1256: _token_struct},
+        timeout=60
+    )
+
+    with _conn.cursor() as _cur:
+        _cur.execute(f"EXEC {_proc}")
+        _cols = [d[0] for d in _cur.description]
+        _rows = _cur.fetchall()
+    _conn.close()
+
+    if _rows and 'NotebookParams' in _cols:
+        _idx = _cols.index('NotebookParams')
+        _full_json = _rows[0][_idx]
+        path_data = loads(_full_json)
+        print(f"FETCH_FROM_SQL: Loaded {len(path_data)} entities from SQL (bypassed 1MB limit)")
+    else:
+        raise ValueError(f"FETCH_FROM_SQL: No data returned from {_proc}")
+
+    del _struct, _pyodbc, _signal, _proc, _layer, _count, _config, _connstring, _database
+    del _token, _token_struct, _conn, _cols, _rows, _idx, _full_json
 
 # METADATA ********************
 

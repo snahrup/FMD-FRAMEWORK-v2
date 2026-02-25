@@ -1,0 +1,42 @@
+# FMD Dashboard Performance Optimization
+
+I have investigated the performance issues that occur when leaving the dashboard running 24/7 and applied a targeted fix for the root cause.
+
+## Findings: Background Polling Leak
+
+The primary performance bottleneck was caused by a memory leak inside `c:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\src\pages\PipelineMonitor.tsx`.
+
+When active runs (`hasActiveRuns`) are present, the page registers a `setInterval` hook to poll `/pipeline-executions` and `/fabric-jobs` APIs every 5 seconds. However, the `useEffect` hook managing this was **missing a return cleanup function**. 
+
+Because of this, every time the component unmounted and re-mounted (such as navigating to the Settings page or the Flow Explorer and coming back), the old polling interval kept running in the background while a brand new interval was started. Over a 24-hour period, this could lead to hundreds of orphaned intervals triggering duplicate data fetching and massive React state re-renders simultaneously, causing CPU spikes and unresponsiveness.
+
+## Resolution
+
+I implemented a straightforward cleanup fix in the `PipelineMonitor.tsx` `useEffect` hook.
+
+```diff
+   useEffect(() => {
+     if (hasActiveRuns && !pollRef.current) {
+       pollRef.current = setInterval(async () => {
+         // Data fetching logic...
+       }, 5000);
+     } else if (!hasActiveRuns && pollRef.current) {
+       clearInterval(pollRef.current);
+       pollRef.current = null;
+     }
+
++    return () => {
++      if (pollRef.current) {
++        clearInterval(pollRef.current);
++        pollRef.current = null;
++      }
++    };
+   }, [hasActiveRuns, syncFabricJobsToActiveRuns]);
+```
+
+### Verification
+I audited the rest of the application's polling implementations (`NotebookConfig.tsx`, `NotebookDebug.tsx`, `Settings.tsx`, etc) and confirmed they all correctly utilized `clearInterval` cleanup routines on unmount.
+
+I ran a production build (`npm run build`) via Vite to ensure the TypeScript compiled perfectly without syntax errors across the modified codebase.
+
+Leaving the app open 24/7 now will correctly maintain only **one** foreground polling interval at a time, drastically reducing dormant CPU and memory footprint.

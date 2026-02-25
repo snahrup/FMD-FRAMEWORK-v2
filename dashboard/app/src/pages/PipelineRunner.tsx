@@ -178,7 +178,7 @@ function SourceCard({ source, selected, onToggle }: {
           </div>
         </div>
         <div className={cn(
-          "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
+          "w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all",
           selected ? "border-primary bg-primary" : "border-muted-foreground/30",
         )}>
           {selected && <CheckCircle2 className="w-4 h-4 text-primary-foreground" />}
@@ -531,9 +531,12 @@ export default function PipelineRunner() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Which data sources do you want to process?</h2>
-            <p className="text-sm text-muted-foreground">
-              {selectedSources.size} of {sources.length} selected
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-muted-foreground/60">Select one or more</p>
+              <p className="text-sm text-muted-foreground tabular-nums">
+                {selectedSources.size} of {sources.length} selected
+              </p>
+            </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

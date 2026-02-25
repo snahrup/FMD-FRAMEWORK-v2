@@ -20,6 +20,7 @@ import ConfigManager from '@/pages/ConfigManager'
 import NotebookConfig from '@/pages/NotebookConfig'
 import PipelineRunner from '@/pages/PipelineRunner'
 import NotebookDebug from '@/pages/NotebookDebug'
+import LiveMonitor from '@/pages/LiveMonitor'
 
 function App() {
   return (
@@ -40,6 +41,7 @@ function App() {
         <Route path="/notebook-config" element={<NotebookConfig />} />
         <Route path="/runner" element={<PipelineRunner />} />
         <Route path="/notebook-debug" element={<NotebookDebug />} />
+        <Route path="/live" element={<LiveMonitor />} />
         <Route path="/settings" element={<Settings />} />
         {/* Labs pages — always routed, nav visibility controlled by feature flags */}
         <Route path="/labs/cleansing" element={<CleansingRuleEditor />} />
