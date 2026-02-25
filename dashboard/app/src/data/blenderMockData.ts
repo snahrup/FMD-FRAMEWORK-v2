@@ -10,6 +10,7 @@ export const layerConfig: Record<DataLayer, { label: string; color: string; lake
   bronze:  { label: 'Bronze',       color: '#d97706', lakehouse: 'LH_BRONZE_LAYER' },
   silver:  { label: 'Silver',       color: '#6b7280', lakehouse: 'LH_SILVER_LAYER' },
   gold:    { label: 'Gold',         color: '#eab308', lakehouse: 'LH_GOLD_LAYER' },
+  unknown: { label: 'Unknown',      color: '#9ca3af', lakehouse: '' },
 };
 
 // ── Tables ──
@@ -91,16 +92,17 @@ export function getTableProfile(tableId: string): TableProfile | null {
     columns,
     qualityScore: Math.round(100 - avgNull * 0.8),
     completeness: Math.round((100 - avgNull) * 10) / 10,
-    freshness: getRelativeTime(table.lastUpdated),
+    freshness: getRelativeTime(table.lastUpdated ?? new Date().toISOString()),
   };
 }
 
 function generateGenericColumns(table: LakehouseTable): ColumnMetadata[] {
+  const rc = table.rowCount ?? 1000;
   const cols: ColumnMetadata[] = [
-    { name: `${table.name}Id`, dataType: 'integer', nullable: false, distinctCount: table.rowCount, nullPercentage: 0, sampleValues: ['1', '2', '3'], sensitivity: 'Internal', description: 'Primary key' },
-    { name: 'Name',            dataType: 'string',  nullable: false, distinctCount: Math.floor(table.rowCount * 0.8), nullPercentage: 0, sampleValues: ['Sample A', 'Sample B'], sensitivity: 'Internal', description: 'Name field' },
-    { name: 'CreatedDate',     dataType: 'datetime', nullable: false, distinctCount: Math.min(table.rowCount, 3000), nullPercentage: 0, sampleValues: [], sensitivity: 'Internal', description: 'Record creation timestamp' },
-    { name: 'ModifiedDate',    dataType: 'datetime', nullable: true,  distinctCount: Math.min(table.rowCount, 2500), nullPercentage: 5.2, sampleValues: [], sensitivity: 'Internal', description: 'Last modification timestamp' },
+    { name: `${table.name}Id`, dataType: 'integer', nullable: false, distinctCount: rc, nullPercentage: 0, sampleValues: ['1', '2', '3'], sensitivity: 'Internal', description: 'Primary key' },
+    { name: 'Name',            dataType: 'string',  nullable: false, distinctCount: Math.floor(rc * 0.8), nullPercentage: 0, sampleValues: ['Sample A', 'Sample B'], sensitivity: 'Internal', description: 'Name field' },
+    { name: 'CreatedDate',     dataType: 'datetime', nullable: false, distinctCount: Math.min(rc, 3000), nullPercentage: 0, sampleValues: [], sensitivity: 'Internal', description: 'Record creation timestamp' },
+    { name: 'ModifiedDate',    dataType: 'datetime', nullable: true,  distinctCount: Math.min(rc, 2500), nullPercentage: 5.2, sampleValues: [], sensitivity: 'Internal', description: 'Last modification timestamp' },
     { name: 'IsActive',        dataType: 'boolean',  nullable: false, distinctCount: 2, nullPercentage: 0, sampleValues: ['true', 'false'], sensitivity: 'Internal', description: 'Active record flag' },
   ];
   return cols;

@@ -24,6 +24,11 @@ import {
   CheckSquare,
   MinusSquare,
   Route,
+  Zap,
+  ArrowUpDown,
+  Settings2,
+  Layers,
+  TrendingUp,
 } from 'lucide-react';
 import { SourceOnboardingWizard } from '@/components/sources/SourceOnboardingWizard';
 
@@ -76,6 +81,47 @@ interface CascadeImpact {
   silver: { SilverLayerEntityId: number; SourceSchema: string; SourceName: string; DestinationName: string }[];
 }
 
+interface LoadConfigEntity {
+  entityId: number;
+  schema: string;
+  table: string;
+  dataSource: string;
+  dataSourceId: number;
+  IsIncremental: boolean | number;
+  watermarkColumn: string | null;
+  lastWatermarkValue: string | null;
+  lastLoadTime: string | null;
+  bronzeEntityId: number | null;
+  primaryKeys: string | null;
+  silverEntityId: number | null;
+  FileName: string | null;
+}
+
+interface AnalysisResult {
+  datasource: string;
+  datasourceId: number;
+  server: string;
+  database: string;
+  summary: {
+    total: number;
+    incrementalRecommended: number;
+    fullLoadOnly: number;
+    hasPrimaryKeys: number;
+    noPrimaryKeys: number;
+    bronzeRegistered: number;
+    silverRegistered: number;
+  };
+  entities: Array<{
+    entityId: number;
+    schema: string;
+    table: string;
+    rowCount: number | null;
+    primaryKeys: string[];
+    recommendedLoad: string;
+    recommendedColumn: string | null;
+  }>;
+}
+
 export default function SourceManager() {
   // ── Data state (live from API) ──
   const [gatewayConnections, setGatewayConnections] = useState<GatewayConnection[]>([]);
@@ -104,6 +150,17 @@ export default function SourceManager() {
   // ── Cascade impact state ──
   const [cascadeImpact, setCascadeImpact] = useState<CascadeImpact | null>(null);
   const [loadingImpact, setLoadingImpact] = useState(false);
+
+  // ── Load Optimization Engine state ──
+  const [entityViewMode, setEntityViewMode] = useState<'registry' | 'loadConfig'>('registry');
+  const [loadConfigData, setLoadConfigData] = useState<LoadConfigEntity[]>([]);
+  const [loadConfigLoading, setLoadConfigLoading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeTarget, setAnalyzeTarget] = useState<string | null>(null);
+  const [registering, setRegistering] = useState(false);
+  const [pendingUpdates, setPendingUpdates] = useState<Map<number, { isIncremental?: boolean; column?: string }>>(new Map());
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [loadConfigFilter, setLoadConfigFilter] = useState<'all' | 'incremental' | 'full'>('all');
 
   // ── Entity group expand state (by data source name — start all expanded) ──
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
@@ -294,6 +351,151 @@ export default function SourceManager() {
   // Initial load only — no re-fetch on StrictMode re-mount since loadData identity is stable
   useEffect(() => { loadData(); }, [loadData]);
 
+  // ── Load Configuration functions ──
+  const fetchLoadConfig = useCallback(async (datasourceId?: number) => {
+    setLoadConfigLoading(true);
+    try {
+      const url = datasourceId
+        ? `/api/load-config?datasource=${datasourceId}`
+        : '/api/load-config';
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setLoadConfigData(data);
+        setPendingUpdates(new Map());
+      }
+    } catch (e) {
+      console.warn('Failed to fetch load config:', e);
+    } finally {
+      setLoadConfigLoading(false);
+    }
+  }, []);
+
+  const handleAnalyzeSource = async (datasourceId: number) => {
+    setAnalyzing(true);
+    setAnalyzeTarget(String(datasourceId));
+    setActionStatus(null);
+    try {
+      const res = await fetch(`/api/analyze-source?datasource=${datasourceId}`);
+      if (res.ok) {
+        const result: AnalysisResult = await res.json();
+        setActionStatus({
+          type: 'success',
+          message: `Analyzed ${result.summary.total} tables: ${result.summary.incrementalRecommended} incremental candidates, ${result.summary.hasPrimaryKeys} with PKs`,
+        });
+        // Refresh load config with new data
+        await fetchLoadConfig();
+      } else {
+        const err = await res.json();
+        setActionStatus({ type: 'error', message: err.error || 'Analysis failed' });
+      }
+    } catch (e) {
+      setActionStatus({ type: 'error', message: e instanceof Error ? e.message : 'Analysis failed' });
+    } finally {
+      setAnalyzing(false);
+      setAnalyzeTarget(null);
+    }
+  };
+
+  const handleRegisterBronzeSilver = async (datasourceId: number) => {
+    setRegistering(true);
+    setActionStatus(null);
+    try {
+      const res = await fetch('/api/register-bronze-silver', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ datasourceId }),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setActionStatus({
+          type: 'success',
+          message: `Registered ${result.bronzeCreated || 0} Bronze + ${result.silverCreated || 0} Silver entities`,
+        });
+        await fetchLoadConfig();
+      } else {
+        const err = await res.json();
+        setActionStatus({ type: 'error', message: err.error || 'Registration failed' });
+      }
+    } catch (e) {
+      setActionStatus({ type: 'error', message: e instanceof Error ? e.message : 'Registration failed' });
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const updatePending = (entityId: number, field: 'isIncremental' | 'column', value: boolean | string) => {
+    setPendingUpdates(prev => {
+      const next = new Map(prev);
+      const existing = next.get(entityId) || {};
+      if (field === 'isIncremental') existing.isIncremental = value as boolean;
+      else existing.column = value as string;
+      next.set(entityId, existing);
+      return next;
+    });
+  };
+
+  const handleSaveLoadConfig = async () => {
+    if (pendingUpdates.size === 0) return;
+    setSavingConfig(true);
+    setActionStatus(null);
+    try {
+      const updates = Array.from(pendingUpdates.entries()).map(([entityId, changes]) => ({
+        entityId,
+        isIncremental: changes.isIncremental,
+        watermarkColumn: changes.column,
+      }));
+      const res = await fetch('/api/load-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setActionStatus({ type: 'success', message: `Updated ${result.updated || 0} entities` });
+        setPendingUpdates(new Map());
+        await fetchLoadConfig();
+      } else {
+        const err = await res.json();
+        setActionStatus({ type: 'error', message: err.error || 'Save failed' });
+      }
+    } catch (e) {
+      setActionStatus({ type: 'error', message: e instanceof Error ? e.message : 'Save failed' });
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  // Auto-fetch load config when switching to loadConfig tab
+  useEffect(() => {
+    if (entityViewMode === 'loadConfig' && loadConfigData.length === 0) {
+      fetchLoadConfig();
+    }
+  }, [entityViewMode, loadConfigData.length, fetchLoadConfig]);
+
+  // ── Load config derived data ──
+  const isEntityIncremental = (e: LoadConfigEntity) => e.IsIncremental === true || e.IsIncremental === 1;
+  const filteredLoadConfig = loadConfigData.filter(e => {
+    if (loadConfigFilter === 'incremental') return isEntityIncremental(e);
+    if (loadConfigFilter === 'full') return !isEntityIncremental(e);
+    return true;
+  });
+  const loadConfigBySource = filteredLoadConfig.reduce<Record<string, LoadConfigEntity[]>>((acc, e) => {
+    const key = e.dataSource || 'Unknown';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(e);
+    return acc;
+  }, {});
+  const incrementalCount = loadConfigData.filter(e => isEntityIncremental(e)).length;
+  const fullCount = loadConfigData.filter(e => !isEntityIncremental(e)).length;
+  const bronzeRegistered = loadConfigData.filter(e => e.bronzeEntityId != null).length;
+  const silverRegistered = loadConfigData.filter(e => e.silverEntityId != null).length;
+
+  // Get unique datasource IDs for action buttons
+  const uniqueDataSources = Array.from(
+    new Map(loadConfigData.map(e => [e.dataSourceId, e.dataSource])).entries()
+  );
+
   // ── Check if a gateway connection is registered ──
   const isRegistered = (gwConn: GatewayConnection): RegisteredConnection | undefined => {
     return registeredConnections.find(
@@ -378,7 +580,7 @@ export default function SourceManager() {
             <p className="text-xs text-muted-foreground mb-2">Start the API server:</p>
             <code className="text-sm font-mono text-foreground">python dashboard/app/api/server.py</code>
           </div>
-          <button onClick={loadData} className="mt-4 flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors mx-auto">
+          <button onClick={() => loadData()} className="mt-4 flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors mx-auto">
             <RefreshCw className="h-4 w-4" />
             Retry
           </button>
@@ -654,13 +856,38 @@ export default function SourceManager() {
       {/* Registered Entities — Grouped by Data Source */}
       <div className="bg-card rounded-xl border border-border p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <Database className="w-5 h-5 text-primary" />
-            Registered Entities
-            <span className="text-sm font-normal text-muted-foreground ml-1">({registeredEntities.length})</span>
-          </h2>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setEntityViewMode('registry')}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                entityViewMode === 'registry'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+              }`}
+            >
+              <Database className="w-4 h-4" />
+              Entity Registry
+              <span className={`text-xs ml-1 ${entityViewMode === 'registry' ? 'opacity-80' : ''}`}>({registeredEntities.length})</span>
+            </button>
+            <button
+              onClick={() => setEntityViewMode('loadConfig')}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                entityViewMode === 'loadConfig'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+              }`}
+            >
+              <Zap className="w-4 h-4" />
+              Load Optimization
+              {loadConfigData.length > 0 && (
+                <span className={`text-xs ml-1 ${entityViewMode === 'loadConfig' ? 'opacity-80' : ''}`}>
+                  ({incrementalCount} incr / {fullCount} full)
+                </span>
+              )}
+            </button>
+          </div>
           <div className="flex items-center gap-3">
-            {selectedIds.size > 0 && (
+            {entityViewMode === 'registry' && selectedIds.size > 0 && (
               <button
                 onClick={clearSelection}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -668,7 +895,7 @@ export default function SourceManager() {
                 Clear Selection
               </button>
             )}
-            {Object.keys(entityGroups).length > 0 && (
+            {entityViewMode === 'registry' && Object.keys(entityGroups).length > 0 && (
               <button
                 onClick={expandAllSources}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -676,8 +903,33 @@ export default function SourceManager() {
                 Expand All
               </button>
             )}
+            {entityViewMode === 'loadConfig' && (
+              <div className="flex items-center gap-2">
+                {pendingUpdates.size > 0 && (
+                  <button
+                    onClick={handleSaveLoadConfig}
+                    disabled={savingConfig}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {savingConfig ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                    Apply Changes ({pendingUpdates.size})
+                  </button>
+                )}
+                <button
+                  onClick={() => fetchLoadConfig()}
+                  disabled={loadConfigLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <RefreshCw className={`w-3 h-3 ${loadConfigLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
+            )}
           </div>
         </div>
+        {/* ── Entity Registry Tab ── */}
+        {entityViewMode === 'registry' && (
+        <>
         {registeredEntities.length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">No entities registered yet. Use "New Data Source" to onboard one.</p>
         ) : (
@@ -803,6 +1055,192 @@ export default function SourceManager() {
                 </div>
               );
             })}
+          </div>
+        )}
+        </>
+        )}
+
+        {/* ── Load Configuration Tab ── */}
+        {entityViewMode === 'loadConfig' && (
+          <div className="space-y-4">
+            {/* Summary bar */}
+            <div className="flex items-center justify-between bg-muted/30 rounded-lg border border-border p-3">
+              <div className="flex items-center gap-4 text-sm">
+                <span className="text-foreground font-medium">{loadConfigData.length} entities</span>
+                <span className="text-blue-500 dark:text-blue-400 flex items-center gap-1">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  {incrementalCount} incremental
+                </span>
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <ArrowUpDown className="w-3.5 h-3.5" />
+                  {fullCount} full load
+                </span>
+                <span className="text-emerald-500 dark:text-emerald-400 flex items-center gap-1">
+                  <Layers className="w-3.5 h-3.5" />
+                  {bronzeRegistered} Bronze / {silverRegistered} Silver
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-background border border-border rounded-lg overflow-hidden text-xs">
+                  {(['all', 'incremental', 'full'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setLoadConfigFilter(f)}
+                      className={`px-3 py-1.5 transition-colors capitalize ${
+                        loadConfigFilter === f
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Action buttons per data source */}
+            {uniqueDataSources.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {uniqueDataSources.map(([dsId, dsName]) => (
+                  <div key={dsId} className="flex items-center gap-1 bg-muted/30 rounded-lg border border-border px-3 py-1.5">
+                    <span className="text-xs font-medium text-foreground mr-2">{dsName}</span>
+                    <button
+                      onClick={() => handleAnalyzeSource(dsId)}
+                      disabled={analyzing}
+                      className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50"
+                      title="Scan source tables for PKs, watermark columns, and row counts"
+                    >
+                      {analyzing && analyzeTarget === String(dsId) ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Search className="w-3 h-3" />
+                      )}
+                      Analyze
+                    </button>
+                    <button
+                      onClick={() => handleRegisterBronzeSilver(dsId)}
+                      disabled={registering}
+                      className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-purple-600 hover:bg-purple-700 text-white transition-colors disabled:opacity-50"
+                      title="Auto-register Bronze + Silver entities from analyzed data"
+                    >
+                      {registering ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Layers className="w-3 h-3" />
+                      )}
+                      Register B/S
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {loadConfigLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin text-primary mr-3" />
+                <span className="text-sm text-muted-foreground">Loading entity configuration...</span>
+              </div>
+            ) : loadConfigData.length === 0 ? (
+              <div className="text-center py-12">
+                <Settings2 className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground mb-2">No load configuration data available</p>
+                <p className="text-xs text-muted-foreground">Register entities first, then switch to this tab to configure load optimization.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {Object.entries(loadConfigBySource).sort(([a], [b]) => a.localeCompare(b)).map(([sourceName, entities]) => {
+                  const srcIncr = entities.filter(e => isEntityIncremental(e)).length;
+                  const srcBronze = entities.filter(e => e.bronzeEntityId != null).length;
+                  return (
+                    <div key={sourceName} className="border border-border rounded-lg overflow-hidden">
+                      <div className="flex items-center justify-between bg-muted/30 p-3">
+                        <div className="flex items-center gap-3">
+                          <Database className="w-4 h-4 text-primary" />
+                          <span className="font-semibold text-sm text-foreground">{sourceName.toUpperCase()}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {entities.length} tables | {srcIncr} incremental | {srcBronze} Bronze
+                          </span>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-t border-border bg-muted/20">
+                              <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Table</th>
+                              <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium w-28">Load Type</th>
+                              <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Watermark Column</th>
+                              <th className="text-right py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium w-24">Source Rows</th>
+                              <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Primary Keys</th>
+                              <th className="text-center py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium w-20">Bronze</th>
+                              <th className="text-center py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium w-20">Silver</th>
+                              <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Last Value</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {entities.map(entity => {
+                              const pending = pendingUpdates.get(entity.entityId);
+                              const isIncr = pending?.isIncremental ?? isEntityIncremental(entity);
+                              const wmCol = pending?.column ?? entity.watermarkColumn ?? '';
+                              const hasPending = pending !== undefined;
+                              return (
+                                <tr key={entity.entityId} className={`border-t border-border/50 last:border-0 hover:bg-muted/20 transition-colors ${hasPending ? 'bg-amber-50/5' : ''}`}>
+                                  <td className="py-2 px-3 font-mono text-foreground text-xs">
+                                    {entity.schema}.{entity.table}
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    <select
+                                      value={isIncr ? 'incremental' : 'full'}
+                                      onChange={(e) => updatePending(entity.entityId, 'isIncremental', e.target.value === 'incremental')}
+                                      className="text-xs bg-background border border-border rounded px-2 py-1 text-foreground w-full"
+                                    >
+                                      <option value="full">Full</option>
+                                      <option value="incremental">Incremental</option>
+                                    </select>
+                                  </td>
+                                  <td className="py-2 px-3">
+                                    <input
+                                      type="text"
+                                      value={wmCol}
+                                      onChange={(e) => updatePending(entity.entityId, 'column', e.target.value)}
+                                      placeholder={entity.watermarkColumn || '—'}
+                                      className="text-xs bg-background border border-border rounded px-2 py-1 text-foreground font-mono w-full"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-3 text-right font-mono text-xs text-muted-foreground">
+                                    —
+                                  </td>
+                                  <td className="py-2 px-3 font-mono text-xs text-muted-foreground truncate max-w-[200px]" title={entity.primaryKeys || ''}>
+                                    {entity.primaryKeys || '—'}
+                                  </td>
+                                  <td className="py-2 px-3 text-center">
+                                    {entity.bronzeEntityId != null ? (
+                                      <CheckCircle className="w-4 h-4 text-emerald-500 inline-block" />
+                                    ) : (
+                                      <Circle className="w-4 h-4 text-muted-foreground/40 inline-block" />
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-3 text-center">
+                                    {entity.silverEntityId != null ? (
+                                      <CheckCircle className="w-4 h-4 text-emerald-500 inline-block" />
+                                    ) : (
+                                      <Circle className="w-4 h-4 text-muted-foreground/40 inline-block" />
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-3 font-mono text-xs text-muted-foreground">
+                                    {entity.lastWatermarkValue || '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

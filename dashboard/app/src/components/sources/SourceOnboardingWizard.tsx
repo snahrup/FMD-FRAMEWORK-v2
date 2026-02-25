@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   CheckCircle2, Lock, ChevronRight, ChevronDown,
   Plus, Loader2, Server, ArrowRight, AlertTriangle,
   Trash2, RefreshCw, Search, Database, HelpCircle,
-  Settings2, Play, ExternalLink, Rocket,
+  Settings2, Play, ExternalLink, Rocket, Zap,
 } from 'lucide-react';
+import { useBackgroundTasks } from '@/contexts/BackgroundTaskContext';
 
 // ── Types ──
 
@@ -152,6 +153,50 @@ export function SourceOnboardingWizard({
   // Pipeline trigger state
   const [triggeringPipeline, setTriggeringPipeline] = useState(false);
   const [pipelineResult, setPipelineResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Background task context — registration survives page navigation
+  const bgTasks = useBackgroundTasks();
+  const activeTaskIdRef = useRef<string | null>(null);
+
+  // Sync background task progress → local wizard state
+  useEffect(() => {
+    const taskId = activeTaskIdRef.current;
+    if (!taskId) return;
+    const task = bgTasks.tasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    setBulkProgress({ done: task.done, total: task.total });
+
+    if (task.status !== 'running') {
+      // Task finished — update wizard state
+      setBulkRegistering(false);
+      const succeeded = task.done - task.errors;
+      if (succeeded > 0) {
+        updateStep(3, 'complete', `${succeeded} entities`, 'Registered from source database');
+        updateStep(4, 'complete', 'Ready', 'All steps completed');
+      } else if (task.status === 'cancelled') {
+        updateStep(3, 'in_progress', `${task.done} entities`, `Cancelled after ${task.done} registrations`);
+      } else {
+        updateStep(3, 'in_progress', '0 entities', `All ${task.errors} registrations failed`);
+      }
+      Promise.all([onRefresh(), loadOnboarding()]);
+      setStatus({
+        type: succeeded > 0 && task.errors === 0 ? 'success' : 'error',
+        message: task.status === 'cancelled'
+          ? `Cancelled — ${succeeded} registered before cancellation`
+          : task.errors === 0
+            ? `All ${task.done} entities registered successfully`
+            : succeeded > 0
+              ? `${succeeded} registered, ${task.errors} failed`
+              : `All ${task.errors} registrations failed`,
+      });
+      if (succeeded > 0) {
+        setDiscoveredTables([]);
+        setSelectedTables(new Set());
+      }
+      activeTaskIdRef.current = null;
+    }
+  }, [bgTasks.tasks]);
 
   // ── Load onboarding data from DB ──
   const loadOnboarding = useCallback(async () => {
@@ -463,60 +508,27 @@ export function SourceOnboardingWizard({
     const dsName = step2?.referenceId || '';
     const ds = registeredDataSources.find(d => d.Name === dsName);
     const dsType = ds?.Type || sourceType;
-
-    setBulkRegistering(true);
-    setBulkProgress({ done: 0, total: selectedTables.size });
-    setStatus(null);
     const fp = filePath || dsName.toLowerCase();
-    let done = 0;
-    let failed = 0;
-    for (const key of selectedTables) {
+
+    // Build table payloads
+    const tables = Array.from(selectedTables).map((key) => {
       const [schema, ...nameParts] = key.split('.');
       const tableName = nameParts.join('.');
       const fileName = tablePrefix ? `${tablePrefix}${tableName}` : tableName;
-      try {
-        const res = await fetch('/api/entities', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            dataSourceName: dsName,
-            dataSourceType: dsType,
-            sourceSchema: schema,
-            sourceName: tableName,
-            fileName,
-            filePath: fp,
-            isIncremental: false,
-            incrementalColumn: '',
-          }),
-        });
-        if (!res.ok) failed++;
-      } catch {
-        failed++;
-      }
-      done++;
-      setBulkProgress({ done, total: selectedTables.size });
-    }
-    const succeeded = done - failed;
-    if (succeeded > 0) {
-      await updateStep(3, 'complete', `${succeeded} entities`, `Registered from source database`);
-      await updateStep(4, 'complete', 'Ready', 'All steps completed');
-    } else {
-      await updateStep(3, 'in_progress', '0 entities', `All ${failed} registrations failed — check server logs`);
-    }
-    await Promise.all([onRefresh(), loadOnboarding()]);
-    setBulkRegistering(false);
-    setStatus({
-      type: succeeded > 0 && failed === 0 ? 'success' : 'error',
-      message: failed === 0
-        ? `All ${done} entities registered successfully`
-        : succeeded > 0
-          ? `${succeeded} registered, ${failed} failed`
-          : `All ${failed} registrations failed — check the API server console for errors`,
+      return { schema, tableName, fileName, filePath: fp };
     });
-    if (succeeded > 0) {
-      setDiscoveredTables([]);
-      setSelectedTables(new Set());
-    }
+
+    // Dispatch to background context — survives navigation
+    const taskId = bgTasks.startEntityRegistration(
+      `Registering ${tables.length} ${sourceLabel || 'entities'}`,
+      { dataSourceName: dsName, dataSourceType: dsType, tables }
+    );
+    activeTaskIdRef.current = taskId;
+
+    // Update local UI state
+    setBulkRegistering(true);
+    setBulkProgress({ done: 0, total: tables.length });
+    setStatus(null);
   };
 
   // ── If onboarding table doesn't exist, show setup instructions ──
@@ -596,15 +608,15 @@ export function SourceOnboardingWizard({
           {sources.length > 0 && (
             <select
               value={selectedSource}
-              onChange={(e) => { setSelectedSource(e.target.value); setActiveVisualStep(null); setStatus(null); }}
+              onChange={(e) => { setSelectedSource(e.target.value); setActiveVisualStep(null); setStatus(null); setSelectedGatewayId(''); setDiscoveredTables([]); setSelectedTables(new Set()); setTablePrefix(''); setFilePath(''); }}
               className="px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground min-w-[200px]"
             >
               <option value="">Select a source...</option>
-              {sources.map(s => {
+              {sources.filter(s => s.steps.filter(st => st.status === 'complete').length < 4).map(s => {
                 const done = s.steps.filter(st => st.status === 'complete').length;
                 return (
                   <option key={s.sourceName} value={s.sourceName}>
-                    {s.sourceName} ({Math.min(done, 4)}/4 complete)
+                    {s.sourceName} ({done}/4 complete)
                   </option>
                 );
               })}
@@ -1410,6 +1422,25 @@ export function SourceOnboardingWizard({
                           <Plus className="h-3.5 w-3.5" />
                           Onboard Another Source
                         </button>
+                      </div>
+
+                      <div className="mt-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                        <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300 mb-1.5">
+                          <Zap className="h-3.5 w-3.5" />
+                          <span className="font-semibold">Load Optimization Available</span>
+                        </div>
+                        <p className="text-[11px] text-blue-600/80 dark:text-blue-400/70 mb-2">
+                          Before running the pipeline, analyze your tables for incremental load opportunities and register Bronze/Silver entities.
+                          This reduces subsequent pipeline runs from hours to minutes.
+                        </p>
+                        <a
+                          href="/sources"
+                          onClick={(e) => { e.preventDefault(); /* Switch to Load Config tab */ window.location.hash = '#load-config'; }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors"
+                        >
+                          <Zap className="h-3 w-3" />
+                          Open Load Optimization
+                        </a>
                       </div>
 
                       <div className="mt-4 bg-muted/50 rounded-lg p-3 border border-border">

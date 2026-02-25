@@ -64,6 +64,7 @@ TriggerTime = ""
 TriggerType = ""
 
 notebook_entities = ""
+chunk_mode = ""
 
 
 ###############################Logging Parameters###############################
@@ -338,13 +339,87 @@ for i, item in enumerate(path_data):
 # META   "language_group": "synapse_pyspark"
 # META }
 
+# CELL ********************
+
+# Chunking for large entity sets (Fabric 1MB notebook output limit)
+# When entity count exceeds CHUNK_SIZE, split into smaller groups and
+# call this notebook recursively. Each chunk gets its own output budget.
+# _chunking_active prevents fallthrough to runMultiple if chunking fails.
+CHUNK_SIZE = 50
+_chunking_active = chunk_mode != "batch" and len(path_data) > CHUNK_SIZE
+
+if _chunking_active:
+    import math
+    num_chunks = math.ceil(len(path_data) / CHUNK_SIZE)
+    total_succeeded = 0
+    total_failed = 0
+    all_failures = []
+
+    print(f"Chunking {len(path_data)} entities into {num_chunks} chunks of ~{CHUNK_SIZE}")
+
+    for ci in range(num_chunks):
+        chunk = path_data[ci * CHUNK_SIZE : (ci + 1) * CHUNK_SIZE]
+        print(f"  Chunk {ci + 1}/{num_chunks}: {len(chunk)} entities...")
+
+        try:
+            chunk_exit = notebookutils.notebook.run(
+                "NB_FMD_PROCESSING_PARALLEL_MAIN",
+                timeout_seconds=7200,
+                arguments={
+                    "Path": dumps(chunk),
+                    "chunk_mode": "batch",
+                    "useRootDefaultLakehouse": str(useRootDefaultLakehouse),
+                    "TriggerGuid": TriggerGuid,
+                    "TriggerTime": TriggerTime,
+                    "TriggerType": TriggerType,
+                }
+            )
+            if isinstance(chunk_exit, str):
+                try:
+                    chunk_exit = loads(chunk_exit)
+                except:
+                    chunk_exit = {"succeeded": len(chunk), "failed": 0, "failures": []}
+            total_succeeded += chunk_exit.get("succeeded", 0)
+            total_failed += chunk_exit.get("failed", 0)
+            if chunk_exit.get("failures"):
+                all_failures.extend(chunk_exit["failures"])
+            print(f"  Chunk {ci + 1}: {chunk_exit.get('succeeded', '?')} ok, {chunk_exit.get('failed', 0)} failed")
+        except Exception as e:
+            print(f"  Chunk {ci + 1} ERROR: {str(e)[:300]}")
+            total_failed += len(chunk)
+
+    print(f"\n{'='*60}")
+    print(f"Execution Summary: {len(path_data)} entities | {total_succeeded} succeeded | {total_failed} failed")
+    print(f"{'='*60}")
+
+    TotalRuntime = str((datetime.now() - starttime))
+    print(f"\nCompleted in {TotalRuntime}")
+
+    exit_value = {"total": len(path_data), "succeeded": total_succeeded, "failed": total_failed, "failures": all_failures[:20]}
+
+    if total_failed > 0:
+        notebookutils.notebook.exit(dumps(exit_value))
+        raise ValueError(f"Failed notebooks: {total_failed}/{len(path_data)}")
+
+    notebookutils.notebook.exit(dumps(exit_value))
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
 # MARKDOWN ********************
 
-# ## Execute Notebooks
+# ## Execute Notebooks (batch mode — single chunk)
 
 # CELL ********************
 
-#notebooks = path_data
+# Guard: skip all runMultiple execution when chunking handled this run
+if _chunking_active:
+    notebookutils.notebook.exit(dumps({"skipped": "chunking_handled"}))
+
 cmd_dags = []
 
 # METADATA ********************
@@ -460,21 +535,31 @@ print(f"\nTotal batches: {len(cmd_dags)} (runMultiple limit: 50 per batch)")
 # CELL ********************
 
 # Execute Notebooks in batches (runMultiple max: 50 notebooks per call)
+# Suppress stdout during runMultiple to stay under Fabric 1MB output limit.
+# runMultiple generates significant internal output (Spark session info,
+# monitoring URLs, etc.) that accumulates across batches.
+import sys, io
+
 results = {}
 for batch_idx, cmd_dag in enumerate(cmd_dags):
     try:
-        print(f"\nExecuting batch {batch_idx + 1}/{len(cmd_dags)} with {len(cmd_dag['activities'])} activities...")
-        batch_results = notebookutils.mssparkutils.notebook.runMultiple(cmd_dag, {"displayDAGViaGraphviz": True})
+        print(f"Batch {batch_idx + 1}/{len(cmd_dags)}: {len(cmd_dag['activities'])} activities...")
+        _old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            batch_results = notebookutils.mssparkutils.notebook.runMultiple(cmd_dag, {"displayDAGViaGraphviz": False})
+        finally:
+            sys.stdout = _old_stdout
         results.update(batch_results)
-        print(f"✓ Batch {batch_idx + 1} completed successfully")
-    except notebookutils.mssparkutils.handlers.notebookHandler.RunMultipleFailedException as e:
-        print(f"⚠ Batch {batch_idx + 1} had errors, continuing with partial results")
-        results.update(e.result)
+        print(f"  Batch {batch_idx + 1} done")
     except Exception as e:
-        print(f"\n✗ ERROR in batch {batch_idx + 1}:")
-        print(f"  Activities: {len(cmd_dag['activities'])}")
-        print(f"  Exception: {str(e)}")
-        raise
+        sys.stdout = _old_stdout
+        if hasattr(e, 'result'):
+            print(f"  Batch {batch_idx + 1} partial ({str(e)[:100]})")
+            results.update(e.result)
+        else:
+            print(f"  Batch {batch_idx + 1} ERROR: {str(e)[:200]}")
+            raise
 
 # METADATA ********************
 
@@ -485,20 +570,22 @@ for batch_idx, cmd_dag in enumerate(cmd_dags):
 
 # CELL ********************
 
-# Convert the data into a single result set
+# Convert the data into a single result set (minimal to stay under 1MB output limit)
 result_set = []
 for table_name, table_data in results.items():
     exception_str = str(table_data["exception"])
-    result_set.append({
-        "TableName": table_name,
-        "exitVal": table_data["exitVal"],
-        "exception": exception_str
-    })
+    entry = {"TableName": table_name, "exception": exception_str}
+    if exception_str != "None":
+        entry["exitVal"] = table_data["exitVal"]
+    result_set.append(entry)
 
+succeeded = [r for r in result_set if r.get('exception') == 'None']
+failed_items = [r for r in result_set if r.get('exception') != 'None']
 print(f"\n{'='*60}")
-print(f"Execution Summary: {len(result_set)} activities completed")
+print(f"Execution Summary: {len(result_set)} activities | {len(succeeded)} succeeded | {len(failed_items)} failed")
 print(f"{'='*60}")
-print(dumps(result_set, indent=2))
+if failed_items:
+    print(dumps(failed_items, indent=2))
 
 # METADATA ********************
 
@@ -515,10 +602,10 @@ for result in result_set:
         fails.append(result)
 
 if fails:
-    failed_names = [r['TableName'] for r in fails]
-    print(f"\n✗ ERROR: {len(fails)} notebook execution(s) failed:")
-    for f in fails:
-        print(f"  - {f['TableName']}: {f['exception']}")
+    failed_names = [r['TableName'] for r in fails[:10]]
+    print(f"ERRORS: {len(fails)} failed")
+    for f in fails[:10]:
+        print(f"  {f['TableName']}: {str(f['exception'])[:100]}")
     raise ValueError(f"Failed notebooks: {failed_names}")
 
 # METADATA ********************
@@ -531,10 +618,16 @@ if fails:
 # CELL ********************
 
 try:
-    exit_value = result_set
+    # Minimal exit value to stay under Fabric 1MB output limit
+    exit_value = {
+        "total": len(result_set),
+        "succeeded": len(succeeded),
+        "failed": len(failed_items),
+        "failures": [{"TableName": f["TableName"], "exception": f["exception"]} for f in failed_items] if failed_items else []
+    }
 except Exception as e:
     print(e)
-    exit_value= 'Error in Exit Value or No Notebooks to Process'
+    exit_value = 'Error in Exit Value or No Notebooks to Process'
 
 # METADATA ********************
 
@@ -546,7 +639,7 @@ except Exception as e:
 # CELL ********************
 
 TotalRuntime = str((datetime.now() - starttime))
-print(f"\n✓ Notebook execution completed in {TotalRuntime}")
+print(f"Completed in {TotalRuntime}")
 notebookutils.notebook.exit(exit_value)
 
 # METADATA ********************

@@ -1,26 +1,17 @@
 workspaces:
-  # ── Development ──
-  workspace_data: "1d947c6d-4350-48c5-8b98-9c21d8862fe7"           # INTEGRATION DATA (D)
-  workspace_code: "0bd63996-3a38-493b-825e-b6f26a04ae99"           # INTEGRATION CODE (D)
-  workspace_config: "c6d2ec61-9433-4359-98a2-d07b324f1f5a"         # INTEGRATION CONFIG
-  # ── Production ──
-  workspace_data_prod: "350f08db-936e-42d9-8d3e-70fdee0d3df8"     # INTEGRATION DATA (P)
-  workspace_code_prod: "1d1ae6c6-70a1-4f7e-849d-60820ea13646"     # INTEGRATION CODE (P)
-  # ── Business Domain (not yet created in INTEGRATION tenant) ──
-  # workspace_business_domain_data: "TBD"
-  # workspace_business_domain_code: "TBD"
-  # workspace_business_domain_reporting: "TBD"
+    workspace_data: "a3a180ff-fbc2-48fd-a65f-27ae7bb6709a"
+    workspace_code: "146fe38c-f6c3-4e9d-a18c-5c01cad5941e"
+    workspace_config: "f442f66c-eac6-46d7-80c9-c8b025c86fbe"
+    workspace_data_prod: "4c4b6bf5-8728-4aac-a132-b008a11b96d7"
+    workspace_code_prod: "1284458c-1976-46a6-b9d8-af17c7d11a59"
 
-connections: 
-        CON_FMD_FABRIC_SQL: "0f86f6a1-9f84-44d1-b977-105b5179c678"
-        CON_FMD_FABRIC_PIPELINES: "6b2e33a1-b441-4137-b41d-260ffa8258cf"
-        CON_FMD_ADF_PIPELINES: "02e107b8-e97e-4b00-a28c-668cf9ce3d9a"
-        CON_FMD_FABRIC_NOTEBOOKS: "5929775e-aff1-430c-b56e-f855d0bc63b8"
-
+connections:
+    CON_FMD_FABRIC_SQL: "0f86f6a1-9f84-44d1-b977-105b5179c678"
+    CON_FMD_FABRIC_PIPELINES: "6b2e33a1-b441-4137-b41d-260ffa8258cf"
+    CON_FMD_ADF_PIPELINES: "00000000-0000-0000-0000-000000000000"
+    CON_FMD_FABRIC_NOTEBOOKS: "f4d3220c-0cd3-4f76-9641-b4154e192645"
 
 database:
     displayName: "SQL_INTEGRATION_FRAMEWORK"
-    id: "027d772b-cfc0-472f-a3a6-fafd3f584f4f"
-    endpoint: "7xuydsw5a3hutnnj5z2ed72tam-mhwnfrrtsrmuhgfc2b5tety7li.database.fabric.microsoft.com,1433"
-
-
+    id: "501d6b17-fcee-47f3-bbb3-54e05f2a3fc0"
+    endpoint: "7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433"

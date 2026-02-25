@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import {
   Search,
@@ -53,6 +53,7 @@ interface EntityListItem {
   IsIncremental: string;
   IsActive: string;
   DataSourceName: string;
+  DataSourceNamespace: string;
 }
 
 interface ColumnInfo {
@@ -353,6 +354,7 @@ function ProfilePanel({
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   const loadProfile = useCallback(async () => {
     if (profile) {
@@ -361,12 +363,21 @@ function ProfilePanel({
     }
     setLoading(true);
     setExpanded(true);
+    setProfileError(null);
     try {
       const data = await fetchJson<ProfileData>(
         `/blender/profile?lakehouse=${encodeURIComponent(lakehouse)}&schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}`
       );
-      setProfile(data);
-    } catch {
+      if (!data || !data.columns || data.columns.length === 0) {
+        setProfileError("No column data available. Table may not have been loaded yet.");
+        setProfile(null);
+      } else {
+        setProfile(data);
+      }
+    } catch (e) {
+      setProfileError(
+        e instanceof Error ? e.message : "Failed to profile table. Data may not have been loaded to this layer yet."
+      );
       setProfile(null);
     } finally {
       setLoading(false);
@@ -386,6 +397,13 @@ function ProfilePanel({
         )}
         {expanded ? "Hide Profile" : "Profile Columns"}
       </button>
+
+      {expanded && profileError && (
+        <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 flex items-center gap-2">
+          <Info className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+          <span className="text-xs text-amber-400/80">{profileError}</span>
+        </div>
+      )}
 
       {expanded && profile && (
         <div className="mt-2 rounded-lg border border-border/30 overflow-hidden">
@@ -525,20 +543,21 @@ export default function DataJourney() {
     return entities.filter(
       (e) =>
         e.SourceName.toLowerCase().includes(q) ||
+        e.FileName?.toLowerCase().includes(q) ||
         e.SourceSchema.toLowerCase().includes(q) ||
-        e.DataSourceName.toLowerCase().includes(q) ||
-        e.FilePath?.toLowerCase().includes(q)
+        (e.DataSourceNamespace || e.DataSourceName || "").toLowerCase().includes(q)
     );
   }, [entities, searchQuery]);
 
-  // Group entities by data source
+  // Group entities by namespace (friendly label)
   const groupedEntities = useMemo(() => {
     const groups: Record<string, EntityListItem[]> = {};
     filteredEntities.forEach((e) => {
-      const key = e.DataSourceName || "Unknown";
+      const key = e.DataSourceNamespace || e.DataSourceName || "Unknown";
       (groups[key] ||= []).push(e);
     });
-    return groups;
+    // Sort groups alphabetically
+    return Object.fromEntries(Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)));
   }, [filteredEntities]);
 
   // Compute transition stats
@@ -552,17 +571,33 @@ export default function DataJourney() {
   const bronzeOnly = journey?.schemaDiff.filter((d) => d.status === "bronze_only") || [];
   const typeChanged = journey?.schemaDiff.filter((d) => d.status === "type_changed") || [];
 
+  // Ref for click-outside detection
+  const selectorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (selectorRef.current && !selectorRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [dropdownOpen]);
+
+  // Find selected entity for display
+  const selectedEntity = entities.find((e) => e.LandingzoneEntityId === entityIdParam);
+
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
-      <div className="flex-shrink-0 border-b border-border/50 bg-card/30 backdrop-blur-sm px-6 py-4">
+      <div className="flex-shrink-0 border-b border-border/50 bg-card/30 px-6 py-4" style={{ zIndex: 100, position: "relative" }}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
             <GitBranch className="w-5 h-5 text-primary" />
             <h1 className="font-display text-lg font-semibold">Data Journey</h1>
             {journey && (
               <span className="text-muted-foreground text-sm">
-                — {journey.source.schema}.{journey.source.name}
+                — {journey.source.namespace || journey.source.dataSourceName}: {journey.landing.fileName || journey.source.name}
               </span>
             )}
           </div>
@@ -577,24 +612,45 @@ export default function DataJourney() {
           )}
         </div>
 
-        {/* Entity Selector */}
-        <div className="relative max-w-xl">
-          <div className="flex items-center border border-border/50 rounded-lg bg-card/50 focus-within:border-primary/50 transition-colors">
-            <Search className="w-4 h-4 text-muted-foreground/50 ml-3" />
-            <input
-              type="text"
-              placeholder={listLoading ? "Loading entities..." : `Search ${entities.length} entities...`}
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setDropdownOpen(true);
-              }}
-              onFocus={() => setDropdownOpen(true)}
-              className="w-full px-3 py-2 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 outline-none"
-            />
-            {entityIdParam && (
+        {/* Entity Selector — proper combobox dropdown */}
+        <div ref={selectorRef} className="relative max-w-2xl">
+          {/* Trigger button / search input */}
+          <div
+            className={`flex items-center border rounded-lg transition-colors cursor-pointer ${
+              dropdownOpen
+                ? "border-primary/50 bg-card/80 ring-1 ring-primary/20"
+                : "border-border/50 bg-card/50 hover:border-border"
+            }`}
+            onClick={() => !dropdownOpen && setDropdownOpen(true)}
+          >
+            <Search className="w-4 h-4 text-muted-foreground/50 ml-3 flex-shrink-0" />
+            {dropdownOpen ? (
+              <input
+                type="text"
+                autoFocus
+                placeholder={listLoading ? "Loading entities..." : `Filter ${entities.length} entities...`}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 py-2.5 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 outline-none"
+              />
+            ) : (
+              <div className="w-full px-3 py-2.5 text-sm">
+                {selectedEntity ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                      {selectedEntity.DataSourceNamespace || selectedEntity.DataSourceName}
+                    </span>
+                    <span className="font-mono text-foreground">{selectedEntity.FileName || selectedEntity.SourceName}</span>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground/40">Select an entity...</span>
+                )}
+              </div>
+            )}
+            {entityIdParam && !dropdownOpen && (
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setSearchParams({}, { replace: true });
                   setJourney(null);
                   setSearchQuery("");
@@ -604,33 +660,37 @@ export default function DataJourney() {
                 <XCircle className="w-4 h-4" />
               </button>
             )}
+            <ChevronDown className={`w-4 h-4 text-muted-foreground/40 mr-3 flex-shrink-0 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
           </div>
 
-          {/* Dropdown */}
+          {/* Dropdown list */}
           {dropdownOpen && !listLoading && (
-            <div className="absolute z-50 mt-1 w-full max-h-80 overflow-y-auto rounded-lg border border-border/50 bg-popover shadow-xl">
+            <div className="absolute z-[200] mt-1 w-full max-h-[60vh] overflow-y-auto rounded-lg border border-border/50 bg-popover shadow-2xl">
               {Object.entries(groupedEntities).map(([source, items]) => (
                 <div key={source}>
-                  <div className="sticky top-0 px-3 py-1.5 bg-muted/50 backdrop-blur-sm border-b border-border/20">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      {(items[0]?.FilePath || source).toUpperCase()}
+                  <div className="sticky top-0 px-3 py-2 bg-muted/80 backdrop-blur-sm border-b border-border/20 flex items-center justify-between">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+                      {source}
                     </span>
-                    <span className="text-[10px] text-muted-foreground/40 ml-2">{items.length}</span>
+                    <span className="text-[10px] text-muted-foreground/40">{items.length} entities</span>
                   </div>
                   {items.map((e) => (
                     <button
                       key={e.LandingzoneEntityId}
                       onClick={() => selectEntity(e.LandingzoneEntityId)}
-                      className={`w-full text-left px-3 py-2 hover:bg-muted/30 transition-colors flex items-center justify-between gap-2 ${
-                        entityIdParam === e.LandingzoneEntityId ? "bg-primary/5 border-l-2 border-primary" : ""
+                      className={`w-full text-left px-3 py-2 hover:bg-primary/5 transition-colors flex items-center justify-between gap-2 ${
+                        entityIdParam === e.LandingzoneEntityId ? "bg-primary/10 border-l-2 border-primary" : ""
                       }`}
                     >
-                      <div className="min-w-0">
-                        <span className="text-sm font-mono text-foreground truncate block">
-                          {e.SourceSchema}.{e.SourceName}
+                      <div className="min-w-0 flex items-center gap-2">
+                        <span className="text-sm font-mono text-foreground truncate">
+                          {e.FileName || e.SourceName}
                         </span>
+                        {e.SourceSchema !== "dbo" && (
+                          <span className="text-[10px] text-muted-foreground/40 flex-shrink-0">{e.SourceSchema}</span>
+                        )}
                       </div>
-                      <span className="text-[10px] text-muted-foreground/40 flex-shrink-0">
+                      <span className="text-[10px] text-muted-foreground/30 flex-shrink-0">
                         #{e.LandingzoneEntityId}
                       </span>
                     </button>
@@ -646,11 +706,6 @@ export default function DataJourney() {
           )}
         </div>
       </div>
-
-      {/* Click-away for dropdown */}
-      {dropdownOpen && (
-        <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
-      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">

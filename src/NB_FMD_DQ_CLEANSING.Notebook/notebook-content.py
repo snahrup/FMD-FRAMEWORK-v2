@@ -147,12 +147,6 @@ def handle_cleansing_functions(df: DataFrame, cleansing_rules):
             if columns_raw else []
         )
 
-        print(
-            f"\nFunction: {function}"
-            f"\nParameters: {parameters}"
-            f"\nColumns: {columns}"
-        )
-
         df = dynamic_call_cleansing_function(
             df,
             function,

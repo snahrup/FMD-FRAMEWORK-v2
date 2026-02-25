@@ -7,7 +7,7 @@ import {
   RefreshCw, Loader2, XCircle, Clock, Info,
   Play, Rocket, CheckCircle2, AlertCircle, Activity,
   ChevronDown, ChevronUp, X, Eye, EyeOff, Terminal,
-  Copy, ArrowRight, Ban, Timer, SkipForward,
+  Copy, ArrowRight, Ban, Timer, SkipForward, Search, Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Bar, BarChart, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
@@ -179,55 +179,14 @@ const categoryBadgeColors: Record<PipelineCategory, string> = {
 interface QuickAction {
   label: string;
   pipelineName: string;
-  description: string;
   icon: typeof Rocket;
-  color: string;
-  borderColor: string;
-  bgColor: string;
-  hoverBg: string;
 }
 
 const quickActions: QuickAction[] = [
-  {
-    label: 'Landing Zone',
-    pipelineName: 'PL_FMD_LOAD_LANDINGZONE',
-    description: 'Copy source data into Landing Zone lakehouse',
-    icon: Rocket,
-    color: 'text-blue-600 dark:text-blue-400',
-    borderColor: 'border-blue-300 dark:border-blue-600',
-    bgColor: 'bg-blue-50 dark:bg-blue-950/40',
-    hoverBg: 'hover:bg-blue-100 dark:hover:bg-blue-900/50',
-  },
-  {
-    label: 'Bronze',
-    pipelineName: 'PL_FMD_LOAD_BRONZE',
-    description: 'Transform Landing Zone to Bronze layer',
-    icon: Activity,
-    color: 'text-amber-600 dark:text-amber-400',
-    borderColor: 'border-amber-300 dark:border-amber-600',
-    bgColor: 'bg-amber-50 dark:bg-amber-950/40',
-    hoverBg: 'hover:bg-amber-100 dark:hover:bg-amber-900/50',
-  },
-  {
-    label: 'Silver',
-    pipelineName: 'PL_FMD_LOAD_SILVER',
-    description: 'Transform Bronze to Silver layer',
-    icon: Activity,
-    color: 'text-purple-600 dark:text-purple-400',
-    borderColor: 'border-purple-300 dark:border-purple-600',
-    bgColor: 'bg-purple-50 dark:bg-purple-950/40',
-    hoverBg: 'hover:bg-purple-100 dark:hover:bg-purple-900/50',
-  },
-  {
-    label: 'Full Load',
-    pipelineName: 'PL_FMD_LOAD_ALL',
-    description: 'Run complete pipeline: LDZ → Bronze → Silver',
-    icon: Rocket,
-    color: 'text-emerald-600 dark:text-emerald-400',
-    borderColor: 'border-emerald-300 dark:border-emerald-600',
-    bgColor: 'bg-emerald-50 dark:bg-emerald-950/40',
-    hoverBg: 'hover:bg-emerald-100 dark:hover:bg-emerald-900/50',
-  },
+  { label: 'Landing Zone', pipelineName: 'PL_FMD_LOAD_LANDINGZONE', icon: Download },
+  { label: 'Bronze', pipelineName: 'PL_FMD_LOAD_BRONZE', icon: Activity },
+  { label: 'Silver', pipelineName: 'PL_FMD_LOAD_SILVER', icon: Activity },
+  { label: 'Full Load', pipelineName: 'PL_FMD_LOAD_ALL', icon: Rocket },
 ];
 
 // ── Medallion progress indicator ──
@@ -279,6 +238,14 @@ function normalizeFabricStatus(raw?: string): FabricStatus {
   if (s === 'cancelled') return 'cancelled';
   if (s === 'deduped') return 'deduped';
   return 'unknown';
+}
+
+/** Parse a Fabric ISO timestamp into epoch ms.
+ *  Fabric timestamps are real UTC — parse directly so the browser
+ *  converts to the user's local timezone for display. */
+function parseFabricTime(iso?: string | null): number {
+  if (!iso) return Date.now();
+  return new Date(iso).getTime();
 }
 
 const fabricStatusConfig: Record<FabricStatus, {
@@ -358,7 +325,7 @@ const fabricStatusConfig: Record<FabricStatus, {
 
 function formatTimeAgo(isoString?: string): string {
   if (!isoString) return '';
-  const diff = Date.now() - new Date(isoString).getTime();
+  const diff = Date.now() - parseFabricTime(isoString);
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
@@ -370,8 +337,8 @@ function formatTimeAgo(isoString?: string): string {
 
 function formatDuration(startUtc?: string, endUtc?: string): string {
   if (!startUtc) return '';
-  const start = new Date(startUtc).getTime();
-  const end = endUtc ? new Date(endUtc).getTime() : Date.now();
+  const start = parseFabricTime(startUtc);
+  const end = endUtc ? parseFabricTime(endUtc) : Date.now();
   const secs = Math.floor((end - start) / 1000);
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
@@ -379,6 +346,306 @@ function formatDuration(startUtc?: string, endUtc?: string): string {
   if (mins < 60) return `${mins}m ${remSecs}s`;
   const hrs = Math.floor(mins / 60);
   return `${hrs}h ${mins % 60}m`;
+}
+
+// ── Error interpretation ──
+// Translates raw Fabric error messages into plain-English explanations with actionable suggestions
+
+function interpretFailureReason(reason: string | Record<string, unknown> | null | undefined): { summary: string; suggestion: string } | null {
+  if (!reason) return null;
+  const raw = typeof reason === 'string' ? reason : ((reason as Record<string, string>)?.message || JSON.stringify(reason));
+  if (!raw || raw === '{}' || raw === 'null') return null;
+  const lower = raw.toLowerCase();
+
+  // Gateway issues
+  if (lower.includes('gateway') || lower.includes('on-premises data gateway') || lower.includes('personal gateway')) {
+    return {
+      summary: 'On-premises data gateway is unreachable',
+      suggestion: 'Verify the gateway machine is powered on, the gateway service is running, and VPN is connected. Check gateway status in Fabric > Manage connections and gateways.',
+    };
+  }
+
+  // Connection / login failures
+  if (lower.includes('login failed') || lower.includes('cannot open database') || lower.includes('cannot connect') || lower.includes('connection string')) {
+    return {
+      summary: 'Database connection failed',
+      suggestion: 'The SQL Server may be down, the database name may have changed, or credentials have expired. Check the connection in Fabric > Manage connections and gateways.',
+    };
+  }
+
+  // SSL / certificate
+  if (lower.includes('certificate') || lower.includes('ssl') || lower.includes('tls') || lower.includes('trust server')) {
+    return {
+      summary: 'SSL/TLS certificate error',
+      suggestion: 'The source server has a self-signed or untrusted certificate. Enable "TrustServerCertificate" in the connection settings, or install the server certificate on the gateway machine.',
+    };
+  }
+
+  // Timeout
+  if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('operation took too long')) {
+    return {
+      summary: 'Operation timed out',
+      suggestion: 'The source query exceeded the timeout limit. This typically happens with very large tables. Enable incremental loading (watermark-based) to reduce data volume per run.',
+    };
+  }
+
+  // Capacity / throttling
+  if (lower.includes('capacity') || lower.includes('throttl') || lower.includes('429') || lower.includes('too many requests') || lower.includes('rate limit')) {
+    return {
+      summary: 'Fabric capacity limit reached',
+      suggestion: 'The workspace hit its compute capacity limit. Wait for other jobs to complete, reduce the parallel copy degree in pipeline settings, or request a capacity upgrade.',
+    };
+  }
+
+  // Permission / auth
+  if (lower.includes('unauthorized') || lower.includes('forbidden') || lower.includes('access denied') || lower.includes('403') || lower.includes('401') || lower.includes('permission')) {
+    return {
+      summary: 'Authentication or permission error',
+      suggestion: 'The service principal or connection credentials lack the required permissions. Verify the connection auth type (ServicePrincipal vs WorkspaceIdentity) in Fabric > Manage connections.',
+    };
+  }
+
+  // Schema / column issues
+  if (lower.includes('column') && (lower.includes('not found') || lower.includes('invalid') || lower.includes('does not exist'))) {
+    return {
+      summary: 'Schema mismatch — column not found',
+      suggestion: 'The source table schema changed since the entity was registered. Re-run source analysis from Source Manager to update the entity configuration.',
+    };
+  }
+
+  // Delta / merge errors
+  if (lower.includes('delta') || lower.includes('merge') || lower.includes('concurrentappend') || lower.includes('concurrent')) {
+    return {
+      summary: 'Delta table write conflict',
+      suggestion: 'Two operations tried to write to the same Delta table simultaneously. This usually resolves on retry. If persistent, check that no other pipelines target the same Bronze/Silver table.',
+    };
+  }
+
+  // Notebook / Spark
+  if (lower.includes('notebook') || lower.includes('spark') || lower.includes('livy') || lower.includes('session') || lower.includes('py4j')) {
+    return {
+      summary: 'Notebook execution failed',
+      suggestion: 'Check the notebook logs in Fabric for the full Spark stack trace. Common causes: missing lakehouse reference, Python import error, or data type mismatch in Delta merge.',
+    };
+  }
+
+  // Copy activity specific
+  if (lower.includes('copy activity') || lower.includes('copyactivity') || lower.includes('data movement')) {
+    return {
+      summary: 'Data copy operation failed',
+      suggestion: 'The Copy activity could not transfer data from source to destination. Check the source connection, verify the table exists, and confirm the gateway is online.',
+    };
+  }
+
+  // Cancelled
+  if (lower.includes('cancel') || lower.includes('abort') || lower.includes('user request')) {
+    return {
+      summary: 'Run was cancelled',
+      suggestion: 'This run was manually cancelled or terminated by a parent pipeline. No action needed unless this was unexpected.',
+    };
+  }
+
+  // Deduplication
+  if (lower.includes('dedup') || lower.includes('already running') || lower.includes('concurrent execution')) {
+    return {
+      summary: 'Duplicate run skipped',
+      suggestion: 'This pipeline was already running when a new trigger arrived. Fabric skipped the duplicate. This is normal behavior — the original run is still active.',
+    };
+  }
+
+  // Nested pipeline failure — "Activity failed because an inner activity failed"
+  if (lower.includes('inner activity failed') || lower.includes('an inner activity failed')) {
+    // Try to extract the inner activity name and nested error
+    const innerMatch = raw.match(/Inner activity name:\s*([^,]+)/i);
+    const innerName = innerMatch ? innerMatch[1].trim() : null;
+    // Try to extract nested error message from embedded JSON
+    const nestedJsonMatch = raw.match(/Error:\s*\{(.*)\}/s);
+    let nestedMsg = '';
+    if (nestedJsonMatch) {
+      try {
+        const parsed = JSON.parse('{' + nestedJsonMatch[1] + '}');
+        nestedMsg = parsed.message || parsed.errorMessage || '';
+      } catch {
+        // Try regex extraction if JSON parse fails
+        const msgMatch = nestedJsonMatch[1].match(/"message"\s*:\s*"([^"]+)"/);
+        nestedMsg = msgMatch ? msgMatch[1] : '';
+      }
+    }
+    // Recursively interpret the nested error if we extracted it
+    if (nestedMsg) {
+      const nested = interpretFailureReason(nestedMsg);
+      if (nested && nested.summary !== 'Pipeline execution error') {
+        return {
+          summary: innerName ? `${innerName}: ${nested.summary}` : nested.summary,
+          suggestion: nested.suggestion,
+        };
+      }
+    }
+    return {
+      summary: innerName ? `Failure in nested activity: ${innerName}` : 'A nested pipeline activity failed',
+      suggestion: nestedMsg
+        ? nestedMsg.substring(0, 200)
+        : 'Use the "Investigate root cause" button below to trace through the pipeline chain and find the actual failing activity.',
+    };
+  }
+
+  // BadRequest — missing or invalid configuration
+  if (lower.includes('badrequest') || lower.includes('bad request') || (lower.includes('missing') && lower.includes('invalid'))) {
+    // Try to extract the actual message from embedded JSON
+    const msgMatch = raw.match(/"message"\s*:\s*"([^"]+)"/);
+    const detail = msgMatch ? msgMatch[1] : '';
+    if (detail.toLowerCase().includes('missing') || detail.toLowerCase().includes('invalid')) {
+      return {
+        summary: 'Invalid pipeline configuration',
+        suggestion: 'A required parameter or connection is missing or misconfigured. Check that all connection references, lakehouse names, and pipeline parameters are correctly set in the metadata database.',
+      };
+    }
+    return {
+      summary: 'Bad request to Fabric API',
+      suggestion: detail || 'The pipeline sent an invalid request. This usually means a connection, parameter, or entity reference is misconfigured in the metadata database.',
+    };
+  }
+
+  // Operation on target failed — wrapper error from ForEach/ExecutePipeline
+  if (lower.includes('operation on target') && lower.includes('failed')) {
+    const targetMatch = raw.match(/Operation on target\s+(\S+)\s+failed/i);
+    const targetName = targetMatch ? targetMatch[1] : null;
+    // Try to extract the inner error
+    const innerErrorMatch = raw.match(/failed:\s*(.+)/is);
+    if (innerErrorMatch) {
+      const innerResult = interpretFailureReason(innerErrorMatch[1]);
+      if (innerResult && innerResult.summary !== 'Pipeline execution error') {
+        return {
+          summary: targetName ? `${targetName} failed: ${innerResult.summary}` : innerResult.summary,
+          suggestion: innerResult.suggestion,
+        };
+      }
+    }
+    return {
+      summary: targetName ? `Activity "${targetName}" failed` : 'A pipeline activity failed',
+      suggestion: 'Use the "Investigate root cause" button to trace the failure chain to the actual source of the error.',
+    };
+  }
+
+  // Generic — show the raw error with a helpful framing
+  // Try to extract a meaningful message from JSON blobs
+  let displayMsg = raw;
+  const jsonMsgMatch = raw.match(/"message"\s*:\s*"([^"]{10,})"/);
+  if (jsonMsgMatch) {
+    displayMsg = jsonMsgMatch[1];
+  }
+  const truncated = displayMsg.length > 200 ? displayMsg.substring(0, 200) + '...' : displayMsg;
+  return {
+    summary: 'Pipeline execution error',
+    suggestion: truncated,
+  };
+}
+
+// ── Failure Trace — recursive pipeline failure investigation ──
+
+interface FailureTrailStep {
+  pipelineName: string;
+  activityName: string;
+  activityType: string;
+  status: string;
+  error: string;
+  depth: number;
+}
+
+interface FailureTraceResult {
+  trail: FailureTrailStep[];
+  rootCause: FailureTrailStep | null;
+}
+
+function FailureTracePanel({ workspaceGuid, jobInstanceId, pipelineName }: {
+  workspaceGuid: string;
+  jobInstanceId: string;
+  pipelineName: string;
+}) {
+  const [trace, setTrace] = useState<FailureTraceResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const fetchTrace = async () => {
+    if (trace) { setExpanded(!expanded); return; }
+    setLoading(true);
+    try {
+      const result = await fetchJson<FailureTraceResult>(
+        `/pipeline/failure-trace?workspaceGuid=${encodeURIComponent(workspaceGuid)}&jobInstanceId=${encodeURIComponent(jobInstanceId)}&pipelineName=${encodeURIComponent(pipelineName)}`
+      );
+      setTrace(result);
+      setExpanded(true);
+    } catch {
+      setTrace({ trail: [], rootCause: null });
+      setExpanded(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const rootError = trace?.rootCause ? interpretFailureReason(trace.rootCause.error) : null;
+
+  return (
+    <div className="space-y-2">
+      <button
+        onClick={(e) => { e.stopPropagation(); fetchTrace(); }}
+        disabled={loading}
+        className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-400 transition-colors"
+      >
+        {loading ? (
+          <Loader2 className="w-3 h-3 animate-spin" />
+        ) : (
+          <Search className="w-3 h-3" />
+        )}
+        {loading ? 'Tracing...' : trace ? (expanded ? 'Hide trace' : 'Show trace') : 'Investigate root cause'}
+      </button>
+
+      {expanded && trace && (
+        <div className="space-y-1.5">
+          {trace.trail.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic">No activity-level failure details available from Fabric API.</p>
+          ) : (
+            <>
+              {/* Breadcrumb trail */}
+              <div className="flex flex-wrap items-center gap-1 text-xs">
+                {trace.trail.map((step, i) => {
+                  const isLast = i === trace.trail.length - 1;
+                  const isLeaf = !['executepipeline', 'invokepipeline'].includes(step.activityType.toLowerCase());
+                  return (
+                    <span key={i} className="flex items-center gap-1">
+                      {i > 0 && <ArrowRight className="w-3 h-3 text-muted-foreground/50" />}
+                      <span className={cn(
+                        "px-1.5 py-0.5 rounded font-mono",
+                        isLast && isLeaf
+                          ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 font-semibold"
+                          : "bg-muted text-muted-foreground",
+                      )}>
+                        {step.activityName}
+                        {step.activityType && !isLeaf && (
+                          <span className="text-[10px] opacity-60 ml-1">({step.pipelineName})</span>
+                        )}
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+
+              {/* Root cause interpretation */}
+              {rootError && (
+                <div className="flex items-start gap-2 mt-1">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-red-600 dark:text-red-400">{rootError.summary}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{rootError.suggestion}</p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function PipelineStatusBadge({ job }: { job?: FabricJob }) {
@@ -436,51 +703,6 @@ function PipelineStatusDetail({ job }: { job?: FabricJob }) {
 }
 
 // ── Active Run Card ──
-
-function ActiveRunCard({ run, onDismiss, onViewLog }: { run: ActiveRun; onDismiss: () => void; onViewLog: () => void }) {
-  const elapsed = Math.round((Date.now() - run.triggeredAt.getTime()) / 1000);
-  const mins = Math.floor(elapsed / 60);
-  const secs = elapsed % 60;
-
-  return (
-    <div className={cn(
-      "flex items-center justify-between p-3 rounded-lg border transition-all duration-300",
-      run.status === 'triggered' || run.status === 'running'
-        ? "bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-700"
-        : run.status === 'succeeded'
-          ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700"
-          : "bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-700"
-    )}>
-      <div className="flex items-center gap-3">
-        {(run.status === 'triggered' || run.status === 'running') && (
-          <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-        )}
-        {run.status === 'succeeded' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
-        {run.status === 'failed' && <AlertCircle className="w-4 h-4 text-red-500" />}
-        <div>
-          <p className="text-sm font-semibold">{getDisplayName(run.pipelineName)}</p>
-          <p className="text-xs text-muted-foreground font-mono">{run.pipelineName}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {run.status === 'triggered' ? 'Starting...' : run.status === 'running' ? 'In progress' : run.status}
-            {' · '}
-            {mins}m {secs}s
-          </p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={onViewLog} className="gap-1.5 text-xs h-7">
-          <Terminal className="w-3 h-3" />
-          View Log
-        </Button>
-        {(run.status === 'succeeded' || run.status === 'failed') && (
-          <Button variant="ghost" size="sm" onClick={onDismiss} className="text-xs h-7">
-            Dismiss
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── Execution Log Modal ──
 
@@ -806,12 +1028,13 @@ function ExecutionLogModal({
                   const isFailed = s === 'failed';
                   const isSucceeded = s === 'succeeded';
                   const errorMsg = activity.error?.message as string || '';
+                  const activityErrorInfo = isFailed ? interpretFailureReason(errorMsg || activity.error) : null;
 
                   return (
                     <div
                       key={activity.activityRunId || idx}
                       className={cn(
-                        "flex items-center gap-4 p-3 rounded-lg border transition-all",
+                        "flex flex-col gap-0 rounded-lg border transition-all overflow-hidden",
                         isActive
                           ? "bg-blue-50/50 dark:bg-blue-950/20 border-blue-300 dark:border-blue-700"
                           : isFailed
@@ -821,6 +1044,7 @@ function ExecutionLogModal({
                               : "bg-card border-border",
                       )}
                     >
+                      <div className="flex items-center gap-4 p-3">
                       {/* Step number */}
                       <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                         {idx + 1}
@@ -841,7 +1065,7 @@ function ExecutionLogModal({
                             {activityTypeIcon(activity.activityType)}
                           </span>
                         </div>
-                        {isFailed && errorMsg && (
+                        {isFailed && !activityErrorInfo && errorMsg && (
                           <p className="text-xs text-red-500 dark:text-red-400 mt-0.5 truncate" title={errorMsg}>
                             {errorMsg}
                           </p>
@@ -875,6 +1099,19 @@ function ExecutionLogModal({
                       {/* Connector line to next */}
                       {idx < activityRuns.length - 1 && (
                         <div className="absolute left-[2.35rem] mt-[4.5rem] w-0.5 h-3 bg-border" />
+                      )}
+                      </div>
+                      {/* Error interpretation for failed activities */}
+                      {isFailed && activityErrorInfo && (
+                        <div className="px-3 pb-3 pt-0 ml-12 border-t border-red-200/50 dark:border-red-900/30">
+                          <div className="flex items-start gap-2 mt-2">
+                            <Info className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-red-600 dark:text-red-400">{activityErrorInfo.summary}</p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{activityErrorInfo.suggestion}</p>
+                            </div>
+                          </div>
+                        </div>
                       )}
                     </div>
                   );
@@ -985,6 +1222,18 @@ export default function PipelineMonitor() {
   const [categoryFilter, setCategoryFilter] = useState<PipelineCategory | "All" | "Running">("All");
   const [showTechnicalNames, setShowTechnicalNames] = useState(false);
 
+  // Monitoring Hub status filter — persisted to localStorage
+  type HubFilter = 'all' | 'inprogress' | 'completed' | 'failed' | 'cancelled';
+  const [hubStatusFilter, setHubStatusFilter] = useState<HubFilter>(() => {
+    try {
+      const stored = localStorage.getItem('fmd-hub-status-filter');
+      if (stored && ['all', 'inprogress', 'completed', 'failed', 'cancelled'].includes(stored)) {
+        return stored as HubFilter;
+      }
+    } catch { /* ignore */ }
+    return 'all';
+  });
+
   // Trigger state — persist active runs to localStorage so they survive hot reloads
   const [triggeringPipeline, setTriggeringPipeline] = useState<string | null>(null);
   const [triggerError, setTriggerError] = useState<string | null>(null);
@@ -1002,7 +1251,6 @@ export default function PipelineMonitor() {
     } catch { /* ignore */ }
     return [];
   });
-  const [showActiveRuns, setShowActiveRuns] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Modal state
@@ -1021,19 +1269,18 @@ export default function PipelineMonitor() {
       setPipelines(pipes);
       setExecutions(execs);
       setWorkspaces(ws);
-
-      // Also fetch Fabric job instances (non-blocking — don't fail the page if this errors)
-      try {
-        const jobs = await fetchJson<FabricJob[]>('/fabric-jobs');
-        setFabricJobs(jobs);
-        // Sync active runs from Fabric API — pick up any running jobs we don't know about
-        syncFabricJobsToActiveRuns(jobs);
-      } catch { /* fabric-jobs endpoint may not be available yet */ }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
       setLoading(false);
     }
+
+    // Fetch Fabric jobs in background — page is already interactive at this point
+    try {
+      const jobs = await fetchJson<FabricJob[]>('/fabric-jobs');
+      setFabricJobs(jobs);
+      syncFabricJobsToActiveRuns(jobs);
+    } catch { /* fabric-jobs endpoint may not be available yet */ }
   }, []);
 
   // Update locally-triggered active runs with Fabric API completion status
@@ -1174,7 +1421,6 @@ export default function PipelineMonitor() {
           { pipelineName, triggeredAt: new Date(), status: 'triggered', location: result.location },
           ...runs,
         ]);
-        setShowActiveRuns(true);
       }
     } catch (err) {
       setTriggerError(err instanceof Error ? err.message : 'Trigger failed');
@@ -1183,11 +1429,29 @@ export default function PipelineMonitor() {
     }
   };
 
-  const dismissRun = (index: number) => {
-    setActiveRuns(runs => runs.filter((_, i) => i !== index));
-  };
-
   const activePipelines = pipelines.filter(p => p.IsActive === 'True');
+
+  // Persist hub filter to localStorage
+  const updateHubFilter = useCallback((f: HubFilter) => {
+    setHubStatusFilter(f);
+    try { localStorage.setItem('fmd-hub-status-filter', f); } catch { /* ignore */ }
+  }, []);
+
+  // Filter Monitoring Hub jobs: last 12 hours + status filter
+  const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000;
+  const filteredHubJobs = fabricJobs.filter(job => {
+    // Time filter: only show jobs from last 12 hours
+    const startMs = parseFabricTime(job.startTimeUtc);
+    if (startMs < twelveHoursAgo) return false;
+    // Status filter
+    if (hubStatusFilter === 'all') return true;
+    const s = normalizeFabricStatus(job.status);
+    if (hubStatusFilter === 'inprogress') return s === 'inprogress' || s === 'running' || s === 'none';
+    if (hubStatusFilter === 'completed') return s === 'completed';
+    if (hubStatusFilter === 'failed') return s === 'failed';
+    if (hubStatusFilter === 'cancelled') return s === 'cancelled' || s === 'deduped';
+    return true;
+  });
 
   // Build a map of latest Fabric job per pipeline name
   const latestJobByPipeline = new Map<string, FabricJob>();
@@ -1230,7 +1494,10 @@ export default function PipelineMonitor() {
     fill: categoryChartColors[name as PipelineCategory] || '#64748b',
   }));
 
-  const runningCount = activeRuns.filter(r => r.status === 'triggered' || r.status === 'running').length;
+  const runningCount = fabricJobs.filter(j => {
+    const s = j.status?.toLowerCase();
+    return s === 'inprogress' || s === 'running' || s === 'notstarted';
+  }).length || activeRuns.filter(r => r.status === 'triggered' || r.status === 'running').length;
 
   if (loading) {
     return (
@@ -1298,99 +1565,60 @@ export default function PipelineMonitor() {
 
       {/* Stats Overview */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 border-slate-200/50 dark:border-slate-800/30 shadow-sm hover:shadow-md transition-shadow">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-              <FabricIcon name="pipeline" className="w-4 h-4" />
-              Total Pipelines
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-display">{activePipelines.length}</div>
-            <p className="text-xs text-muted-foreground">{pipelines.length - activePipelines.length} inactive</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/10 border-blue-200/50 dark:border-blue-800/30 shadow-sm hover:shadow-md transition-shadow">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-              <FabricIcon name="copy_job" className="w-4 h-4" />
-              Landing Zone
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-display text-blue-600 dark:text-blue-400">{categoryCounts['Landing Zone'] || 0}</div>
-            <p className="text-xs text-muted-foreground">Copy & ingestion pipelines</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/20 dark:to-amber-900/10 border-amber-200/50 dark:border-amber-800/30 shadow-sm hover:shadow-md transition-shadow">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-              <FabricIcon name="notebook" className="w-4 h-4" />
-              Transform
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-display text-amber-600 dark:text-amber-400">{(categoryCounts['Bronze'] || 0) + (categoryCounts['Silver'] || 0)}</div>
-            <p className="text-xs text-muted-foreground">Bronze + Silver pipelines</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/20 dark:to-emerald-900/10 border-emerald-200/50 dark:border-emerald-800/30 shadow-sm hover:shadow-md transition-shadow">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-              <FabricIcon name="dataflow" className="w-4 h-4" />
-              Orchestration
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-display text-emerald-600 dark:text-emerald-400">{categoryCounts['Orchestration'] || 0}</div>
-            <p className="text-xs text-muted-foreground">Load & taskflow pipelines</p>
-          </CardContent>
-        </Card>
+        {[
+          { icon: 'pipeline' as const, label: 'Total Pipelines', value: activePipelines.length, sub: `${pipelines.length - activePipelines.length} inactive` },
+          { icon: 'copy_job' as const, label: 'Landing Zone', value: categoryCounts['Landing Zone'] || 0, sub: 'Copy & ingestion pipelines' },
+          { icon: 'notebook' as const, label: 'Transform', value: (categoryCounts['Bronze'] || 0) + (categoryCounts['Silver'] || 0), sub: 'Bronze + Silver pipelines' },
+          { icon: 'dataflow' as const, label: 'Orchestration', value: categoryCounts['Orchestration'] || 0, sub: 'Load & taskflow pipelines' },
+        ].map((stat) => (
+          <Card key={stat.label} className="shadow-sm hover:shadow-md transition-shadow">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <FabricIcon name={stat.icon} className="w-4 h-4" />
+                {stat.label}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold font-display">{stat.value}</div>
+              <p className="text-xs text-muted-foreground">{stat.sub}</p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       {/* ── Quick Actions ── */}
-      <div className="space-y-3">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground flex items-center gap-2">
-          <Rocket className="w-5 h-5 text-primary" />
-          Quick Actions
-        </h2>
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-          {quickActions.map((action) => {
-            const Icon = action.icon;
-            const isTriggering = triggeringPipeline === action.pipelineName;
-            const isRunning = isPipelineRunning(action.pipelineName);
-            const disabled = isTriggering || isRunning;
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-sm font-medium text-muted-foreground">Run:</span>
+        {quickActions.map((action) => {
+          const Icon = action.icon;
+          const isTriggering = triggeringPipeline === action.pipelineName;
+          const isRunning = isPipelineRunning(action.pipelineName);
+          const disabled = isTriggering || isRunning;
 
-            return (
-              <button
-                key={action.pipelineName}
-                onClick={() => !disabled && triggerPipeline(action.pipelineName)}
-                disabled={disabled}
-                className={cn(
-                  "relative group flex flex-col items-start gap-2 p-4 rounded-xl border-2 transition-all duration-200",
-                  action.bgColor, action.borderColor,
-                  disabled ? "opacity-70 cursor-not-allowed" : cn("cursor-pointer hover:scale-[1.02] active:scale-[0.98]", action.hoverBg),
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  {isTriggering || isRunning ? (
-                    <Loader2 className={cn("w-5 h-5 animate-spin", action.color)} />
-                  ) : (
-                    <Icon className={cn("w-5 h-5", action.color)} />
-                  )}
-                  <span className="font-bold text-sm text-foreground">{action.label}</span>
-                </div>
-                <span className="text-xs text-muted-foreground leading-snug">{action.description}</span>
-                {isRunning && (
-                  <span className="absolute top-3 right-3 flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+          return (
+            <Button
+              key={action.pipelineName}
+              variant="outline"
+              size="sm"
+              disabled={disabled}
+              onClick={() => !disabled && triggerPipeline(action.pipelineName)}
+              className="gap-2"
+            >
+              {isTriggering || isRunning ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Icon className="h-4 w-4" />
+              )}
+              {action.label}
+              {isRunning && (
+                <span className="flex h-2 w-2 ml-1">
+                  <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-blue-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                </span>
+              )}
+            </Button>
+          );
+        })}
       </div>
 
       {/* ── Trigger Error ── */}
@@ -1407,40 +1635,206 @@ export default function PipelineMonitor() {
         </div>
       )}
 
-      {/* ── Active Runs ── */}
-      {activeRuns.length > 0 && (
-        <div className="space-y-2">
-          <button
-            onClick={() => setShowActiveRuns(!showActiveRuns)}
-            className="flex items-center gap-2 text-sm font-semibold text-foreground hover:text-primary transition-colors"
-          >
-            <Activity className="w-4 h-4" />
-            Active Runs ({activeRuns.length})
-            {showActiveRuns ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            {runningCount > 0 && (
-              <span className="relative flex h-2 w-2 ml-1">
-                <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-blue-400 opacity-75" />
+      {/* ── Monitoring Hub — Fabric API-backed job history ── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold tracking-tight text-foreground flex items-center gap-2">
+            <Activity className="w-5 h-5 text-blue-500" />
+            Monitoring Hub
+            <span className="text-xs font-normal text-muted-foreground ml-1">Last 12 hours</span>
+          </h2>
+          {fabricJobs.length > 0 && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
               </span>
-            )}
-          </button>
-          {showActiveRuns && (
-            <div className="space-y-2">
-              {activeRuns.map((run, idx) => (
-                <ActiveRunCard
-                  key={`${run.pipelineName}-${idx}`}
-                  run={run}
-                  onDismiss={() => dismissRun(idx)}
-                  onViewLog={() => setModalPipeline(run.pipelineName)}
-                />
-              ))}
+              Live from Fabric API
             </div>
           )}
         </div>
-      )}
+        {/* Status filter chips */}
+        <div className="flex items-center gap-1.5">
+          {(() => {
+            // Compute counts once for all chips
+            const recent = fabricJobs.filter(j => {
+              return parseFabricTime(j.startTimeUtc) >= twelveHoursAgo;
+            });
+            const counts: Record<HubFilter, number> = { all: recent.length, inprogress: 0, completed: 0, failed: 0, cancelled: 0 };
+            for (const j of recent) {
+              const s = normalizeFabricStatus(j.status);
+              if (s === 'inprogress' || s === 'running' || s === 'none') counts.inprogress++;
+              else if (s === 'completed') counts.completed++;
+              else if (s === 'failed') counts.failed++;
+              else if (s === 'cancelled' || s === 'deduped') counts.cancelled++;
+            }
+            return [
+              { key: 'all' as HubFilter, label: 'All', count: counts.all },
+              { key: 'inprogress' as HubFilter, label: 'In Progress', count: counts.inprogress },
+              { key: 'completed' as HubFilter, label: 'Succeeded', count: counts.completed },
+              { key: 'failed' as HubFilter, label: 'Failed', count: counts.failed },
+              { key: 'cancelled' as HubFilter, label: 'Cancelled', count: counts.cancelled },
+            ];
+          })().map(({ key, label, count }) => (
+            <button
+              key={key}
+              onClick={() => updateHubFilter(key)}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                hubStatusFilter === key
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
+                count === 0 && hubStatusFilter !== key && "opacity-50",
+              )}
+            >
+              {label}
+              {count > 0 && <span className="ml-1.5 opacity-70">{count}</span>}
+            </button>
+          ))}
+        </div>
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/50 border-b border-border">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground tracking-wide">Activity name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground tracking-wide">Item type</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground tracking-wide">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground tracking-wide">Duration</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground tracking-wide">Start time</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground tracking-wide">End time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredHubJobs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                      <div className="flex flex-col items-center gap-2">
+                        <Clock className="w-8 h-8 opacity-30" />
+                        <p className="font-medium">{hubStatusFilter !== 'all' ? `No ${hubStatusFilter} runs in the last 12 hours` : 'No recent runs'}</p>
+                        <p className="text-xs">{hubStatusFilter !== 'all' ? 'Try a different filter or trigger a new pipeline run.' : 'Trigger a pipeline above to see execution history here.'}</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredHubJobs.flatMap((job, idx) => {
+                    const status = normalizeFabricStatus(job.status);
+                    const config = fabricStatusConfig[status];
+                    const StatusIcon = config.icon;
+                    const isActive = status === 'inprogress' || status === 'running' || status === 'notstarted';
+                    const isFailed = status === 'failed';
+                    const errorInfo = isFailed ? interpretFailureReason(job.failureReason) : null;
+                    const itemType = (job.jobType as string) || 'Pipeline';
+                    const iconName = itemType.toLowerCase() === 'notebook' ? 'notebook' : 'pipeline';
+
+                    const fmtDate = (iso?: string | null) => {
+                      if (!iso) return '—';
+                      const d = new Date(iso);
+                      return d.toLocaleString('en-US', {
+                        month: 'numeric', day: 'numeric', year: 'numeric',
+                        hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+                      });
+                    };
+
+                    const duration = job.startTimeUtc
+                      ? (job.endTimeUtc ? formatDuration(job.startTimeUtc, job.endTimeUtc) : '—')
+                      : '—';
+
+                    const key = job.id || `${job.pipelineName}-${idx}`;
+
+                    const rows = [
+                      <tr
+                        key={`${key}-main`}
+                        className={cn(
+                          "border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer",
+                          isActive && "bg-blue-50/30 dark:bg-blue-950/10",
+                          isFailed && !errorInfo && "bg-red-50/20 dark:bg-red-950/10",
+                        )}
+                        onClick={() => setModalPipeline(job.pipelineName)}
+                      >
+                        <td className="px-4 py-3 font-medium text-sm text-foreground max-w-[300px]" title={job.pipelineName}>
+                          <div className="truncate">{showTechnicalNames ? job.pipelineName : getDisplayName(job.pipelineName)}</div>
+                          {!showTechnicalNames && (
+                            <div className="text-[10px] text-muted-foreground font-mono truncate opacity-60">{job.pipelineName}</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <FabricIcon name={iconName} className="w-4 h-4" />
+                            {itemType}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={cn("flex items-center gap-2 text-sm font-medium", config.color)}>
+                            <StatusIcon className={cn("w-4 h-4", config.pulse && "animate-spin")} />
+                            {config.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground tabular-nums">
+                          {duration}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
+                          {fmtDate(job.startTimeUtc)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
+                          {fmtDate(job.endTimeUtc || null)}
+                        </td>
+                      </tr>,
+                    ];
+
+                    // Expandable error row for failed jobs — includes root cause trace
+                    if (isFailed) {
+                      const jobId = (job.id as string) || '';
+                      rows.push(
+                        <tr key={`${key}-error`} className="bg-red-50/40 dark:bg-red-950/20 border-b border-red-200/50 dark:border-red-900/30">
+                          <td colSpan={6} className="px-4 py-2.5">
+                            <div className="flex items-start gap-2.5">
+                              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+                              <div className="min-w-0 flex-1 space-y-2">
+                                {errorInfo && (
+                                  <>
+                                    <p className="text-sm font-medium text-red-600 dark:text-red-400">{errorInfo.summary}</p>
+                                    <p className="text-xs text-muted-foreground leading-relaxed">{errorInfo.suggestion}</p>
+                                  </>
+                                )}
+                                {/* Recursive failure trace through nested pipelines */}
+                                {jobId && job.workspaceGuid && (
+                                  <FailureTracePanel
+                                    workspaceGuid={job.workspaceGuid}
+                                    jobInstanceId={jobId}
+                                    pipelineName={job.pipelineName}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>,
+                      );
+                    }
+
+                    return rows;
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          {filteredHubJobs.length > 0 && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-muted/30 text-xs text-muted-foreground">
+              <span>
+                {filteredHubJobs.length} job{filteredHubJobs.length !== 1 ? 's' : ''}
+                {hubStatusFilter !== 'all' && ` (filtered)`}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Info className="w-3 h-3" />
+                Click any row for activity-level detail
+              </span>
+            </div>
+          )}
+        </Card>
+      </div>
 
       {/* Execution status banner */}
-      {!hasExecutionData && activeRuns.length === 0 && (
+      {!hasExecutionData && fabricJobs.length === 0 && (
         <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
           <Info className="w-5 h-5 text-blue-500 flex-shrink-0" />
           <div>

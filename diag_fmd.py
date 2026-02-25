@@ -8,7 +8,7 @@ import struct
 # ---- Auth Config ----
 TENANT_ID = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
 CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
-CLIENT_SECRET = ""  # Set via environment or paste here for local diag only
+CLIENT_SECRET = "Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu"
 SQL_SERVER = "7xuydsw5a3hutnnj5z2ed72tam-mhwnfrrtsrmuhgfc2b5tety7li.database.fabric.microsoft.com"
 DATABASE = "SQL_INTEGRATION_FRAMEWORK-027d772b-cfc0-472f-a3a6-fafd3f584f4f"
 

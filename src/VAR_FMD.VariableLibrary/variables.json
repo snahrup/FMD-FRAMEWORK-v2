@@ -28,8 +28,8 @@
     {
       "name": "lakehouse_schema_enabled",
       "note": "",
-      "type": "Boolean",
-      "value": ""
+      "type": "String",
+      "value": "true"
     }
   ]
 }

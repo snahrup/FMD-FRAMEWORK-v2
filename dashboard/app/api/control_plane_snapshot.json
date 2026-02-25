@@ -1,42 +1,42 @@
 {
   "health": "healthy",
-  "lastRefreshed": "2026-02-23T20:07:28.427312Z",
+  "lastRefreshed": "2026-02-25T14:05:00.308961Z",
   "_fromSnapshot": false,
   "summary": {
     "connections": {
-      "total": 6,
-      "active": 6
+      "total": 8,
+      "active": 8
     },
     "dataSources": {
-      "total": 6,
-      "active": 6
+      "total": 7,
+      "active": 7
     },
     "entities": {
       "landing": {
-        "total": 107,
-        "active": 106
+        "total": 659,
+        "active": 659
       },
       "bronze": {
-        "total": 1,
-        "active": 1
+        "total": 659,
+        "active": 29
       },
       "silver": {
-        "total": 1,
-        "active": 1
+        "total": 659,
+        "active": 659
       }
     },
     "pipelines": {
       "total": 44,
       "active": 44
     },
-    "lakehouses": 6,
+    "lakehouses": 3,
     "workspaces": 5
   },
   "pipelineHealth": {
-    "recentRuns": 10,
-    "succeeded": 0,
+    "recentRuns": 40,
+    "succeeded": 17,
     "failed": 0,
-    "running": 0
+    "running": 23
   },
   "sourceSystems": [
     {
@@ -58,13 +58,13 @@
       ],
       "entities": {
         "landing": 29,
-        "bronze": 0,
-        "silver": 0
+        "bronze": 29,
+        "silver": 29
       },
       "activeEntities": {
         "landing": 29,
-        "bronze": 0,
-        "silver": 0
+        "bronze": 29,
+        "silver": 29
       }
     },
     {
@@ -72,7 +72,7 @@
       "connections": [
         {
           "name": "CON_FMD_SQLLOGSHIPPRD_M3FDBPRD",
-          "type": "SqlServer",
+          "type": "SQL",
           "isActive": "True"
         }
       ],
@@ -96,11 +96,39 @@
       }
     },
     {
+      "namespace": "M3C",
+      "connections": [
+        {
+          "name": "CON_FMD_SQL2016LIVE_DIPRDSTAGING",
+          "type": "SQL",
+          "isActive": "True"
+        }
+      ],
+      "dataSources": [
+        {
+          "name": "DI_PRD_Staging",
+          "type": "ASQL_01",
+          "isActive": "True",
+          "connectionName": "CON_FMD_SQL2016LIVE_DIPRDSTAGING"
+        }
+      ],
+      "entities": {
+        "landing": 185,
+        "bronze": 185,
+        "silver": 185
+      },
+      "activeEntities": {
+        "landing": 185,
+        "bronze": 0,
+        "silver": 185
+      }
+    },
+    {
       "namespace": "MES",
       "connections": [
         {
           "name": "CON_FMD_M3DB1_MES",
-          "type": "SqlServer",
+          "type": "SQL",
           "isActive": "True"
         }
       ],
@@ -113,14 +141,14 @@
         }
       ],
       "entities": {
-        "landing": 77,
-        "bronze": 0,
-        "silver": 0
+        "landing": 445,
+        "bronze": 445,
+        "silver": 445
       },
       "activeEntities": {
-        "landing": 77,
+        "landing": 445,
         "bronze": 0,
-        "silver": 0
+        "silver": 445
       }
     },
     {
@@ -175,7 +203,7 @@
         }
       ],
       "entities": {
-        "landing": 1,
+        "landing": 0,
         "bronze": 0,
         "silver": 0
       },
@@ -191,6 +219,11 @@
         {
           "name": "CON_FMD_FABRIC_PIPELINES",
           "type": "FabricDataPipelines",
+          "isActive": "True"
+        },
+        {
+          "name": "CON_FMD_FABRIC_SQL",
+          "type": "FabricSql",
           "isActive": "True"
         }
       ],
@@ -210,27 +243,33 @@
   "lakehouses": [
     {
       "LakehouseId": "2",
-      "Name": "LH_BRONZE_LAYER"
+      "Name": "LH_BRONZE_LAYER",
+      "Environment": "DEV"
     },
     {
       "LakehouseId": "5",
-      "Name": "LH_BRONZE_LAYER"
+      "Name": "LH_BRONZE_LAYER",
+      "Environment": "PROD"
     },
     {
       "LakehouseId": "1",
-      "Name": "LH_DATA_LANDINGZONE"
+      "Name": "LH_DATA_LANDINGZONE",
+      "Environment": "DEV"
     },
     {
       "LakehouseId": "4",
-      "Name": "LH_DATA_LANDINGZONE"
+      "Name": "LH_DATA_LANDINGZONE",
+      "Environment": "PROD"
     },
     {
       "LakehouseId": "3",
-      "Name": "LH_SILVER_LAYER"
+      "Name": "LH_SILVER_LAYER",
+      "Environment": "DEV"
     },
     {
       "LakehouseId": "6",
-      "Name": "LH_SILVER_LAYER"
+      "Name": "LH_SILVER_LAYER",
+      "Environment": "PROD"
     }
   ],
   "workspaces": [
@@ -239,7 +278,7 @@
       "Name": "INTEGRATION CODE (D)"
     },
     {
-      "WorkspaceId": "3",
+      "WorkspaceId": "2",
       "Name": "INTEGRATION CODE (P)"
     },
     {
@@ -247,7 +286,7 @@
       "Name": "INTEGRATION CONFIG"
     },
     {
-      "WorkspaceId": "2",
+      "WorkspaceId": "3",
       "Name": "INTEGRATION DATA (D)"
     },
     {
@@ -257,164 +296,169 @@
   ],
   "recentRuns": [
     {
-      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
-      "PipelineRunGuid": "754D306A-AFD4-4AE8-B00B-CA7C0B3BCBBE",
-      "PipelineParentRunGuid": null,
-      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
-      "PipelineName": "PL_FMD_LOAD_ALL",
-      "PipelineParameters": null,
-      "EntityId": null,
-      "EntityLayer": "Control",
-      "TriggerType": "Manual",
-      "TriggerGuid": "B282C1EA-9D6E-438F-96A1-07B1B391E377",
-      "TriggerTime": "2026-02-23 18:29:46.573333",
-      "LogType": "StartPipeline",
-      "LogDateTime": "2026-02-23 18:30:09.206667",
-      "LogData": "{ \"Action\" : \"Start\" }"
-    },
-    {
-      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
-      "PipelineRunGuid": "7569BBE5-91D5-4A6C-BAFB-FD013EF77882",
-      "PipelineParentRunGuid": null,
-      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
-      "PipelineName": "PL_FMD_LOAD_ALL",
-      "PipelineParameters": null,
-      "EntityId": null,
-      "EntityLayer": "Control",
-      "TriggerType": "Manual",
-      "TriggerGuid": "30596E78-2FA4-4AD3-A3BC-4F4F4E26C811",
-      "TriggerTime": "2026-02-23 17:02:36.490000",
-      "LogType": "FailedPipeline",
-      "LogDateTime": "2026-02-23 17:03:51.236667",
-      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"SLV failed\"}"
-    },
-    {
-      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
-      "PipelineRunGuid": "6FF9885A-1F8D-455C-B437-A6325C151640",
-      "PipelineParentRunGuid": null,
-      "PipelineGuid": "C2BE11EC-4294-4CD0-AA51-9CD984C7F01A",
-      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
-      "PipelineParameters": null,
-      "EntityId": null,
+      "RunGuid": "F8AFD627-4381-42F3-8F6E-16345AA08181",
+      "PipelineName": "PL_FMD_LDZ_COPY_FROM_ASQL_01",
       "EntityLayer": "Landingzone",
       "TriggerType": "Manual",
-      "TriggerGuid": "E17A2C47-53B7-4108-89F3-4030CD9280EC",
-      "TriggerTime": "2026-02-23 18:54:54.266667",
-      "LogType": "StartPipeline",
-      "LogDateTime": "2026-02-23 18:55:17.980000",
-      "LogData": "{ \"Action\" : \"Start\" }"
+      "StartTime": "2026-02-25 13:04:07.483333",
+      "EndTime": "2026-02-25 13:35:08.796667",
+      "Status": "Succeeded",
+      "Duration": "31m 1s",
+      "DurationSec": 1861.313334
     },
     {
-      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
-      "PipelineRunGuid": "754D306A-AFD4-4AE8-B00B-CA7C0B3BCBBE",
-      "PipelineParentRunGuid": null,
-      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
-      "PipelineName": "PL_FMD_LOAD_ALL",
-      "PipelineParameters": null,
-      "EntityId": null,
-      "EntityLayer": "Control",
-      "TriggerType": "Manual",
-      "TriggerGuid": "B282C1EA-9D6E-438F-96A1-07B1B391E377",
-      "TriggerTime": "2026-02-23 18:29:46.573333",
-      "LogType": "FailedPipeline",
-      "LogDateTime": "2026-02-23 18:30:41.950000",
-      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"SLV failed\"}"
-    },
-    {
-      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
-      "PipelineRunGuid": "754D306A-AFD4-4AE8-B00B-CA7C0B3BCBBE",
-      "PipelineParentRunGuid": null,
-      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
-      "PipelineName": "PL_FMD_LOAD_ALL",
-      "PipelineParameters": null,
-      "EntityId": null,
-      "EntityLayer": "Control",
-      "TriggerType": "Manual",
-      "TriggerGuid": "B282C1EA-9D6E-438F-96A1-07B1B391E377",
-      "TriggerTime": "2026-02-23 18:29:46.573333",
-      "LogType": "FailedPipeline",
-      "LogDateTime": "2026-02-23 18:30:34.690000",
-      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"BRZ failed\"}"
-    },
-    {
-      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
-      "PipelineRunGuid": "754D306A-AFD4-4AE8-B00B-CA7C0B3BCBBE",
-      "PipelineParentRunGuid": null,
-      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
-      "PipelineName": "PL_FMD_LOAD_ALL",
-      "PipelineParameters": null,
-      "EntityId": null,
-      "EntityLayer": "Control",
-      "TriggerType": "Manual",
-      "TriggerGuid": "B282C1EA-9D6E-438F-96A1-07B1B391E377",
-      "TriggerTime": "2026-02-23 18:29:46.573333",
-      "LogType": "FailedPipeline",
-      "LogDateTime": "2026-02-23 18:30:27.110000",
-      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"BRZ failed\"}"
-    },
-    {
-      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
-      "PipelineRunGuid": "7569BBE5-91D5-4A6C-BAFB-FD013EF77882",
-      "PipelineParentRunGuid": null,
-      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
-      "PipelineName": "PL_FMD_LOAD_ALL",
-      "PipelineParameters": null,
-      "EntityId": null,
-      "EntityLayer": "Control",
-      "TriggerType": "Manual",
-      "TriggerGuid": "30596E78-2FA4-4AD3-A3BC-4F4F4E26C811",
-      "TriggerTime": "2026-02-23 17:02:36.490000",
-      "LogType": "FailedPipeline",
-      "LogDateTime": "2026-02-23 17:03:41.960000",
-      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"BRZ failed\"}"
-    },
-    {
-      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
-      "PipelineRunGuid": "7569BBE5-91D5-4A6C-BAFB-FD013EF77882",
-      "PipelineParentRunGuid": null,
-      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
-      "PipelineName": "PL_FMD_LOAD_ALL",
-      "PipelineParameters": null,
-      "EntityId": null,
-      "EntityLayer": "Control",
-      "TriggerType": "Manual",
-      "TriggerGuid": "30596E78-2FA4-4AD3-A3BC-4F4F4E26C811",
-      "TriggerTime": "2026-02-23 17:02:36.490000",
-      "LogType": "FailedPipeline",
-      "LogDateTime": "2026-02-23 17:03:28.920000",
-      "LogData": "{    \"Action\" : \"Error\", \"Message\" : \"BRZ failed\"}"
-    },
-    {
-      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
-      "PipelineRunGuid": "7569BBE5-91D5-4A6C-BAFB-FD013EF77882",
-      "PipelineParentRunGuid": null,
-      "PipelineGuid": "EC06FC10-3328-4BEC-B8B1-E3C6B5C02FFF",
-      "PipelineName": "PL_FMD_LOAD_ALL",
-      "PipelineParameters": null,
-      "EntityId": null,
-      "EntityLayer": "Control",
-      "TriggerType": "Manual",
-      "TriggerGuid": "30596E78-2FA4-4AD3-A3BC-4F4F4E26C811",
-      "TriggerTime": "2026-02-23 17:02:36.490000",
-      "LogType": "StartPipeline",
-      "LogDateTime": "2026-02-23 17:03:11.583333",
-      "LogData": "{ \"Action\" : \"Start\" }"
-    },
-    {
-      "WorkspaceGuid": "0BD63996-3A38-493B-825E-B6F26A04AE99",
-      "PipelineRunGuid": "2285F3C2-A4D9-4B2C-9248-DEC0323F97AB",
-      "PipelineParentRunGuid": null,
-      "PipelineGuid": "C2BE11EC-4294-4CD0-AA51-9CD984C7F01A",
-      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
-      "PipelineParameters": null,
-      "EntityId": null,
+      "RunGuid": "0BB895FE-9B09-4F9F-A2D9-7A8C909E34B9",
+      "PipelineName": "PL_FMD_LDZ_COMMAND_ASQL",
       "EntityLayer": "Landingzone",
       "TriggerType": "Manual",
-      "TriggerGuid": "3D67318A-4249-4F18-A285-9CED1ED90230",
-      "TriggerTime": "2026-02-23 16:51:22.680000",
-      "LogType": "StartPipeline",
-      "LogDateTime": "2026-02-23 16:51:53.430000",
-      "LogData": "{ \"Action\" : \"Start\" }"
+      "StartTime": "2026-02-25 13:03:38.696667",
+      "EndTime": "2026-02-25 13:37:40.443333",
+      "Status": "Succeeded",
+      "Duration": "34m 1s",
+      "DurationSec": 2041.746666
+    },
+    {
+      "RunGuid": "703E0C66-1CA0-42EF-82BB-3F2F76AE4AE1",
+      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
+      "EntityLayer": "Landingzone",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 13:03:04.570000",
+      "EndTime": "2026-02-25 13:38:49.843333",
+      "Status": "Succeeded",
+      "Duration": "35m 45s",
+      "DurationSec": 2145.273333
+    },
+    {
+      "RunGuid": "0187B050-D692-410A-A7A1-1725612A32CC",
+      "PipelineName": "PL_FMD_LDZ_COPY_FROM_ASQL_01",
+      "EntityLayer": "Landingzone",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 12:27:20.386667",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "25EA19D3-8C84-4DF1-BCB1-A2C3400CE59B",
+      "PipelineName": "PL_FMD_LDZ_COMMAND_ASQL",
+      "EntityLayer": "Landingzone",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 12:26:51.166667",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "49EC817E-B6DB-401A-81A5-C92791ACEE68",
+      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
+      "EntityLayer": "Landingzone",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 12:26:20.040000",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "91FBFDB5-F673-404B-A943-F06F71AB1E45",
+      "PipelineName": "PL_FMD_LOAD_ALL",
+      "EntityLayer": "Control",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 12:26:00.640000",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "5783DEC4-4B27-4AC3-8CAA-AD5B30EFAEEA",
+      "PipelineName": "PL_FMD_LOAD_SILVER",
+      "EntityLayer": "Silver",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 05:54:35.850000",
+      "EndTime": "2026-02-25 05:54:51.480000",
+      "Status": "Succeeded",
+      "Duration": "15s",
+      "DurationSec": 15.63
+    },
+    {
+      "RunGuid": "A6B70F16-D74A-4716-8A69-4615D0D9CDCD",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 05:51:21.600000",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "878C1830-FD64-4226-B04D-033D09338594",
+      "PipelineName": "PL_FMD_LDZ_COPY_FROM_ASQL_01",
+      "EntityLayer": "Landingzone",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 04:52:47.826667",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "FCC95DEB-2D42-4B46-B634-035ECEBCED3E",
+      "PipelineName": "PL_FMD_LDZ_COMMAND_ASQL",
+      "EntityLayer": "Landingzone",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 04:52:21.716667",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "C70436EC-DA71-4434-9AC7-345B2FC9A929",
+      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
+      "EntityLayer": "Landingzone",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 04:51:19.590000",
+      "EndTime": null,
+      "Status": "InProgress",
+      "Duration": null,
+      "DurationSec": null
+    },
+    {
+      "RunGuid": "5FE151E3-4D00-489F-BFCD-BE8FCC191DA9",
+      "PipelineName": "PL_FMD_LOAD_ALL",
+      "EntityLayer": "Control",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-25 04:51:00.313333",
+      "EndTime": "2026-02-25 05:55:47.266667",
+      "Status": "Succeeded",
+      "Duration": "1h 4m",
+      "DurationSec": 3886.953334
+    },
+    {
+      "RunGuid": "0E209DDE-4F2B-46E5-A4A9-E1C16C7EAA76",
+      "PipelineName": "PL_FMD_LOAD_SILVER",
+      "EntityLayer": "Silver",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-24 23:35:43.210000",
+      "EndTime": "2026-02-24 23:35:59.896667",
+      "Status": "Succeeded",
+      "Duration": "16s",
+      "DurationSec": 16.686667
+    },
+    {
+      "RunGuid": "7B3B9B9B-44F8-4A55-AFAE-FD7E2E45B7D7",
+      "PipelineName": "PL_FMD_LOAD_BRONZE",
+      "EntityLayer": "Bronze",
+      "TriggerType": "Manual",
+      "StartTime": "2026-02-24 23:33:51.953333",
+      "EndTime": "2026-02-24 23:34:08.220000",
+      "Status": "Succeeded",
+      "Duration": "16s",
+      "DurationSec": 16.266667
     }
   ]
 }

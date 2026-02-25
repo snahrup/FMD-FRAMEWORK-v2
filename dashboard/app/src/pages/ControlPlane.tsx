@@ -8,15 +8,47 @@ import {
   Database,
   Cable,
   Server,
-  ArrowRight,
   Clock,
   Activity,
   Shield,
   FileJson,
   Layers,
+  ChevronDown,
+  ChevronRight,
+  Play,
+  Timer,
+  Plug,
+  HardDrive,
+  GitBranch,
 } from 'lucide-react';
 
 // ── Types ──
+
+interface PipelineRun {
+  RunGuid: string;
+  PipelineName: string;
+  EntityLayer: string;
+  TriggerType: string;
+  StartTime: string | null;
+  EndTime: string | null;
+  Status: string;
+  Duration: string | null;
+  DurationSec: number | null;
+}
+
+interface SourceSystem {
+  namespace: string;
+  connections: Array<{ name: string; type: string; isActive: string }>;
+  dataSources: Array<{ name: string; type: string; isActive: string; connectionName: string }>;
+  entities: { landing: number; bronze: number; silver: number };
+  activeEntities: { landing: number; bronze: number; silver: number };
+}
+
+interface LakehouseEntry {
+  LakehouseId: string;
+  Name: string;
+  Environment?: string;
+}
 
 interface ControlPlaneData {
   health: 'healthy' | 'warning' | 'critical' | 'setup' | 'offline';
@@ -42,16 +74,10 @@ interface ControlPlaneData {
     failed: number;
     running: number;
   };
-  sourceSystems: Array<{
-    namespace: string;
-    connections: Array<{ name: string; type: string; isActive: string }>;
-    dataSources: Array<{ name: string; type: string; isActive: string; connectionName: string }>;
-    entities: { landing: number; bronze: number; silver: number };
-    activeEntities: { landing: number; bronze: number; silver: number };
-  }>;
-  lakehouses: Array<{ LakehouseId: string; Name: string }>;
+  sourceSystems: SourceSystem[];
+  lakehouses: LakehouseEntry[];
   workspaces: Array<{ WorkspaceId: string; Name: string }>;
-  recentRuns: Array<Record<string, string>>;
+  recentRuns: PipelineRun[];
 }
 
 // ── Helpers ──
@@ -76,25 +102,64 @@ function formatTimestamp(iso: string): string {
   }
 }
 
-const HEALTH_CONFIG = {
-  healthy: { label: 'All Systems Operational', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', icon: CheckCircle, pulse: 'bg-emerald-500' },
-  warning: { label: 'Degraded — Recent Failures', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20', icon: AlertTriangle, pulse: 'bg-amber-500' },
-  critical: { label: 'Critical — Pipelines Failing', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20', icon: XCircle, pulse: 'bg-red-500' },
-  setup: { label: 'Initial Setup — No Sources', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20', icon: Layers, pulse: 'bg-blue-500' },
-  offline: { label: 'SQL Database Offline', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20', icon: XCircle, pulse: 'bg-red-500' },
+const statusIcon = (status: string) => {
+  const s = status.toLowerCase();
+  if (s === 'succeeded') return <CheckCircle className="h-4 w-4 text-emerald-400" />;
+  if (s === 'failed') return <XCircle className="h-4 w-4 text-red-400" />;
+  if (s === 'inprogress') return <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />;
+  return <Clock className="h-4 w-4 text-muted-foreground" />;
 };
+
+const statusBadge = (status: string) => {
+  const s = status.toLowerCase();
+  const cls = s === 'succeeded' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+    : s === 'failed' ? 'bg-red-500/10 text-red-400 border-red-500/20'
+    : s === 'inprogress' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+    : 'bg-muted text-muted-foreground border-border';
+  return <span className={`text-[11px] px-2 py-0.5 rounded border font-mono ${cls}`}>{status}</span>;
+};
+
+const HEALTH_CONFIG = {
+  healthy: { label: 'All Systems Operational', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', pulse: 'bg-emerald-500' },
+  warning: { label: 'Degraded — Recent Failures', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20', pulse: 'bg-amber-500' },
+  critical: { label: 'Critical — Pipelines Failing', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20', pulse: 'bg-red-500' },
+  setup: { label: 'Initial Setup — No Sources', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20', pulse: 'bg-blue-500' },
+  offline: { label: 'SQL Database Offline', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20', pulse: 'bg-red-500' },
+};
+
+interface EntityMeta {
+  entityId: string;
+  dataSource: string;
+  dataSourceId: string;
+  schema: string;
+  table: string;
+  FileName: string;
+  IsIncremental: string;
+  watermarkColumn: string;
+  lastWatermarkValue: string | null;
+  lastLoadTime: string | null;
+  bronzeEntityId: string | null;
+  primaryKeys: string;
+  silverEntityId: string | null;
+}
+
+type Tab = 'metadata' | 'execution' | 'connections' | 'infrastructure';
 
 // ── Component ──
 
 export default function ControlPlane() {
   const [data, setData] = useState<ControlPlaneData | null>(null);
+  const [entities, setEntities] = useState<EntityMeta[]>([]);
+  const [entityFilter, setEntityFilter] = useState('');
+  const [entityDsFilter, setEntityDsFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [activeTab, setActiveTab] = useState<Tab>('metadata');
+  const [expandedNs, setExpandedNs] = useState<Set<string>>(new Set());
 
-  // Track tab visibility — pause polling when tab is hidden
   const visibleRef = useRef(true);
   useEffect(() => {
     const onVisChange = () => { visibleRef.current = !document.hidden; };
@@ -102,7 +167,6 @@ export default function ControlPlane() {
     return () => document.removeEventListener('visibilitychange', onVisChange);
   }, []);
 
-  // Single effect: initial load + auto-refresh + manual refresh via refreshKey
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -110,38 +174,34 @@ export default function ControlPlane() {
     async function doFetch(background: boolean) {
       if (background) setRefreshing(true);
       try {
-        const res = await fetch('/api/control-plane', { signal: controller.signal });
+        const [cpRes, entRes] = await Promise.all([
+          fetch('/api/control-plane', { signal: controller.signal }),
+          fetch('/api/load-config', { signal: controller.signal }),
+        ]);
         if (cancelled) return;
-        if (!res.ok) throw new Error('API not responding');
-        const result = await res.json();
+        if (!cpRes.ok) throw new Error('API not responding');
+        const result = await cpRes.json();
         if (cancelled) return;
         setData(result);
+        if (entRes.ok) {
+          const entData = await entRes.json();
+          setEntities(Array.isArray(entData) ? entData : []);
+        }
         setError(null);
       } catch (e: unknown) {
         if (cancelled || (e instanceof DOMException && e.name === 'AbortError')) return;
         setError(e instanceof Error ? e.message : 'Connection failed');
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-          setRefreshing(false);
-        }
+        if (!cancelled) { setLoading(false); setRefreshing(false); }
       }
     }
 
     doFetch(refreshKey > 0);
-
     let interval: ReturnType<typeof setInterval> | undefined;
     if (autoRefresh) {
-      interval = setInterval(() => {
-        if (visibleRef.current) doFetch(true);
-      }, 30000);
+      interval = setInterval(() => { if (visibleRef.current) doFetch(true); }, 30000);
     }
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-      if (interval) clearInterval(interval);
-    };
+    return () => { cancelled = true; controller.abort(); if (interval) clearInterval(interval); };
   }, [autoRefresh, refreshKey]);
 
   if (loading) {
@@ -174,412 +234,463 @@ export default function ControlPlane() {
   if (!data) return null;
 
   const healthCfg = HEALTH_CONFIG[data.health] || HEALTH_CONFIG.setup;
-  const HealthIcon = healthCfg.icon;
   const s = data.summary;
+  const ph = data.pipelineHealth;
+  const successRate = ph.recentRuns > 0 ? Math.round(ph.succeeded / ph.recentRuns * 100) : 0;
+
+  const toggleNs = (ns: string) => {
+    setExpandedNs(prev => {
+      const next = new Set(prev);
+      if (next.has(ns)) next.delete(ns); else next.add(ns);
+      return next;
+    });
+  };
+
+  // Filter source systems: hide namespaces with 0 entities and 0 connections
+  // Only show source systems that have registered entities (hide internal: NB, ONELAKE, Unlinked)
+  const activeSources = data.sourceSystems.filter(
+    ss => ss.entities.landing > 0
+  );
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-4">
+      {/* ── Header ── */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">Control Plane</h1>
-          <p className="text-muted-foreground mt-1">
-            Real-time view of the FMD data platform — single point of control
+          <h1 className="text-2xl font-display font-bold tracking-tight text-foreground">Control Plane</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Metadata database — the single source of truth driving all FMD pipelines
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-              className="rounded"
-            />
-            Auto-refresh
+            <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="rounded" />
+            Auto
           </label>
           <button
             onClick={() => setRefreshKey(k => k + 1)}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 text-xs bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
           >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
             {refreshing ? 'Updating...' : 'Refresh'}
           </button>
         </div>
       </div>
 
-      {/* Snapshot Banner */}
+      {/* ── Snapshot Banner ── */}
       {data._fromSnapshot && (
-        <div className="rounded-lg p-4 bg-amber-500/10 border border-amber-500/20 flex items-center gap-3">
-          <FileJson className="h-5 w-5 text-amber-400 shrink-0" />
+        <div className="rounded-lg p-3 bg-amber-500/10 border border-amber-500/20 flex items-center gap-3">
+          <FileJson className="h-4 w-4 text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-300">
+            Showing cached snapshot — SQL database unreachable. Live data resumes when DB is back.
+          </p>
+        </div>
+      )}
+
+      {/* ── Health Bar + Key Metrics ── */}
+      <div className={`rounded-xl p-4 border ${healthCfg.bg} flex flex-wrap items-center gap-4`}>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <div className={`h-3 w-3 rounded-full ${healthCfg.pulse} animate-pulse`} />
+          </div>
           <div>
-            <p className="text-sm font-medium text-amber-300">Showing Last Known State (Snapshot)</p>
-            <p className="text-xs text-amber-400/70 mt-0.5">
-              SQL database is unreachable. This data was cached at{' '}
-              {data._snapshotAge ? new Date(data._snapshotAge * 1000).toLocaleString() : 'unknown time'}.
-              Live data will resume when the database is back online.
+            <p className={`text-sm font-semibold ${healthCfg.color}`}>{healthCfg.label}</p>
+            <p className="text-[10px] text-muted-foreground">
+              {data.lastRefreshed ? timeAgo(data.lastRefreshed) : 'N/A'}
             </p>
+          </div>
+        </div>
+
+        <div className="h-8 w-px bg-border/40 hidden sm:block" />
+
+        {/* Compact metric pills */}
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Pill icon={<Plug className="h-3 w-3" />} label="Connections" value={s.connections.active} />
+          <Pill icon={<Database className="h-3 w-3" />} label="Sources" value={s.dataSources.active} />
+          <Pill icon={<Layers className="h-3 w-3" />} label="Entities" value={s.entities.landing.active + s.entities.bronze.active + s.entities.silver.active} sub={`${s.entities.landing.active} LZ / ${s.entities.bronze.active} BR / ${s.entities.silver.active} SV`} />
+          <Pill icon={<GitBranch className="h-3 w-3" />} label="Pipelines" value={s.pipelines.active} />
+          <Pill icon={<HardDrive className="h-3 w-3" />} label="Lakehouses" value={s.lakehouses} />
+          <Pill icon={<Server className="h-3 w-3" />} label="Workspaces" value={s.workspaces} />
+        </div>
+
+        {/* Pipeline health compact */}
+        {ph.recentRuns > 0 && (
+          <>
+            <div className="h-8 w-px bg-border/40 hidden sm:block" />
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-emerald-400 font-mono">{ph.succeeded} OK</span>
+              <span className="text-red-400 font-mono">{ph.failed} FAIL</span>
+              <span className="text-blue-400 font-mono">{ph.running} RUN</span>
+              <span className="text-muted-foreground">({successRate}% success)</span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ── Tab Navigation ── */}
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
+        <TabBtn active={activeTab === 'metadata'} onClick={() => setActiveTab('metadata')} icon={<Database className="h-3.5 w-3.5" />} label="Entity Metadata" count={entities.length} />
+        <TabBtn active={activeTab === 'execution'} onClick={() => setActiveTab('execution')} icon={<Activity className="h-3.5 w-3.5" />} label="Execution Log" count={ph.recentRuns} />
+        <TabBtn active={activeTab === 'connections'} onClick={() => setActiveTab('connections')} icon={<Cable className="h-3.5 w-3.5" />} label="Connections" count={activeSources.length} />
+        <TabBtn active={activeTab === 'infrastructure'} onClick={() => setActiveTab('infrastructure')} icon={<Server className="h-3.5 w-3.5" />} label="Infrastructure" />
+      </div>
+
+      {/* ── Tab Content ── */}
+
+      {/* Entity Metadata — THE actual control plane */}
+      {activeTab === 'metadata' && (() => {
+        const q = entityFilter.toLowerCase();
+        const dsFilter = entityDsFilter;
+        const dataSources = [...new Set(entities.map(e => e.dataSource))].sort();
+        const filtered = entities.filter(e => {
+          if (dsFilter && e.dataSource !== dsFilter) return false;
+          if (q && !e.table.toLowerCase().includes(q) && !e.FileName.toLowerCase().includes(q) && !e.schema.toLowerCase().includes(q)) return false;
+          return true;
+        });
+        return (
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            {/* Filters */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted/20">
+              <input
+                type="text"
+                placeholder="Search tables..."
+                value={entityFilter}
+                onChange={e => setEntityFilter(e.target.value)}
+                className="flex-1 max-w-xs px-3 py-1.5 text-xs bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <select
+                value={entityDsFilter}
+                onChange={e => setEntityDsFilter(e.target.value)}
+                className="px-3 py-1.5 text-xs bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="">All Sources ({entities.length})</option>
+                {dataSources.map(ds => (
+                  <option key={ds} value={ds}>{ds} ({entities.filter(e => e.dataSource === ds).length})</option>
+                ))}
+              </select>
+              <span className="text-[10px] text-muted-foreground ml-auto">{filtered.length} of {entities.length} entities</span>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 z-10">
+                  <tr className="bg-muted/60 text-left">
+                    <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Source</th>
+                    <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Schema</th>
+                    <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Table</th>
+                    <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">File Name</th>
+                    <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Load Type</th>
+                    <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Watermark</th>
+                    <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Primary Keys</th>
+                    <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Bronze</th>
+                    <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Silver</th>
+                    <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Last Load</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {filtered.slice(0, 200).map(e => {
+                    const isInc = e.IsIncremental?.toLowerCase() === 'true' || e.IsIncremental === '1';
+                    const hasBronze = !!e.bronzeEntityId;
+                    const hasSilver = !!e.silverEntityId;
+                    return (
+                      <tr key={e.entityId} className="hover:bg-muted/10 transition-colors">
+                        <td className="px-3 py-1.5">
+                          <span className="font-mono text-foreground/80">{e.dataSource}</span>
+                        </td>
+                        <td className="px-3 py-1.5 text-muted-foreground font-mono">{e.schema}</td>
+                        <td className="px-3 py-1.5 font-mono text-foreground">{e.table}</td>
+                        <td className="px-3 py-1.5 font-mono text-foreground/70">{e.FileName}</td>
+                        <td className="px-3 py-1.5">
+                          <span className={`px-1.5 py-0.5 rounded border text-[10px] font-mono ${
+                            isInc ? 'text-blue-400 bg-blue-500/10 border-blue-500/20' : 'text-muted-foreground bg-muted/30 border-border'
+                          }`}>
+                            {isInc ? 'INCR' : 'FULL'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-1.5 font-mono text-muted-foreground">{e.watermarkColumn || '—'}</td>
+                        <td className="px-3 py-1.5 font-mono text-muted-foreground max-w-[150px] truncate" title={e.primaryKeys}>{e.primaryKeys || '—'}</td>
+                        <td className="px-3 py-1.5 text-center">
+                          {hasBronze ? <CheckCircle className="h-3.5 w-3.5 text-amber-400 inline" /> : <span className="text-muted-foreground/30">—</span>}
+                        </td>
+                        <td className="px-3 py-1.5 text-center">
+                          {hasSilver ? <CheckCircle className="h-3.5 w-3.5 text-gray-300 inline" /> : <span className="text-muted-foreground/30">—</span>}
+                        </td>
+                        <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                          {e.lastLoadTime ? formatTimestamp(e.lastLoadTime) : <span className="text-muted-foreground/30">never</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {filtered.length > 200 && (
+                <div className="px-4 py-2 text-center text-[10px] text-muted-foreground border-t border-border">
+                  Showing 200 of {filtered.length} — use filters to narrow down
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {activeTab === 'execution' && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          {data.recentRuns.length === 0 ? (
+            <div className="p-12 text-center">
+              <Play className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">No pipeline executions recorded yet.</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">Runs will appear here once PL_FMD_LOAD_ALL is triggered.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/40 text-left">
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">Pipeline</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">Layer</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">Trigger</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">Started</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">Duration</th>
+                    <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">Run GUID</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {data.recentRuns.map((run, i) => (
+                    <tr key={run.RunGuid || i} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          {statusIcon(run.Status)}
+                          {statusBadge(run.Status)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-foreground">{run.PipelineName}</td>
+                      <td className="px-4 py-2.5">
+                        <LayerBadge layer={run.EntityLayer} />
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{run.TriggerType}</td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground font-mono">
+                        {run.StartTime ? formatTimestamp(run.StartTime) : '—'}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {run.Duration ? (
+                          <span className="text-xs font-mono text-foreground flex items-center gap-1">
+                            <Timer className="h-3 w-3 text-muted-foreground" />
+                            {run.Duration}
+                          </span>
+                        ) : run.Status === 'InProgress' ? (
+                          <span className="text-xs text-blue-400 animate-pulse">running...</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-[10px] text-muted-foreground/50 font-mono">{run.RunGuid?.slice(0, 8) || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'connections' && (
+        <div className="space-y-3">
+          {activeSources.map(src => {
+            const isExpanded = expandedNs.has(src.namespace);
+            const totalEntities = src.entities.landing + src.entities.bronze + src.entities.silver;
+            const allActive = src.connections.every(c => String(c.isActive).toLowerCase() === 'true' || c.isActive === '1') &&
+                              src.dataSources.every(d => String(d.isActive).toLowerCase() === 'true' || d.isActive === '1');
+            return (
+              <div key={src.namespace} className="rounded-xl border border-border bg-card overflow-hidden">
+                {/* Namespace header */}
+                <button
+                  onClick={() => toggleNs(src.namespace)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors text-left"
+                >
+                  {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                  <span className="font-semibold text-foreground">{src.namespace}</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${
+                    allActive ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                  }`}>
+                    {allActive ? 'Active' : 'Partial'}
+                  </span>
+                  <div className="ml-auto flex items-center gap-4 text-xs text-muted-foreground">
+                    <span>{src.connections.length} conn</span>
+                    <span>{src.dataSources.length} ds</span>
+                    <span>{totalEntities} entities</span>
+                  </div>
+                </button>
+
+                {isExpanded && (
+                  <div className="border-t border-border px-4 py-3 space-y-3 bg-muted/5">
+                    {/* Connections */}
+                    {src.connections.length > 0 && (
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Connections</p>
+                        <div className="space-y-1">
+                          {src.connections.map(c => (
+                            <div key={c.name} className="flex items-center gap-2 text-xs">
+                              <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${String(c.isActive).toLowerCase() === 'true' || c.isActive === '1' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                              <span className="font-mono text-foreground">{c.name}</span>
+                              <span className="text-muted-foreground/60">{c.type}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Data Sources */}
+                    {src.dataSources.length > 0 && (
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Data Sources</p>
+                        <div className="space-y-1">
+                          {src.dataSources.map(ds => (
+                            <div key={ds.name} className="flex items-center gap-2 text-xs">
+                              <Database className="h-3 w-3 text-muted-foreground shrink-0" />
+                              <span className="font-mono text-foreground">{ds.name}</span>
+                              <span className="text-muted-foreground/60">{ds.type}</span>
+                              <span className="text-muted-foreground/40 ml-auto">via {ds.connectionName}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Entity counts */}
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Registered Entities</p>
+                      <div className="flex gap-4 text-xs">
+                        <span className="text-slate-400">LZ: <strong className="text-foreground">{src.activeEntities.landing}</strong></span>
+                        <span className="text-amber-400">Bronze: <strong className="text-foreground">{src.activeEntities.bronze}</strong></span>
+                        <span className="text-gray-300">Silver: <strong className="text-foreground">{src.activeEntities.silver}</strong></span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {activeTab === 'infrastructure' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Workspaces */}
+          <div className="rounded-xl border border-border bg-card p-4">
+            <h3 className="text-xs uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+              <Server className="h-3.5 w-3.5" />
+              Workspaces ({data.workspaces.length})
+            </h3>
+            <div className="space-y-2">
+              {data.workspaces.map(ws => (
+                <div key={ws.WorkspaceId} className="flex items-center gap-2 text-sm">
+                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  <span className="text-foreground font-mono text-xs">{ws.Name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Lakehouses */}
+          <div className="rounded-xl border border-border bg-card p-4">
+            <h3 className="text-xs uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+              <HardDrive className="h-3.5 w-3.5" />
+              Lakehouses ({data.lakehouses.length})
+            </h3>
+            <div className="space-y-2">
+              {data.lakehouses.map(lh => (
+                <div key={lh.LakehouseId} className="flex items-center gap-2 text-sm">
+                  <Database className="h-3 w-3 text-muted-foreground shrink-0" />
+                  <span className="text-foreground font-mono text-xs">{lh.Name}</span>
+                  {lh.Environment && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ml-auto ${
+                      lh.Environment === 'DEV' ? 'text-blue-400 border-blue-500/20 bg-blue-500/5'
+                        : 'text-orange-400 border-orange-500/20 bg-orange-500/5'
+                    }`}>{lh.Environment}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Pipelines */}
+          <div className="rounded-xl border border-border bg-card p-4">
+            <h3 className="text-xs uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+              <GitBranch className="h-3.5 w-3.5" />
+              Pipelines
+            </h3>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Total registered</span>
+                <span className="text-lg font-bold text-foreground">{s.pipelines.total}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Active</span>
+                <span className="text-lg font-bold text-emerald-400">{s.pipelines.active}</span>
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t border-border mt-2">
+                <span className="text-xs text-muted-foreground">DEV (IDs 1-22)</span>
+                <span className="text-xs font-mono text-foreground">22</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">PROD (IDs 23-44)</span>
+                <span className="text-xs font-mono text-foreground">22</span>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Overall Health Banner */}
-      <div className={`rounded-xl p-5 border ${healthCfg.bg} flex items-center justify-between`}>
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <HealthIcon className={`h-8 w-8 ${healthCfg.color}`} />
-            <div className={`absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full ${healthCfg.pulse} animate-pulse`} />
-          </div>
-          <div>
-            <p className={`text-lg font-semibold ${healthCfg.color}`}>{healthCfg.label}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Last refreshed: {data.lastRefreshed ? timeAgo(data.lastRefreshed) : 'N/A'}
-              {data.lastRefreshed && <span className="ml-2 text-muted-foreground/60">({formatTimestamp(data.lastRefreshed)})</span>}
-            </p>
-          </div>
-        </div>
-        <div className="hidden sm:flex items-center gap-6 text-sm">
-          <div className="text-center">
-            <p className="text-2xl font-bold text-foreground">{s.connections.active}</p>
-            <p className="text-xs text-muted-foreground">Connections</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-foreground">{s.dataSources.active}</p>
-            <p className="text-xs text-muted-foreground">Data Sources</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-foreground">{s.entities.landing.active + s.entities.bronze.active + s.entities.silver.active}</p>
-            <p className="text-xs text-muted-foreground">Entities</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-foreground">{s.pipelines.active}</p>
-            <p className="text-xs text-muted-foreground">Pipelines</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Data Flow Pipeline — Medallion Architecture */}
-      <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 rounded-xl border border-slate-200/50 dark:border-slate-800/30 p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-          <Layers className="h-5 w-5 text-muted-foreground" />
-          Medallion Architecture — Data Flow
-        </h2>
-        <div className="flex items-stretch gap-0 overflow-x-auto">
-          {/* Source Systems */}
-          <div className="flex-1 min-w-[160px]">
-            <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 h-full">
-              <div className="flex items-center gap-2 mb-3">
-                <Server className="h-4 w-4 text-blue-400" />
-                <p className="text-sm font-semibold text-blue-400">Source Systems</p>
-              </div>
-              <p className="text-3xl font-bold text-foreground">{s.connections.active}</p>
-              <p className="text-xs text-muted-foreground mt-1">{s.connections.total} connections total</p>
-              <div className="mt-3 pt-3 border-t border-blue-500/10">
-                <p className="text-2xl font-bold text-foreground">{s.dataSources.active}</p>
-                <p className="text-xs text-muted-foreground">databases configured</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center px-2 text-muted-foreground/30">
-            <ArrowRight className="h-6 w-6" />
-          </div>
-
-          {/* Landing Zone */}
-          <div className="flex-1 min-w-[140px]">
-            <div className="rounded-lg border border-slate-500/30 bg-slate-500/5 p-4 h-full">
-              <div className="flex items-center gap-2 mb-3">
-                <Database className="h-4 w-4 text-slate-400" />
-                <p className="text-sm font-semibold text-slate-400">Landing Zone</p>
-              </div>
-              <p className="text-3xl font-bold text-foreground">{s.entities.landing.active}</p>
-              <p className="text-xs text-muted-foreground mt-1">active entities</p>
-              <div className="mt-3 pt-3 border-t border-slate-500/10">
-                <p className="text-xs text-muted-foreground">{s.entities.landing.total} total registered</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center px-2 text-muted-foreground/30">
-            <ArrowRight className="h-6 w-6" />
-          </div>
-
-          {/* Bronze */}
-          <div className="flex-1 min-w-[140px]">
-            <div className="rounded-lg border border-amber-600/30 bg-amber-600/5 p-4 h-full">
-              <div className="flex items-center gap-2 mb-3">
-                <Shield className="h-4 w-4 text-amber-500" />
-                <p className="text-sm font-semibold text-amber-500">Bronze</p>
-              </div>
-              <p className="text-3xl font-bold text-foreground">{s.entities.bronze.active}</p>
-              <p className="text-xs text-muted-foreground mt-1">active entities</p>
-              <div className="mt-3 pt-3 border-t border-amber-600/10">
-                <p className="text-xs text-muted-foreground">{s.entities.bronze.total} total registered</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center px-2 text-muted-foreground/30">
-            <ArrowRight className="h-6 w-6" />
-          </div>
-
-          {/* Silver */}
-          <div className="flex-1 min-w-[140px]">
-            <div className="rounded-lg border border-gray-400/30 bg-gray-400/5 p-4 h-full">
-              <div className="flex items-center gap-2 mb-3">
-                <Activity className="h-4 w-4 text-gray-300" />
-                <p className="text-sm font-semibold text-gray-300">Silver</p>
-              </div>
-              <p className="text-3xl font-bold text-foreground">{s.entities.silver.active}</p>
-              <p className="text-xs text-muted-foreground mt-1">active entities</p>
-              <div className="mt-3 pt-3 border-t border-gray-400/10">
-                <p className="text-xs text-muted-foreground">{s.entities.silver.total} total registered</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center px-2 text-muted-foreground/30">
-            <ArrowRight className="h-6 w-6" />
-          </div>
-
-          {/* Gold / Business */}
-          <div className="flex-1 min-w-[140px]">
-            <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-4 h-full">
-              <div className="flex items-center gap-2 mb-3">
-                <Layers className="h-4 w-4 text-yellow-400" />
-                <p className="text-sm font-semibold text-yellow-400">Gold</p>
-              </div>
-              <p className="text-3xl font-bold text-foreground">{s.workspaces}</p>
-              <p className="text-xs text-muted-foreground mt-1">workspaces</p>
-              <div className="mt-3 pt-3 border-t border-yellow-500/10">
-                <p className="text-xs text-muted-foreground">{s.lakehouses} lakehouses</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Source Systems Detail */}
-      <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/10 rounded-xl border border-blue-200/50 dark:border-blue-800/30 p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-          <Cable className="h-5 w-5 text-muted-foreground" />
-          Source Systems
-        </h2>
-        {data.sourceSystems.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-8 text-center">No source systems registered yet.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {data.sourceSystems.map(src => {
-              const allActive = src.connections.every(c => c.isActive === 'True') &&
-                                src.dataSources.every(d => d.isActive === 'True');
-              return (
-                <div key={src.namespace} className="rounded-lg border border-border bg-muted/30 p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Server className="h-4 w-4 text-muted-foreground" />
-                      <p className="font-semibold text-foreground">{src.namespace}</p>
-                    </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      allActive
-                        ? 'bg-emerald-500/10 text-emerald-400'
-                        : 'bg-amber-500/10 text-amber-400'
-                    }`}>
-                      {allActive ? 'Active' : 'Partial'}
-                    </span>
-                  </div>
-
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Connections</span>
-                      <span className="font-medium text-foreground">{src.connections.length}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Data Sources</span>
-                      <span className="font-medium text-foreground">{src.dataSources.length}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Landing Entities</span>
-                      <span className="font-medium text-foreground">
-                        {src.activeEntities.landing}
-                        {src.entities.landing !== src.activeEntities.landing && (
-                          <span className="text-muted-foreground/60"> / {src.entities.landing}</span>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Connection names */}
-                  <div className="mt-3 pt-3 border-t border-border">
-                    {src.dataSources.map(ds => (
-                      <div key={ds.name} className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                        <Database className="h-3 w-3 shrink-0" />
-                        <span className="font-mono truncate">{ds.name}</span>
-                        <span className={`ml-auto shrink-0 h-1.5 w-1.5 rounded-full ${ds.isActive === 'True' ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Pipeline Health & Recent Runs */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Pipeline Health Summary */}
-        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/20 dark:to-emerald-900/10 rounded-xl border border-emerald-200/50 dark:border-emerald-800/30 p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-            <Activity className="h-5 w-5 text-muted-foreground" />
-            Pipeline Health
-          </h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-4 text-center">
-              <p className="text-3xl font-bold text-emerald-400">{data.pipelineHealth.succeeded}</p>
-              <p className="text-xs text-muted-foreground mt-1">Succeeded</p>
-            </div>
-            <div className="rounded-lg bg-red-500/5 border border-red-500/20 p-4 text-center">
-              <p className="text-3xl font-bold text-red-400">{data.pipelineHealth.failed}</p>
-              <p className="text-xs text-muted-foreground mt-1">Failed</p>
-            </div>
-            <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-4 text-center">
-              <p className="text-3xl font-bold text-blue-400">{data.pipelineHealth.running}</p>
-              <p className="text-xs text-muted-foreground mt-1">Running Now</p>
-            </div>
-            <div className="rounded-lg bg-muted/50 border border-border p-4 text-center">
-              <p className="text-3xl font-bold text-foreground">{data.pipelineHealth.recentRuns}</p>
-              <p className="text-xs text-muted-foreground mt-1">Total Recent Runs</p>
-            </div>
-          </div>
-
-          {data.pipelineHealth.recentRuns > 0 && (
-            <div className="mt-4 pt-4 border-t border-border">
-              <div className="flex items-center gap-2 mb-2">
-                <p className="text-xs text-muted-foreground uppercase tracking-wider">Success Rate</p>
-              </div>
-              <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                  style={{ width: `${data.pipelineHealth.recentRuns > 0 ? (data.pipelineHealth.succeeded / data.pipelineHealth.recentRuns * 100) : 0}%` }}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground mt-1 text-right">
-                {data.pipelineHealth.recentRuns > 0 ? Math.round(data.pipelineHealth.succeeded / data.pipelineHealth.recentRuns * 100) : 0}%
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Recent Pipeline Runs */}
-        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/20 dark:to-amber-900/10 rounded-xl border border-amber-200/50 dark:border-amber-800/30 p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-            <Clock className="h-5 w-5 text-muted-foreground" />
-            Recent Pipeline Runs
-          </h2>
-          {data.recentRuns.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">No pipeline runs recorded yet.</p>
-          ) : (
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
-              {data.recentRuns.map((run, i) => {
-                const status = (run.Status || '').toLowerCase();
-                const isSuccess = status === 'succeeded';
-                const isFailed = status === 'failed';
-                const isRunning = status === 'inprogress' || status === 'running';
-                return (
-                  <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border border-border">
-                    <div className="shrink-0">
-                      {isSuccess && <CheckCircle className="h-4 w-4 text-emerald-400" />}
-                      {isFailed && <XCircle className="h-4 w-4 text-red-400" />}
-                      {isRunning && <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />}
-                      {!isSuccess && !isFailed && !isRunning && <Clock className="h-4 w-4 text-muted-foreground" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {run.PipelineName || run.Name || `Run #${run.PipelineExecutionId || i + 1}`}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {run.StartTime ? formatTimestamp(run.StartTime) : 'Unknown time'}
-                      </p>
-                    </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
-                      isSuccess ? 'bg-emerald-500/10 text-emerald-400' :
-                      isFailed ? 'bg-red-500/10 text-red-400' :
-                      isRunning ? 'bg-blue-500/10 text-blue-400' :
-                      'bg-muted text-muted-foreground'
-                    }`}>
-                      {run.Status || 'Unknown'}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Infrastructure Footer */}
-      <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/10 rounded-xl border border-purple-200/50 dark:border-purple-800/30 p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-          <Server className="h-5 w-5 text-muted-foreground" />
-          Infrastructure
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Workspaces</p>
-            {data.workspaces.length > 0 ? (
-              <div className="space-y-1">
-                {data.workspaces.map(ws => (
-                  <div key={ws.WorkspaceId} className="flex items-center gap-2 text-sm">
-                    <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span className="text-foreground truncate">{ws.Name}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">None registered</p>
-            )}
-          </div>
-
-          <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Lakehouses</p>
-            {data.lakehouses.length > 0 ? (
-              <div className="space-y-1">
-                {data.lakehouses.map(lh => (
-                  <div key={lh.LakehouseId} className="flex items-center gap-2 text-sm">
-                    <Database className="h-3 w-3 text-muted-foreground shrink-0" />
-                    <span className="text-foreground truncate">{lh.Name}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">None registered</p>
-            )}
-          </div>
-
-          <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Active Pipelines</p>
-            <p className="text-2xl font-bold text-foreground">{s.pipelines.active}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{s.pipelines.total} total registered</p>
-          </div>
-
-          <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Platform</p>
-            <div className="space-y-1 text-sm text-muted-foreground">
-              <p>Microsoft Fabric</p>
-              <p className="text-xs">Metadata-Driven Framework</p>
-              <p className="text-xs">Medallion Architecture</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer timestamp */}
-      <div className="text-center text-xs text-muted-foreground pb-4">
+      {/* ── Footer ── */}
+      <div className="text-center text-[10px] text-muted-foreground pb-2">
         {data._fromSnapshot ? (
           <span className="text-amber-400">Snapshot mode — SQL database offline</span>
         ) : (
-          <span>Live data · Last refreshed {data.lastRefreshed ? formatTimestamp(data.lastRefreshed) : 'N/A'}</span>
+          <span>Live from integration metadata DB · {data.lastRefreshed ? formatTimestamp(data.lastRefreshed) : 'N/A'}</span>
         )}
       </div>
     </div>
   );
+}
+
+// ── Sub-components ──
+
+function Pill({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: number | string; sub?: string }) {
+  return (
+    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted/40 border border-border" title={sub || label}>
+      <span className="text-muted-foreground">{icon}</span>
+      <span className="font-mono font-bold text-foreground">{value}</span>
+      <span className="text-muted-foreground/70 hidden sm:inline">{label}</span>
+    </div>
+  );
+}
+
+function TabBtn({ active, onClick, icon, label, count }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string; count?: number }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+        active
+          ? 'text-foreground border-primary'
+          : 'text-muted-foreground border-transparent hover:text-foreground hover:border-muted-foreground/30'
+      }`}
+    >
+      {icon}
+      {label}
+      {count !== undefined && <span className="text-[10px] bg-muted/60 px-1.5 py-0.5 rounded-full font-mono">{count}</span>}
+    </button>
+  );
+}
+
+function LayerBadge({ layer }: { layer: string }) {
+  const l = (layer || '').toLowerCase();
+  const cls = l === 'control' ? 'text-blue-400 bg-blue-500/10 border-blue-500/20'
+    : l === 'landing' || l === 'landingzone' ? 'text-slate-400 bg-slate-500/10 border-slate-500/20'
+    : l === 'bronze' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+    : l === 'silver' ? 'text-gray-300 bg-gray-500/10 border-gray-500/20'
+    : l === 'gold' ? 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20'
+    : 'text-muted-foreground bg-muted border-border';
+  return <span className={`text-[10px] px-2 py-0.5 rounded border font-mono ${cls}`}>{layer || '—'}</span>;
 }

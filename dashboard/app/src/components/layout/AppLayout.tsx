@@ -18,10 +18,16 @@ import {
   ClipboardCheck,
   Layers3,
   Route,
+  Wrench,
+  BookOpen,
+  Play,
+  Bug,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { DeploymentOverlay } from "@/components/DeploymentOverlay";
+import { BackgroundTaskToast } from "@/components/BackgroundTaskToast";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { getLabsFlags, anyLabsEnabled, type LabsFlags } from "@/lib/featureFlags";
 
@@ -44,6 +50,8 @@ const CORE_GROUPS: NavGroup[] = [
       { icon: Gauge, label: "Control Plane", href: "/control" },
       { icon: Activity, label: "Error Intelligence", href: "/errors" },
       { icon: ScrollText, label: "Execution Log", href: "/logs" },
+      { icon: Play, label: "Pipeline Runner", href: "/runner" },
+      { icon: Bug, label: "Notebook Debug", href: "/notebook-debug" },
     ],
   },
   {
@@ -60,6 +68,8 @@ const CORE_GROUPS: NavGroup[] = [
     label: "Admin",
     items: [
       { icon: ShieldCheck, label: "Admin & Governance", href: "/admin" },
+      { icon: Wrench, label: "Config Manager", href: "/config" },
+      { icon: BookOpen, label: "Notebook Config", href: "/notebook-config" },
       { icon: Settings, label: "Settings", href: "/settings" },
     ],
   },
@@ -181,6 +191,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-background text-foreground font-sans">
+      {/* Deployment overlay disabled — only needed during active NB_SETUP_FMD runs */}
+      {/* <DeploymentOverlay /> */}
+
       {/* Desktop Sidebar */}
       <aside className={cn("hidden md:block fixed inset-y-0 z-50 transition-all duration-200", sidebarWidth)}>
         <NavContent />
@@ -223,7 +236,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex-1 cowork-grid">
           <div className={cn(
             "w-full animate-[fadeIn_0.25s_var(--ease-claude)]",
-            (location.pathname === "/flow" || location.pathname === "/blender" || location.pathname === "/journey")
+            (location.pathname === "/flow" || location.pathname === "/blender" || location.pathname === "/journey" || location.pathname === "/notebook-debug")
               ? "p-0 h-full"
               : "p-6 md:p-8 max-w-7xl mx-auto"
           )}>
@@ -231,6 +244,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </main>
+
+      {/* Background task progress — persists across page navigation */}
+      <BackgroundTaskToast />
     </div>
   );
 }

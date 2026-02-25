@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FMD Framework — Jira Board Audit Report (2026-02-24)</title>
+<style>
+  :root {
+    --bg: #0f0f1a;
+    --card: rgba(255,255,255,0.04);
+    --card-border: rgba(255,255,255,0.08);
+    --text: #e8e8f0;
+    --muted: #8888a0;
+    --blue: #3b82f6;
+    --green: #22c55e;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --purple: #a855f7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.3rem; font-weight: 600; margin: 2rem 0 1rem; color: var(--blue); border-bottom: 1px solid var(--card-border); padding-bottom: 0.5rem; }
+  h3 { font-size: 1.05rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+  .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  .stat { text-align: center; }
+  .stat-value { font-size: 2rem; font-weight: 700; }
+  .stat-label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-blue .stat-value { color: var(--blue); }
+  .stat-green .stat-value { color: var(--green); }
+  .stat-amber .stat-value { color: var(--amber); }
+  .stat-red .stat-value { color: var(--red); }
+  .stat-purple .stat-value { color: var(--purple); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--card-border); color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  td { padding: 0.5rem 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .badge-done { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge-progress { background: rgba(59,130,246,0.15); color: var(--blue); }
+  .badge-backlog { background: rgba(136,136,160,0.15); color: var(--muted); }
+  .badge-blocked { background: rgba(239,68,68,0.15); color: var(--red); }
+  .change-tag {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    margin-right: 0.25rem;
+  }
+  .tag-date { background: rgba(168,85,247,0.15); color: var(--purple); }
+  .tag-status { background: rgba(59,130,246,0.15); color: var(--blue); }
+  .tag-comment { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .tag-worklog { background: rgba(34,197,94,0.15); color: var(--green); }
+  .tag-watcher { background: rgba(239,68,68,0.15); color: var(--red); }
+  .mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.8rem; }
+  .section-why { margin: 1rem 0; padding: 1rem; background: rgba(59,130,246,0.05); border-left: 3px solid var(--blue); border-radius: 0 6px 6px 0; }
+  .timeline-item { display: flex; gap: 1rem; margin-bottom: 0.75rem; align-items: flex-start; }
+  .timeline-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 0.5rem; flex-shrink: 0; }
+  .dot-blue { background: var(--blue); }
+  .dot-green { background: var(--green); }
+  .dot-amber { background: var(--amber); }
+  .dot-red { background: var(--red); }
+  .workspace-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem; }
+  .ws-card { padding: 0.75rem; background: rgba(255,255,255,0.02); border: 1px solid var(--card-border); border-radius: 6px; }
+  .ws-name { font-weight: 600; font-size: 0.85rem; }
+  .ws-id { font-family: monospace; font-size: 0.7rem; color: var(--muted); word-break: break-all; }
+  .ws-items { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--card-border); text-align: center; color: var(--muted); font-size: 0.75rem; }
+</style>
+</head>
+<body>
+
+<h1>FMD Framework — Jira Board Audit Report</h1>
+<p class="subtitle">Date: February 24, 2026 &nbsp;|&nbsp; Project: MT (Fabric Data Migration) &nbsp;|&nbsp; Epic: MT-12</p>
+
+<!-- Summary Stats -->
+<div class="stats-grid">
+  <div class="card stat stat-blue">
+    <div class="stat-value">37</div>
+    <div class="stat-label">Due Dates Shifted</div>
+  </div>
+  <div class="card stat stat-amber">
+    <div class="stat-value">7</div>
+    <div class="stat-label">Comments Posted</div>
+  </div>
+  <div class="card stat stat-green">
+    <div class="stat-value">3</div>
+    <div class="stat-label">Worklogs Added</div>
+  </div>
+  <div class="card stat stat-purple">
+    <div class="stat-value">2</div>
+    <div class="stat-label">Status Changes</div>
+  </div>
+  <div class="card stat stat-red">
+    <div class="stat-value">12.5h</div>
+    <div class="stat-label">Time Logged</div>
+  </div>
+</div>
+
+<!-- Why This Happened -->
+<h2>What Happened &amp; Why</h2>
+<div class="section-why">
+  <p><strong>Root Cause:</strong> The FMD framework deployment from 2/17 needed to be completely rebuilt on 2/24. The INTEGRATION CONFIG workspace from the original deployment retained stale GUIDs in its SQL metadata database. When the dashboard integration phase began, these stale references caused cascading failures. The decision was made to delete all 5 INTEGRATION workspaces and start from scratch with a hardened deployment notebook.</p>
+</div>
+
+<div class="card">
+  <h3>Three Issues Uncovered</h3>
+  <div class="timeline-item">
+    <div class="timeline-dot dot-red"></div>
+    <div>
+      <strong>Fabric Notebook Cell Format</strong> — Fabric's REST API requires cell source to be an array of strings, not a concatenated string. The wrong format is silently accepted but produces a blank notebook. Cells 9 and 14 in NB_SETUP_FMD had this issue.
+    </div>
+  </div>
+  <div class="timeline-item">
+    <div class="timeline-dot dot-red"></div>
+    <div>
+      <strong>Stale GUID Conflict</strong> — The INTEGRATION CONFIG workspace from the 2/17 deployment was not deleted with the other workspaces. Its SQL database contained old workspace GUIDs that conflicted with the new deployment. The notebook failed at ~30 minutes trying to reconcile mismatched metadata.
+    </div>
+  </div>
+  <div class="timeline-item">
+    <div class="timeline-dot dot-red"></div>
+    <div>
+      <strong>Fabric CLI (fab) Subprocess Hang</strong> — The root cause of EVERY previous automated deployment failure. <code>subprocess.run(["fab", ...])</code> hangs indefinitely at <code>selector.select()</code> when reading SQL database properties via <code>get_item_id()</code>. The database is created successfully, but the notebook locks up trying to read back the server FQDN. Workaround: use REST API to fetch properties directly.
+    </div>
+  </div>
+</div>
+
+<!-- Impact -->
+<h2>Impact &amp; Timeline Shift</h2>
+<div class="card">
+  <p>All downstream dates shifted by approximately <strong>1 week</strong> to account for the redeployment window. The critical path remains unchanged:</p>
+  <p style="margin-top: 0.75rem; font-family: monospace; font-size: 0.8rem; color: var(--muted);">
+    Source Registration (2/28) → Pipeline Testing (3/3) → Silver Layer (3/7) → Gold Layer (3/13) → E2E Testing (3/20) → Production Cutover (3/31)
+  </p>
+  <p style="margin-top: 0.75rem;">Gateway connections (MT-15) survived as they are tenant-level. Source registrations (MT-16, MT-30-33) need re-doing but the dashboard wizard reduces this from hours to minutes per source.</p>
+</div>
+
+<!-- New Workspace GUIDs -->
+<h2>New Deployment — Workspace GUIDs</h2>
+<div class="workspace-grid">
+  <div class="ws-card">
+    <div class="ws-name">INTEGRATION CODE (D)</div>
+    <div class="ws-id">146fe38c-f6c3-4e9d-a18c-5c01cad5941e</div>
+    <div class="ws-items">15 items (6 notebooks + 9 pipelines, more deploying...)</div>
+  </div>
+  <div class="ws-card">
+    <div class="ws-name">INTEGRATION DATA (D)</div>
+    <div class="ws-id">a3a180ff-fbc2-48fd-a65f-27ae7bb6709a</div>
+    <div class="ws-items">6 items (3 lakehouses + 3 SQL endpoints)</div>
+  </div>
+  <div class="ws-card">
+    <div class="ws-name">INTEGRATION CODE (P)</div>
+    <div class="ws-id">1284458c-1976-46a6-b9d8-af17c7d11a59</div>
+    <div class="ws-items">Deployment in progress</div>
+  </div>
+  <div class="ws-card">
+    <div class="ws-name">INTEGRATION DATA (P)</div>
+    <div class="ws-id">4c4b6bf5-8728-4aac-a132-b008a11b96d7</div>
+    <div class="ws-items">6 items (3 lakehouses + 3 SQL endpoints)</div>
+  </div>
+  <div class="ws-card">
+    <div class="ws-name">INTEGRATION CONFIG</div>
+    <div class="ws-id">f442f66c-eac6-46d7-80c9-c8b025c86fbe</div>
+    <div class="ws-items">3 items (environment + SQL database + SQL endpoint)</div>
+  </div>
+  <div class="ws-card">
+    <div class="ws-name">SQL_INTEGRATION_FRAMEWORK</div>
+    <div class="ws-id">501d6b17-fcee-47f3-bbb3-54e05f2a3fc0</div>
+    <div class="ws-items">Server: 7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com</div>
+  </div>
+</div>
+
+<!-- Status Changes -->
+<h2>Status Changes</h2>
+<table>
+  <thead>
+    <tr><th>Ticket</th><th>Summary</th><th>From</th><th>To</th><th>Reason</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-30">MT-30</a></td>
+      <td>Register ETQ production source</td>
+      <td><span class="badge badge-done">Done</span></td>
+      <td><span class="badge badge-backlog">Backlog</span></td>
+      <td>Metadata DB recreated; registration from 2/23 no longer exists</td>
+    </tr>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-80">MT-80</a></td>
+      <td>Data Blender</td>
+      <td><span class="badge badge-backlog">Backlog</span></td>
+      <td><span class="badge badge-done">Done</span></td>
+      <td>Already built and live in dashboard (cross-lakehouse profiling, sampling, schema discovery)</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- Date Shifts -->
+<h2>Due Date Shifts (~1 Week)</h2>
+<table>
+  <thead>
+    <tr><th>Ticket</th><th>Summary</th><th>Old Date</th><th>New Date</th><th>Type</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>MT-16</td><td>Register Source Systems</td><td>2/21</td><td><strong>2/28</strong></td><td>Task</td></tr>
+    <tr><td>MT-31</td><td>Register M3 ERP</td><td>2/21</td><td><strong>2/28</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-32</td><td>Register M3 Cloud</td><td>2/21</td><td><strong>2/28</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-33</td><td>Register MES</td><td>2/21</td><td><strong>2/28</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-73</td><td>FMD Operations Dashboard</td><td>2/21</td><td><strong>2/28</strong></td><td>Task</td></tr>
+    <tr><td>MT-78</td><td>Production bundling & deployment</td><td>2/21</td><td><strong>2/28</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-17</td><td>Landing Zone + Bronze Pipelines</td><td>2/25</td><td><strong>3/3</strong></td><td>Task</td></tr>
+    <tr><td>MT-34</td><td>Test LZ single table</td><td>2/24</td><td><strong>3/3</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-35</td><td>Test Bronze single table</td><td>2/24</td><td><strong>3/3</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-36</td><td>Validate row counts</td><td>2/25</td><td><strong>3/4</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-37</td><td>Scale to full table set</td><td>2/26</td><td><strong>3/5</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-18</td><td>Silver Layer Transformations</td><td>2/28</td><td><strong>3/7</strong></td><td>Task</td></tr>
+    <tr><td>MT-58</td><td>Design Silver schema</td><td>2/26</td><td><strong>3/5</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-59</td><td>Register Silver entities</td><td>2/27</td><td><strong>3/6</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-60</td><td>Configure SCD Type 2</td><td>2/28</td><td><strong>3/7</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-61</td><td>Test Silver pipeline</td><td>2/28</td><td><strong>3/7</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-50</td><td>DQ & Cleansing Rules</td><td>2/28</td><td><strong>3/7</strong></td><td>Task</td></tr>
+    <tr><td>MT-19</td><td>Gold Layer MLVs</td><td>3/6</td><td><strong>3/13</strong></td><td>Task</td></tr>
+    <tr><td>MT-62</td><td>Design Gold star schema</td><td>3/4</td><td><strong>3/11</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-63</td><td>Configure OneLake shortcuts</td><td>3/5</td><td><strong>3/12</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-64</td><td>Define MLVs for Gold</td><td>3/6</td><td><strong>3/13</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-65</td><td>Generate date dimension</td><td>3/6</td><td><strong>3/13</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-53</td><td>Taskflow Orchestration</td><td>3/6</td><td><strong>3/13</strong></td><td>Task</td></tr>
+    <tr><td>MT-20</td><td>E2E Testing</td><td>3/13</td><td><strong>3/20</strong></td><td>Task</td></tr>
+    <tr><td>MT-66</td><td>Full E2E pipeline run</td><td>3/11</td><td><strong>3/18</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-67</td><td>Data accuracy validation</td><td>3/12</td><td><strong>3/19</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-68</td><td>Performance benchmark</td><td>3/13</td><td><strong>3/20</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-69</td><td>Failure recovery testing</td><td>3/13</td><td><strong>3/20</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-57</td><td>Historical Data Backfill</td><td>3/10</td><td><strong>3/17</strong></td><td>Task</td></tr>
+    <tr><td>MT-51</td><td>Business Domain Workspaces</td><td>3/10</td><td><strong>3/17</strong></td><td>Task</td></tr>
+    <tr><td>MT-54</td><td>Security & Access Control</td><td>3/13</td><td><strong>3/20</strong></td><td>Task</td></tr>
+    <tr><td>MT-52</td><td>Semantic Models & Power BI</td><td>3/17</td><td><strong>3/24</strong></td><td>Task</td></tr>
+    <tr><td>MT-21</td><td>Fabric Console UI</td><td>3/18</td><td><strong>3/25</strong></td><td>Task</td></tr>
+    <tr><td>MT-71</td><td>Pipeline failure alerting</td><td>3/17</td><td><strong>3/24</strong></td><td>Subtask</td></tr>
+    <tr><td>MT-55</td><td>Production Cutover</td><td>3/24</td><td><strong>3/31</strong></td><td>Task</td></tr>
+    <tr><td>MT-56</td><td>Operational Runbooks</td><td>3/27</td><td><strong>3/31</strong></td><td>Task</td></tr>
+    <tr><td>MT-79</td><td>Knowledge Base & AI Agent</td><td>3/21</td><td><strong>3/28</strong></td><td>Task</td></tr>
+  </tbody>
+</table>
+
+<!-- Comments Posted -->
+<h2>Comments Posted</h2>
+<table>
+  <thead>
+    <tr><th>Ticket</th><th>Summary</th><th>Comment Topic</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-14">MT-14</a></td>
+      <td>Deploy FMD Framework</td>
+      <td>Redeployment context, hardened notebook, fab CLI root cause, deployment overlay</td>
+    </tr>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-16">MT-16</a></td>
+      <td>Register Source Systems</td>
+      <td>Re-registration needed, dashboard wizard makes it fast, gateway connections survived</td>
+    </tr>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-30">MT-30</a></td>
+      <td>Register ETQ Source</td>
+      <td>Moved back to Backlog, metadata DB recreated, wizard handles re-registration</td>
+    </tr>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-73">MT-73</a></td>
+      <td>FMD Operations Dashboard</td>
+      <td>Expanded scope documentation: 12+ features now including deployment overlay</td>
+    </tr>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-80">MT-80</a></td>
+      <td>Data Blender</td>
+      <td>Already shipped in dashboard, marking Done</td>
+    </tr>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-21">MT-21</a></td>
+      <td>Fabric Console UI</td>
+      <td>Largely superseded by MT-73, only MT-71 (alerting) still relevant</td>
+    </tr>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-12">MT-12</a></td>
+      <td>Epic: Fabric Data Migration</td>
+      <td>Mid-sprint course correction, hardened tooling, timeline shift explanation</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- Worklogs -->
+<h2>Worklogs Added</h2>
+<table>
+  <thead>
+    <tr><th>Ticket</th><th>Hours</th><th>Date</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-73">MT-73</a></td>
+      <td>7h</td>
+      <td>2/24 8:00 AM</td>
+      <td>Deployment status overlay (backend polling, workspace discovery, auto-config application, frontend overlay component)</td>
+    </tr>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-78">MT-78</a></td>
+      <td>3.5h</td>
+      <td>2/24 1:00 PM</td>
+      <td>Notebook upload pipeline fix (cell format, two-step REST API upload, fab CLI workaround)</td>
+    </tr>
+    <tr>
+      <td><a href="https://ip-corporation.atlassian.net/browse/MT-12">MT-12</a></td>
+      <td>2h</td>
+      <td>2/24 4:00 PM</td>
+      <td>Comprehensive board audit (70+ tickets, timeline realignment, scope updates)</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- Improvements Made -->
+<h2>Improvements for Future Deployments</h2>
+<div class="card">
+  <div class="timeline-item">
+    <div class="timeline-dot dot-green"></div>
+    <div>
+      <strong>Deployment Overlay</strong> — Dashboard now shows real-time deployment progress. Auto-discovers workspace GUIDs by name. Auto-applies config when notebook finishes. Zero manual GUID hunting required.
+    </div>
+  </div>
+  <div class="timeline-item">
+    <div class="timeline-dot dot-green"></div>
+    <div>
+      <strong>Cell Format Validation</strong> — NB_SETUP_FMD now has all cells in array-of-strings format (Fabric requirement). Previous string format was silently accepted but produced blank notebooks.
+    </div>
+  </div>
+  <div class="timeline-item">
+    <div class="timeline-dot dot-green"></div>
+    <div>
+      <strong>Admin Group Wiring</strong> — Service principal and FabricAdmins security group are pre-configured in workspace roles, domain contributors, and connection owners during setup.
+    </div>
+  </div>
+  <div class="timeline-item">
+    <div class="timeline-dot dot-amber"></div>
+    <div>
+      <strong>Known Issue: fab CLI Hang</strong> — The Fabric CLI hangs on <code>subprocess.run()</code> when reading SQL database properties. Root cause of every automated failure. Workaround: pull properties via REST API. Permanent fix: replace all <code>fab</code> CLI calls with direct REST API equivalents in the notebook.
+    </div>
+  </div>
+</div>
+
+<!-- Dashboard Feature Scope -->
+<h2>Dashboard Feature Inventory (MT-73)</h2>
+<div class="card">
+  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.5rem;">
+    <div>&#9679; Pipeline Monitor (live polling)</div>
+    <div>&#9679; Error Intelligence</div>
+    <div>&#9679; Execution Log</div>
+    <div>&#9679; Control Plane</div>
+    <div>&#9679; Source Manager + Wizard</div>
+    <div>&#9679; Data Blender (MT-80)</div>
+    <div>&#9679; Flow Explorer (lineage)</div>
+    <div>&#9679; Data Journey (layer drill-down)</div>
+    <div>&#9679; Record Counts</div>
+    <div>&#9679; Config Manager</div>
+    <div>&#9679; Notebook Config</div>
+    <div>&#9679; Settings + Deploy Wizard</div>
+    <div>&#9679; <strong>Deployment Overlay (NEW)</strong></div>
+    <div>&#9679; Labs Feature Flags</div>
+  </div>
+</div>
+
+<div class="footer">
+  <p>FMD Framework — Jira Audit Report &nbsp;|&nbsp; Generated 2026-02-24 &nbsp;|&nbsp; Project MT &nbsp;|&nbsp; Epic MT-12</p>
+</div>
+
+</body>
+</html>

@@ -279,21 +279,11 @@ spark.conf.set('spark.databricks.delta.autoCompact.enabled', True)
 
 #Set SourceFile and target Location
 if schema_enabled == True:
-    #Set SourceFile and target Location
     source_changes_data_path = f"abfss://{SourceWorkspace}@onelake.dfs.fabric.microsoft.com/{SourceLakehouse}/Files/{SourceFilePath}/{SourceFileName}"
-    print(source_changes_data_path)
-
-    #Beware 
     target_data_path = f"abfss://{TargetWorkspace}@onelake.dfs.fabric.microsoft.com/{TargetLakehouse}/Tables/{DataSourceNamespace}/{TargetSchema}_{TargetName}"
-    print(target_data_path)
 elif schema_enabled != True:
-    #Set SourceFile and target Location
     source_changes_data_path = f"abfss://{SourceWorkspace}@onelake.dfs.fabric.microsoft.com/{SourceLakehouse}/Files/{SourceFilePath}/{SourceFileName}"
-    print(source_changes_data_path)
-
-    #Beware 
     target_data_path = f"abfss://{TargetWorkspace}@onelake.dfs.fabric.microsoft.com/{TargetLakehouse}/Tables/{DataSourceNamespace}_{TargetSchema}_{TargetName}"
-    print(target_data_path)
 
 
 # METADATA ********************
@@ -310,9 +300,8 @@ elif schema_enabled != True:
 # CELL ********************
 
 if not notebookutils.fs.exists(source_changes_data_path):
-    print("❌ Source file not found. Exiting Notebook")
     execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
-    TotalRuntime = str((datetime.now() - start_audit_time)) 
+    TotalRuntime = str((datetime.now() - start_audit_time))
     end_audit_time =  str(datetime.now())
     start_audit_time =str(start_audit_time)
     result_data = {
@@ -330,8 +319,8 @@ if not notebookutils.fs.exists(source_changes_data_path):
     }
     }
     execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
-    
-    notebookutils.notebook.exit(result_data)
+
+    notebookutils.notebook.exit("FILE_NOT_FOUND")
 #Read all incoming changes in Parquet format
 dfDataChanged= spark.read\
                 .format(SourceFileType) \
@@ -374,7 +363,7 @@ PrimaryKeys = re.split('[, ; :]', PrimaryKeys)
 PrimaryKeys = [column.strip() for column in PrimaryKeys if column != ""]
 
 key_columns = PrimaryKeys
-print(f": {', '.join(key_columns)}")
+# PK columns validated silently to reduce output volume
 # Check if all PK's exist in source
 for pk_column in key_columns:
     if pk_column not in dfDataChanged.columns:
@@ -528,7 +517,7 @@ else:
     execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
     execute_with_outputs(InsertPipelineBronzeLayerEntity, driver, connstring, database)
     execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
-    notebookutils.notebook.exit(result_data)
+    notebookutils.notebook.exit("OK")
 
 # METADATA ********************
 
@@ -546,7 +535,6 @@ else:
 #merge table 
 deltaTable = DeltaTable.forPath(spark, f'{target_data_path}')
 if IsIncremental in [False, 'false', 'False']:
-    print(' - Incremental Loading is not enabled, deletes are allowed')
     merge = deltaTable.alias('original') \
         .merge(dfDataChanged.alias('updates'), 'original.HashedPKColumn == updates.HashedPKColumn') \
         .whenNotMatchedInsertAll() \
@@ -554,7 +542,6 @@ if IsIncremental in [False, 'false', 'False']:
         .whenNotMatchedBySourceDelete() \
         .execute()
 elif IsIncremental not in [False, 'false', 'False']:
-    print(' - Incremental Loading is enabled, deletes are not allowed')
     merge = deltaTable.alias('original') \
         .merge(dfDataChanged.alias('updates'), 'original.HashedPKColumn == updates.HashedPKColumn') \
         .whenNotMatchedInsertAll() \
@@ -624,7 +611,7 @@ execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=
 
 # CELL ********************
 
-notebookutils.notebook.exit(result_data)
+notebookutils.notebook.exit("OK")
 
 # METADATA ********************
 

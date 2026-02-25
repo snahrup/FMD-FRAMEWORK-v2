@@ -1,4 +1,5 @@
 import { Routes, Route } from 'react-router-dom'
+import { BackgroundTaskProvider } from '@/contexts/BackgroundTaskContext'
 import { AppLayout } from '@/components/layout/AppLayout'
 import PipelineMonitor from '@/pages/PipelineMonitor'
 import ErrorIntelligence from '@/pages/ErrorIntelligence'
@@ -15,9 +16,14 @@ import ScdAudit from '@/pages/ScdAudit'
 import GoldMlvManager from '@/pages/GoldMlvManager'
 import DqScorecard from '@/pages/DqScorecard'
 import DataJourney from '@/pages/DataJourney'
+import ConfigManager from '@/pages/ConfigManager'
+import NotebookConfig from '@/pages/NotebookConfig'
+import PipelineRunner from '@/pages/PipelineRunner'
+import NotebookDebug from '@/pages/NotebookDebug'
 
 function App() {
   return (
+    <BackgroundTaskProvider>
     <AppLayout>
       <Routes>
         <Route path="/" element={<PipelineMonitor />} />
@@ -30,6 +36,10 @@ function App() {
         <Route path="/blender" element={<DataBlender />} />
         <Route path="/counts" element={<RecordCounts />} />
         <Route path="/journey" element={<DataJourney />} />
+        <Route path="/config" element={<ConfigManager />} />
+        <Route path="/notebook-config" element={<NotebookConfig />} />
+        <Route path="/runner" element={<PipelineRunner />} />
+        <Route path="/notebook-debug" element={<NotebookDebug />} />
         <Route path="/settings" element={<Settings />} />
         {/* Labs pages — always routed, nav visibility controlled by feature flags */}
         <Route path="/labs/cleansing" element={<CleansingRuleEditor />} />
@@ -38,6 +48,7 @@ function App() {
         <Route path="/labs/dq-scorecard" element={<DqScorecard />} />
       </Routes>
     </AppLayout>
+    </BackgroundTaskProvider>
   )
 }
 

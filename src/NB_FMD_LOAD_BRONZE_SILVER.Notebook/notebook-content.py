@@ -267,18 +267,10 @@ spark.conf.set('spark.microsoft.delta.properties.defaults.enableChangeDataFeed',
 #Set SourceFile and target Location
 if schema_enabled == True:
     source_changes_data_path = f"abfss://{SourceWorkspace}@onelake.dfs.fabric.microsoft.com/{SourceLakehouse}/Tables/{DataSourceNamespace}/{SourceSchema}_{SourceName}"
-    print(source_changes_data_path)
-
-    #Beware 
     target_data_path = f"abfss://{TargetWorkspace}@onelake.dfs.fabric.microsoft.com/{TargetLakehouse}/Tables/{DataSourceNamespace}/{TargetSchema}_{TargetName}"
-    print(target_data_path)
 elif schema_enabled  != True:
     source_changes_data_path = f"abfss://{SourceWorkspace}@onelake.dfs.fabric.microsoft.com/{SourceLakehouse}/Tables/{DataSourceNamespace}_{SourceSchema}_{SourceName}"
-    print(source_changes_data_path)
-
-    #Beware 
     target_data_path = f"abfss://{TargetWorkspace}@onelake.dfs.fabric.microsoft.com/{TargetLakehouse}/Tables/{DataSourceNamespace}_{TargetSchema}_{TargetName}"
-    print(target_data_path)
 
 
 # METADATA ********************
@@ -433,7 +425,7 @@ else:
     execute_with_outputs(UpsertPipelineBronzeLayerEntity, driver, connstring, database)
     execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
 
-    notebookutils.notebook.exit(result_data)
+    notebookutils.notebook.exit("OK")
 
 # METADATA ********************
 
@@ -752,7 +744,7 @@ execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=
 
 # CELL ********************
 
-notebookutils.notebook.exit(result_data)
+notebookutils.notebook.exit("OK")
 
 # METADATA ********************
 
