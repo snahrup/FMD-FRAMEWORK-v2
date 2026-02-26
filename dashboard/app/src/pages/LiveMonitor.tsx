@@ -219,6 +219,7 @@ export default function LiveMonitor() {
   const [interval, setRefreshInterval] = useState(5);
   const [refreshCount, setRefreshCount] = useState(0);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [timeWindow, setTimeWindow] = useState(30); // minutes — default 30m (show recent only)
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     pipelines: true, progress: true, notebooks: true, copies: true, bronze: true, lz: true,
   });
@@ -231,7 +232,7 @@ export default function LiveMonitor() {
   const fetchData = useCallback(async () => {
     setRefreshing(true);
     try {
-      const resp = await fetch('/api/live-monitor');
+      const resp = await fetch(`/api/live-monitor?minutes=${timeWindow}`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
       setData(json);
@@ -244,7 +245,7 @@ export default function LiveMonitor() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [timeWindow]);
 
   // Auto-refresh
   useEffect(() => {
@@ -351,6 +352,21 @@ export default function LiveMonitor() {
               Pipeline Running
             </div>
           )}
+          <select
+            value={timeWindow}
+            onChange={(e) => setTimeWindow(Number(e.target.value))}
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value={5}>Last 5 min</option>
+            <option value={15}>Last 15 min</option>
+            <option value={30}>Last 30 min</option>
+            <option value={60}>Last 1 hour</option>
+            <option value={120}>Last 2 hours</option>
+            <option value={240}>Last 4 hours</option>
+            <option value={480}>Last 8 hours</option>
+            <option value={1440}>Last 24 hours</option>
+            <option value={0}>All time</option>
+          </select>
           <Button
             variant="outline"
             size="sm"

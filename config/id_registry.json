@@ -1,0 +1,32 @@
+{
+  "workspaces": {
+    "DATA_DEV": "a3a180ff-fbc2-48fd-a65f-27ae7bb6709a",
+    "CODE_DEV": "146fe38c-f6c3-4e9d-a18c-5c01cad5941e",
+    "CONFIG": "f442f66c-eac6-46d7-80c9-c8b025c86fbe",
+    "DATA_PROD": "4c4b6bf5-8728-4aac-a132-b008a11b96d7",
+    "CODE_PROD": "1284458c-1976-46a6-b9d8-af17c7d11a59"
+  },
+  "lakehouses": {
+    "LANDINGZONE_DEV": "2aef4ede-2918-4a6b-8ec6-a42108c67806",
+    "LANDINGZONE_PROD": "949d8310-4b9b-433b-b07d-1feed80168eb",
+    "BRONZE_DEV": "cf57e8bf-7b34-471b-adea-ed80d05a4fdb",
+    "BRONZE_PROD": "895a8b39-b0d8-4969-96e2-83753bd33a29"
+  },
+  "connections": {
+    "CON_FMD_FABRIC_SQL": "0f86f6a1-9f84-44d1-b977-105b5179c678",
+    "CON_FMD_FABRIC_PIPELINES": "6b2e33a1-b441-4137-b41d-260ffa8258cf",
+    "CON_FMD_ADF_PIPELINES": "00000000-0000-0000-0000-000000000000",
+    "CON_FMD_FABRIC_NOTEBOOKS": "f4d3220c-0cd3-4f76-9641-b4154e192645"
+  },
+  "database": {
+    "db_item_id": null,
+    "db_endpoint": "7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com",
+    "db_name": "SQL_INTEGRATION_FRAMEWORK"
+  },
+  "tenant": {
+    "tenant_id": "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303",
+    "client_id": "ac937c5d-4bdd-438f-be8b-84a850021d2d"
+  },
+  "pipelines": {},
+  "notebooks": {}
+}

@@ -192,6 +192,15 @@
   --status-drafting: oklch(0.58 0.1 145);
   --status-waiting: oklch(0.75 0.12 85);
   --status-error: oklch(0.6 0.17 28);
+
+  /* Agent Collab: inverted bg for contrast (dark in light mode, light in dark mode) */
+  --agent-content-bg: #2B2A27;
+  --agent-content-fg: #EEEEEE;
+  --agent-content-fg-muted: #BEC0B6;
+  --agent-content-fg-faint: #9A9893;
+  --agent-code-bg: rgba(255, 255, 255, 0.12);
+  --agent-code-fg: #E0DDD6;
+  --agent-border: rgba(255, 255, 255, 0.12);
 }
 
 /* Dark theme */
@@ -282,6 +291,15 @@
   --error-soft: rgba(224, 85, 85, 0.12);
   --cl-info: #5A9ED4;
   --info-soft: rgba(90, 158, 212, 0.12);
+
+  /* Agent Collab: inverted bg for contrast (cream in dark mode) */
+  --agent-content-bg: #F5F5F0;
+  --agent-content-fg: #1A1A18;
+  --agent-content-fg-muted: #6B6A68;
+  --agent-content-fg-faint: #9A9893;
+  --agent-code-bg: rgba(0, 0, 0, 0.07);
+  --agent-code-fg: #2B2A27;
+  --agent-border: rgba(0, 0, 0, 0.1);
 
   /* Shadows — Dark (Phase 6) */
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.2), 0 0 0 0.5px rgba(108,106,96,0.08);

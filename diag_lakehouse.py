@@ -4,11 +4,28 @@ import json, os, struct, time
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
 
-TENANT_ID = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
-CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
+import sys
+from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(__file__), "scripts"))
+try:
+    from centralized_id_registry import IDRegistry
+    registry = IDRegistry()
+    TENANT_ID = registry.config.get("tenant", {}).get("tenant_id", "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303")
+    CLIENT_ID = registry.config.get("tenant", {}).get("client_id", "ac937c5d-4bdd-438f-be8b-84a850021d2d")
+    DB_ITEM_ID = registry.config.get("database", {}).get("db_item_id", "501d6b17-fcee-47f3-bbb3-54e05f2a3fc0")
+    DB_ENDPOINT = registry.config.get("database", {}).get("db_endpoint", "7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433")
+    WS_DATA = registry.config.get("workspaces", {}).get("DATA_DEV", "a3a180ff-fbc2-48fd-a65f-27ae7bb6709a")
+    LH_LANDINGZONE_DEV = registry.config.get("lakehouses", {}).get("LANDINGZONE_DEV", "2aef4ede-2918-4a6b-8ec6-a42108c67806")
+except ImportError:
+    # fallback if not found
+    TENANT_ID = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
+    CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
+    DB_ITEM_ID = "501d6b17-fcee-47f3-bbb3-54e05f2a3fc0"
+    DB_ENDPOINT = "7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433"
+    WS_DATA = "a3a180ff-fbc2-48fd-a65f-27ae7bb6709a"
+    LH_LANDINGZONE_DEV = "2aef4ede-2918-4a6b-8ec6-a42108c67806"
+
 CLIENT_SECRET = ""
-DB_ITEM_ID = "501d6b17-fcee-47f3-bbb3-54e05f2a3fc0"
-DB_ENDPOINT = "7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433"
 
 env_path = os.path.join(os.path.dirname(__file__), "dashboard", "app", "api", ".env")
 if os.path.exists(env_path):
@@ -59,8 +76,8 @@ for r in rows:
     print(f"  LH={r[0]}, WS={r[1]}")
 
 print(f"\n--- Expected values ---")
-print(f"  LH_DATA_LANDINGZONE should be: 2aef4ede-2918-4a6b-8ec6-a42108c67806")
-print(f"  DATA workspace should be: a3a180ff-fbc2-48fd-a65f-27ae7bb6709a")
+print(f"  LH_DATA_LANDINGZONE should be: {LH_LANDINGZONE_DEV}")
+print(f"  DATA workspace should be: {WS_DATA}")
 
 print("\n--- Connection GUIDs in use ---")
 cols, rows = query_sql(

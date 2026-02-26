@@ -2611,6 +2611,15 @@ Examples:
     if not args.dry_run:
         print(f"\n  State saved to: {STATE_FILE}")
         print(f"  Summary saved to: deployment_summary.json")
+        try:
+            import subprocess
+            registry_script = os.path.join(SCRIPT_DIR, "scripts", "centralized_id_registry.py")
+            if os.path.exists(registry_script):
+                print(f"\n  Syncing new deployment state to Centralized ID Registry...")
+                subprocess.run([sys.executable, registry_script, "--sync-deploy", "--update-all"], check=True)
+                print(f"  ID Registry successfully updated!")
+        except Exception as e:
+            print(f"  [WARN] Failed to sync Centralized ID Registry: {e}")
 
     print("=" * 70)
 

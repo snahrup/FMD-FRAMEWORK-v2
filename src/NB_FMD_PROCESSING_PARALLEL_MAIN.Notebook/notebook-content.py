@@ -409,12 +409,11 @@ for i, item in enumerate(path_data):
 
 # CELL ********************
 
-# Chunking for large entity sets (Fabric 1MB notebook output limit)
-# When entity count exceeds CHUNK_SIZE, split into smaller groups and
-# call this notebook recursively. Each chunk gets its own output budget.
-# _chunking_active prevents fallthrough to runMultiple if chunking fails.
-CHUNK_SIZE = 50
-_chunking_active = chunk_mode != "batch" and len(path_data) > CHUNK_SIZE
+# Chunking DISABLED — Fabric doesn't support recursive notebook.run() calls.
+# The batching below (runMultiple with 50-activity batches) handles large entity
+# sets natively. Stdout suppression (sys.stdout redirect) keeps output under 1MB.
+CHUNK_SIZE = 99999
+_chunking_active = False
 
 if _chunking_active:
     import math

@@ -102,6 +102,19 @@ logging.basicConfig(
 log = logging.getLogger('fmd-dashboard')
 
 
+# ── Data Source Display Names ──
+# Maps raw DB names to user-friendly labels used across the FMD project.
+_DS_DISPLAY_NAMES = {
+    'mes': 'MES',
+    'ETQStagingPRD': 'ETQ',
+    'm3fdbprd': 'M3',
+    'DI_PRD_Staging': 'M3 Cloud',
+}
+
+def _ds_display_name(raw: str) -> str:
+    return _DS_DISPLAY_NAMES.get(raw, raw)
+
+
 # ── Fabric Auth ──
 
 _token_cache: dict = {}
@@ -823,44 +836,46 @@ def get_notebook_executions() -> list[dict]:
         log.warning(f'NotebookExecution query failed (table may not exist yet): {e}')
         return []
 
-def get_live_monitor() -> dict:
-    """Real-time pipeline monitoring: pipeline runs, entity progress, notebook/copy activity."""
+def get_live_monitor(minutes: int = 240) -> dict:
+    """Real-time pipeline monitoring: pipeline runs, entity progress, notebook/copy activity.
+    minutes: how far back to look (default 240 = 4 hours). Pass 0 for all time."""
     result = {}
+    time_filter = f"WHERE LogDateTime > DATEADD(MINUTE, -{minutes}, GETUTCDATE())" if minutes > 0 else ""
 
-    # 1. Recent pipeline events (last 4 hours)
+    # 1. Recent pipeline events
     try:
-        result['pipelineEvents'] = query_sql("""
-            SELECT TOP 30 PipelineName, LogType, LogDateTime, LogData,
+        result['pipelineEvents'] = query_sql(f"""
+            SELECT TOP 50 PipelineName, LogType, LogDateTime, LogData,
                    CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid,
                    EntityLayer
             FROM [logging].[PipelineExecution]
-            WHERE LogDateTime > DATEADD(HOUR, -4, GETUTCDATE())
+            {time_filter}
             ORDER BY LogDateTime DESC
         """)
     except Exception:
         result['pipelineEvents'] = []
 
-    # 2. Recent notebook executions (entity-level, last 4 hours)
+    # 2. Recent notebook executions (entity-level)
     try:
-        result['notebookEvents'] = query_sql("""
-            SELECT TOP 100 NotebookName, LogType, LogDateTime, LogData,
+        result['notebookEvents'] = query_sql(f"""
+            SELECT TOP 200 NotebookName, LogType, LogDateTime, LogData,
                    EntityId, EntityLayer,
                    CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid
             FROM [logging].[NotebookExecution]
-            WHERE LogDateTime > DATEADD(HOUR, -4, GETUTCDATE())
+            {time_filter}
             ORDER BY LogDateTime DESC
         """)
     except Exception:
         result['notebookEvents'] = []
 
-    # 3. Recent copy activity (LZ loads, last 4 hours)
+    # 3. Recent copy activity (LZ loads)
     try:
-        result['copyEvents'] = query_sql("""
-            SELECT TOP 50 CopyActivityName, CopyActivityParameters AS EntityName,
+        result['copyEvents'] = query_sql(f"""
+            SELECT TOP 100 CopyActivityName, CopyActivityParameters AS EntityName,
                    LogType, LogDateTime, LogData, EntityId, EntityLayer,
                    CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid
             FROM [logging].[CopyActivityExecution]
-            WHERE LogDateTime > DATEADD(HOUR, -4, GETUTCDATE())
+            {time_filter}
             ORDER BY LogDateTime DESC
         """)
     except Exception:
@@ -1079,6 +1094,7 @@ def runner_get_sources() -> list[dict]:
         results.append({
             'dataSourceId': dsid,
             'name': ds['Name'],
+            'displayName': _ds_display_name(ds['Name']),
             'connectionName': conn_map.get(ds['ConnectionId'], 'Unknown'),
             'isActive': ds['IsActive'],
             'entities': {
@@ -5755,6 +5771,26 @@ def cancel_deployment() -> dict:
     return {'ok': True, 'message': 'Cancel requested — deployment will stop after current phase'}
 
 
+# ── Agent Collaboration Files ──
+
+def _get_agent_collab_files() -> dict:
+    """Read shared_agent_log.md and bulletin_board.md from memory/ directory."""
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    memory_dir = project_root / 'memory'
+
+    def _read_file(name: str) -> dict:
+        p = memory_dir / name
+        if not p.exists():
+            return {'content': f'File not found: {name}', 'lastModified': ''}
+        content = p.read_text(encoding='utf-8')
+        mtime = datetime.fromtimestamp(p.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+        return {'content': content, 'lastModified': mtime}
+
+    return {
+        'sharedLog': _read_file('shared_agent_log.md'),
+        'bulletin': _read_file('bulletin_board.md'),
+    }
+
 # ── HTTP Handler ──
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
@@ -5938,8 +5974,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('workspaceGuid and jobInstanceId are required', 400)
                 else:
                     self._json_response(get_pipeline_activity_runs(ws, job_id))
-            elif self.path == '/api/live-monitor':
-                self._json_response(get_live_monitor())
+            elif self.path.startswith('/api/live-monitor'):
+                lm_qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                mins = int(lm_qs.get('minutes', ['240'])[0]) if lm_qs.get('minutes') else 240
+                self._json_response(get_live_monitor(mins))
             elif self.path == '/api/copy-executions':
                 self._json_response(get_copy_executions())
             elif self.path == '/api/notebook-executions':
@@ -6174,6 +6212,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 ds_id = qs.get('datasource', [''])[0]
                 self._json_response(get_load_config(int(ds_id) if ds_id and ds_id.isdigit() else None))
+            elif self.path == '/api/settings/agent-log':
+                self._json_response(_get_agent_collab_files())
             elif self.path.startswith('/api/'):
                 self._error_response('Not found', 404)
             else:

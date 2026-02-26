@@ -6,7 +6,7 @@ import {
   Database, Layers, ArrowRight, Shield, RotateCcw, Info,
   ChevronDown, ChevronUp, Search, X, Zap, AlertTriangle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, getSourceDisplayName } from "@/lib/utils";
 
 // ── Types ──
 
@@ -18,6 +18,7 @@ interface SourceEntityCounts {
 interface RunnerSource {
   dataSourceId: number;
   name: string;
+  displayName?: string;
   connectionName: string;
   isActive: boolean;
   entities: {
@@ -173,7 +174,7 @@ function SourceCard({ source, selected, onToggle }: {
             <Database className="w-5 h-5" />
           </div>
           <div>
-            <p className="font-semibold text-sm">{source.name}</p>
+            <p className="font-semibold text-sm">{source.displayName || getSourceDisplayName(source.name)}</p>
             <p className="text-xs text-muted-foreground mt-0.5">{source.connectionName}</p>
           </div>
         </div>
@@ -712,7 +713,7 @@ export default function PipelineRunner() {
                     <div key={s.dataSourceId} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                       <div className="flex items-center gap-2">
                         <Database className="w-4 h-4 text-primary" />
-                        <span className="text-sm font-medium">{s.name}</span>
+                        <span className="text-sm font-medium">{s.displayName || getSourceDisplayName(s.name)}</span>
                         <span className="text-xs text-muted-foreground">via {s.connectionName}</span>
                       </div>
                       <span className="text-sm font-semibold tabular-nums">

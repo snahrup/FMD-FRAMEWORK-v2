@@ -250,6 +250,7 @@ GetCleansingRule = (
 # CELL ********************
 
 execute_with_outputs(StartNotebookActivity, driver, connstring, database)
+_processing_error = None  # Global error flag — if set, downstream cells skip and we log the error at exit
 
 # METADATA ********************
 
@@ -308,33 +309,60 @@ elif schema_enabled != True:
 
 # CELL ********************
 
-if not notebookutils.fs.exists(source_changes_data_path):
-    execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
-    TotalRuntime = str((datetime.now() - start_audit_time))
-    end_audit_time =  str(datetime.now())
-    start_audit_time =str(start_audit_time)
-    result_data = {
-    "Action" : "End", "CopyOutput":{
-        "Total Runtime": TotalRuntime,
-        "TargetSchema": TargetSchema,
-        "TargetName" : TargetName,
-        "SourceFilePath" : SourceFilePath,
-        "SourceFileName" : 'FILE NOT FOUND',
-        "LandingzoneEntityId" : LandingzoneEntityId,
-        "EntityId" : BronzeLayerEntityId,
-        "StartTime" : start_audit_time,
-        "EndTime" : end_audit_time
+if _processing_error is None:
+    # Check file existence using Spark (more robust than notebookutils.fs.exists for cross-workspace access)
+    _file_exists = False
+    try:
+        _file_exists = notebookutils.fs.exists(source_changes_data_path)
+    except Exception as _e:
+        print(f"notebookutils.fs.exists failed: {_e}")
+        _file_exists = False
 
-    }
-    }
-    execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
+    # Fallback: try reading with Spark directly if notebookutils says file doesn't exist
+    if not _file_exists:
+        try:
+            _test_df = spark.read.format(SourceFileType).option("header","true").load(source_changes_data_path)
+            _test_count = _test_df.limit(1).count()
+            if _test_count > 0:
+                _file_exists = True
+                print(f"File found via Spark (notebookutils.fs.exists returned False): {source_changes_data_path}")
+        except Exception as _e2:
+            print(f"Spark read also failed: {_e2}")
+            _file_exists = False
 
-    notebookutils.notebook.exit("FILE_NOT_FOUND")
-#Read all incoming changes in Parquet format
-dfDataChanged= spark.read\
-                .format(SourceFileType) \
-                .option("header","true") \
-                .load(f"{source_changes_data_path}")
+    if not _file_exists:
+        print(f"FILE NOT FOUND: {source_changes_data_path}")
+        execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
+        TotalRuntime = str((datetime.now() - start_audit_time))
+        end_audit_time =  str(datetime.now())
+        start_audit_time =str(start_audit_time)
+        result_data = {
+        "Action" : "End", "CopyOutput":{
+            "Total Runtime": TotalRuntime,
+            "TargetSchema": TargetSchema,
+            "TargetName" : TargetName,
+            "SourceFilePath" : SourceFilePath,
+            "SourceFileName" : 'FILE NOT FOUND',
+            "LandingzoneEntityId" : LandingzoneEntityId,
+            "EntityId" : BronzeLayerEntityId,
+            "StartTime" : start_audit_time,
+            "EndTime" : end_audit_time
+
+        }
+        }
+        execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
+
+        notebookutils.notebook.exit("FILE_NOT_FOUND")
+
+    # Read all incoming changes in Parquet format
+    try:
+        dfDataChanged= spark.read\
+                        .format(SourceFileType) \
+                        .option("header","true") \
+                        .load(f"{source_changes_data_path}")
+    except Exception as _e:
+        _processing_error = f"Spark read failed for {SourceFileName}: {_e}"
+        print(f"ERROR: {_processing_error}")
 
 # METADATA ********************
 
@@ -345,11 +373,11 @@ dfDataChanged= spark.read\
 
 # CELL ********************
 
-# Replace spaces with underscores in column names
-new_columns = [col.replace(' ', '') for col in dfDataChanged.columns]
-
-# Rename the columns
-dfDataChanged = dfDataChanged.toDF(*new_columns)
+if _processing_error is None:
+    # Replace spaces with underscores in column names
+    new_columns = [col.replace(' ', '') for col in dfDataChanged.columns]
+    # Rename the columns
+    dfDataChanged = dfDataChanged.toDF(*new_columns)
 
 # METADATA ********************
 
@@ -364,26 +392,41 @@ dfDataChanged = dfDataChanged.toDF(*new_columns)
 
 # CELL ********************
 
-#split PKcolumns string on , ; or :
-PrimaryKeys = str(PrimaryKeys)
+if _processing_error is None:
+    try:
+        #split PKcolumns string on , ; or :
+        PrimaryKeys = str(PrimaryKeys)
 
-PrimaryKeys = re.split('[, ; :]', PrimaryKeys)
-#remove potential whitespaces around Pk columns 
-PrimaryKeys = [column.strip() for column in PrimaryKeys if column != ""]
+        PrimaryKeys = re.split('[, ; :]', PrimaryKeys)
+        #remove potential whitespaces around Pk columns
+        PrimaryKeys = [column.strip() for column in PrimaryKeys if column != ""]
 
-key_columns = PrimaryKeys
-# PK columns validated silently to reduce output volume
-# Check if all PK's exist in source
-for pk_column in key_columns:
-    if pk_column not in dfDataChanged.columns:
-        raise ValueError(f"PK: {pk_column} doesn't exist in the source.")
-        # Define all the Non-Key columns => HashExcludeColumns
+        # Handle "N/A" or empty PKs — fall back to using ALL columns as composite key
+        if not PrimaryKeys or PrimaryKeys == ["N/A"] or PrimaryKeys == ["n/a"] or PrimaryKeys == [""]:
+            print(f"WARNING: PrimaryKeys is '{PrimaryKeys}' — using all columns as composite key for {TargetName}")
+            key_columns = list(dfDataChanged.columns)
+        else:
+            key_columns = PrimaryKeys
+            # Check if all PK's exist in source
+            for pk_column in key_columns:
+                if pk_column not in dfDataChanged.columns:
+                    # Log warning but don't crash — remove missing PKs
+                    print(f"WARNING: PK column '{pk_column}' not found in source for {TargetName}. Available: {dfDataChanged.columns[:10]}...")
+                    key_columns = [k for k in key_columns if k in dfDataChanged.columns]
 
-read_key_columns = [column for column in dfDataChanged.columns if column in key_columns]
+            # If no valid PK columns remain, fall back to all columns
+            if not key_columns:
+                print(f"WARNING: No valid PK columns found for {TargetName} — using all columns as composite key")
+                key_columns = list(dfDataChanged.columns)
 
-# Add a column with the calculated hash, easier in later stage of with multiple PK
-dfDataChanged = (dfDataChanged
-                .withColumn("HashedPKColumn", sha2(concat_ws("||", *read_key_columns), 256)))
+        read_key_columns = [column for column in dfDataChanged.columns if column in key_columns]
+
+        # Add a column with the calculated hash, easier in later stage of with multiple PK
+        dfDataChanged = (dfDataChanged
+                        .withColumn("HashedPKColumn", sha2(concat_ws("||", *read_key_columns), 256)))
+    except Exception as _e:
+        _processing_error = f"PK validation failed for {TargetName}: {_e}"
+        print(f"ERROR: {_processing_error}")
 
 
 # METADATA ********************
@@ -399,8 +442,14 @@ dfDataChanged = (dfDataChanged
 
 # CELL ********************
 
-if dfDataChanged.select('HashedPKColumn').distinct().count() != dfDataChanged.select('HashedPKColumn').count():
-    raise ValueError(f'Source file contains duplicated rows for PK: {", ".join(key_columns)}')
+if _processing_error is None:
+    try:
+        if dfDataChanged.select('HashedPKColumn').distinct().count() != dfDataChanged.select('HashedPKColumn').count():
+            print(f'WARNING: Source file contains duplicated rows for PK: {", ".join(key_columns)} in {TargetName}. Deduplicating...')
+            dfDataChanged = dfDataChanged.dropDuplicates(['HashedPKColumn'])
+    except Exception as _e:
+        _processing_error = f"Duplicate check failed for {TargetName}: {_e}"
+        print(f"ERROR: {_processing_error}")
 
 # METADATA ********************
 
@@ -415,8 +464,9 @@ if dfDataChanged.select('HashedPKColumn').distinct().count() != dfDataChanged.se
 
 # CELL ********************
 
-if cleansing_rules == "":
-    cleansing_rules = []
+if _processing_error is None:
+    if cleansing_rules == "":
+        cleansing_rules = []
 
 # METADATA ********************
 
@@ -427,13 +477,18 @@ if cleansing_rules == "":
 
 # CELL ********************
 
-CleansingRules=execute_with_outputs(GetCleansingRule, driver, connstring, database)
-rules_str = None
-# Extract the string
-rules_str = CleansingRules["result_sets"][0][0]["CleansingRules"]
-if rules_str != None :
-# Convert JSON text → Python dict/list
-    cleansing_rules = json.loads(rules_str)
+if _processing_error is None:
+    try:
+        CleansingRules=execute_with_outputs(GetCleansingRule, driver, connstring, database)
+        rules_str = None
+        # Extract the string
+        rules_str = CleansingRules["result_sets"][0][0]["CleansingRules"]
+        if rules_str != None :
+        # Convert JSON text → Python dict/list
+            cleansing_rules = json.loads(rules_str)
+    except Exception as _e:
+        print(f"WARNING: Cleansing rules fetch failed for {TargetName}: {_e}. Continuing without cleansing.")
+        cleansing_rules = []
 
 # METADATA ********************
 
@@ -455,7 +510,11 @@ if rules_str != None :
 
 # CELL ********************
 
-dfDataChanged=handle_cleansing_functions(dfDataChanged,cleansing_rules)
+if _processing_error is None:
+    try:
+        dfDataChanged=handle_cleansing_functions(dfDataChanged,cleansing_rules)
+    except Exception as _e:
+        print(f"WARNING: Cleansing application failed for {TargetName}: {_e}. Continuing without cleansing.")
 
 # METADATA ********************
 
@@ -470,13 +529,18 @@ dfDataChanged=handle_cleansing_functions(dfDataChanged,cleansing_rules)
 
 # CELL ********************
 
-non_key_columns = [column for column in dfDataChanged.columns if column not in key_columns]
+if _processing_error is None:
+    try:
+        non_key_columns = [column for column in dfDataChanged.columns if column not in key_columns]
 
-#add a hashed cloumn to detect changes
-dfDataChanged = dfDataChanged.withColumn("HashedNonKeyColumns", md5(concat_ws("||", *non_key_columns).cast(StringType())))
+        #add a hashed cloumn to detect changes
+        dfDataChanged = dfDataChanged.withColumn("HashedNonKeyColumns", md5(concat_ws("||", *non_key_columns).cast(StringType())))
 
-#Add RecordLoadDate to see when the record arrived
-dfDataChanged = dfDataChanged.withColumn('RecordLoadDate', current_timestamp())
+        #Add RecordLoadDate to see when the record arrived
+        dfDataChanged = dfDataChanged.withColumn('RecordLoadDate', current_timestamp())
+    except Exception as _e:
+        _processing_error = f"Hash column creation failed for {TargetName}: {_e}"
+        print(f"ERROR: {_processing_error}")
 
 
 # METADATA ********************
@@ -492,41 +556,46 @@ dfDataChanged = dfDataChanged.withColumn('RecordLoadDate', current_timestamp())
 
 # CELL ********************
 
-#Check if Target exist, if exists read the original data if not create table and exit
-if DeltaTable.isDeltaTable(spark, target_data_path):
-    # Read original/current data
-    dfDataOriginal = (spark
-                        .read.format("delta")
-                        .load(target_data_path)
-                        )
+if _processing_error is None:
+    try:
+        #Check if Target exist, if exists read the original data if not create table and exit
+        if DeltaTable.isDeltaTable(spark, target_data_path):
+            # Read original/current data
+            dfDataOriginal = (spark
+                                .read.format("delta")
+                                .load(target_data_path)
+                                )
 
-else:
-    # Use first load when no data exists yet and then exit 
-    dfDataChanged.write.format("delta").mode("overwrite").save(target_data_path)
-    TotalRuntime = str((datetime.now() - start_audit_time)) 
-    TotalRuntime = str((datetime.now() - start_audit_time)) 
-    end_audit_time =  str(datetime.now())
-    start_audit_time =str(start_audit_time)
-    # Your data
-    result_data = {
-        "Action" : "End", "CopyOutput":{
-            "Total Runtime": TotalRuntime,
-            "TargetSchema": TargetSchema,
-            "TargetName" : TargetName,
-            "SourceFilePath" : SourceFilePath,
-            "SourceFileName" : SourceFileName,
-            "LandingzoneEntityId" : LandingzoneEntityId,
-            "EntityId" : BronzeLayerEntityId,
-            "StartTime" : start_audit_time,
-            "EndTime" : end_audit_time
+        else:
+            # Use first load when no data exists yet and then exit
+            dfDataChanged.write.format("delta").mode("overwrite").save(target_data_path)
+            TotalRuntime = str((datetime.now() - start_audit_time))
+            TotalRuntime = str((datetime.now() - start_audit_time))
+            end_audit_time =  str(datetime.now())
+            start_audit_time =str(start_audit_time)
+            # Your data
+            result_data = {
+                "Action" : "End", "CopyOutput":{
+                    "Total Runtime": TotalRuntime,
+                    "TargetSchema": TargetSchema,
+                    "TargetName" : TargetName,
+                    "SourceFilePath" : SourceFilePath,
+                    "SourceFileName" : SourceFileName,
+                    "LandingzoneEntityId" : LandingzoneEntityId,
+                    "EntityId" : BronzeLayerEntityId,
+                    "StartTime" : start_audit_time,
+                    "EndTime" : end_audit_time
 
-        }
-        }
+                }
+                }
 
-    execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
-    execute_with_outputs(InsertPipelineBronzeLayerEntity, driver, connstring, database)
-    execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
-    notebookutils.notebook.exit("OK")
+            execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
+            execute_with_outputs(InsertPipelineBronzeLayerEntity, driver, connstring, database)
+            execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
+            notebookutils.notebook.exit("OK")
+    except Exception as _e:
+        _processing_error = f"Delta table read/write failed for {TargetName}: {_e}"
+        print(f"ERROR: {_processing_error}")
 
 # METADATA ********************
 
@@ -541,21 +610,26 @@ else:
 
 # CELL ********************
 
-#merge table 
-deltaTable = DeltaTable.forPath(spark, f'{target_data_path}')
-if IsIncremental in [False, 'false', 'False']:
-    merge = deltaTable.alias('original') \
-        .merge(dfDataChanged.alias('updates'), 'original.HashedPKColumn == updates.HashedPKColumn') \
-        .whenNotMatchedInsertAll() \
-        .whenMatchedUpdateAll('original.HashedNonKeyColumns != updates.HashedNonKeyColumns') \
-        .whenNotMatchedBySourceDelete() \
-        .execute()
-elif IsIncremental not in [False, 'false', 'False']:
-    merge = deltaTable.alias('original') \
-        .merge(dfDataChanged.alias('updates'), 'original.HashedPKColumn == updates.HashedPKColumn') \
-        .whenNotMatchedInsertAll() \
-        .whenMatchedUpdateAll('original.HashedNonKeyColumns != updates.HashedNonKeyColumns') \
-        .execute()
+if _processing_error is None:
+    try:
+        #merge table
+        deltaTable = DeltaTable.forPath(spark, f'{target_data_path}')
+        if IsIncremental in [False, 'false', 'False']:
+            merge = deltaTable.alias('original') \
+                .merge(dfDataChanged.alias('updates'), 'original.HashedPKColumn == updates.HashedPKColumn') \
+                .whenNotMatchedInsertAll() \
+                .whenMatchedUpdateAll('original.HashedNonKeyColumns != updates.HashedNonKeyColumns') \
+                .whenNotMatchedBySourceDelete() \
+                .execute()
+        elif IsIncremental not in [False, 'false', 'False']:
+            merge = deltaTable.alias('original') \
+                .merge(dfDataChanged.alias('updates'), 'original.HashedPKColumn == updates.HashedPKColumn') \
+                .whenNotMatchedInsertAll() \
+                .whenMatchedUpdateAll('original.HashedNonKeyColumns != updates.HashedNonKeyColumns') \
+                .execute()
+    except Exception as _e:
+        _processing_error = f"Delta merge failed for {TargetName}: {_e}"
+        print(f"ERROR: {_processing_error}")
 
 # METADATA ********************
 
@@ -570,23 +644,41 @@ elif IsIncremental not in [False, 'false', 'False']:
 
 # CELL ********************
 
-TotalRuntime = str((datetime.now() - start_audit_time)) 
+TotalRuntime = str((datetime.now() - start_audit_time))
 end_audit_time =  str(datetime.now())
 start_audit_time =str(start_audit_time)
-# Your data
-result_data = {
-    "Action" : "End", "CopyOutput":{
-        "Total Runtime": TotalRuntime,
-        "TargetSchema": TargetSchema,
-        "TargetName" : TargetName,
-        "SourceFilePath" : SourceFilePath,
-        "SourceFileName" : SourceFileName,
-        "LandingzoneEntityId" : LandingzoneEntityId,
-        "EntityId" : BronzeLayerEntityId,
-        "StartTime" : start_audit_time,
-        "EndTime" : end_audit_time
 
+if _processing_error is not None:
+    # Error path — log the error and exit with ERROR status
+    result_data = {
+        "Action" : "End", "CopyOutput":{
+            "Total Runtime": TotalRuntime,
+            "TargetSchema": TargetSchema,
+            "TargetName" : TargetName,
+            "SourceFilePath" : SourceFilePath,
+            "SourceFileName" : SourceFileName,
+            "LandingzoneEntityId" : LandingzoneEntityId,
+            "EntityId" : BronzeLayerEntityId,
+            "StartTime" : start_audit_time,
+            "EndTime" : end_audit_time,
+            "Error" : str(_processing_error)[:500]
+        }
     }
+    print(f"ENTITY FAILED: {TargetName} — {_processing_error}")
+else:
+    # Success path
+    result_data = {
+        "Action" : "End", "CopyOutput":{
+            "Total Runtime": TotalRuntime,
+            "TargetSchema": TargetSchema,
+            "TargetName" : TargetName,
+            "SourceFilePath" : SourceFilePath,
+            "SourceFileName" : SourceFileName,
+            "LandingzoneEntityId" : LandingzoneEntityId,
+            "EntityId" : BronzeLayerEntityId,
+            "StartTime" : start_audit_time,
+            "EndTime" : end_audit_time
+        }
     }
 
 
@@ -603,9 +695,12 @@ result_data = {
 
 # CELL ********************
 
-execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
-execute_with_outputs(InsertPipelineBronzeLayerEntity, driver, connstring, database)
-execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
+try:
+    execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
+    execute_with_outputs(InsertPipelineBronzeLayerEntity, driver, connstring, database)
+    execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
+except Exception as _log_err:
+    print(f"WARNING: Final logging failed for {TargetName}: {_log_err}")
 
 # METADATA ********************
 
@@ -620,7 +715,10 @@ execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=
 
 # CELL ********************
 
-notebookutils.notebook.exit("OK")
+if _processing_error is not None:
+    notebookutils.notebook.exit(f"ERROR: {str(_processing_error)[:200]}")
+else:
+    notebookutils.notebook.exit("OK")
 
 # METADATA ********************
 

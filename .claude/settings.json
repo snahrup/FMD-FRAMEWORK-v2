@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/scripts/ralph_discipline_hook.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
