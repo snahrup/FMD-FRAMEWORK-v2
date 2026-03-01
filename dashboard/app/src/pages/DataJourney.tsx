@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
+import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
 import {
   Search,
   RefreshCw,
@@ -42,19 +43,6 @@ const LAYERS = [
 // ============================================================================
 // TYPES
 // ============================================================================
-
-interface EntityListItem {
-  LandingzoneEntityId: string;
-  SourceSchema: string;
-  SourceName: string;
-  FileName: string;
-  FilePath: string;
-  FileType: string;
-  IsIncremental: string;
-  IsActive: string;
-  DataSourceName: string;
-  DataSourceNamespace: string;
-}
 
 interface ColumnInfo {
   COLUMN_NAME: string;
@@ -466,23 +454,13 @@ export default function DataJourney() {
   const tableParam = searchParams.get("table");
   const schemaParam = searchParams.get("schema");
 
-  const [entities, setEntities] = useState<EntityListItem[]>([]);
+  const { allEntities: entities, loading: listLoading } = useEntityDigest();
   const [journey, setJourney] = useState<JourneyData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [listLoading, setListLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [diffTab, setDiffTab] = useState<"diff" | "bronze" | "silver">("diff");
-
-  // Load entity list on mount
-  useEffect(() => {
-    setListLoading(true);
-    fetchJson<EntityListItem[]>("/entities")
-      .then(setEntities)
-      .catch(() => setEntities([]))
-      .finally(() => setListLoading(false));
-  }, []);
 
   // Load journey when entity is selected
   const loadJourney = useCallback(
@@ -515,12 +493,13 @@ export default function DataJourney() {
       // Reverse lookup: find entity by table name
       const match = entities.find(
         (e) =>
-          e.SourceName.toLowerCase() === tableParam.toLowerCase() &&
-          (!schemaParam || e.SourceSchema.toLowerCase() === schemaParam.toLowerCase())
+          e.tableName.toLowerCase() === tableParam.toLowerCase() &&
+          (!schemaParam || e.sourceSchema.toLowerCase() === schemaParam.toLowerCase())
       );
       if (match) {
-        setSearchParams({ entity: match.LandingzoneEntityId }, { replace: true });
-        loadJourney(parseInt(match.LandingzoneEntityId, 10));
+        const idStr = String(match.id);
+        setSearchParams({ entity: idStr }, { replace: true });
+        loadJourney(match.id);
       }
     }
   }, [entityIdParam, tableParam, schemaParam, entities.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -542,18 +521,17 @@ export default function DataJourney() {
     const q = searchQuery.toLowerCase();
     return entities.filter(
       (e) =>
-        e.SourceName.toLowerCase().includes(q) ||
-        e.FileName?.toLowerCase().includes(q) ||
-        e.SourceSchema.toLowerCase().includes(q) ||
-        (e.DataSourceNamespace || e.DataSourceName || "").toLowerCase().includes(q)
+        e.tableName.toLowerCase().includes(q) ||
+        e.sourceSchema.toLowerCase().includes(q) ||
+        e.source.toLowerCase().includes(q)
     );
   }, [entities, searchQuery]);
 
-  // Group entities by namespace (friendly label)
+  // Group entities by source (friendly label)
   const groupedEntities = useMemo(() => {
-    const groups: Record<string, EntityListItem[]> = {};
+    const groups: Record<string, DigestEntity[]> = {};
     filteredEntities.forEach((e) => {
-      const key = e.DataSourceNamespace || e.DataSourceName || "Unknown";
+      const key = e.source || "Unknown";
       (groups[key] ||= []).push(e);
     });
     // Sort groups alphabetically
@@ -585,7 +563,7 @@ export default function DataJourney() {
   }, [dropdownOpen]);
 
   // Find selected entity for display
-  const selectedEntity = entities.find((e) => e.LandingzoneEntityId === entityIdParam);
+  const selectedEntity = entities.find((e) => String(e.id) === entityIdParam);
 
   return (
     <div className="h-full flex flex-col bg-background">
@@ -638,9 +616,9 @@ export default function DataJourney() {
                 {selectedEntity ? (
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
-                      {selectedEntity.DataSourceNamespace || selectedEntity.DataSourceName}
+                      {selectedEntity.source}
                     </span>
-                    <span className="font-mono text-foreground">{selectedEntity.FileName || selectedEntity.SourceName}</span>
+                    <span className="font-mono text-foreground">{selectedEntity.tableName}</span>
                   </div>
                 ) : (
                   <span className="text-muted-foreground/40">Select an entity...</span>
@@ -674,27 +652,30 @@ export default function DataJourney() {
                     </span>
                     <span className="text-[10px] text-muted-foreground/40">{items.length} entities</span>
                   </div>
-                  {items.map((e) => (
-                    <button
-                      key={e.LandingzoneEntityId}
-                      onClick={() => selectEntity(e.LandingzoneEntityId)}
-                      className={`w-full text-left px-3 py-2 hover:bg-primary/5 transition-colors flex items-center justify-between gap-2 ${
-                        entityIdParam === e.LandingzoneEntityId ? "bg-primary/10 border-l-2 border-primary" : ""
-                      }`}
-                    >
-                      <div className="min-w-0 flex items-center gap-2">
-                        <span className="text-sm font-mono text-foreground truncate">
-                          {e.FileName || e.SourceName}
+                  {items.map((e) => {
+                    const idStr = String(e.id);
+                    return (
+                      <button
+                        key={idStr}
+                        onClick={() => selectEntity(idStr)}
+                        className={`w-full text-left px-3 py-2 hover:bg-primary/5 transition-colors flex items-center justify-between gap-2 ${
+                          entityIdParam === idStr ? "bg-primary/10 border-l-2 border-primary" : ""
+                        }`}
+                      >
+                        <div className="min-w-0 flex items-center gap-2">
+                          <span className="text-sm font-mono text-foreground truncate">
+                            {e.tableName}
+                          </span>
+                          {e.sourceSchema !== "dbo" && (
+                            <span className="text-[10px] text-muted-foreground/40 flex-shrink-0">{e.sourceSchema}</span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground/30 flex-shrink-0">
+                          #{idStr}
                         </span>
-                        {e.SourceSchema !== "dbo" && (
-                          <span className="text-[10px] text-muted-foreground/40 flex-shrink-0">{e.SourceSchema}</span>
-                        )}
-                      </div>
-                      <span className="text-[10px] text-muted-foreground/30 flex-shrink-0">
-                        #{e.LandingzoneEntityId}
-                      </span>
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
               ))}
               {Object.keys(groupedEntities).length === 0 && (
