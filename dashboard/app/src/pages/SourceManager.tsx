@@ -31,6 +31,8 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { SourceOnboardingWizard } from '@/components/sources/SourceOnboardingWizard';
+import { useEntityDigest, invalidateDigestCache } from '@/hooks/useEntityDigest';
+import type { DigestEntity } from '@/hooks/useEntityDigest';
 
 // ── Types matching API responses ──
 
@@ -122,12 +124,36 @@ interface AnalysisResult {
   }>;
 }
 
+/** Map a DigestEntity to the legacy RegisteredEntity shape used throughout this page. */
+function digestToRegistered(d: DigestEntity): RegisteredEntity {
+  return {
+    LandingzoneEntityId: String(d.id),
+    SourceSchema: d.sourceSchema,
+    SourceName: d.tableName,
+    FileName: d.tableName,
+    FilePath: d.source,
+    FileType: 'parquet',
+    IsIncremental: d.isIncremental ? 'True' : 'False',
+    IsActive: d.isActive ? 'True' : 'False',
+    DataSourceName: d.source,
+  };
+}
+
 export default function SourceManager() {
-  // ── Data state (live from API) ──
+  // ── Entity data from digest hook (replaces /api/entities fetch) ──
+  const {
+    allEntities: digestEntities,
+    refresh: refreshDigest,
+    loading: digestLoading,
+  } = useEntityDigest();
+
+  // Derive registeredEntities from the digest
+  const registeredEntities = digestEntities.map(digestToRegistered);
+
+  // ── Data state (live from API — everything except entities) ──
   const [gatewayConnections, setGatewayConnections] = useState<GatewayConnection[]>([]);
   const [registeredConnections, setRegisteredConnections] = useState<RegisteredConnection[]>([]);
   const [registeredDataSources, setRegisteredDataSources] = useState<RegisteredDataSource[]>([]);
-  const [registeredEntities, setRegisteredEntities] = useState<RegisteredEntity[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -268,7 +294,8 @@ export default function SourceManager() {
       const res = await fetch(`/api/entities/${deleteTarget.LandingzoneEntityId}`, { method: 'DELETE' });
       const result = await res.json();
       if (result.success) {
-        setRegisteredEntities(prev => prev.filter(e => e.LandingzoneEntityId !== deleteTarget.LandingzoneEntityId));
+        invalidateDigestCache();
+        refreshDigest();
         setSelectedIds(prev => { const next = new Set(prev); next.delete(deleteTarget.LandingzoneEntityId); return next; });
         setActionStatus({ type: 'success', message: result.message });
       } else {
@@ -296,8 +323,8 @@ export default function SourceManager() {
       });
       const result = await res.json();
       if (result.success) {
-        const deletedSet = new Set((result.deletedIds as number[]).map(String));
-        setRegisteredEntities(prev => prev.filter(e => !deletedSet.has(e.LandingzoneEntityId)));
+        invalidateDigestCache();
+        refreshDigest();
         setSelectedIds(new Set());
         setActionStatus({ type: 'success', message: result.message });
       } else {
@@ -312,7 +339,7 @@ export default function SourceManager() {
     }
   };
 
-  // ── Data loading ──
+  // ── Data loading (gateway connections, connections, datasources — entities come from digest) ──
   const loadData = useCallback(async (background = false) => {
     if (background) {
       setRefreshing(true);
@@ -321,25 +348,23 @@ export default function SourceManager() {
     }
     setError(null);
     try {
-      const [gwRes, connRes, dsRes, entRes] = await Promise.all([
+      const [gwRes, connRes, dsRes] = await Promise.all([
         fetch('/api/gateway-connections'),
         fetch('/api/connections'),
         fetch('/api/datasources'),
-        fetch('/api/entities'),
       ]);
 
-      if (!gwRes.ok || !connRes.ok || !dsRes.ok || !entRes.ok) {
+      if (!gwRes.ok || !connRes.ok || !dsRes.ok) {
         throw new Error('API server not responding. Run: python dashboard/app/api/server.py');
       }
 
-      const [gw, conn, ds, ent] = await Promise.all([
-        gwRes.json(), connRes.json(), dsRes.json(), entRes.json(),
+      const [gw, conn, ds] = await Promise.all([
+        gwRes.json(), connRes.json(), dsRes.json(),
       ]);
 
       setGatewayConnections(gw);
       setRegisteredConnections(conn);
       setRegisteredDataSources(ds);
-      setRegisteredEntities(ent);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load data');
     } finally {
@@ -383,7 +408,9 @@ export default function SourceManager() {
           type: 'success',
           message: `Analyzed ${result.summary.total} tables: ${result.summary.incrementalRecommended} incremental candidates, ${result.summary.hasPrimaryKeys} with PKs`,
         });
-        // Refresh load config with new data
+        // Refresh load config with new data + invalidate digest
+        invalidateDigestCache();
+        refreshDigest();
         await fetchLoadConfig();
       } else {
         const err = await res.json();
@@ -412,6 +439,8 @@ export default function SourceManager() {
           type: 'success',
           message: `Registered ${result.bronzeCreated || 0} Bronze + ${result.silverCreated || 0} Silver entities`,
         });
+        invalidateDigestCache();
+        refreshDigest();
         await fetchLoadConfig();
       } else {
         const err = await res.json();
@@ -454,6 +483,8 @@ export default function SourceManager() {
         const result = await res.json();
         setActionStatus({ type: 'success', message: `Updated ${result.updated || 0} entities` });
         setPendingUpdates(new Map());
+        invalidateDigestCache();
+        refreshDigest();
         await fetchLoadConfig();
       } else {
         const err = await res.json();
@@ -530,6 +561,8 @@ export default function SourceManager() {
       const data = await res.json();
       if (res.ok) {
         setActionStatus({ type: 'success', message: data.message || `Registered ${fmdName}` });
+        invalidateDigestCache();
+        refreshDigest();
         await loadData(true);
       } else {
         setActionStatus({ type: 'error', message: data.error || 'Registration failed' });
@@ -557,7 +590,7 @@ export default function SourceManager() {
   };
 
   // ── Loading / Error states ──
-  if (loading) {
+  if (loading || digestLoading) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
@@ -1446,7 +1479,7 @@ export default function SourceManager() {
               registeredConnections={registeredConnections}
               registeredDataSources={registeredDataSources}
               registeredEntities={registeredEntities}
-              onRefresh={() => loadData(true)}
+              onRefresh={() => { invalidateDigestCache(); refreshDigest(); loadData(true); }}
             />
             {/* Close button */}
             <button
