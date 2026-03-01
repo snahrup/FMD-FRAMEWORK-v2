@@ -3,6 +3,7 @@ Replace all DEV GUIDs with PROD GUIDs in every pipeline in INTEGRATION CODE (P).
 Reads each pipeline definition, does find-and-replace for all mapped GUIDs,
 then updates the definition back.
 """
+import os
 import json, base64, time
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -10,7 +11,7 @@ from urllib.parse import urlencode
 
 TENANT_ID = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
 CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
-CLIENT_SECRET = "Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu"
+CLIENT_SECRET = os.environ.get("FABRIC_CLIENT_SECRET", "")
 API = "https://api.fabric.microsoft.com/v1"
 
 PROD_WS = "1284458c-1976-46a6-b9d8-af17c7d11a59"  # CODE (P)

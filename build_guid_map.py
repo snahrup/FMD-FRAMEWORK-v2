@@ -1,11 +1,12 @@
 """Build GUID mapping from DEV items to PROD items by display name."""
+import os
 import json
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
 
 TENANT_ID = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
 CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
-CLIENT_SECRET = "Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu"
+CLIENT_SECRET = os.environ.get("FABRIC_CLIENT_SECRET", "")
 API = "https://api.fabric.microsoft.com/v1"
 
 def get_token():

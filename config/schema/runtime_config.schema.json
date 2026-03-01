@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FMD Runtime Config",
+  "type": "object",
+  "required": ["tenant", "workspaces", "connections"],
+  "properties": {
+    "tenant": {
+      "type": "object",
+      "required": ["tenant_id", "client_id"],
+      "properties": {
+        "tenant_id": { "type": "string", "format": "uuid" },
+        "client_id": { "type": "string", "format": "uuid" }
+      }
+    },
+    "workspaces": {
+      "type": "object",
+      "required": ["data", "business_domain"],
+      "properties": {
+        "data": { "type": "string", "format": "uuid" },
+        "business_domain": { "type": "string", "format": "uuid" }
+      }
+    },
+    "connections": {
+      "type": "object",
+      "required": ["sql"],
+      "properties": {
+        "sql": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

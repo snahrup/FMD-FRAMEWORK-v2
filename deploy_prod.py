@@ -2,6 +2,7 @@
 Deploy PROD by cloning all items from INTEGRATION CODE (D) to INTEGRATION CODE (P).
 Gets the exact definition from DEV (post-GUID-replacement) and creates it in PROD.
 """
+import os
 import json, base64, time, os, sys
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -9,7 +10,7 @@ from urllib.parse import urlencode
 
 TENANT_ID = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
 CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
-CLIENT_SECRET = "Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu"
+CLIENT_SECRET = os.environ.get("FABRIC_CLIENT_SECRET", "")
 FABRIC_API = "https://api.fabric.microsoft.com/v1"
 
 # Source: INTEGRATION CODE (D) — already deployed

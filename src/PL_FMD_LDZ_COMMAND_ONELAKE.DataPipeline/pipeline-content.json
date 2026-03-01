@@ -103,7 +103,7 @@
         },
         "policy": {
           "timeout": "0.01:00:00",
-          "retry": 0,
+          "retry": 2,
           "retryIntervalInSeconds": 30,
           "secureInput": false,
           "secureOutput": false
@@ -213,7 +213,7 @@
         },
         "policy": {
           "timeout": "0.01:00:00",
-          "retry": 0,
+          "retry": 2,
           "retryIntervalInSeconds": 30,
           "secureInput": false,
           "secureOutput": false
@@ -318,7 +318,7 @@
                         },
                         "policy": {
                           "timeout": "0.01:00:00",
-                          "retry": 0,
+                          "retry": 1,
                           "retryIntervalInSeconds": 30,
                           "secureInput": false,
                           "secureOutput": false
@@ -351,7 +351,7 @@
                         },
                         "policy": {
                           "timeout": "0.01:00:00",
-                          "retry": 0,
+                          "retry": 1,
                           "retryIntervalInSeconds": 30,
                           "secureInput": false,
                           "secureOutput": false
@@ -481,7 +481,7 @@
         },
         "policy": {
           "timeout": "0.01:00:00",
-          "retry": 0,
+          "retry": 2,
           "retryIntervalInSeconds": 30,
           "secureInput": false,
           "secureOutput": false

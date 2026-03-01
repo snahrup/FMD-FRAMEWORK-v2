@@ -112,3 +112,11 @@ Contributions, enhancements, and feature requests are welcome. To contribute:
 [Erwin de Kreuk](https://www.linkedin.com/in/erwindekreuk/)  
 ## License
 This project is released under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+## Reliability Tooling
+
+- `python scripts/preflight_fmd.py --strict` validates local prerequisites before production runs.
+- `python scripts/validate_config.py` validates central runtime config policy.
+- `python scripts/lint_pipelines.py --strict` enforces retry/timeout/default-parameter policies for pipeline JSON.
+- `python scripts/fmd_diag.py <subcommand>` provides a single diagnostics entrypoint.
+- Runbooks are available in `docs/runbooks/` for onboarding, troubleshooting, and reprocessing.
