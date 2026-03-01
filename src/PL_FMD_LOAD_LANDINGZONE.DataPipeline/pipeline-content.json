@@ -619,7 +619,7 @@
     "parameters": {
       "Data_WorkspaceGuid": {
         "type": "string",
-        "defaultValue": "1d947c6d-4350-48c5-8b98-9c21d8862fe7"
+        "defaultValue": "a3a180ff-fbc2-48fd-a65f-27ae7bb6709a"
       }
     },
     "libraryVariables": {

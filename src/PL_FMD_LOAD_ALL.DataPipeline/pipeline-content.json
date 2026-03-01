@@ -11,7 +11,7 @@
           "operationType": "InvokeFabricPipeline"
         },
         "externalReferences": {
-          "connection": "6b2e33a1-b441-4137-b41d-260ffa8258cf"
+          "connection": "365d6ac6-84c4-4449-90ab-57daf12677b5"
         },
         "policy": {
           "timeout": "0.01:00:00",
@@ -40,7 +40,7 @@
           "operationType": "InvokeFabricPipeline"
         },
         "externalReferences": {
-          "connection": "6b2e33a1-b441-4137-b41d-260ffa8258cf"
+          "connection": "365d6ac6-84c4-4449-90ab-57daf12677b5"
         },
         "policy": {
           "timeout": "0.01:00:00",
@@ -531,7 +531,7 @@
           "operationType": "InvokeFabricPipeline"
         },
         "externalReferences": {
-          "connection": "6b2e33a1-b441-4137-b41d-260ffa8258cf"
+          "connection": "365d6ac6-84c4-4449-90ab-57daf12677b5"
         },
         "policy": {
           "timeout": "0.01:00:00",
