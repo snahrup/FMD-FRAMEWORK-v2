@@ -524,7 +524,9 @@
       {
         "type": "InvokePipeline",
         "typeProperties": {
-          "parameters": {},
+          "parameters": {
+            "Data_WorkspaceGuid": "a3a180ff-fbc2-48fd-a65f-27ae7bb6709a"
+          },
           "waitOnCompletion": true,
           "workspaceId": "00000000-0000-0000-0000-000000000000",
           "pipelineId": "3d0b3b2b-a069-40dc-b735-d105f9e66838",
@@ -534,7 +536,7 @@
           "connection": "365d6ac6-84c4-4449-90ab-57daf12677b5"
         },
         "policy": {
-          "timeout": "0.01:00:00",
+          "timeout": "0.06:00:00",
           "retry": 0,
           "retryIntervalInSeconds": 30,
           "secureInput": false,
