@@ -1979,8 +1979,11 @@ def phase13_register_entities(state, args):
         print(f"\n  === {ds_name} (DataSourceId={ds_id}, {len(tables)} tables) ===")
 
         for table in tables:
-            safe_schema = schema.replace("'", "''")
-            safe_table = table.replace("'", "''")
+            safe_schema = schema.strip().replace("'", "''")
+            safe_table = table.strip().replace("'", "''")
+            if not safe_table:
+                print(f"  [SKIP] Empty table name in {ds_name}/{schema}")
+                continue
             try:
                 # 1. Register LZ entity (upsert)
                 cursor.execute(
@@ -2053,6 +2056,27 @@ def phase13_register_entities(state, args):
                     print(f"  [ERR] {schema}.{table}: {e}")
                 elif errors == 6:
                     print(f"  [ERR] ... suppressing further errors")
+
+    # Seed LastLoadValue records for any entities missing them.
+    # Without these, the pipeline's LK_GET_LASTLOADDATE lookup returns NULL
+    # and the incremental load query fails with empty parameters.
+    try:
+        cursor.execute("""
+            INSERT INTO execution.LandingzoneEntityLastLoadValue (LandingzoneEntityId, LoadValue)
+            SELECT le.LandingzoneEntityId, ''
+            FROM integration.LandingzoneEntity le
+            WHERE le.IsActive = 1
+              AND NOT EXISTS (
+                SELECT 1 FROM execution.LandingzoneEntityLastLoadValue lv
+                WHERE lv.LandingzoneEntityId = le.LandingzoneEntityId
+              )
+        """)
+        seeded = cursor.rowcount
+        cursor.commit()
+        if seeded > 0:
+            print(f"\n  Seeded {seeded} missing LastLoadValue records")
+    except Exception as e:
+        print(f"  [WARN] LastLoadValue seeding failed: {e}")
 
     cursor.close()
     conn.close()
@@ -2210,7 +2234,7 @@ def phase13_5_load_optimization(state, args):
                 JOIN sys.schemas s ON t.schema_id = s.schema_id
                 JOIN sys.types tp ON c.system_type_id = tp.system_type_id AND c.user_type_id = tp.user_type_id
                 WHERE (
-                    tp.name IN ('datetime','datetime2','datetimeoffset','smalldatetime','timestamp','rowversion')
+                    tp.name IN ('datetime','datetime2','datetimeoffset','smalldatetime')
                     OR COLUMNPROPERTY(t.object_id, c.name, 'IsIdentity') = 1
                 )
             """)
@@ -2219,7 +2243,11 @@ def phase13_5_load_optimization(state, args):
                 col, dtype, is_id = row[2], row[3], row[4]
                 col_lower = col.lower()
                 if dtype in ('timestamp', 'rowversion'):
-                    pri = 1
+                    # rowversion/timestamp are binary types — the pipeline's
+                    # watermark comparison (WHERE col > 'varchar_value') causes
+                    # "Implicit conversion from varchar to timestamp not allowed".
+                    # Skip these entirely — they CANNOT be used as watermarks.
+                    continue
                 elif dtype in ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime'):
                     if any(kw in col_lower for kw in ('modif', 'updat', 'chang', 'last_')):
                         pri = 2
