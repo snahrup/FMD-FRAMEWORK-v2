@@ -1,0 +1,43 @@
+# Source System Configuration
+# Used by deploy_from_scratch.py for Phase 4 (Connections) and Phase 11 (SQL Metadata)
+# Edit this file to add/remove on-prem source systems — zero Python changes needed.
+
+gateway_connections:
+  CON_FMD_M3DB1_MES:
+    metadata_type: SQL
+    description: "MES database on m3-db1 via on-prem gateway"
+    cred_type: Basic
+  CON_FMD_M3DB3_ETQSTAGINGPRD:
+    metadata_type: SQL
+    description: "ETQStagingPRD on sql2016live via on-prem gateway"
+    cred_type: Basic
+  CON_FMD_M3DB1_M3:
+    metadata_type: SQL
+    description: "M3 ERP (m3fdbprd) on m3-db1 via on-prem gateway"
+    cred_type: Basic
+  CON_FMD_M3DB1_M3CLOUD:
+    metadata_type: SQL
+    description: "M3 Cloud (DI_PRD_Staging) on sql2016live via on-prem gateway"
+    cred_type: Basic
+
+datasources:
+  MES:
+    connection: CON_FMD_M3DB1_MES
+    namespace: dbo
+    type: SQL
+    description: "MES production database (445 entities)"
+  ETQStagingPRD:
+    connection: CON_FMD_M3DB3_ETQSTAGINGPRD
+    namespace: dbo
+    type: SQL
+    description: "ETQ Staging PRD (29 entities)"
+  DI_PRD_Staging:
+    connection: CON_FMD_M3DB1_M3CLOUD
+    namespace: dbo
+    type: SQL
+    description: "M3 Cloud DI_PRD_Staging (185 entities)"
+  m3fdbprd:
+    connection: CON_FMD_M3DB1_M3
+    namespace: dbo
+    type: SQL
+    description: "M3 ERP production database"

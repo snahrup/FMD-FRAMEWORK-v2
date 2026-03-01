@@ -32,6 +32,12 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 
+try:
+    import yaml
+except ImportError:
+    print("ERROR: pyyaml is required. Install with: pip install pyyaml")
+    sys.exit(1)
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -89,61 +95,21 @@ CONNECTION_DEFS = {
     },
 }
 
-# On-prem gateway connections — these CANNOT be auto-created via API.
-# Gateway connections must be created via Fabric portal by a gateway admin.
-# The script looks up existing connections by name and maps their GUIDs
-# for pipeline JSON replacement and metadata DB registration.
-GATEWAY_CONNECTION_DEFS = {
-    "CON_FMD_M3DB1_MES": {
-        "metadata_type": "SQL",
-        "description": "MES database on m3-db1 via on-prem gateway",
-        "cred_type": "Basic",  # username/password with TrustServerCertificate=True
-    },
-    "CON_FMD_M3DB3_ETQSTAGINGPRD": {
-        "metadata_type": "SQL",
-        "description": "ETQStagingPRD on sql2016live via on-prem gateway",
-        "cred_type": "Basic",
-    },
-    "CON_FMD_M3DB1_M3": {
-        "metadata_type": "SQL",
-        "description": "M3 ERP (m3fdbprd) on m3-db1 via on-prem gateway",
-        "cred_type": "Basic",
-    },
-    "CON_FMD_M3DB1_M3CLOUD": {
-        "metadata_type": "SQL",
-        "description": "M3 Cloud (DI_PRD_Staging) on sql2016live via on-prem gateway",
-        "cred_type": "Basic",
-    },
-}
 
-# On-prem data sources — registered in Phase 10 alongside built-in sources.
-# Maps data source display name to its connection name (for FK lookup).
-ONPREM_DATASOURCE_DEFS = {
-    "MES": {
-        "connection": "CON_FMD_M3DB1_MES",
-        "namespace": "dbo",
-        "type": "SQL",
-        "description": "MES production database (445 entities)",
-    },
-    "ETQ": {
-        "connection": "CON_FMD_M3DB3_ETQSTAGINGPRD",
-        "namespace": "dbo",
-        "type": "SQL",
-        "description": "ETQ Staging PRD (29 entities)",
-    },
-    "M3_Cloud": {
-        "connection": "CON_FMD_M3DB1_M3CLOUD",
-        "namespace": "dbo",
-        "type": "SQL",
-        "description": "M3 Cloud DI_PRD_Staging (185 entities)",
-    },
-    "M3": {
-        "connection": "CON_FMD_M3DB1_M3",
-        "namespace": "dbo",
-        "type": "SQL",
-        "description": "M3 ERP production database",
-    },
-}
+def load_source_systems():
+    """Load gateway connections and datasource definitions from config/source_systems.yaml."""
+    config_path = os.path.join(SCRIPT_DIR, "config", "source_systems.yaml")
+    if not os.path.exists(config_path):
+        print(f"  [WARN] {config_path} not found — using empty source config")
+        return {}, {}
+    with open(config_path, "r") as f:
+        cfg = yaml.safe_load(f) or {}
+    return cfg.get("gateway_connections", {}), cfg.get("datasources", {})
+
+
+# On-prem gateway connections and data sources — loaded from config/source_systems.yaml
+# To add/remove sources, edit the YAML file. No Python changes needed.
+GATEWAY_CONNECTION_DEFS, ONPREM_DATASOURCE_DEFS = load_source_systems()
 
 # SQL Database config
 SQL_DB_DISPLAY_NAME = "SQL_INTEGRATION_FRAMEWORK"
