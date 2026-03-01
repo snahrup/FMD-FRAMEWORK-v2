@@ -367,7 +367,8 @@
               "name": "ONELAKE_FLOW",
               "dependsOn": []
             }
-          ]
+          ],
+          "batchCount": 15
         },
         "name": "FE_ENTITY",
         "dependsOn": [

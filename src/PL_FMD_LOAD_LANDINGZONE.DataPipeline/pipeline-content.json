@@ -325,7 +325,8 @@
               "name": "SW_CHECK_DATASOURCENAME",
               "dependsOn": []
             }
-          ]
+          ],
+          "batchCount": 15
         },
         "name": "FE_ENTITY",
         "dependsOn": [

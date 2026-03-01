@@ -265,7 +265,8 @@
               "name": "PL_FMD_LDZ_COPY_FROM_ADF",
               "dependsOn": []
             }
-          ]
+          ],
+          "batchCount": 15
         },
         "name": "FE_ENTITY",
         "dependsOn": [
