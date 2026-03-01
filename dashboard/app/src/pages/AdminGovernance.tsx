@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   XCircle,
   RefreshCw,
@@ -9,6 +9,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useEntityDigest } from '@/hooks/useEntityDigest';
 
 // ── Types for API responses ──
 
@@ -30,18 +31,6 @@ interface DataSource {
   ConnectionName: string;
 }
 
-interface Entity {
-  LandingzoneEntityId: string;
-  SourceSchema: string;
-  SourceName: string;
-  FileName: string;
-  FilePath: string;
-  FileType: string;
-  IsIncremental: string;
-  IsActive: string;
-  DataSourceName: string;
-}
-
 interface Pipeline {
   PipelineId: string;
   PipelineGuid: string;
@@ -61,27 +50,6 @@ interface Lakehouse {
   LakehouseGuid: string;
   WorkspaceGuid: string;
   Name: string;
-  IsActive: string;
-}
-
-interface BronzeEntity {
-  BronzeLayerEntityId: string;
-  LandingzoneEntityId: string;
-  LakehouseId: string;
-  Schema: string;
-  Name: string;
-  PrimaryKeys: string;
-  FileType: string;
-  IsActive: string;
-}
-
-interface SilverEntity {
-  SilverLayerEntityId: string;
-  BronzeLayerEntityId: string;
-  LakehouseId: string;
-  Schema: string;
-  Name: string;
-  FileType: string;
   IsActive: string;
 }
 
@@ -120,52 +88,66 @@ async function fetchJson<T>(path: string): Promise<T> {
 }
 
 export default function AdminGovernance() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // ── Entity data from the digest hook (replaces /entities, /bronze-entities, /silver-entities) ──
+  const {
+    allEntities,
+    loading: digestLoading,
+    error: digestError,
+    refresh: refreshDigest,
+  } = useEntityDigest();
+
+  // ── Non-entity metadata (still fetched individually) ──
+  const [metaLoading, setMetaLoading] = useState(true);
+  const [metaError, setMetaError] = useState<string | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
-  const [entities, setEntities] = useState<Entity[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [lakehouses, setLakehouses] = useState<Lakehouse[]>([]);
-  const [bronzeEntities, setBronzeEntities] = useState<BronzeEntity[]>([]);
-  const [silverEntities, setSilverEntities] = useState<SilverEntity[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [hoveredLane, setHoveredLane] = useState<string | null>(null);
   const [expandedLane, setExpandedLane] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadMetadata = useCallback(async () => {
+    setMetaLoading(true);
+    setMetaError(null);
     try {
-      const [conn, ds, ent, pipes, ws, lh, bronze, silver, st] = await Promise.all([
+      const [conn, ds, pipes, ws, lh, st] = await Promise.all([
         fetchJson<Connection[]>('/connections'),
         fetchJson<DataSource[]>('/datasources'),
-        fetchJson<Entity[]>('/entities'),
         fetchJson<Pipeline[]>('/pipelines'),
         fetchJson<Workspace[]>('/workspaces'),
         fetchJson<Lakehouse[]>('/lakehouses'),
-        fetchJson<BronzeEntity[]>('/bronze-entities'),
-        fetchJson<SilverEntity[]>('/silver-entities'),
         fetchJson<DashboardStats>('/stats'),
       ]);
       setConnections(conn);
       setDataSources(ds);
-      setEntities(ent);
       setPipelines(pipes);
       setWorkspaces(ws);
       setLakehouses(lh);
-      setBronzeEntities(bronze);
-      setSilverEntities(silver);
       setStats(st);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setMetaError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
-      setLoading(false);
+      setMetaLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadMetadata(); }, [loadMetadata]);
+
+  // ── Combined loading / error state ──
+  const loading = digestLoading || metaLoading;
+  const error = digestError || metaError;
+
+  const loadData = useCallback(() => {
+    refreshDigest();
+    loadMetadata();
+  }, [refreshDigest, loadMetadata]);
+
+  // ── Derived entity counts from digest ──
+  const lzEntityCount = allEntities.length;
+  const bronzeEntityCount = useMemo(() => allEntities.filter(e => e.bronzeId !== null).length, [allEntities]);
+  const silverEntityCount = useMemo(() => allEntities.filter(e => e.silverId !== null).length, [allEntities]);
 
   // Derived data
   const activePipelines = pipelines.filter(p => p.IsActive === 'True');
@@ -185,28 +167,24 @@ export default function AdminGovernance() {
   const prodWorkspaces = workspaces.filter(w => w.Name.includes('(P)'));
   const configWorkspaces = workspaces.filter(w => !w.Name.includes('(D)') && !w.Name.includes('(P)'));
 
-  // Build swim lane data grouped by data source
+  // Build swim lane data grouped by data source (driven by digest)
   const sourceLanes = dataSources
     .filter(ds => ds.IsActive === 'True')
     .map(ds => {
       const conn = connections.find(c => c.Name === ds.ConnectionName);
-      const lzEnts = entities.filter(e => e.DataSourceName === ds.Name);
-      const lzIds = new Set(lzEnts.map(e => e.LandingzoneEntityId));
-      const brzEnts = bronzeEntities.filter(b => lzIds.has(b.LandingzoneEntityId));
-      const brzIds = new Set(brzEnts.map(b => b.BronzeLayerEntityId));
-      const slvEnts = silverEntities.filter(s => brzIds.has(s.BronzeLayerEntityId));
+      const dsEntities = allEntities.filter(e => e.source === ds.Name);
+      const brzEnts = dsEntities.filter(e => e.bronzeId !== null);
+      const slvEnts = dsEntities.filter(e => e.silverId !== null);
       return {
         id: ds.DataSourceId,
         connectionName: conn?.Name || ds.ConnectionName,
         dataSourceName: ds.Name,
         namespace: ds.Namespace,
         type: ds.Type,
-        landingCount: lzEnts.length,
+        landingCount: dsEntities.length,
         bronzeCount: brzEnts.length,
         silverCount: slvEnts.length,
-        landingEntities: lzEnts,
-        bronzeEntities: brzEnts,
-        silverEntities: slvEnts,
+        digestEntities: dsEntities,
       };
     });
 
@@ -323,15 +301,15 @@ export default function AdminGovernance() {
             <div className="flex items-center mt-2 space-x-4 text-xs">
               <span className="flex items-center text-blue-600 dark:text-blue-400">
                 <div className="w-2 h-2 bg-blue-500 rounded-full mr-1.5"></div>
-                {entities.length} Landing
+                {lzEntityCount} Landing
               </span>
               <span className="flex items-center text-amber-600 dark:text-amber-400">
                 <div className="w-2 h-2 bg-amber-500 rounded-full mr-1.5"></div>
-                {bronzeEntities.length} Bronze
+                {bronzeEntityCount} Bronze
               </span>
               <span className="flex items-center text-purple-600 dark:text-purple-400">
                 <div className="w-2 h-2 bg-purple-500 rounded-full mr-1.5"></div>
-                {silverEntities.length} Silver
+                {silverEntityCount} Silver
               </span>
             </div>
           </div>
@@ -347,9 +325,9 @@ export default function AdminGovernance() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: 'Connections', count: connections.filter(c => c.IsActive === 'True').length, color: layerColors.source, icon: 'sql_database' },
-            { label: 'Landing Zone', count: entities.length, color: layerColors.landing, icon: 'lakehouse' },
-            { label: 'Bronze', count: bronzeEntities.length, color: layerColors.bronze, icon: 'lakehouse' },
-            { label: 'Silver', count: silverEntities.length, color: layerColors.silver, icon: 'lakehouse' },
+            { label: 'Landing Zone', count: lzEntityCount, color: layerColors.landing, icon: 'lakehouse' },
+            { label: 'Bronze', count: bronzeEntityCount, color: layerColors.bronze, icon: 'lakehouse' },
+            { label: 'Silver', count: silverEntityCount, color: layerColors.silver, icon: 'lakehouse' },
           ].map((item, index) => (
             <div key={item.label} className="relative bg-muted rounded-lg p-5 border border-border overflow-hidden">
               <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: item.color }}></div>
@@ -571,16 +549,16 @@ export default function AdminGovernance() {
                               Landing Zone ({lane.landingCount})
                             </p>
                             <div className="space-y-0.5 max-h-40 overflow-y-auto">
-                              {lane.landingEntities.map(e => (
-                                <div key={e.LandingzoneEntityId} className="flex items-center gap-2 text-[11px]">
-                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{e.SourceSchema}</span>
-                                  <span className="font-mono text-foreground/80 truncate">{e.SourceName}</span>
+                              {lane.digestEntities.map(e => (
+                                <div key={e.id} className="flex items-center gap-2 text-[11px]">
+                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{e.sourceSchema}</span>
+                                  <span className="font-mono text-foreground/80 truncate">{e.tableName}</span>
                                   <span className={`ml-auto text-[9px] px-1 py-0.5 rounded shrink-0 ${
-                                    e.IsIncremental === 'True'
+                                    e.isIncremental
                                       ? 'bg-blue-100 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400'
                                       : 'bg-muted text-muted-foreground'
                                   }`}>
-                                    {e.IsIncremental === 'True' ? 'INC' : 'FULL'}
+                                    {e.isIncremental ? 'INC' : 'FULL'}
                                   </span>
                                 </div>
                               ))}
@@ -595,10 +573,10 @@ export default function AdminGovernance() {
                               Bronze ({lane.bronzeCount})
                             </p>
                             <div className="space-y-0.5 max-h-40 overflow-y-auto">
-                              {lane.bronzeEntities.map(b => (
-                                <div key={b.BronzeLayerEntityId} className="flex items-center gap-2 text-[11px]">
-                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{b.Schema}</span>
-                                  <span className="font-mono text-foreground/80 truncate">{b.Name}</span>
+                              {lane.digestEntities.filter(e => e.bronzeId !== null).map(e => (
+                                <div key={`brz-${e.id}`} className="flex items-center gap-2 text-[11px]">
+                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{e.sourceSchema}</span>
+                                  <span className="font-mono text-foreground/80 truncate">{e.tableName}</span>
                                 </div>
                               ))}
                               {lane.bronzeCount === 0 && <p className="text-[11px] text-muted-foreground italic">Not yet processed</p>}
@@ -612,10 +590,10 @@ export default function AdminGovernance() {
                               Silver ({lane.silverCount})
                             </p>
                             <div className="space-y-0.5 max-h-40 overflow-y-auto">
-                              {lane.silverEntities.map(s => (
-                                <div key={s.SilverLayerEntityId} className="flex items-center gap-2 text-[11px]">
-                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{s.Schema}</span>
-                                  <span className="font-mono text-foreground/80 truncate">{s.Name}</span>
+                              {lane.digestEntities.filter(e => e.silverId !== null).map(e => (
+                                <div key={`slv-${e.id}`} className="flex items-center gap-2 text-[11px]">
+                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{e.sourceSchema}</span>
+                                  <span className="font-mono text-foreground/80 truncate">{e.tableName}</span>
                                 </div>
                               ))}
                               {lane.silverCount === 0 && <p className="text-[11px] text-muted-foreground italic">Not yet processed</p>}
@@ -682,15 +660,15 @@ export default function AdminGovernance() {
                   </span>
                   <ArrowRight className="w-4 h-4 text-muted-foreground" />
                   <span className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{entities.length}</span> landing
+                    <span className="font-medium text-foreground">{lzEntityCount}</span> landing
                   </span>
                   <ArrowRight className="w-4 h-4 text-muted-foreground" />
                   <span className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{bronzeEntities.length}</span> bronze
+                    <span className="font-medium text-foreground">{bronzeEntityCount}</span> bronze
                   </span>
                   <ArrowRight className="w-4 h-4 text-muted-foreground" />
                   <span className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{silverEntities.length}</span> silver
+                    <span className="font-medium text-foreground">{silverEntityCount}</span> silver
                   </span>
                 </div>
               </div>
