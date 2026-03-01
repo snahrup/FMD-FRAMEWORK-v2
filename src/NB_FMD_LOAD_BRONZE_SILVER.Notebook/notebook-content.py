@@ -184,6 +184,14 @@ UpsertPipelineBronzeLayerEntity = (
     f"@BronzeLayerEntityId = \"{BronzeLayerEntityId}\""
 )
 
+UpsertPipelineSilverLayerEntity = (
+    f"[execution].[sp_UpsertPipelineSilverLayerEntity] "
+    f"@SchemaName = \"{TargetSchema}\", "
+    f"@TableName = \"{TargetName}\", "
+    f"@IsProcessed = \"True\", "
+    f"@SilverLayerEntityId = \"{SilverLayerEntityId}\""
+)
+
 StartNotebookActivity = (
     f"[logging].[sp_AuditNotebook] "
     f"@NotebookGuid = \"{NotebookExecutionId}\", "
@@ -432,6 +440,7 @@ else:
         }
 
     execute_with_outputs(UpsertPipelineBronzeLayerEntity, driver, connstring, database)
+    execute_with_outputs(UpsertPipelineSilverLayerEntity, driver, connstring, database)
     execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
 
     notebookutils.notebook.exit("OK")
@@ -738,6 +747,7 @@ result_data = {
 # CELL ********************
 
 execute_with_outputs(UpsertPipelineBronzeLayerEntity, driver, connstring, database)
+execute_with_outputs(UpsertPipelineSilverLayerEntity, driver, connstring, database)
 execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
 
 # METADATA ********************

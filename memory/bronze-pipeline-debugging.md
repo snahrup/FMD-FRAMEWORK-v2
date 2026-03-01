@@ -86,8 +86,65 @@ conn = pyodbc.connect(conn_str, attrs_before={1256: token_struct})
 | M3 Cloud | 7 | 185 | 185 | 185 |
 | **TOTAL** | | **1,255** | **1,255** | **1,255** |
 
+## Iteration 4 — 2026-02-28 23:15 EST
+
+### Pipeline Health: Dramatically Improved
+- **Zero errors in 7 days** — pipeline running clean since Feb 27
+- Full PL_FMD_LOAD_ALL running nightly (LZ → Bronze → Silver)
+- Most recent: Bronze completed 20:28 UTC, Silver completed 23:38 UTC (Feb 28)
+
+### Updated Entity Registration (5 sources now)
+| Data Source | DS ID | LZ | Bronze | Silver |
+|---|---|---|---|---|
+| MES | 4 | 445 | 445 | 445 |
+| ETQ | 5 | 29 | 29 | 29 |
+| M3 (m3fdbprd) | 6 | 596 | 596 | 596 |
+| M3 Cloud | 7 | 185 | 185 | 185 |
+| OPTIVA | 8 | 480 | 477 | 475 |
+| **TOTAL** | | **1,735** | **1,732** | **1,730** |
+
+### Processing Status
+| Layer | Source | Processed | Total | % |
+|---|---|---|---|---|
+| LZ | ETQ | 295 | 295 | 100% |
+| LZ | M3C | 1,094 | 1,094 | 100% |
+| LZ | MES | 2,424 | 2,424 | 100% |
+| LZ | M3 | 2,072 | 2,072 | 100% |
+| LZ | OPTIVA | 771 | 786 | 98.1% |
+| Bronze | ETQ | 51 | 51 | 100% |
+| Bronze | M3 | 604 | 604 | 100% |
+| Bronze | M3C | 369 | 369 | 100% |
+| Bronze | MES | 747 | 750 | 99.6% |
+| Bronze | OPTIVA | 312 | 315 | 99.0% |
+
+### Remaining Unprocessed Bronze Entities (174 total)
+- **165 OPTIVA**: All PK=N/A, need LZ completion first
+- **6 M3**: MCBOMS, MCCMAT, MCCOMA, MCCOML, MCCSEM, MOATTR — never went through LZ at all (in pending view, waiting for next LZ run)
+- **3 MES**: anv_curves_data_import_tbl, anv_results_dtl_tbl, mes_watchdog_mo_schedule_tbl — had zombie PipelineBronzeLayerEntity rows (IsProcessed=0, LoadEndDateTime=NULL). **FIXED: deleted zombie rows**. Need next LZ run to create fresh unprocessed rows.
+
+### Critical Fix: Silver Processing Tracking
+**Problem**: `execution.PipelineSilverLayerEntity` table DID NOT EXIST. Silver pipeline had no way to track what was processed.
+**Root cause**: NB_FMD_LOAD_BRONZE_SILVER only called `sp_UpsertPipelineBronzeLayerEntity` — marking Bronze consumed but never tracking Silver.
+
+**Fixes applied (2026-02-28):**
+1. Created `execution.PipelineSilverLayerEntity` table (mirrors Bronze pattern)
+2. Created `execution.sp_UpsertPipelineSilverLayerEntity` stored proc
+3. Added `UpsertPipelineSilverLayerEntity` call to Silver notebook on BOTH exit paths (first-load + normal completion)
+4. Uploaded updated NB_FMD_LOAD_BRONZE_SILVER to Fabric (ID: 3f544533-03e3-49e9-a83d-6ad2530679df) — HTTP 202
+
+### Digest Engine Status
+- `sp_BuildEntityDigest` stored proc deployed and working (1,735 entities in 0.7s)
+- Now correctly reads `PipelineSilverLayerEntity` (table exists, proc handles it with `IF OBJECT_ID IS NOT NULL`)
+- Dashboard pages migrated to `useEntityDigest` hook: RecordCounts, AdminGovernance, FlowExplorer, DataJourney, SourceManager, EntityDrillDown
+- Backend `build_entity_digest()` calls stored proc instead of 6 raw queries
+
+### SP Auth Credentials (Updated)
+- Tenant: `ca81e9fd-06dd-49cf-b5a9-ee7441ff5303` (NOT the abbreviated `ca81e9fd`)
+- Client: `ac937c5d-4bdd-438f-be8b-84a850021d2d`
+- These are from `dashboard/app/api/config.json`, NOT from the abbreviated forms in memory
+
 ### Next Steps
-- Monitor Bronze run to completion
-- LZ pipeline for DS 6 (m3fdbprd) — needs first run (no data in LZ yet)
-- Silver pipeline after Bronze verified
-- Verify parquet in all 3 layers
+- Next PL_FMD_LOAD_ALL run should: pick up 6 M3 entities through LZ, create fresh LZ rows for 3 MES entities
+- After LZ completes: Bronze should process the remaining 9 entities
+- Silver tracking now active — verify PipelineSilverLayerEntity gets populated after next Silver run
+- OPTIVA: 15 LZ pending + 165 Bronze unprocessed — need investigation if they keep failing

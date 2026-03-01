@@ -1,0 +1,304 @@
+##############################################################################
+# Digest Engine Migration — PRD
+# Migrate all entity-fetching pages to centralized useEntityDigest hook
+# Forward-compatible: when incremental digestion lands, only stored proc changes
+##############################################################################
+
+tasks:
+  # ── Group 1: High-Priority Frontend Migrations (parallel) ────────────────
+  - title: "Migrate AdminGovernance to useEntityDigest"
+    parallel_group: 1
+    completed: true
+    description: |
+      Migrate dashboard/app/src/pages/AdminGovernance.tsx from 9-way Promise.all
+      (fetching /api/entities, /api/bronze-entities, /api/silver-entities independently)
+      to the useEntityDigest hook.
+
+      STEPS:
+      1. Read dashboard/app/src/hooks/useEntityDigest.ts to understand the hook API
+      2. Read dashboard/app/src/pages/AdminGovernance.tsx to understand current data flow
+      3. Add: import { useEntityDigest } from "@/hooks/useEntityDigest";
+      4. Replace the 3 entity-related fetches in the Promise.all with useEntityDigest():
+         - Remove separate useState for entities, bronzeEntities, silverEntities
+         - Use: const { allEntities, sourceList, totalSummary, loading: digestLoading } = useEntityDigest();
+         - Keep the non-entity fetches (pipelines, workspaces, lakehouses, connections, datasources, stats)
+      5. Update the component to derive entity counts from digest instead of separate arrays:
+         - LZ entity count = allEntities.length
+         - Bronze entity count = allEntities.filter(e => e.bronzeId !== null).length
+         - Silver entity count = allEntities.filter(e => e.silverId !== null).length
+         - Entities by source = use sourceList from the hook
+      6. DO NOT change any mutation endpoints (POST, DELETE, PUT remain unchanged)
+      7. After any mutations (if applicable), call invalidateDigestCache() from the hook
+
+      The digest entity shape (DigestEntity from useEntityDigest.ts):
+        id, tableName, sourceSchema, source, isActive, isIncremental, watermarkColumn,
+        bronzeId, bronzePKs, silverId, lzStatus, lzLastLoad, bronzeStatus, bronzeLastLoad,
+        silverStatus, silverLastLoad, lastError, diagnosis, overall, connection
+
+      SUCCESS CRITERIA:
+      - No more direct calls to /api/entities, /api/bronze-entities, /api/silver-entities
+      - TypeScript compiles clean (npx tsc --noEmit)
+      - Vite build succeeds (npx vite build in dashboard/app/)
+      - All existing visual features preserved (counts, tables, stats panels)
+      - Commit changes with descriptive message
+
+  - title: "Migrate FlowExplorer to useEntityDigest"
+    parallel_group: 1
+    completed: true
+    description: |
+      Migrate dashboard/app/src/pages/FlowExplorer.tsx from 6-way parallel fetch
+      (/api/connections, /api/datasources, /api/entities, /api/bronze-entities,
+      /api/silver-entities, /api/pipelines) to useEntityDigest for entity data.
+
+      STEPS:
+      1. Read dashboard/app/src/hooks/useEntityDigest.ts to understand the hook API
+      2. Read dashboard/app/src/pages/FlowExplorer.tsx to understand current data flow
+      3. Add: import { useEntityDigest } from "@/hooks/useEntityDigest";
+      4. Replace the 3 entity-related fetches with useEntityDigest():
+         - Remove separate fetch/state for entities, bronzeEntities, silverEntities
+         - Use: const { allEntities, sourceList, loading: digestLoading } = useEntityDigest();
+         - Keep fetches for: connections, datasources, pipelines (these aren't in the digest)
+      5. Update the flow visualization to derive entity relationships from digest:
+         - Each digest entity already has bronzeId, silverId, source, connection info
+         - Map allEntities to the flow node/edge structure the component uses
+      6. Preserve all existing visual flow features
+
+      The digest entity shape (DigestEntity):
+        id, tableName, sourceSchema, source, isActive, isIncremental, watermarkColumn,
+        bronzeId, bronzePKs, silverId, lzStatus, bronzeStatus, silverStatus,
+        lastError, diagnosis, overall, connection {server, database, connectionName}
+
+      SUCCESS CRITERIA:
+      - No more direct calls to /api/entities, /api/bronze-entities, /api/silver-entities
+      - TypeScript compiles clean
+      - Vite build succeeds
+      - Flow visualization renders same as before
+      - Commit changes
+
+  - title: "Migrate DataJourney entity picker to useEntityDigest"
+    parallel_group: 1
+    completed: true
+    description: |
+      Migrate dashboard/app/src/pages/DataJourney.tsx entity selector dropdown
+      from /api/entities to useEntityDigest hook.
+
+      Currently the page calls fetchJson<EntityListItem[]>("/entities") to populate
+      the entity picker dropdown. Replace with the digest hook.
+
+      STEPS:
+      1. Read dashboard/app/src/hooks/useEntityDigest.ts
+      2. Read dashboard/app/src/pages/DataJourney.tsx — focus on:
+         - Line ~483: useEffect that fetches /api/entities
+         - The EntityListItem interface
+         - The entity selector dropdown (lines ~630-720)
+      3. Add: import { useEntityDigest } from "@/hooks/useEntityDigest";
+      4. Replace the /api/entities fetch with useEntityDigest():
+         - const { allEntities, sourceList, loading: digestLoading } = useEntityDigest();
+         - Remove the separate entities state and listLoading state
+         - Map allEntities (DigestEntity[]) to EntityListItem[] shape for the dropdown
+           OR refactor the dropdown to use DigestEntity directly
+         - The mapping: DigestEntity.id → LandingzoneEntityId, .tableName → SourceName,
+           .sourceSchema → SourceSchema, .source → DataSourceNamespace
+      5. Keep the /api/journey?entity= call unchanged (journey detail is separate from digest)
+      6. Update the URL param resolution (useEffect at ~515) to use allEntities instead
+
+      SUCCESS CRITERIA:
+      - No more fetch to /api/entities
+      - Entity picker dropdown still works with search/filter
+      - Deep-link via ?entity=ID still works
+      - Deep-link via ?table=X&schema=Y still works (fallback matching)
+      - TypeScript compiles clean, Vite builds
+      - Commit changes
+
+  - title: "Migrate PipelineMatrix EntityDrillDown to useEntityDigest hook"
+    parallel_group: 1
+    completed: true
+    description: |
+      Migrate dashboard/app/src/components/pipeline-matrix/EntityDrillDown.tsx
+      from direct fetch of /api/entity-digest to using the useEntityDigest hook.
+
+      Currently EntityDrillDown fetches /api/entity-digest manually with its own
+      fetch/cache logic, bypassing the shared hook's module-level cache and
+      request deduplication.
+
+      STEPS:
+      1. Read dashboard/app/src/hooks/useEntityDigest.ts
+      2. Read dashboard/app/src/components/pipeline-matrix/EntityDrillDown.tsx
+      3. Replace the manual fetch with: import { useEntityDigest } from "@/hooks/useEntityDigest";
+      4. Use the hook: const { allEntities, sourceList, loading, refresh } = useEntityDigest();
+      5. Filter allEntities by the source being drilled into
+      6. Remove any local fetch/cache logic for the digest
+      7. Keep the navigation to SQL Explorer (buildSqlExplorerUrl) intact
+
+      SUCCESS CRITERIA:
+      - Uses useEntityDigest hook instead of direct fetch
+      - Drill-down panel still shows entity list with status badges
+      - Clickable table names still navigate to SQL Explorer
+      - TypeScript compiles clean, Vite builds
+      - Commit changes
+
+  # ── Group 2: Medium-Priority + Backend (parallel) ───────────────────────
+  - title: "Migrate SourceManager read-side to useEntityDigest"
+    parallel_group: 2
+    completed: true
+    description: |
+      Migrate dashboard/app/src/pages/SourceManager.tsx read-side entity loading
+      to useEntityDigest hook. This page has both read and write operations.
+
+      Currently fetches /api/entities for displaying registered entities.
+      Also does mutations (register, delete, bulk-delete).
+
+      STEPS:
+      1. Read dashboard/app/src/hooks/useEntityDigest.ts — note invalidateDigestCache()
+      2. Read dashboard/app/src/pages/SourceManager.tsx
+      3. Replace the /api/entities read-fetch with useEntityDigest():
+         - const { allEntities, sourceList, refresh, loading: digestLoading } = useEntityDigest();
+         - import { invalidateDigestCache } from "@/hooks/useEntityDigest";
+      4. Keep ALL mutation endpoints unchanged:
+         - POST /api/register-bronze-silver
+         - DELETE /api/entities/{id}
+         - POST /api/entities/bulk-delete
+         - POST /api/connections
+         - POST /api/load-config
+      5. After EVERY mutation that changes entity data, call:
+         invalidateDigestCache();
+         refresh();
+      6. Keep /api/gateway-connections, /api/connections, /api/datasources,
+         /api/load-config, /api/analyze-source fetches as-is (not in digest)
+
+      SUCCESS CRITERIA:
+      - Entity list loaded via digest hook, not /api/entities
+      - All mutations still work (register, delete, bulk-delete)
+      - After mutations, digest cache is invalidated and UI refreshes
+      - TypeScript compiles clean, Vite builds
+      - Commit changes
+
+  - title: "Refactor Python digest endpoint to call stored proc"
+    parallel_group: 2
+    completed: true
+    description: |
+      Refactor dashboard/app/api/server.py build_entity_digest() function to call
+      the Fabric SQL stored procedure execution.sp_BuildEntityDigest instead of
+      running 6 raw SQL queries.
+
+      The stored proc is already deployed to Fabric SQL (verified working, returns
+      1735 entities in 0.7s).
+
+      STEPS:
+      1. Read dashboard/app/api/server.py — find the build_entity_digest() function
+         (approximately lines 1840-2111 area)
+      2. Read scripts/deploy_digest_engine.py to understand the stored proc shape
+      3. Replace the 6 raw queries + assembly logic with:
+         a. Call: rows = query_sql("EXEC execution.sp_BuildEntityDigest @SourceFilter=?, @LayerFilter=?, @StatusFilter=?", params)
+            OR simpler: rows = query_sql("EXEC execution.sp_BuildEntityDigest")
+         b. Map the stored proc result columns to the existing JSON response shape:
+            - source → entity.source (and group key)
+            - tableName → entity.tableName
+            - sourceSchema → entity.sourceSchema
+            - id → entity.id (LandingzoneEntityId)
+            - IsIncremental → entity.isIncremental
+            - watermarkColumn → entity.watermarkColumn
+            - bronzeId → entity.bronzeId
+            - bronzePKs → entity.bronzePKs
+            - silverId → entity.silverId
+            - lzStatus, bronzeStatus, silverStatus → per-layer status
+            - lastLzLoad, lastBrzLoad, lastSlvLoad → timestamps
+            - lastErrorMessage, lastErrorLayer, lastErrorTime → error info
+            - overall → computed status
+            - serverName, databaseName, connectionName → connection info
+      4. Keep the server-side 2-minute TTL cache logic
+      5. Keep the same JSON response shape so frontend doesn't break:
+         { generatedAt, buildTimeMs, totalEntities, sources: { key: { entities: [...], summary: {...} } } }
+      6. Keep filters working (source, layer, status)
+
+      IMPORTANT: The proc already handles missing Silver tables gracefully.
+      The Python layer becomes a thin pass-through: call proc → reshape → cache → return.
+
+      SUCCESS CRITERIA:
+      - build_entity_digest() calls stored proc instead of 6 raw queries
+      - JSON response shape is IDENTICAL to before (no frontend changes needed)
+      - Cache logic preserved
+      - Filter params passed through
+      - Server starts and /api/entity-digest returns same data
+      - Commit changes
+
+  # ── Group 3: Audit Document + Verification ──────────────────────────────
+  - title: "Write DIGEST_MIGRATION_AUDIT.md comprehensive report"
+    parallel_group: 3
+    completed: true
+    description: |
+      Create dashboard/app/DIGEST_MIGRATION_AUDIT.md with a comprehensive audit
+      documenting every page, feature, endpoint — what it originally used, what
+      it now gets from the digest engine, and the migration status.
+
+      Read ALL page files in dashboard/app/src/pages/ and the hooks to determine
+      current state after migration.
+
+      FORMAT (markdown with tables):
+
+      # Entity Digest Engine — Migration Audit
+
+      ## Architecture
+      - Frontend: useEntityDigest hook (shared module-level cache, 30s TTL)
+      - Backend: /api/entity-digest endpoint (Python thin wrapper, 2min server TTL)
+      - Database: execution.sp_BuildEntityDigest stored procedure (Fabric SQL)
+      - Forward-compatible: when incremental digestion (write-time aggregation) lands,
+        only the stored proc internals change. Frontend/backend stay identical.
+
+      ## Digest Entity Shape
+      (list all fields)
+
+      ## Page Migration Status
+
+      | Page | Original Endpoint(s) | Data Points Used | Digest Equivalent | Status |
+      |------|---------------------|------------------|-------------------|--------|
+      | RecordCounts | /api/entities, /api/bronze-entities, /api/silver-entities | entity metadata, source mapping | useEntityDigest hook | DONE |
+      | AdminGovernance | /api/entities, /api/bronze-entities, /api/silver-entities | entity counts, source breakdown | useEntityDigest hook | DONE |
+      ... (continue for ALL 22 pages)
+
+      ## Backend Endpoint Status
+
+      | Endpoint | Purpose | Digest Replacement | Status |
+      |----------|---------|-------------------|--------|
+      | GET /api/entities | LZ entity list | useEntityDigest().allEntities | DEPRECATED (kept for backward compat) |
+      ... etc
+
+      ## Pages Not Migrated (with rationale)
+
+      For each page that was NOT migrated, explain WHY:
+      - "Server pre-aggregates data" (executive, labs endpoints)
+      - "Not entity-related" (ExecutionLog, SqlExplorer, Settings, etc.)
+      - "Specialized shape" (PipelineRunner, NotebookDebug)
+
+      ## Future: Incremental Digestion
+      Explain the Phase 2 plan: execution.EntityStatusSummary table,
+      pipeline notebooks write status on each load, stored proc reads single table.
+
+      SUCCESS CRITERIA:
+      - File exists at dashboard/app/DIGEST_MIGRATION_AUDIT.md
+      - Every single page listed with accurate status
+      - Every entity-related endpoint documented
+      - Rationale for non-migrated pages
+      - Commit changes
+
+  - title: "Full build verification and cleanup"
+    parallel_group: 3
+    completed: true
+    description: |
+      Verify the entire dashboard builds cleanly after all migrations.
+
+      STEPS:
+      1. cd dashboard/app
+      2. Run: npx tsc --noEmit
+         - Must exit 0 with no errors
+      3. Run: npx vite build
+         - Must produce dist/ output successfully
+      4. Check for any unused imports or dead code introduced by migrations
+      5. If any TypeScript errors, fix them
+      6. If build fails, investigate and fix
+
+      SUCCESS CRITERIA:
+      - npx tsc --noEmit exits 0
+      - npx vite build completes successfully
+      - No regressions introduced
+      - Commit any fixes
