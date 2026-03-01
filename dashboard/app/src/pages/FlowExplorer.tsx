@@ -18,9 +18,11 @@ import {
   X,
   Route,
 } from "lucide-react";
+import { useEntityDigest } from "@/hooks/useEntityDigest";
+import type { DigestEntity, DigestSource } from "@/hooks/useEntityDigest";
 
 // ============================================================================
-// TYPES (same as AdminGovernance)
+// TYPES — connections, datasources, pipelines still fetched individually
 // ============================================================================
 
 interface Connection {
@@ -39,39 +41,6 @@ interface DataSource {
   Description: string | null;
   IsActive: string;
   ConnectionName: string;
-}
-
-interface Entity {
-  LandingzoneEntityId: string;
-  SourceSchema: string;
-  SourceName: string;
-  FileName: string;
-  FilePath: string;
-  FileType: string;
-  IsIncremental: string;
-  IsActive: string;
-  DataSourceName: string;
-}
-
-interface BronzeEntity {
-  BronzeLayerEntityId: string;
-  LandingzoneEntityId: string;
-  LakehouseId: string;
-  Schema: string;
-  Name: string;
-  PrimaryKeys: string;
-  FileType: string;
-  IsActive: string;
-}
-
-interface SilverEntity {
-  SilverLayerEntityId: string;
-  BronzeLayerEntityId: string;
-  LakehouseId: string;
-  Schema: string;
-  Name: string;
-  FileType: string;
-  IsActive: string;
 }
 
 interface Pipeline {
@@ -568,14 +537,20 @@ function FrameworkArchView({
 // ============================================================================
 
 export default function FlowExplorer() {
-  // Data state
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // ── Entity Digest (replaces /entities, /bronze-entities, /silver-entities) ──
+  const {
+    allEntities,
+    sourceList,
+    loading: digestLoading,
+    error: digestError,
+    refresh: refreshDigest,
+  } = useEntityDigest();
+
+  // ── Remaining non-digest fetches: connections, datasources, pipelines ──
+  const [auxLoading, setAuxLoading] = useState(true);
+  const [auxError, setAuxError] = useState<string | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
-  const [entities, setEntities] = useState<Entity[]>([]);
-  const [bronzeEntities, setBronzeEntities] = useState<BronzeEntity[]>([]);
-  const [silverEntities, setSilverEntities] = useState<SilverEntity[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
 
   // UI state
@@ -589,89 +564,93 @@ export default function FlowExplorer() {
   const PAGE_SIZE = 25;
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
   const [groupSearch, setGroupSearch] = useState<Record<string, string>>({});
-  // Fetch data
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+
+  // Fetch auxiliary data (connections, datasources, pipelines)
+  const loadAuxData = useCallback(async () => {
+    setAuxLoading(true);
+    setAuxError(null);
     try {
-      const [conn, ds, ent, bronze, silver, pipes] = await Promise.all([
+      const [conn, ds, pipes] = await Promise.all([
         fetchJson<Connection[]>("/connections"),
         fetchJson<DataSource[]>("/datasources"),
-        fetchJson<Entity[]>("/entities"),
-        fetchJson<BronzeEntity[]>("/bronze-entities"),
-        fetchJson<SilverEntity[]>("/silver-entities"),
         fetchJson<Pipeline[]>("/pipelines"),
       ]);
       setConnections(conn);
       setDataSources(ds);
-      setEntities(ent);
-      setBronzeEntities(bronze);
-      setSilverEntities(silver);
       setPipelines(pipes);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load data");
+      setAuxError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
-      setLoading(false);
+      setAuxLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadAuxData(); }, [loadAuxData]);
 
-  // Build entity flows
-  const sourceGroups: SourceGroup[] = dataSources
-    .filter((ds) => ds.IsActive === "True")
-    .map((ds) => {
-      const conn = connections.find((c) => c.Name === ds.ConnectionName);
-      const lzEnts = entities.filter((e) => e.DataSourceName === ds.Name);
+  // Combined loading / error state
+  const loading = digestLoading || auxLoading;
+  const error = digestError || auxError;
 
-      const flows: EntityFlow[] = lzEnts.map((ent) => {
-        const brz = bronzeEntities.find((b) => b.LandingzoneEntityId === ent.LandingzoneEntityId);
-        const slv = brz ? silverEntities.find((s) => s.BronzeLayerEntityId === brz.BronzeLayerEntityId) : null;
+  const loadData = useCallback(() => {
+    refreshDigest();
+    loadAuxData();
+  }, [refreshDigest, loadAuxData]);
 
-        let maxLayer: EntityFlow["maxLayer"] = "landing";
-        if (slv) maxLayer = "silver";
-        else if (brz) maxLayer = "bronze";
+  // ── Build a DataSource-type lookup so we can stamp flows with Type/Namespace ──
+  const dsLookup = new Map(dataSources.map((ds) => [ds.Name, ds]));
 
-        return {
-          id: ent.LandingzoneEntityId,
-          dataSourceName: ds.Name,
-          dataSourceType: ds.Type,
-          connectionName: conn?.Name || ds.ConnectionName,
-          namespace: ds.Namespace,
-          sourceSchema: ent.SourceSchema,
-          sourceName: ent.SourceName,
-          lzEntityId: ent.LandingzoneEntityId,
-          lzFileName: ent.FileName,
-          lzFilePath: ent.FilePath,
-          lzFileType: ent.FileType,
-          isIncremental: ent.IsIncremental === "True",
-          bronzeEntityId: brz?.BronzeLayerEntityId || null,
-          bronzeSchema: brz?.Schema || null,
-          bronzeName: brz?.Name || null,
-          bronzeFileType: brz?.FileType || null,
-          bronzePrimaryKeys: brz?.PrimaryKeys || null,
-          silverEntityId: slv?.SilverLayerEntityId || null,
-          silverSchema: slv?.Schema || null,
-          silverName: slv?.Name || null,
-          silverFileType: slv?.FileType || null,
-          goldEntityId: null,
-          goldName: null,
-          maxLayer,
-        };
-      });
+  // Helper: convert a DigestEntity into an EntityFlow
+  function digestToFlow(ent: DigestEntity, ds: DataSource | undefined): EntityFlow {
+    let maxLayer: EntityFlow["maxLayer"] = "landing";
+    if (ent.silverId != null) maxLayer = "silver";
+    else if (ent.bronzeId != null) maxLayer = "bronze";
 
-      return {
-        dataSourceName: ds.Name,
-        dataSourceType: ds.Type,
-        connectionName: conn?.Name || ds.ConnectionName,
-        namespace: ds.Namespace,
-        flows,
-        landingCount: flows.length,
-        bronzeCount: flows.filter((f) => f.bronzeName).length,
-        silverCount: flows.filter((f) => f.silverName).length,
-        goldCount: 0,
-      };
-    });
+    return {
+      id: String(ent.id),
+      dataSourceName: ent.source,
+      dataSourceType: ds?.Type || "ASQL_01",
+      connectionName: ent.connection?.connectionName || ds?.ConnectionName || "",
+      namespace: ds?.Namespace || "",
+      sourceSchema: ent.sourceSchema,
+      sourceName: ent.tableName,
+      lzEntityId: String(ent.id),
+      lzFileName: ent.tableName,
+      lzFilePath: ent.sourceSchema,
+      lzFileType: "PARQUET",
+      isIncremental: ent.isIncremental,
+      bronzeEntityId: ent.bronzeId != null ? String(ent.bronzeId) : null,
+      bronzeSchema: ent.bronzeId != null ? ent.sourceSchema : null,
+      bronzeName: ent.bronzeId != null ? ent.tableName : null,
+      bronzeFileType: ent.bronzeId != null ? "DELTA" : null,
+      bronzePrimaryKeys: ent.bronzePKs || null,
+      silverEntityId: ent.silverId != null ? String(ent.silverId) : null,
+      silverSchema: ent.silverId != null ? ent.sourceSchema : null,
+      silverName: ent.silverId != null ? ent.tableName : null,
+      silverFileType: ent.silverId != null ? "DELTA" : null,
+      goldEntityId: null,
+      goldName: null,
+      maxLayer,
+    };
+  }
+
+  // Build entity flows from digest source groups
+  const sourceGroups: SourceGroup[] = sourceList.map((src: DigestSource) => {
+    const ds = dsLookup.get(src.name);
+
+    const flows: EntityFlow[] = src.entities.map((ent) => digestToFlow(ent, ds));
+
+    return {
+      dataSourceName: src.name,
+      dataSourceType: ds?.Type || "ASQL_01",
+      connectionName: src.connection?.connectionName || ds?.ConnectionName || "",
+      namespace: ds?.Namespace || "",
+      flows,
+      landingCount: flows.length,
+      bronzeCount: flows.filter((f) => f.bronzeName).length,
+      silverCount: flows.filter((f) => f.silverName).length,
+      goldCount: 0,
+    };
+  });
 
   // Search filter
   const filteredGroups = sourceGroups.map((g) => {
