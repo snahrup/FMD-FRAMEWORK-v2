@@ -18,43 +18,7 @@ import {
   Sparkles,
   Route,
 } from "lucide-react";
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-interface BronzeEntity {
-  BronzeLayerEntityId: string;
-  LandingzoneEntityId: string;
-  LakehouseId: string;
-  Schema: string;
-  Name: string;
-  PrimaryKeys: string;
-  FileType: string;
-  IsActive: string;
-}
-
-interface SilverEntity {
-  SilverLayerEntityId: string;
-  BronzeLayerEntityId: string;
-  LakehouseId: string;
-  Schema: string;
-  Name: string;
-  FileType: string;
-  IsActive: string;
-}
-
-interface Entity {
-  LandingzoneEntityId: string;
-  SourceSchema: string;
-  SourceName: string;
-  FileName: string;
-  FilePath: string;
-  FileType: string;
-  IsIncremental: string;
-  IsActive: string;
-  DataSourceName: string;
-}
+import { useEntityDigest } from "../hooks/useEntityDigest";
 
 interface LakehouseCount {
   schema: string;
@@ -175,77 +139,13 @@ function generateMockCounts(): Record<string, LakehouseCount[]> {
   };
 }
 
-function generateMockEntities(): { entities: Entity[]; bronzeEntities: BronzeEntity[]; silverEntities: SilverEntity[] } {
-  const sources = [
-    { name: "IPC_PowerData", tables: ["Customers", "Orders", "OrderLines", "Products", "ProductCategories", "Suppliers", "Warehouses", "InventorySnapshots", "Shipments", "Returns"] },
-    { name: "IPC_FinanceDB", tables: ["GLAccounts", "JournalEntries", "JournalLines", "CostCenters", "BudgetLines", "APInvoices", "ARInvoices", "BankTransactions"] },
-    { name: "IPC_MES", tables: ["WorkOrders", "WorkOrderOperations", "MachineEvents", "ProductionRuns", "QualityChecks", "Downtime", "SensorReadings"] },
-    { name: "IPC_HRConnect", tables: ["Employees", "Departments", "TimeEntries", "PayrollRuns", "Benefits"] },
-  ];
-
-  const entities: Entity[] = [];
-  const bronzeEntities: BronzeEntity[] = [];
-  const silverEntities: SilverEntity[] = [];
-  const schemas = ["dbo", "staging", "raw"];
-  let id = 1;
-
-  for (const src of sources) {
-    const schema = schemas[Math.floor(Math.random() * schemas.length)];
-    for (const table of src.tables) {
-      const lzId = `LZ-${String(id).padStart(3, "0")}`;
-      const brzId = `BRZ-${String(id).padStart(3, "0")}`;
-      const slvId = `SLV-${String(id).padStart(3, "0")}`;
-
-      entities.push({
-        LandingzoneEntityId: lzId,
-        SourceSchema: "dbo",
-        SourceName: table,
-        FileName: `${table}.parquet`,
-        FilePath: `/LandingZone/${src.name}/${table}`,
-        FileType: "parquet",
-        IsIncremental: Math.random() > 0.4 ? "True" : "False",
-        IsActive: "True",
-        DataSourceName: src.name,
-      });
-
-      bronzeEntities.push({
-        BronzeLayerEntityId: brzId,
-        LandingzoneEntityId: lzId,
-        LakehouseId: "LH_BRONZE",
-        Schema: schema,
-        Name: table,
-        PrimaryKeys: "Id",
-        FileType: "delta",
-        IsActive: "True",
-      });
-
-      silverEntities.push({
-        SilverLayerEntityId: slvId,
-        BronzeLayerEntityId: brzId,
-        LakehouseId: "LH_SILVER",
-        Schema: schema,
-        Name: table,
-        FileType: "delta",
-        IsActive: "True",
-      });
-
-      id++;
-    }
-  }
-
-  return { entities, bronzeEntities, silverEntities };
-}
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
 export default function RecordCounts() {
-  // Metadata (loaded once on mount)
-  const [entities, setEntities] = useState<Entity[]>([]);
-  const [bronzeEntities, setBronzeEntities] = useState<BronzeEntity[]>([]);
-  const [silverEntities, setSilverEntities] = useState<SilverEntity[]>([]);
-  const [metaLoading, setMetaLoading] = useState(true);
+  // Entity metadata from the centralized digest engine
+  const { allEntities, loading: metaLoading } = useEntityDigest();
 
   // Lakehouse counts — starts empty, populated from API
   const [counts, setCounts] = useState<Record<string, LakehouseCount[]> | null>(null);
@@ -289,28 +189,9 @@ export default function RecordCounts() {
     }
   }, []);
 
-  // Load metadata + counts on mount
+  // Load counts on mount
   useEffect(() => {
-    async function loadInitial() {
-      setMetaLoading(true);
-      try {
-        const [entRes, brzRes, slvRes] = await Promise.all([
-          fetch(`${API}/entities`),
-          fetch(`${API}/bronze-entities`),
-          fetch(`${API}/silver-entities`),
-        ]);
-        if (entRes.ok) setEntities(await entRes.json());
-        if (brzRes.ok) setBronzeEntities(await brzRes.json());
-        if (slvRes.ok) setSilverEntities(await slvRes.json());
-      } catch {
-        // API unavailable — leave empty
-      } finally {
-        setMetaLoading(false);
-      }
-      // Also trigger count load
-      loadCounts();
-    }
-    loadInitial();
+    loadCounts();
   }, [loadCounts]);
 
   // Build the matrix rows
@@ -330,16 +211,13 @@ export default function RecordCounts() {
       silverMap.set(`${c.schema}.${c.table}`.toLowerCase(), c.rowCount);
     }
 
-    // Build entity-to-datasource lookup from metadata
+    // Build entity-to-datasource lookup from digest
     const entityToSource = new Map<string, { dataSource: string; loadType: string }>();
-    for (const ent of entities) {
-      const brz = bronzeEntities.find(b => b.LandingzoneEntityId === ent.LandingzoneEntityId);
-      if (brz) {
-        entityToSource.set(`${brz.Schema}.${brz.Name}`.toLowerCase(), {
-          dataSource: ent.DataSourceName,
-          loadType: ent.IsIncremental === "True" ? "Incremental" : "Full",
-        });
-      }
+    for (const ent of allEntities) {
+      entityToSource.set(`${ent.sourceSchema}.${ent.tableName}`.toLowerCase(), {
+        dataSource: ent.source,
+        loadType: ent.isIncremental ? "Incremental" : "Full",
+      });
     }
 
     // Merge all tables from both lakehouses
@@ -380,7 +258,7 @@ export default function RecordCounts() {
     }
 
     return result;
-  }, [counts, entities, bronzeEntities, silverEntities]);
+  }, [counts, allEntities]);
 
   // Filter and sort
   const displayed = useMemo(() => {

@@ -45,6 +45,8 @@
 
 import uuid
 import requests
+import struct
+import pyodbc
 
 from datetime import datetime, timezone
 from json import loads, dumps
@@ -157,6 +159,51 @@ if not WorkspaceGuid:
 
 # CELL ********************
 
+# Load connection config for EntityStatus updates
+_config_settings = notebookutils.variableLibrary.getLibrary("VAR_CONFIG_FMD")
+_lz_connstring = _config_settings.fmd_fabric_db_connection
+_lz_database = _config_settings.fmd_fabric_db_name
+
+def update_entity_status(entity_id, layer, status, error_msg=None):
+    """Update EntityStatusSummary via sp_UpsertEntityStatus after each entity load."""
+    try:
+        _token = notebookutils.credentials.getToken(
+            'https://analysis.windows.net/powerbi/api'
+        ).encode("UTF-16-LE")
+        _token_struct = struct.pack(f'<I{len(_token)}s', len(_token), _token)
+
+        conn = pyodbc.connect(
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};SERVER={_lz_connstring};PORT=1433;DATABASE={_lz_database};",
+            attrs_before={1256: _token_struct},
+            timeout=60
+        )
+        err_param = ""
+        if error_msg:
+            safe_msg = str(error_msg)[:500].replace("'", "''")
+            err_param = f", @ErrorMessage = '{safe_msg}'"
+        sql = (
+            f"EXEC [execution].[sp_UpsertEntityStatus] "
+            f"@LandingzoneEntityId = {entity_id}, "
+            f"@Layer = '{layer}', "
+            f"@Status = '{status}'"
+            f"{err_param}"
+        )
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"  [WARN] EntityStatus update failed for {entity_id}: {e}")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
 starttime = datetime.now()
 
 # METADATA ********************
@@ -209,11 +256,15 @@ result = None
 fail = None
 try:
     result = notebookutils.notebook.run(CustomNotebookName, 900, notebook_params)
+    # Update EntityStatus on successful load
+    update_entity_status(EntityId, "landingzone", "loaded")
 except Py4JJavaError as e:
     # Inspect the Java exception message
     if "NotebookExecutionException" in str(e):
         fail = e
+        update_entity_status(EntityId, "landingzone", "not_started", str(e))
 except Exception as e:
+    update_entity_status(EntityId, "landingzone", "not_started", str(e))
     print(notebook_params)
     raise(e)
 

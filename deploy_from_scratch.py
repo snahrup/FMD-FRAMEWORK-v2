@@ -125,19 +125,19 @@ ONPREM_DATASOURCE_DEFS = {
         "type": "SQL",
         "description": "MES production database (445 entities)",
     },
-    "ETQStagingPRD": {
+    "ETQ": {
         "connection": "CON_FMD_M3DB3_ETQSTAGINGPRD",
         "namespace": "dbo",
         "type": "SQL",
         "description": "ETQ Staging PRD (29 entities)",
     },
-    "DI_PRD_Staging": {
+    "M3_Cloud": {
         "connection": "CON_FMD_M3DB1_M3CLOUD",
         "namespace": "dbo",
         "type": "SQL",
         "description": "M3 Cloud DI_PRD_Staging (185 entities)",
     },
-    "m3fdbprd": {
+    "M3": {
         "connection": "CON_FMD_M3DB1_M3",
         "namespace": "dbo",
         "type": "SQL",
@@ -2116,7 +2116,7 @@ def phase13_5_load_optimization(state, args):
     Watermark priority: rowversion > *Modified* datetime > *Created* datetime > identity > none
     """
     print("\n" + "=" * 70)
-    print("PHASE 13.5: Load Optimization (Source Analysis)")
+    print("PHASE 14: Load Optimization (Source Analysis)")
     print("=" * 70)
 
     sql_db = state.get("sql_db", {})
@@ -2331,7 +2331,302 @@ def phase13_5_load_optimization(state, args):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PHASE 14: DEPLOYMENT VALIDATION
+# PHASE 16: ENTITY DIGEST ENGINE (Status Summary + Build Proc)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def phase15_digest_engine(state, args):
+    """Deploy the Entity Digest Engine — Phase 1 + Phase 2 SQL objects.
+
+    Creates:
+      - ServerName/DatabaseName columns on integration.Connection (if missing)
+      - execution.EntityStatusSummary table (one row per entity, pre-computed status)
+      - execution.sp_UpsertEntityStatus (called by pipeline notebooks after each load)
+      - execution.sp_BuildEntityDigest (summary-first with 6-table join fallback)
+      - Seeds EntityStatusSummary from existing execution tracking data
+
+    This MUST run after entity registration so there are entities to seed.
+    The dashboard /api/entity-digest endpoint depends on sp_BuildEntityDigest.
+    Pipeline notebooks (deployed in Phase 8) call sp_UpsertEntityStatus on each load.
+    """
+    print("\n" + "=" * 70)
+    print("PHASE 16: Entity Digest Engine")
+    print("=" * 70)
+
+    sql_db = state.get("sql_db", {})
+    server = sql_db.get("server", "")
+    database = sql_db.get("database", "")
+
+    if not server or not database:
+        print("  [SKIP] No SQL database info available")
+        return
+
+    if args.dry_run:
+        print("  [DRY] Would create execution.EntityStatusSummary table")
+        print("  [DRY] Would create execution.sp_UpsertEntityStatus proc")
+        print("  [DRY] Would create execution.sp_BuildEntityDigest proc")
+        print("  [DRY] Would seed summary from existing execution data")
+        return
+
+    try:
+        import pyodbc
+    except ImportError:
+        print("  [SKIP] pyodbc not installed")
+        return
+
+    sql_token = get_token("https://database.windows.net/.default")
+    token_bytes = sql_token.encode("utf-16-le")
+    token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
+    server_conn = f"{server},1433" if ",1433" not in server else server
+    driver = "{ODBC Driver 18 for SQL Server}"
+    conn_str = f"DRIVER={driver};SERVER={server_conn};DATABASE={database};"
+
+    try:
+        meta_conn = pyodbc.connect(conn_str, attrs_before={1256: token_struct}, timeout=30)
+    except Exception as e:
+        print(f"  [FAIL] Metadata DB connection error: {e}")
+        return
+
+    cursor = meta_conn.cursor()
+
+    def exec_sql(label, sql):
+        try:
+            cursor.execute(sql)
+            cursor.commit()
+            print(f"  [OK] {label}")
+        except Exception as e:
+            print(f"  [WARN] {label}: {e}")
+
+    # ── Step 1: Ensure Connection table has ServerName/DatabaseName ──
+    print("\n  Step 1: Connection metadata enrichment...")
+    exec_sql("Add ServerName column", """
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = 'integration' AND TABLE_NAME = 'Connection' AND COLUMN_NAME = 'ServerName'
+        )
+        ALTER TABLE integration.Connection ADD ServerName VARCHAR(200) NULL;
+    """)
+    exec_sql("Add DatabaseName column", """
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = 'integration' AND TABLE_NAME = 'Connection' AND COLUMN_NAME = 'DatabaseName'
+        )
+        ALTER TABLE integration.Connection ADD DatabaseName VARCHAR(200) NULL;
+    """)
+
+    # ── Step 2: Create EntityStatusSummary table ──
+    print("\n  Step 2: EntityStatusSummary table...")
+    exec_sql("Create EntityStatusSummary", """
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = 'execution' AND TABLE_NAME = 'EntityStatusSummary'
+        )
+        CREATE TABLE [execution].[EntityStatusSummary] (
+            LandingzoneEntityId INT NOT NULL PRIMARY KEY,
+            SourceNamespace VARCHAR(100), SourceSchema VARCHAR(100), SourceName VARCHAR(200),
+            ConnectionName VARCHAR(200), ServerName VARCHAR(200), DatabaseName VARCHAR(200),
+            IsActive BIT DEFAULT 1, IsIncremental BIT DEFAULT 0, WatermarkColumn VARCHAR(200),
+            BronzeLayerEntityId INT NULL, BronzePKs VARCHAR(500), SilverLayerEntityId INT NULL,
+            LzStatus VARCHAR(20) DEFAULT 'not_started', LzLastLoad DATETIME2 NULL,
+            BronzeStatus VARCHAR(20) DEFAULT 'not_started', BronzeLastLoad DATETIME2 NULL,
+            SilverStatus VARCHAR(20) DEFAULT 'not_started', SilverLastLoad DATETIME2 NULL,
+            LastErrorMessage NVARCHAR(MAX) NULL, LastErrorLayer VARCHAR(20) NULL, LastErrorTime DATETIME2 NULL,
+            OverallStatus VARCHAR(20) DEFAULT 'not_started',
+            LastUpdated DATETIME2 DEFAULT GETUTCDATE(), LastUpdatedBy VARCHAR(50)
+        );
+    """)
+
+    # ── Step 3: Create sp_UpsertEntityStatus ──
+    print("\n  Step 3: sp_UpsertEntityStatus proc...")
+    exec_sql("Create sp_UpsertEntityStatus", """
+    CREATE OR ALTER PROCEDURE [execution].[sp_UpsertEntityStatus]
+        @LandingzoneEntityId INT, @Layer VARCHAR(20), @Status VARCHAR(20),
+        @LoadEndDateTime DATETIME2 = NULL, @ErrorMessage NVARCHAR(MAX) = NULL,
+        @UpdatedBy VARCHAR(50) = 'notebook'
+    WITH EXECUTE AS CALLER
+    AS
+    SET NOCOUNT ON;
+    -- Auto-resolve BronzeLayerEntityId -> LandingzoneEntityId (Silver notebook compat)
+    IF NOT EXISTS (SELECT 1 FROM integration.LandingzoneEntity WHERE LandingzoneEntityId = @LandingzoneEntityId)
+    BEGIN
+        DECLARE @resolvedLzId INT;
+        SELECT @resolvedLzId = LandingzoneEntityId FROM integration.BronzeLayerEntity WHERE BronzeLayerEntityId = @LandingzoneEntityId;
+        IF @resolvedLzId IS NOT NULL SET @LandingzoneEntityId = @resolvedLzId;
+    END
+    -- Auto-seed if not exists
+    IF NOT EXISTS (SELECT 1 FROM [execution].[EntityStatusSummary] WHERE LandingzoneEntityId = @LandingzoneEntityId)
+    BEGIN
+        INSERT INTO [execution].[EntityStatusSummary] (
+            LandingzoneEntityId, SourceNamespace, SourceSchema, SourceName,
+            ConnectionName, ServerName, DatabaseName,
+            IsActive, IsIncremental, WatermarkColumn,
+            BronzeLayerEntityId, BronzePKs, SilverLayerEntityId, LastUpdated, LastUpdatedBy)
+        SELECT le.LandingzoneEntityId, ds.Namespace, le.SourceSchema, le.SourceName,
+            c.Name, c.ServerName, c.DatabaseName, le.IsActive, le.IsIncremental, le.IsIncrementalColumn,
+            be.BronzeLayerEntityId, be.PrimaryKeys, se.SilverLayerEntityId, GETUTCDATE(), @UpdatedBy
+        FROM integration.LandingzoneEntity le
+        JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+        LEFT JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId
+        LEFT JOIN integration.BronzeLayerEntity be ON le.LandingzoneEntityId = be.LandingzoneEntityId
+        LEFT JOIN integration.SilverLayerEntity se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
+        WHERE le.LandingzoneEntityId = @LandingzoneEntityId;
+    END
+    -- Update layer status
+    IF @Layer = 'landingzone'
+        UPDATE [execution].[EntityStatusSummary] SET LzStatus = @Status, LzLastLoad = COALESCE(@LoadEndDateTime, GETUTCDATE()),
+            LastErrorMessage = CASE WHEN @ErrorMessage IS NOT NULL THEN @ErrorMessage ELSE LastErrorMessage END,
+            LastErrorLayer = CASE WHEN @ErrorMessage IS NOT NULL THEN 'Landingzone' ELSE LastErrorLayer END,
+            LastErrorTime = CASE WHEN @ErrorMessage IS NOT NULL THEN GETUTCDATE() ELSE LastErrorTime END,
+            LastUpdated = GETUTCDATE(), LastUpdatedBy = @UpdatedBy WHERE LandingzoneEntityId = @LandingzoneEntityId;
+    ELSE IF @Layer = 'bronze'
+        UPDATE [execution].[EntityStatusSummary] SET BronzeStatus = @Status, BronzeLastLoad = COALESCE(@LoadEndDateTime, GETUTCDATE()),
+            LastErrorMessage = CASE WHEN @ErrorMessage IS NOT NULL THEN @ErrorMessage ELSE LastErrorMessage END,
+            LastErrorLayer = CASE WHEN @ErrorMessage IS NOT NULL THEN 'Bronze' ELSE LastErrorLayer END,
+            LastErrorTime = CASE WHEN @ErrorMessage IS NOT NULL THEN GETUTCDATE() ELSE LastErrorTime END,
+            LastUpdated = GETUTCDATE(), LastUpdatedBy = @UpdatedBy WHERE LandingzoneEntityId = @LandingzoneEntityId;
+    ELSE IF @Layer = 'silver'
+        UPDATE [execution].[EntityStatusSummary] SET SilverStatus = @Status, SilverLastLoad = COALESCE(@LoadEndDateTime, GETUTCDATE()),
+            LastErrorMessage = CASE WHEN @ErrorMessage IS NOT NULL THEN @ErrorMessage ELSE LastErrorMessage END,
+            LastErrorLayer = CASE WHEN @ErrorMessage IS NOT NULL THEN 'Silver' ELSE LastErrorLayer END,
+            LastErrorTime = CASE WHEN @ErrorMessage IS NOT NULL THEN GETUTCDATE() ELSE LastErrorTime END,
+            LastUpdated = GETUTCDATE(), LastUpdatedBy = @UpdatedBy WHERE LandingzoneEntityId = @LandingzoneEntityId;
+    -- Recompute overall
+    UPDATE [execution].[EntityStatusSummary] SET OverallStatus = CASE
+        WHEN LzStatus = 'loaded' AND BronzeStatus = 'loaded' AND SilverStatus = 'loaded' THEN 'complete'
+        WHEN LastErrorMessage IS NOT NULL AND LastErrorTime > DATEADD(day, -7, GETUTCDATE()) THEN 'error'
+        WHEN BronzeStatus = 'pending' OR SilverStatus = 'pending' THEN 'pending'
+        WHEN LzStatus = 'loaded' THEN 'partial' ELSE 'not_started' END
+    WHERE LandingzoneEntityId = @LandingzoneEntityId;
+    """)
+
+    # ── Step 4: Create sp_BuildEntityDigest ──
+    print("\n  Step 4: sp_BuildEntityDigest proc...")
+    exec_sql("Create sp_BuildEntityDigest", """
+    CREATE OR ALTER PROCEDURE [execution].[sp_BuildEntityDigest]
+        @SourceFilter VARCHAR(50) = NULL, @LayerFilter VARCHAR(20) = NULL, @StatusFilter VARCHAR(20) = NULL
+    WITH EXECUTE AS CALLER
+    AS
+    SET NOCOUNT ON;
+    DECLARE @summaryCount INT;
+    SELECT @summaryCount = COUNT(*) FROM [execution].[EntityStatusSummary];
+    IF @summaryCount > 0
+    BEGIN
+        SELECT ess.SourceNamespace AS source, ess.DatabaseName AS dbName,
+            ess.ConnectionName AS connectionName, ess.ServerName AS serverName,
+            ess.DatabaseName AS databaseName, ess.LandingzoneEntityId AS id,
+            ess.SourceSchema AS sourceSchema, ess.SourceName AS tableName,
+            ess.IsIncremental, ess.WatermarkColumn AS watermarkColumn, ess.IsActive,
+            ess.BronzeLayerEntityId AS bronzeId, ess.BronzePKs AS bronzePKs,
+            ess.SilverLayerEntityId AS silverId, ess.LzStatus AS lzStatus, ess.LzLastLoad AS lastLzLoad,
+            ess.BronzeStatus AS bronzeStatus, ess.BronzeLastLoad AS lastBrzLoad,
+            ess.SilverStatus AS silverStatus, ess.SilverLastLoad AS lastSlvLoad,
+            ess.LastErrorMessage AS lastErrorMessage, ess.LastErrorLayer AS lastErrorLayer,
+            ess.LastErrorTime AS lastErrorTime, ess.OverallStatus AS overall
+        FROM [execution].[EntityStatusSummary] ess
+        WHERE ess.IsActive = 1 AND (@SourceFilter IS NULL OR ess.SourceNamespace = @SourceFilter)
+        ORDER BY ess.SourceNamespace, ess.SourceName;
+    END
+    ELSE
+    BEGIN
+        CREATE TABLE #SlvProcessed (SilverLayerEntityId INT, lastSlvLoad DATETIME2);
+        IF OBJECT_ID('execution.PipelineSilverLayerEntity', 'U') IS NOT NULL
+            INSERT INTO #SlvProcessed EXEC sp_executesql N'SELECT SilverLayerEntityId, MAX(LoadEndDateTime) AS lastSlvLoad FROM execution.PipelineSilverLayerEntity WHERE IsProcessed = 1 GROUP BY SilverLayerEntityId';
+        CREATE TABLE #SlvPending (BronzeLayerEntityId INT);
+        IF OBJECT_ID('execution.vw_LoadToSilverLayer', 'V') IS NOT NULL
+            INSERT INTO #SlvPending EXEC sp_executesql N'SELECT DISTINCT BronzeLayerEntityId FROM execution.vw_LoadToSilverLayer';
+        SELECT ds.Namespace AS source, ds.Name AS dbName, c.Name AS connectionName, c.ServerName AS serverName, c.DatabaseName AS databaseName,
+            le.LandingzoneEntityId AS id, le.SourceSchema AS sourceSchema, le.SourceName AS tableName, le.FileName,
+            le.IsIncremental, le.IsIncrementalColumn AS watermarkColumn, le.IsActive,
+            be.BronzeLayerEntityId AS bronzeId, be.PrimaryKeys AS bronzePKs, be.IsActive AS bronzeActive,
+            se.SilverLayerEntityId AS silverId, se.IsActive AS silverActive,
+            CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END AS lzStatus, ple.lastLzLoad,
+            CASE WHEN pbe.BronzeLayerEntityId IS NOT NULL THEN 'loaded' WHEN bp.BronzeLayerEntityId IS NOT NULL THEN 'pending' ELSE 'not_started' END AS bronzeStatus, pbe.lastBrzLoad,
+            CASE WHEN pse.SilverLayerEntityId IS NOT NULL THEN 'loaded' WHEN spp.BronzeLayerEntityId IS NOT NULL THEN 'pending' ELSE 'not_started' END AS silverStatus, pse.lastSlvLoad,
+            err.LogData AS lastErrorMessage, err.EntityLayer AS lastErrorLayer, err.LogDateTime AS lastErrorTime,
+            CASE WHEN ple.LandingzoneEntityId IS NOT NULL AND pbe.BronzeLayerEntityId IS NOT NULL AND pse.SilverLayerEntityId IS NOT NULL THEN 'complete'
+                 WHEN err.LogData IS NOT NULL THEN 'error'
+                 WHEN bp.BronzeLayerEntityId IS NOT NULL OR spp.BronzeLayerEntityId IS NOT NULL THEN 'pending'
+                 WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'partial' ELSE 'not_started' END AS overall
+        FROM integration.LandingzoneEntity le
+        JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+        LEFT JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId
+        LEFT JOIN integration.BronzeLayerEntity be ON le.LandingzoneEntityId = be.LandingzoneEntityId
+        LEFT JOIN integration.SilverLayerEntity se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
+        LEFT JOIN (SELECT LandingzoneEntityId, MAX(LoadEndDateTime) AS lastLzLoad FROM execution.PipelineLandingzoneEntity WHERE IsProcessed = 1 GROUP BY LandingzoneEntityId) ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId
+        LEFT JOIN (SELECT BronzeLayerEntityId, MAX(LoadEndDateTime) AS lastBrzLoad FROM execution.PipelineBronzeLayerEntity WHERE IsProcessed = 1 GROUP BY BronzeLayerEntityId) pbe ON be.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+        LEFT JOIN #SlvProcessed pse ON se.SilverLayerEntityId = pse.SilverLayerEntityId
+        LEFT JOIN (SELECT DISTINCT EntityId AS BronzeLayerEntityId FROM execution.vw_LoadToBronzeLayer) bp ON be.BronzeLayerEntityId = bp.BronzeLayerEntityId
+        LEFT JOIN #SlvPending spp ON be.BronzeLayerEntityId = spp.BronzeLayerEntityId
+        OUTER APPLY (SELECT TOP 1 pe.LogData, pe.EntityLayer, pe.LogDateTime FROM logging.PipelineExecution pe WHERE pe.LogType LIKE '%Error%' AND pe.LogDateTime > DATEADD(day, -7, GETUTCDATE()) AND pe.LogData LIKE '%' + le.SourceName + '%' ORDER BY pe.LogDateTime DESC) err
+        WHERE ds.IsActive = 1 AND (@SourceFilter IS NULL OR ds.Namespace = @SourceFilter)
+        ORDER BY ds.Namespace, le.SourceName;
+        DROP TABLE #SlvProcessed;
+        DROP TABLE #SlvPending;
+    END
+    """)
+
+    # ── Step 5: Seed EntityStatusSummary ──
+    print("\n  Step 5: Seed EntityStatusSummary from existing data...")
+    cursor.execute("SELECT COUNT(*) FROM [execution].[EntityStatusSummary]")
+    before_cnt = cursor.fetchone()[0]
+
+    exec_sql("Seed summary table", """
+    INSERT INTO [execution].[EntityStatusSummary] (
+        LandingzoneEntityId, SourceNamespace, SourceSchema, SourceName,
+        ConnectionName, ServerName, DatabaseName, IsActive, IsIncremental, WatermarkColumn,
+        BronzeLayerEntityId, BronzePKs, SilverLayerEntityId,
+        LzStatus, LzLastLoad, BronzeStatus, BronzeLastLoad, SilverStatus, SilverLastLoad,
+        OverallStatus, LastUpdated, LastUpdatedBy)
+    SELECT le.LandingzoneEntityId, ds.Namespace, le.SourceSchema, le.SourceName,
+        c.Name, c.ServerName, c.DatabaseName, le.IsActive, le.IsIncremental, le.IsIncrementalColumn,
+        be.BronzeLayerEntityId, be.PrimaryKeys, se.SilverLayerEntityId,
+        CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END, ple.lastLzLoad,
+        CASE WHEN pbe.BronzeLayerEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END, pbe.lastBrzLoad,
+        CASE WHEN pse.SilverLayerEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END, pse.lastSlvLoad,
+        CASE WHEN ple.LandingzoneEntityId IS NOT NULL AND pbe.BronzeLayerEntityId IS NOT NULL AND pse.SilverLayerEntityId IS NOT NULL THEN 'complete'
+             WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'partial' ELSE 'not_started' END,
+        GETUTCDATE(), 'deploy'
+    FROM integration.LandingzoneEntity le
+    JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+    LEFT JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId
+    LEFT JOIN integration.BronzeLayerEntity be ON le.LandingzoneEntityId = be.LandingzoneEntityId
+    LEFT JOIN integration.SilverLayerEntity se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
+    LEFT JOIN (SELECT LandingzoneEntityId, MAX(LoadEndDateTime) AS lastLzLoad FROM execution.PipelineLandingzoneEntity WHERE IsProcessed = 1 GROUP BY LandingzoneEntityId) ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId
+    LEFT JOIN (SELECT BronzeLayerEntityId, MAX(LoadEndDateTime) AS lastBrzLoad FROM execution.PipelineBronzeLayerEntity WHERE IsProcessed = 1 GROUP BY BronzeLayerEntityId) pbe ON be.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+    LEFT JOIN (SELECT SilverLayerEntityId, MAX(LoadEndDateTime) AS lastSlvLoad FROM execution.PipelineSilverLayerEntity WHERE IsProcessed = 1 GROUP BY SilverLayerEntityId) pse ON se.SilverLayerEntityId = pse.SilverLayerEntityId
+    WHERE ds.IsActive = 1
+    AND le.LandingzoneEntityId NOT IN (SELECT LandingzoneEntityId FROM execution.EntityStatusSummary);
+    """)
+
+    cursor.execute("SELECT COUNT(*) FROM [execution].[EntityStatusSummary]")
+    after_cnt = cursor.fetchone()[0]
+    print(f"  Summary: {before_cnt} -> {after_cnt} rows ({after_cnt - before_cnt} seeded)")
+
+    # ── Step 6: Verify ──
+    print("\n  Step 6: Verification...")
+    cursor.execute("""
+        SELECT 1 FROM sys.procedures WHERE schema_id = SCHEMA_ID('execution') AND name = 'sp_UpsertEntityStatus'
+    """)
+    upsert_exists = cursor.fetchone() is not None
+    cursor.execute("""
+        SELECT 1 FROM sys.procedures WHERE schema_id = SCHEMA_ID('execution') AND name = 'sp_BuildEntityDigest'
+    """)
+    digest_exists = cursor.fetchone() is not None
+
+    print(f"  EntityStatusSummary: {after_cnt} rows")
+    print(f"  sp_UpsertEntityStatus: {'EXISTS' if upsert_exists else 'MISSING!'}")
+    print(f"  sp_BuildEntityDigest: {'EXISTS' if digest_exists else 'MISSING!'}")
+
+    cursor.close()
+    meta_conn.close()
+
+    if not upsert_exists or not digest_exists:
+        print("  [WARN] Missing stored procs!")
+    else:
+        print("  [OK] Digest engine fully deployed")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PHASE 16: DEPLOYMENT VALIDATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def phase14_validate(state, args):
@@ -2497,8 +2792,10 @@ PHASES = [
     (11, "Populate SQL Metadata",    phase10_sql_metadata),
     (12, "Update Local Config",      phase11_update_config),
     (13, "Register Entities",        phase13_register_entities),
-    (14, "Workspace Icons",          phase12_workspace_icons),
-    (15, "Validate Deployment",      phase14_validate),
+    (14, "Load Optimization",        phase13_5_load_optimization),
+    (15, "Workspace Icons",          phase12_workspace_icons),
+    (16, "Entity Digest Engine",     phase15_digest_engine),
+    (17, "Validate Deployment",      phase14_validate),
 ]
 
 

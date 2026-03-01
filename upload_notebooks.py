@@ -202,6 +202,7 @@ def main():
     notebooks_to_upload = [
         "NB_FMD_LOAD_LANDING_BRONZE",
         "NB_FMD_LOAD_BRONZE_SILVER",
+        "NB_FMD_PROCESSING_LANDINGZONE_MAIN",
         "NB_FMD_DQ_CLEANSING",
         "NB_FMD_PROCESSING_PARALLEL_MAIN",
     ]

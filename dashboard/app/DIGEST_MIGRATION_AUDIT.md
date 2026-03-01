@@ -1,6 +1,6 @@
 # Entity Digest Engine — Migration Audit
 
-> Generated 2026-02-28 by comprehensive codebase analysis.
+> Generated 2026-02-28. Updated 2026-02-28 with Phase 2 deployment status.
 > Covers every page in `dashboard/app/src/pages/`, the `useEntityDigest` hook,
 > and all entity-related endpoints in `dashboard/app/api/server.py`.
 
@@ -12,8 +12,8 @@
 |-------|-----------|-----|-------------|
 | **Frontend** | `useEntityDigest` hook | 30 s (module-level singleton cache) | Shared React hook. All components that mount simultaneously share a single in-flight request. Exposes `allEntities`, `sourceList`, `totalSummary`, `findEntity`, `entitiesBySource`, plus raw `data`, `loading`, `error`, `refresh`. |
 | **Backend** | `GET /api/entity-digest` | 2 min (server-side dict cache) | Thin Python wrapper. Parses optional `?source=`, `?layer=`, `?status=` query params, calls the stored proc, reshapes rows into the `DigestResponse` shape, caches the result. |
-| **Database** | `execution.sp_BuildEntityDigest` | N/A (real-time) | Fabric SQL stored procedure. Joins 6+ tables (`LandingzoneEntity`, `BronzeLayerEntity`, `SilverLayerEntity`, `DataSource`, `Connection`, execution logs) in a single query. Accepts optional `@SourceFilter` parameter. |
-| **Forward-compatible** | — | — | When incremental digestion (Phase 2: write-time aggregation into `execution.EntityStatusSummary`) lands, only the stored proc internals change. The Python wrapper and React hook remain identical. |
+| **Database** | `execution.sp_BuildEntityDigest` | N/A (real-time) | Fabric SQL stored procedure. Phase 2: reads from pre-computed `execution.EntityStatusSummary` (fast path). Falls back to 6-table join if summary is empty (backward compat). Accepts optional `@SourceFilter` parameter. |
+| **Write-time updates** | `execution.sp_UpsertEntityStatus` | N/A (event-driven) | Called by pipeline notebooks after each entity load. Updates per-layer status, error tracking, and recomputes overall status. Auto-resolves BronzeLayerEntityId for Silver notebook. |
 
 ---
 
@@ -73,7 +73,7 @@ All fields available on each `DigestEntity` object (from `useEntityDigest.ts`):
 
 | Page | File | Original Endpoint(s) | Data Points Used | Digest Equivalent | Status |
 |------|------|---------------------|------------------|-------------------|--------|
-| **RecordCounts** | `pages/RecordCounts.tsx` | `GET /api/entities`, `GET /api/bronze-entities`, `GET /api/silver-entities`, `GET /api/lakehouse-counts` | Entity metadata, source mapping, Bronze/Silver registration, row counts | `useEntityDigest().allEntities` for entity metadata; `/api/lakehouse-counts` still needed for physical row counts | **PARTIAL** — Entity metadata can use digest, but lakehouse row counts require a separate endpoint (physical Spark queries, not metadata) |
+| **RecordCounts** | `pages/RecordCounts.tsx` | ~~`GET /api/entities`, `GET /api/bronze-entities`, `GET /api/silver-entities`~~, `GET /api/lakehouse-counts` | Entity metadata, source mapping, Bronze/Silver registration, row counts | `useEntityDigest().allEntities` for entity metadata; `/api/lakehouse-counts` still needed for physical row counts | **DONE** — Entity metadata migrated to `useEntityDigest()` (Phase 2). Old 3-endpoint fetch replaced. Lakehouse row counts remain on dedicated endpoint. |
 | **AdminGovernance** | `pages/AdminGovernance.tsx` | `GET /api/entities`, `GET /api/bronze-entities`, `GET /api/silver-entities`, `GET /api/connections`, `GET /api/datasources`, `GET /api/pipelines`, `GET /api/workspaces`, `GET /api/lakehouses`, `GET /api/stats` | Entity counts, source breakdown, infrastructure inventory, stats | `useEntityDigest()` replaces `/api/entities`, `/api/bronze-entities`, `/api/silver-entities`; other endpoints (connections, datasources, pipelines, workspaces, lakehouses, stats) remain | **DONE** |
 | **FlowExplorer** | `pages/FlowExplorer.tsx` | `GET /api/entities`, `GET /api/bronze-entities`, `GET /api/silver-entities`, `GET /api/connections`, `GET /api/datasources`, `GET /api/pipelines` | Entity list for medallion layer visualization, infrastructure for flow graph | `useEntityDigest()` replaces `/api/entities`, `/api/bronze-entities`, `/api/silver-entities`; connections, datasources, pipelines still fetched individually | **DONE** |
 | **DataJourney** | `pages/DataJourney.tsx` | `GET /api/entities` (for entity picker), `GET /api/journey?entity={id}` (for journey detail), `GET /api/blender/profile` (for column profiling) | Entity picker list, per-entity journey trace, column profiles | `useEntityDigest().allEntities` replaces `/api/entities` in the picker; `/api/journey` and `/api/blender/profile` remain (specialized per-entity detail) | **DONE** |
@@ -102,8 +102,7 @@ All fields available on each `DigestEntity` object (from `useEntityDigest.ts`):
 
 | Status | Count | Pages |
 |--------|-------|-------|
-| **DONE** | 5 | AdminGovernance, FlowExplorer, DataJourney, SourceManager, EntityDrillDown |
-| **PARTIAL** | 1 | RecordCounts (entity metadata migrateable, lakehouse counts are not) |
+| **DONE** | 6 | AdminGovernance, FlowExplorer, DataJourney, SourceManager, EntityDrillDown, RecordCounts |
 | **NOT MIGRATED** | 12 | ControlPlane, PipelineMonitor, PipelineRunner, ExecutionLog, ErrorIntelligence, LiveMonitor, NotebookDebug, ConfigManager, NotebookConfig, Settings, DataBlender, ExecutiveDashboard, PipelineMatrix, SqlExplorer |
 | **N/A (Placeholder)** | 4 | DqScorecard, CleansingRuleEditor, ScdAudit, GoldMlvManager |
 
@@ -231,70 +230,78 @@ All fields available on each `DigestEntity` object (from `useEntityDigest.ts`):
 
 ---
 
-## RecordCounts: Special Case (PARTIAL)
+## RecordCounts: Migration Complete
 
-RecordCounts currently calls three entity endpoints **plus** `/api/lakehouse-counts`:
+RecordCounts previously called three entity endpoints plus `/api/lakehouse-counts`:
 
 ```
-Original:
+Before (Phase 1):
   GET /api/entities          → Entity metadata + DataSource mapping
   GET /api/bronze-entities   → Bronze registration state
   GET /api/silver-entities   → Silver registration state
   GET /api/lakehouse-counts  → Physical row counts from Spark SQL (actual data)
+
+After (Phase 2):
+  useEntityDigest()          → Entity metadata, source mapping, load type (replaces all 3 above)
+  GET /api/lakehouse-counts  → Physical row counts (retained — live Spark SQL, not metadata)
 ```
 
-**What the digest replaces:** The first three calls. Entity metadata, Bronze/Silver registration, source mapping, and active/incremental flags are all in `DigestEntity`.
+**What changed:** The three separate entity endpoint calls (`/api/entities`, `/api/bronze-entities`, `/api/silver-entities`) were replaced with `useEntityDigest().allEntities`. The entity-to-datasource lookup now reads directly from `DigestEntity.source` and `DigestEntity.isIncremental` instead of cross-joining three separate response arrays. The `Entity`, `BronzeEntity`, and `SilverEntity` interfaces were removed.
 
-**What the digest cannot replace:** `/api/lakehouse-counts` issues a Spark SQL `SELECT COUNT(*)` against physical lakehouse Delta tables. This is live data introspection, not metadata. It requires a separate endpoint with its own caching strategy (currently has a file-based cache with force-refresh support).
-
-**Migration path:** Replace the three entity calls with `useEntityDigest()`, keep `/api/lakehouse-counts` as-is. The page would mount the digest for entity metadata and the counts endpoint for physical row counts, then join them client-side by table name.
+**What stays:** `/api/lakehouse-counts` remains as a separate endpoint. It issues Spark SQL `SELECT COUNT(*)` against physical lakehouse Delta tables, which is live data introspection, not metadata.
 
 ---
 
-## Future: Incremental Digestion (Phase 2)
+## Phase 2: Incremental Digestion (DEPLOYED)
 
-### Current Architecture (Phase 1 — Read-Time Aggregation)
-
-```
-Pipeline Notebooks write to:        Digest reads from:
-  integration.LandingzoneEntity  ←─── sp_BuildEntityDigest joins 6+ tables
-  integration.BronzeLayerEntity      on every request (cached 2 min)
-  integration.SilverLayerEntity
-  execution.PipelineExecution
-  execution.PipelineExecutionError
-  integration.Connection
-  integration.DataSource
-```
-
-Every digest request rebuilds the entity state from normalized source tables. This works well at current scale (659 entities, ~200ms build time) but will slow down as entity count and execution history grow.
-
-### Phase 2 Plan: Write-Time Aggregation
+### Architecture Evolution
 
 ```
-Pipeline Notebooks write to:           Digest reads from:
-  integration.LandingzoneEntity    ──→  execution.EntityStatusSummary
-  integration.BronzeLayerEntity    ──→    (single denormalized table,
-  integration.SilverLayerEntity    ──→     updated by notebooks on each load)
-  execution.PipelineExecution
+Phase 1 (Read-Time Aggregation):         Phase 2 (Write-Time Aggregation):
+  sp_BuildEntityDigest joins 6+            sp_BuildEntityDigest reads from
+  tables on every request                  execution.EntityStatusSummary
+  (cached 2 min server-side)               (pre-computed, O(1) reads)
 ```
 
-**New table:** `execution.EntityStatusSummary`
-- One row per entity
-- Updated by pipeline notebooks at the end of each load (Bronze notebook writes `bronzeStatus`, Silver notebook writes `silverStatus`, etc.)
-- Pre-computed `overall` status, `lastError`, `diagnosis`
-- `sp_BuildEntityDigest` changes from a 6-table join to a single `SELECT * FROM execution.EntityStatusSummary`
+### What Was Deployed
 
-**What changes:**
-- Stored proc internals (single table read instead of multi-join)
-- Pipeline notebooks (add a final step to upsert into `EntityStatusSummary`)
+| Component | Description | File |
+|-----------|-------------|------|
+| `execution.EntityStatusSummary` | Denormalized one-row-per-entity table with per-layer status, connection info, error tracking, and computed overall status | `scripts/deploy_digest_phase2.py` Step 1 |
+| `execution.sp_UpsertEntityStatus` | Stored proc called by pipeline notebooks after each entity load. Auto-resolves BronzeLayerEntityId to LandingzoneEntityId for Silver notebook compatibility. | `scripts/deploy_digest_phase2.py` Step 2 |
+| Seed from existing data | Idempotent INSERT from existing execution tracking tables to populate initial status | `scripts/deploy_digest_phase2.py` Step 3 |
+| Refactored `sp_BuildEntityDigest` | Summary-first fast path with Phase 1 join fallback if summary table is empty | `scripts/deploy_digest_phase2.py` Step 4 |
+| LZ notebook status updates | Direct pyodbc calls to sp_UpsertEntityStatus on success/failure | `src/NB_FMD_PROCESSING_LANDINGZONE_MAIN.Notebook/notebook-content.py` |
+| Bronze notebook status updates | SQL template calls via execute_with_outputs on success/failure | `src/NB_FMD_LOAD_LANDING_BRONZE.Notebook/notebook-content.py` |
+| Silver notebook status updates | SQL template calls via execute_with_outputs on success/failure | `src/NB_FMD_LOAD_BRONZE_SILVER.Notebook/notebook-content.py` |
 
-**What stays identical:**
+### sp_UpsertEntityStatus Interface
+
+```sql
+EXEC [execution].[sp_UpsertEntityStatus]
+    @LandingzoneEntityId = 42,     -- Or BronzeLayerEntityId (auto-resolved)
+    @Layer = 'bronze',             -- 'landingzone' | 'bronze' | 'silver'
+    @Status = 'loaded',            -- 'loaded' | 'not_started'
+    @ErrorMessage = NULL,          -- Optional error message (up to 500 chars)
+    @UpdatedBy = 'notebook-bronze' -- Audit trail
+```
+
+The proc auto-seeds from integration tables on first call for any entity. If a BronzeLayerEntityId is passed (as the Silver notebook does), it auto-resolves to the correct LandingzoneEntityId.
+
+### What Changed vs Phase 1
+
+- **Stored proc internals**: Summary-first SELECT with join fallback
+- **Pipeline notebooks**: Added sp_UpsertEntityStatus calls after each entity load
+- **RecordCounts page**: Migrated from 3 separate entity endpoints to useEntityDigest hook
+
+### What Stayed Identical (Zero Changes)
+
 - Python `build_entity_digest()` function (same input/output shape)
 - `GET /api/entity-digest` endpoint (same URL, same query params, same response)
 - `useEntityDigest` React hook (same API, same types, same caching)
-- Every migrated page (zero frontend changes)
+- All previously migrated pages (AdminGovernance, FlowExplorer, DataJourney, SourceManager, EntityDrillDown)
 
-This is the key design principle: **the digest is a stable contract**. Consumers code against the `DigestEntity` shape once. Performance optimizations happen behind the stored proc boundary.
+This confirms the key design principle: **the digest is a stable contract**. Consumers code against the `DigestEntity` shape once. Performance optimizations happen behind the stored proc boundary.
 
 ---
 
@@ -306,9 +313,13 @@ This is the key design principle: **the digest is a stable contract**. Consumers
 | Backend server | `dashboard/app/api/server.py` |
 | Backend digest function | `server.py` line ~3125 (`build_entity_digest`) |
 | Backend digest cache | `server.py` line ~3121 (`_digest_cache`, `_DIGEST_TTL = 120`) |
+| Phase 2 deploy script | `scripts/deploy_digest_phase2.py` |
+| LZ notebook (Phase 2 updates) | `src/NB_FMD_PROCESSING_LANDINGZONE_MAIN.Notebook/notebook-content.py` |
+| Bronze notebook (Phase 2 updates) | `src/NB_FMD_LOAD_LANDING_BRONZE.Notebook/notebook-content.py` |
+| Silver notebook (Phase 2 updates) | `src/NB_FMD_LOAD_BRONZE_SILVER.Notebook/notebook-content.py` |
 | AdminGovernance (migrated) | `dashboard/app/src/pages/AdminGovernance.tsx` |
 | FlowExplorer (migrated) | `dashboard/app/src/pages/FlowExplorer.tsx` |
 | DataJourney (migrated) | `dashboard/app/src/pages/DataJourney.tsx` |
 | SourceManager (migrated) | `dashboard/app/src/pages/SourceManager.tsx` |
 | EntityDrillDown (migrated) | `dashboard/app/src/components/pipeline-matrix/EntityDrillDown.tsx` |
-| RecordCounts (partial) | `dashboard/app/src/pages/RecordCounts.tsx` |
+| RecordCounts (migrated) | `dashboard/app/src/pages/RecordCounts.tsx` |

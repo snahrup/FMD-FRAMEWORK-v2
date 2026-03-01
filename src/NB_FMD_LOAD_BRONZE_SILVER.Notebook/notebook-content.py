@@ -229,6 +229,17 @@ GetCleansingRule = (
     f"@SilverLayerEntityId = \"{SilverLayerEntityId}\""
 )
 
+# EntityStatus update — uses BronzeLayerEntityId as the entity key since
+# LandingzoneEntityId is not passed to the Silver notebook. The stored proc
+# resolves the entity chain internally via BronzeLayerEntityId -> LandingzoneEntityId.
+UpsertEntityStatusLoaded = (
+    f"[execution].[sp_UpsertEntityStatus] "
+    f"@LandingzoneEntityId = {BronzeLayerEntityId}, "
+    f"@Layer = 'silver', "
+    f"@Status = 'loaded', "
+    f"@UpdatedBy = 'notebook-silver'"
+)
+
 # METADATA ********************
 
 # META {
@@ -441,6 +452,10 @@ else:
 
     execute_with_outputs(UpsertPipelineBronzeLayerEntity, driver, connstring, database)
     execute_with_outputs(UpsertPipelineSilverLayerEntity, driver, connstring, database)
+    try:
+        execute_with_outputs(UpsertEntityStatusLoaded, driver, connstring, database)
+    except Exception as _es_err:
+        print(f"  [WARN] EntityStatus update failed: {_es_err}")
     execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
 
     notebookutils.notebook.exit("OK")
@@ -748,6 +763,10 @@ result_data = {
 
 execute_with_outputs(UpsertPipelineBronzeLayerEntity, driver, connstring, database)
 execute_with_outputs(UpsertPipelineSilverLayerEntity, driver, connstring, database)
+try:
+    execute_with_outputs(UpsertEntityStatusLoaded, driver, connstring, database)
+except Exception as _es_err:
+    print(f"  [WARN] EntityStatus update failed: {_es_err}")
 execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
 
 # METADATA ********************

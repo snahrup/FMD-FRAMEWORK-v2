@@ -236,6 +236,14 @@ GetCleansingRule = (
     f"@BronzeLayerEntityId = \"{BronzeLayerEntityId}\""
 )
 
+UpsertEntityStatusLoaded = (
+    f"[execution].[sp_UpsertEntityStatus] "
+    f"@LandingzoneEntityId = {LandingzoneEntityId}, "
+    f"@Layer = 'bronze', "
+    f"@Status = 'loaded', "
+    f"@UpdatedBy = 'notebook-bronze'"
+)
+
 # METADATA ********************
 
 # META {
@@ -591,6 +599,10 @@ if _processing_error is None:
 
             execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
             execute_with_outputs(InsertPipelineBronzeLayerEntity, driver, connstring, database)
+            try:
+                execute_with_outputs(UpsertEntityStatusLoaded, driver, connstring, database)
+            except Exception as _es_err:
+                print(f"  [WARN] EntityStatus update failed: {_es_err}")
             execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
             notebookutils.notebook.exit("OK")
     except Exception as _e:
@@ -698,6 +710,26 @@ else:
 try:
     execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
     execute_with_outputs(InsertPipelineBronzeLayerEntity, driver, connstring, database)
+    # Update EntityStatus based on processing result
+    if _processing_error is not None:
+        _err_safe = str(_processing_error)[:500].replace("'", "''")
+        UpsertEntityStatusError = (
+            f"[execution].[sp_UpsertEntityStatus] "
+            f"@LandingzoneEntityId = {LandingzoneEntityId}, "
+            f"@Layer = 'bronze', "
+            f"@Status = 'not_started', "
+            f"@ErrorMessage = '{_err_safe}', "
+            f"@UpdatedBy = 'notebook-bronze'"
+        )
+        try:
+            execute_with_outputs(UpsertEntityStatusError, driver, connstring, database)
+        except Exception as _es_err:
+            print(f"  [WARN] EntityStatus error update failed: {_es_err}")
+    else:
+        try:
+            execute_with_outputs(UpsertEntityStatusLoaded, driver, connstring, database)
+        except Exception as _es_err:
+            print(f"  [WARN] EntityStatus update failed: {_es_err}")
     execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
 except Exception as _log_err:
     print(f"WARNING: Final logging failed for {TargetName}: {_log_err}")
