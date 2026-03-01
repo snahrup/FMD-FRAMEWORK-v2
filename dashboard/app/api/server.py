@@ -3116,6 +3116,164 @@ def get_dashboard_stats() -> dict:
     }
 
 
+# ── Entity Digest Engine ──
+
+_digest_cache: dict = {}  # {key: {'data': ..., 'expires': float}}
+_DIGEST_TTL = 120  # 2 minutes server-side cache
+
+
+def build_entity_digest(source_filter: str = None, layer_filter: str = None,
+                        status_filter: str = None) -> dict:
+    """Build the entity digest by calling execution.sp_BuildEntityDigest.
+
+    Returns a single JSON structure with all entities grouped by source,
+    including per-layer status, connection info, and summary counts.
+    The stored proc does all the heavy lifting (joins 6+ tables, computes
+    status, finds recent errors).  Python just reshapes and caches.
+    """
+    # ── Cache check ──
+    cache_key = f'{source_filter}|{layer_filter}|{status_filter}'
+    cached = _digest_cache.get(cache_key)
+    if cached and time.time() < cached['expires']:
+        return cached['data']
+
+    t0 = time.time()
+
+    # ── Call stored procedure ──
+    if source_filter:
+        safe_src = source_filter.replace("'", "''")
+        rows = query_sql(f"EXEC execution.sp_BuildEntityDigest @SourceFilter = '{safe_src}'")
+    else:
+        rows = query_sql("EXEC execution.sp_BuildEntityDigest")
+
+    # ── Build entity list and group by source ──
+    sources: dict = {}
+
+    for row in rows:
+        src_key = row.get('source') or 'UNKNOWN'
+
+        # Parse booleans (query_sql returns everything as str)
+        is_active = row.get('IsActive') in (True, 1, '1', 'True', 'true')
+        is_incremental = row.get('IsIncremental') in (True, 1, '1', 'True', 'true')
+
+        # Parse nullable int IDs
+        bronze_id = int(row['bronzeId']) if row.get('bronzeId') else None
+        silver_id = int(row['silverId']) if row.get('silverId') else None
+
+        # Status values
+        lz_status = row.get('lzStatus') or 'not_started'
+        bronze_status = row.get('bronzeStatus') or 'not_started'
+        silver_status = row.get('silverStatus') or 'not_started'
+        overall = row.get('overall') or 'not_started'
+
+        # Layer filter (post-query) — skip entities that don't match
+        if layer_filter:
+            if layer_filter == 'landing' and lz_status == 'not_started':
+                continue
+            elif layer_filter == 'bronze' and bronze_status == 'not_started':
+                continue
+            elif layer_filter == 'silver' and silver_status == 'not_started':
+                continue
+
+        # Status filter (post-query) — skip entities that don't match overall status
+        if status_filter and overall != status_filter:
+            continue
+
+        # Build error object
+        last_error = None
+        if row.get('lastErrorMessage'):
+            last_error = {
+                'message': row['lastErrorMessage'],
+                'layer': row.get('lastErrorLayer') or '',
+                'time': row.get('lastErrorTime') or '',
+            }
+
+        # Compute diagnosis from layer statuses
+        if overall == 'complete':
+            diagnosis = 'All layers loaded'
+        elif overall == 'error':
+            err_layer = row.get('lastErrorLayer') or 'unknown'
+            diagnosis = f'Error in {err_layer} layer'
+        elif overall == 'pending':
+            pending_layers = []
+            if bronze_status == 'pending':
+                pending_layers.append('bronze')
+            if silver_status == 'pending':
+                pending_layers.append('silver')
+            diagnosis = f'Pending: {", ".join(pending_layers)}' if pending_layers else 'Pending processing'
+        elif overall == 'partial':
+            loaded = []
+            if lz_status == 'loaded':
+                loaded.append('LZ')
+            if bronze_status == 'loaded':
+                loaded.append('Bronze')
+            if silver_status == 'loaded':
+                loaded.append('Silver')
+            diagnosis = f'Partial: {", ".join(loaded)} loaded'
+        else:
+            diagnosis = 'Not started'
+
+        entity = {
+            'id': int(row['id']) if row.get('id') else 0,
+            'tableName': row.get('tableName') or '',
+            'sourceSchema': row.get('sourceSchema') or '',
+            'source': src_key,
+            'isActive': is_active,
+            'isIncremental': is_incremental,
+            'watermarkColumn': row.get('watermarkColumn') or '',
+            'bronzeId': bronze_id,
+            'bronzePKs': row.get('bronzePKs') or '',
+            'silverId': silver_id,
+            'lzStatus': lz_status,
+            'lzLastLoad': row.get('lastLzLoad') or '',
+            'bronzeStatus': bronze_status,
+            'bronzeLastLoad': row.get('lastBrzLoad') or '',
+            'silverStatus': silver_status,
+            'silverLastLoad': row.get('lastSlvLoad') or '',
+            'lastError': last_error,
+            'diagnosis': diagnosis,
+            'overall': overall,
+            'connection': {
+                'server': row.get('serverName') or '',
+                'database': row.get('databaseName') or row.get('dbName') or '',
+                'connectionName': row.get('connectionName') or '',
+            },
+        }
+
+        # Group by source
+        if src_key not in sources:
+            sources[src_key] = {
+                'key': src_key,
+                'name': row.get('dbName') or src_key,
+                'connection': {
+                    'server': row.get('serverName') or '',
+                    'database': row.get('databaseName') or row.get('dbName') or '',
+                    'connectionName': row.get('connectionName') or '',
+                },
+                'entities': [],
+                'summary': {'total': 0, 'complete': 0, 'pending': 0, 'error': 0, 'partial': 0, 'not_started': 0},
+            }
+
+        sources[src_key]['entities'].append(entity)
+        sources[src_key]['summary']['total'] += 1
+        if overall in sources[src_key]['summary']:
+            sources[src_key]['summary'][overall] += 1
+
+    elapsed_ms = round((time.time() - t0) * 1000)
+
+    result = {
+        'generatedAt': datetime.utcnow().isoformat() + 'Z',
+        'buildTimeMs': elapsed_ms,
+        'totalEntities': sum(s['summary']['total'] for s in sources.values()),
+        'sources': sources,
+    }
+
+    # ── Cache the result ──
+    _digest_cache[cache_key] = {'data': result, 'expires': time.time() + _DIGEST_TTL}
+
+    return result
+
+
 # ── Registration (POST handlers) ──
 
 def _sanitize_sql_str(val: str) -> str:
@@ -5946,6 +6104,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json_response(get_notebook_executions())
             elif self.path == '/api/schema':
                 self._json_response(get_schema_info())
+            elif self.path.startswith('/api/entity-digest'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                source = qs.get('source', [None])[0]
+                layer = qs.get('layer', [None])[0]
+                status = qs.get('status', [None])[0]
+                self._json_response(build_entity_digest(source, layer, status))
             elif self.path == '/api/stats':
                 self._json_response(get_dashboard_stats())
             elif self.path == '/api/health':
@@ -6373,6 +6537,7 @@ if __name__ == '__main__':
     log.info('  GET  /api/connections')
     log.info('  GET  /api/datasources')
     log.info('  GET  /api/entities')
+    log.info('  GET  /api/entity-digest      (Digest Engine — stored proc)')
     log.info('  GET  /api/pipeline-view')
     log.info('  GET  /api/health')
     log.info('  POST /api/connections')
