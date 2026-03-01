@@ -103,7 +103,7 @@
         },
         "policy": {
           "timeout": "0.01:00:00",
-          "retry": 0,
+          "retry": 2,
           "retryIntervalInSeconds": 30,
           "secureInput": false,
           "secureOutput": false
@@ -213,7 +213,7 @@
         },
         "policy": {
           "timeout": "0.01:00:00",
-          "retry": 0,
+          "retry": 2,
           "retryIntervalInSeconds": 30,
           "secureInput": false,
           "secureOutput": false
@@ -238,32 +238,55 @@
           },
           "activities": [
             {
-              "type": "InvokePipeline",
+              "name": "IF_VALIDATE_ENTITY_CONTRACT",
+              "type": "IfCondition",
+              "dependsOn": [],
               "typeProperties": {
-                "parameters": {
-                  "DataSourceType": "ASQL_01",
-                  "Data_WorkspaceGuid": {
-                    "value": "@pipeline().parameters.Data_WorkspaceGuid",
-                    "type": "Expression"
-                  }
+                "expression": {
+                  "type": "Expression",
+                  "value": "@and(not(empty(item().EntityId)),not(empty(item().EntityName)),not(empty(item().SourceDataRetrieval)),not(empty(item().ConnectionGuid)))"
                 },
-                "waitOnCompletion": true,
-                "workspaceId": "00000000-0000-0000-0000-000000000000",
-                "pipelineId": "456ec477-b392-4576-8070-ad5cf1fd5a30",
-                "operationType": "InvokeFabricPipeline"
-              },
-              "externalReferences": {
-                "connection": "6b2e33a1-b441-4137-b41d-260ffa8258cf"
-              },
-              "policy": {
-                "timeout": "0.01:00:00",
-                "retry": 0,
-                "retryIntervalInSeconds": 30,
-                "secureInput": false,
-                "secureOutput": false
-              },
-              "name": "PL_FMD_LDZ_COPY_FROM_ASQL_01",
-              "dependsOn": []
+                "ifTrueActivities": [
+                  {
+                    "type": "InvokePipeline",
+                    "typeProperties": {
+                      "parameters": {
+                        "DataSourceType": "ASQL_01",
+                        "Data_WorkspaceGuid": {
+                          "value": "@pipeline().parameters.Data_WorkspaceGuid",
+                          "type": "Expression"
+                        }
+                      },
+                      "waitOnCompletion": true,
+                      "workspaceId": "00000000-0000-0000-0000-000000000000",
+                      "pipelineId": "456ec477-b392-4576-8070-ad5cf1fd5a30",
+                      "operationType": "InvokeFabricPipeline"
+                    },
+                    "externalReferences": {
+                      "connection": "6b2e33a1-b441-4137-b41d-260ffa8258cf"
+                    },
+                    "policy": {
+                      "timeout": "0.01:00:00",
+                      "retry": 1,
+                      "retryIntervalInSeconds": 30,
+                      "secureInput": false,
+                      "secureOutput": false
+                    },
+                    "name": "PL_FMD_LDZ_COPY_FROM_ASQL_01",
+                    "dependsOn": []
+                  }
+                ],
+                "ifFalseActivities": [
+                  {
+                    "name": "FAIL_MISSING_ENTITY_CONTRACT",
+                    "type": "Fail",
+                    "typeProperties": {
+                      "message": "@concat('Missing required metadata fields for entity: ', string(item().EntityName), '. Required fields: EntityId, EntityName, SourceDataRetrieval, ConnectionGuid')",
+                      "errorCode": "FMD_CONTRACT_VALIDATION_FAILED"
+                    }
+                  }
+                ]
+              }
             }
           ]
         },
@@ -429,7 +452,7 @@
         },
         "policy": {
           "timeout": "0.01:00:00",
-          "retry": 0,
+          "retry": 2,
           "retryIntervalInSeconds": 30,
           "secureInput": false,
           "secureOutput": false
@@ -440,6 +463,123 @@
             "activity": "FE_ENTITY",
             "dependencyConditions": [
               "Failed"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "SqlServerStoredProcedure",
+        "typeProperties": {
+          "storedProcedureName": "[logging].[sp_AuditPipeline]",
+          "storedProcedureParameters": {
+            "LogData": {
+              "value": {
+                "value": "@concat('{\"Action\":\"Summary\",\"Layer\":\"Landing\",\"Total\":',string(length(activity('LK_GET_ENTITIES').output.value)),'}')",
+                "type": "Expression"
+              },
+              "type": "String"
+            },
+            "LogType": {
+              "value": "StartPipeline",
+              "type": "String"
+            },
+            "PipelineGuid": {
+              "value": {
+                "value": "@pipeline().Pipeline",
+                "type": "Expression"
+              },
+              "type": "Guid"
+            },
+            "PipelineName": {
+              "value": {
+                "value": "@pipeline().PipelineName",
+                "type": "Expression"
+              },
+              "type": "String"
+            },
+            "PipelineParameters": {
+              "value": null,
+              "type": "String"
+            },
+            "PipelineParentRunGuid": {
+              "value": {
+                "value": "@pipeline()?.TriggeredByPipelineRunId",
+                "type": "Expression"
+              },
+              "type": "Guid"
+            },
+            "PipelineRunGuid": {
+              "value": {
+                "value": "@pipeline().RunId",
+                "type": "Expression"
+              },
+              "type": "Guid"
+            },
+            "TriggerGuid": {
+              "value": {
+                "value": "@pipeline().TriggerId",
+                "type": "Expression"
+              },
+              "type": "Guid"
+            },
+            "TriggerTime": {
+              "value": {
+                "value": "@pipeline().TriggerTime",
+                "type": "Expression"
+              },
+              "type": "DateTime"
+            },
+            "TriggerType": {
+              "value": {
+                "value": "@pipeline().TriggerType",
+                "type": "Expression"
+              },
+              "type": "String"
+            },
+            "WorkspaceGuid": {
+              "value": {
+                "value": "@pipeline().DataFactory",
+                "type": "Expression"
+              },
+              "type": "Guid"
+            },
+            "EntityLayer": {
+              "value": "Landingzone",
+              "type": "String"
+            },
+            "EntityId": {
+              "value": null,
+              "type": "Int32"
+            }
+          }
+        },
+        "connectionSettings": {
+          "name": "SQL_FMD_FRAMEWORK",
+          "properties": {
+            "type": "FabricSqlDatabase",
+            "typeProperties": {
+              "artifactId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_database_guid",
+              "workspaceId": "@pipeline().libraryVariables.VAR_CONFIG_FMD_fmd_config_workspace_guid"
+            },
+            "externalReferences": {
+              "connection": "0f86f6a1-9f84-44d1-b977-105b5179c678"
+            },
+            "annotations": []
+          }
+        },
+        "policy": {
+          "timeout": "0.01:00:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "SP_SUMMARY_AUDIT_PIPELINE",
+        "dependsOn": [
+          {
+            "activity": "FE_ENTITY",
+            "dependencyConditions": [
+              "Completed"
             ]
           }
         ]

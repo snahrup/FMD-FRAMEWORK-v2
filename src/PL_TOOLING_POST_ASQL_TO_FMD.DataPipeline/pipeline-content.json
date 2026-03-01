@@ -14,7 +14,7 @@
         ],
         "policy": {
           "timeout": "0.01:00:00",
-          "retry": 0,
+          "retry": 2,
           "retryIntervalInSeconds": 30,
           "secureOutput": false,
           "secureInput": false
@@ -94,7 +94,7 @@
               "dependsOn": [],
               "policy": {
                 "timeout": "0.01:00:00",
-                "retry": 0,
+                "retry": 2,
                 "retryIntervalInSeconds": 30,
                 "secureOutput": false,
                 "secureInput": false
@@ -205,7 +205,7 @@
         "dependsOn": [],
         "policy": {
           "timeout": "0.01:00:00",
-          "retry": 0,
+          "retry": 3,
           "retryIntervalInSeconds": 30,
           "secureOutput": false,
           "secureInput": false
@@ -293,7 +293,7 @@
         "dependsOn": [],
         "policy": {
           "timeout": "0.01:00:00",
-          "retry": 0,
+          "retry": 2,
           "retryIntervalInSeconds": 30,
           "secureOutput": false,
           "secureInput": false
@@ -359,7 +359,7 @@
         ],
         "policy": {
           "timeout": "0.01:00:00",
-          "retry": 0,
+          "retry": 2,
           "retryIntervalInSeconds": 30,
           "secureOutput": false,
           "secureInput": false
@@ -450,7 +450,7 @@
         "dependsOn": [],
         "policy": {
           "timeout": "0.01:00:00",
-          "retry": 0,
+          "retry": 2,
           "retryIntervalInSeconds": 30,
           "secureOutput": false,
           "secureInput": false
@@ -504,8 +504,7 @@
         "defaultValue": "cf673e6a-13f6-4ebb-9cbb-4ba4ab390818"
       },
       "Data_WorkspaceGuid": {
-        "type": "string",
-        "defaultValue": "1d947c6d-4350-48c5-8b98-9c21d8862fe7"
+        "type": "string"
       },
       "DatasourceName": {
         "type": "string",
