@@ -310,7 +310,7 @@
                           },
                           "waitOnCompletion": true,
                           "workspaceId": "00000000-0000-0000-0000-000000000000",
-                          "pipelineId": "a7f32c61-f86b-4484-b2e2-366d839bcb42",
+                          "pipelineId": "129f8b43-bb8e-429f-8398-b32ca4f15e97",
                           "operationType": "InvokeFabricPipeline"
                         },
                         "externalReferences": {
@@ -343,7 +343,7 @@
                           },
                           "waitOnCompletion": true,
                           "workspaceId": "00000000-0000-0000-0000-000000000000",
-                          "pipelineId": "d20eb24b-abeb-92d0-4c84-932ed3597147",
+                          "pipelineId": "861dc0a5-49ac-4d51-b825-f4bb21e1ad82",
                           "operationType": "InvokeFabricPipeline"
                         },
                         "externalReferences": {

@@ -249,7 +249,7 @@
                 },
                 "waitOnCompletion": true,
                 "workspaceId": "00000000-0000-0000-0000-000000000000",
-                "pipelineId": "38f17b20-2d5a-8f67-4801-9c6bcb0f651b",
+                "pipelineId": "bde1f6a6-2d96-444f-86c2-6a769aaec088",
                 "operationType": "InvokeFabricPipeline"
               },
               "externalReferences": {

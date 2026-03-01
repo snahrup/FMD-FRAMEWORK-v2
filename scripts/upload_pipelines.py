@@ -29,10 +29,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(SCRIPT_DIR)
 SRC_DIR = os.path.join(REPO_ROOT, 'src')
 
-# Pipeline patterns to upload
+# Pipeline patterns to upload (all LDZ + LOAD pipelines)
 PIPELINE_PATTERNS = [
     os.path.join(SRC_DIR, 'PL_FMD_LDZ_*.DataPipeline', 'pipeline-content.json'),
-    os.path.join(SRC_DIR, 'PL_FMD_LOAD_LANDINGZONE.DataPipeline', 'pipeline-content.json'),
+    os.path.join(SRC_DIR, 'PL_FMD_LOAD_*.DataPipeline', 'pipeline-content.json'),
 ]
 
 # Max poll attempts for async operations (202 responses)
