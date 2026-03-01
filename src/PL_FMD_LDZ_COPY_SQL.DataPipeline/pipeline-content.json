@@ -1,0 +1,136 @@
+{
+  "properties": {
+    "activities": [
+      {
+        "name": "CP_source_to_landingzone",
+        "type": "Copy",
+        "dependsOn": [],
+        "policy": {
+          "timeout": "0.04:00:00",
+          "retry": 1,
+          "retryIntervalInSeconds": 30,
+          "secureOutput": false,
+          "secureInput": false
+        },
+        "typeProperties": {
+          "source": {
+            "type": "AzureSqlSource",
+            "sqlReaderQuery": {
+              "value": "@pipeline().parameters.SourceDataRetrieval",
+              "type": "Expression"
+            },
+            "queryTimeout": "02:00:00",
+            "partitionOption": "None",
+            "datasetSettings": {
+              "annotations": [],
+              "type": "AzureSqlTable",
+              "schema": [],
+              "typeProperties": {
+                "schema": {
+                  "value": "@pipeline().parameters.SourceSchema",
+                  "type": "Expression"
+                },
+                "table": {
+                  "value": "@pipeline().parameters.SourceName",
+                  "type": "Expression"
+                },
+                "database": {
+                  "value": "@pipeline().parameters.DatasourceName",
+                  "type": "Expression"
+                }
+              },
+              "externalReferences": {
+                "connection": "@pipeline().parameters.ConnectionGuid"
+              }
+            }
+          },
+          "sink": {
+            "type": "ParquetSink",
+            "storeSettings": {
+              "type": "LakehouseWriteSettings",
+              "copyBehavior": "PreserveHierarchy"
+            },
+            "formatSettings": {
+              "type": "ParquetWriteSettings",
+              "enableVertiParquet": false
+            },
+            "datasetSettings": {
+              "annotations": [],
+              "linkedService": {
+                "name": "lz_lakehouse_ref",
+                "properties": {
+                  "annotations": [],
+                  "type": "Lakehouse",
+                  "typeProperties": {
+                    "workspaceId": "@pipeline().parameters.WorkspaceGuid",
+                    "artifactId": "@pipeline().parameters.TargetLakehouseGuid",
+                    "rootFolder": "Files"
+                  }
+                }
+              },
+              "type": "Parquet",
+              "typeProperties": {
+                "location": {
+                  "type": "LakehouseLocation",
+                  "fileName": {
+                    "value": "@pipeline().parameters.TargetFileName",
+                    "type": "Expression"
+                  },
+                  "folderPath": {
+                    "value": "@pipeline().parameters.TargetFilePath",
+                    "type": "Expression"
+                  }
+                },
+                "compressionCodec": "snappy"
+              },
+              "schema": []
+            }
+          },
+          "enableStaging": false,
+          "validateDataConsistency": true,
+          "translator": {
+            "type": "TabularTranslator",
+            "typeConversion": true,
+            "typeConversionSettings": {
+              "allowDataTruncation": true,
+              "treatBooleanAsNumber": false
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "ConnectionGuid": {
+        "type": "string"
+      },
+      "SourceSchema": {
+        "type": "string",
+        "defaultValue": "dbo"
+      },
+      "SourceName": {
+        "type": "string"
+      },
+      "SourceDataRetrieval": {
+        "type": "string"
+      },
+      "DatasourceName": {
+        "type": "string"
+      },
+      "WorkspaceGuid": {
+        "type": "string"
+      },
+      "TargetLakehouseGuid": {
+        "type": "string"
+      },
+      "TargetFilePath": {
+        "type": "string"
+      },
+      "TargetFileName": {
+        "type": "string"
+      }
+    },
+    "annotations": [],
+    "lastModifiedByObjectId": "00000000-0000-0000-0000-000000000000",
+    "lastPublishTime": "2026-02-28T00:00:00Z"
+  }
+}
