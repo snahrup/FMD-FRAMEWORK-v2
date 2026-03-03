@@ -775,8 +775,10 @@ Write-Info "Installing Nexus service..."
 $nexusServerJs = Join-Path $NexusDir "src\server.js"
 $nodePath = (Get-Command node).Source
 
+$ErrorActionPreference = "Continue"
 nssm stop "Nexus" 2>$null
 nssm remove "Nexus" confirm 2>$null
+$ErrorActionPreference = "Stop"
 nssm install "Nexus" $nodePath $nexusServerJs
 nssm set "Nexus" AppDirectory $NexusDir
 nssm set "Nexus" DisplayName "Nexus Session Bridge"
@@ -794,8 +796,10 @@ Write-Info "Installing FMD Dashboard service..."
 $pythonPath = (Get-Command python).Source
 $serverPy   = Join-Path $apiDir "server.py"
 
+$ErrorActionPreference = "Continue"
 nssm stop "FMD-Dashboard" 2>$null
 nssm remove "FMD-Dashboard" confirm 2>$null
+$ErrorActionPreference = "Stop"
 nssm install "FMD-Dashboard" $pythonPath $serverPy
 nssm set "FMD-Dashboard" AppDirectory $apiDir
 nssm set "FMD-Dashboard" DisplayName "FMD Operations Dashboard"

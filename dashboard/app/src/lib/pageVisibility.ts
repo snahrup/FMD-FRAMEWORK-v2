@@ -16,7 +16,7 @@ export async function getHiddenPages(): Promise<string[]> {
     const data = await res.json();
     _cache = data.hiddenPages ?? [];
     _cacheTime = Date.now();
-    return _cache;
+    return _cache!;
   } catch {
     return _cache ?? [];
   }
