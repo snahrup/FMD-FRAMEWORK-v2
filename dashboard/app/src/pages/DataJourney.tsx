@@ -30,7 +30,7 @@ import {
 // CONSTANTS
 // ============================================================================
 
-const API = "http://localhost:8787/api";
+const API = "/api";
 
 const LAYERS = [
   { key: "source",  label: "Source",       color: "#64748b", icon: Database,  bg: "bg-slate-500/10",   border: "border-slate-500/30" },

@@ -23,6 +23,10 @@ import {
   Play,
   Bug,
   Radio,
+  Cog,
+  Grid3X3,
+  Server,
+  DatabaseZap,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,6 +35,7 @@ import { DeploymentOverlay } from "@/components/DeploymentOverlay";
 import { BackgroundTaskToast } from "@/components/BackgroundTaskToast";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { getLabsFlags, anyLabsEnabled, type LabsFlags } from "@/lib/featureFlags";
+import { getHiddenPages } from "@/lib/pageVisibility";
 
 interface NavItem {
   icon: LucideIcon;
@@ -47,8 +52,10 @@ const CORE_GROUPS: NavGroup[] = [
   {
     label: "Operations",
     items: [
+      { icon: Grid3X3, label: "Execution Matrix", href: "/" },
+      { icon: Cog, label: "Engine Control", href: "/engine" },
+      { icon: Sparkles, label: "Validation", href: "/validation" },
       { icon: Radio, label: "Live Monitor", href: "/live" },
-      { icon: LayoutDashboard, label: "Pipeline Monitor", href: "/" },
       { icon: Gauge, label: "Control Plane", href: "/control" },
       { icon: Activity, label: "Error Intelligence", href: "/errors" },
       { icon: ScrollText, label: "Execution Log", href: "/logs" },
@@ -64,15 +71,16 @@ const CORE_GROUPS: NavGroup[] = [
       { icon: GitBranch, label: "Flow Explorer", href: "/flow" },
       { icon: Route, label: "Data Journey", href: "/journey" },
       { icon: Hash, label: "Record Counts", href: "/counts" },
+      { icon: DatabaseZap, label: "SQL Explorer", href: "/sql-explorer" },
     ],
   },
   {
     label: "Admin",
     items: [
-      { icon: ShieldCheck, label: "Admin & Governance", href: "/admin" },
+      { icon: ShieldCheck, label: "Admin", href: "/admin" },
       { icon: Wrench, label: "Config Manager", href: "/config" },
       { icon: BookOpen, label: "Notebook Config", href: "/notebook-config" },
-      { icon: Settings, label: "Settings", href: "/settings" },
+      { icon: Server, label: "Environment Setup", href: "/setup" },
     ],
   },
 ];
@@ -91,6 +99,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [labsFlags, setLabsFlags] = useState<LabsFlags>(getLabsFlags);
+  const [hiddenPages, setHiddenPages] = useState<string[]>([]);
 
   // Listen for flag changes from the Settings page
   const onLabsChanged = useCallback((e: Event) => {
@@ -98,27 +107,45 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     setLabsFlags(detail);
   }, []);
 
+  // Listen for page visibility changes from the Admin gateway
+  const onVisibilityChanged = useCallback((e: Event) => {
+    const detail = (e as CustomEvent<string[]>).detail;
+    setHiddenPages(detail);
+  }, []);
+
   useEffect(() => {
     window.addEventListener("fmd-labs-changed", onLabsChanged);
-    return () => window.removeEventListener("fmd-labs-changed", onLabsChanged);
-  }, [onLabsChanged]);
+    window.addEventListener("fmd-page-visibility-changed", onVisibilityChanged);
+    return () => {
+      window.removeEventListener("fmd-labs-changed", onLabsChanged);
+      window.removeEventListener("fmd-page-visibility-changed", onVisibilityChanged);
+    };
+  }, [onLabsChanged, onVisibilityChanged]);
 
-  // Build sidebar groups with optional Labs section (memoized — only recomputes when flags change)
+  // Fetch hidden pages on mount
+  useEffect(() => {
+    getHiddenPages().then(setHiddenPages);
+  }, []);
+
+  // Build sidebar groups with optional Labs section, filtered by hiddenPages
   const sidebarGroups = useMemo(() => {
-    const groups: NavGroup[] = [...CORE_GROUPS];
+    const groups: NavGroup[] = CORE_GROUPS.map((g) => ({
+      ...g,
+      items: g.items.filter((item) => !hiddenPages.includes(item.href)),
+    })).filter((g) => g.items.length > 0);
     const labsGroup = buildLabsGroup(labsFlags);
     if (labsGroup) {
       groups.splice(groups.length - 1, 0, labsGroup);
     }
     return groups;
-  }, [labsFlags]);
+  }, [labsFlags, hiddenPages]);
 
   const sidebarWidth = isCollapsed ? "w-16" : "w-64";
   const mainMargin = isCollapsed ? "md:ml-16" : "md:ml-64";
 
   const NavContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
-      <div className={cn("p-4", !isCollapsed && "p-6")}>
+      <div className={cn("flex-1 min-h-0 overflow-y-auto", cn("p-4", !isCollapsed && "p-6"))}>
         <div className={cn("flex items-center gap-2 mb-8", isCollapsed && "justify-center mb-6")}>
           <div className="h-8 w-8 rounded-[var(--radius-md)] flex items-center justify-center overflow-hidden flex-shrink-0">
              <img src="/icons/fabric.svg" alt="Fabric" className="h-8 w-8" />

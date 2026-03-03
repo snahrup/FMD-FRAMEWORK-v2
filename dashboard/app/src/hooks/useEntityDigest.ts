@@ -12,7 +12,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8787";
+const API = import.meta.env.VITE_API_URL || "";
 
 // ── Types ──
 
@@ -33,6 +33,8 @@ export interface DigestEntity {
   tableName: string;
   sourceSchema: string;
   source: string;
+  targetSchema: string;
+  dataSourceName: string;
   isActive: boolean;
   isIncremental: boolean;
   watermarkColumn: string;

@@ -1,0 +1,3 @@
+pyodbc>=4.0.35
+polars>=0.20.0
+azure-storage-file-datalake>=12.14.0

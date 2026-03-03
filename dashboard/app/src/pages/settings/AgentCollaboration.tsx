@@ -9,7 +9,7 @@ import {
   Clock,
 } from "lucide-react";
 
-const API = "http://localhost:8787/api";
+const API = "/api";
 
 interface AgentLogData {
   content: string;
@@ -83,13 +83,13 @@ const mdComponents = {
 
 const AGENT_AVATARS: Record<string, string> = {
   gemini: "/icons/gemini_profile.jpg",
-  claude: "/icons/claude_profile.jpg",
+  agent: "/icons/agent_profile.jpg",
 };
 
-function agentNameFor(raw: string): "gemini" | "claude" | null {
+function agentNameFor(raw: string): "gemini" | "agent" | null {
   const lower = raw.toLowerCase();
   if (lower.includes("antigravity") || lower.includes("gemini")) return "gemini";
-  if (lower.includes("claude") || lower.includes("cool-prism")) return "claude";
+  if (lower.includes("claude") || lower.includes("cool-prism")) return "agent";
   return null;
 }
 

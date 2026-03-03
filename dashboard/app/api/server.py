@@ -26,6 +26,11 @@ from pathlib import Path
 import threading
 import time
 
+# Ensure project root is importable (for engine.* package)
+_project_root = str(Path(__file__).resolve().parent.parent.parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 # ── Configuration ──
 
 # Load .env file if present (manual implementation — no dependency on python-dotenv)
@@ -308,6 +313,55 @@ def purview_status() -> dict:
     return {'connected': True, 'account': PURVIEW_ACCOUNT}
 
 
+# ── Custom Server Labels ──
+
+_SERVER_LABELS_FILE = os.path.join(os.path.dirname(__file__), 'server_labels.json')
+_server_labels: dict[str, str] = {}
+
+def _load_server_labels() -> dict[str, str]:
+    global _server_labels
+    try:
+        if os.path.exists(_SERVER_LABELS_FILE):
+            with open(_SERVER_LABELS_FILE, 'r') as f:
+                _server_labels = json.load(f)
+    except Exception:
+        _server_labels = {}
+    return _server_labels
+
+def _save_server_label(server: str, label: str) -> None:
+    global _server_labels
+    _server_labels[server] = label
+    with open(_SERVER_LABELS_FILE, 'w') as f:
+        json.dump(_server_labels, f, indent=2)
+
+# Load on startup
+_load_server_labels()
+
+
+# ── Admin Config (page visibility) ──
+
+_ADMIN_CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'admin_config.json')
+_admin_config: dict = {}
+
+def _load_admin_config() -> dict:
+    global _admin_config
+    try:
+        if os.path.exists(_ADMIN_CONFIG_FILE):
+            with open(_ADMIN_CONFIG_FILE, 'r') as f:
+                _admin_config = json.load(f)
+    except Exception:
+        _admin_config = {"hiddenPages": []}
+    return _admin_config
+
+def _save_admin_config(hidden_pages: list) -> None:
+    global _admin_config
+    _admin_config["hiddenPages"] = hidden_pages
+    with open(_ADMIN_CONFIG_FILE, 'w') as f:
+        json.dump(_admin_config, f, indent=2)
+
+_load_admin_config()
+
+
 # ── Lakehouse SQL Analytics Endpoints ──
 
 _lakehouse_endpoints: dict = {}  # lakehouse_name → {connectionString, id, ...}
@@ -331,7 +385,7 @@ def discover_lakehouse_endpoints() -> dict:
     url = f'https://api.fabric.microsoft.com/v1/workspaces/{WORKSPACE_DATA_ID}/lakehouses'
     req = urllib.request.Request(url, headers=headers)
     try:
-        resp = urllib.request.urlopen(req)
+        resp = urllib.request.urlopen(req, timeout=15)
         data = json.loads(resp.read())
         for lh in data.get('value', []):
             name = lh.get('displayName', '')
@@ -371,7 +425,7 @@ def get_lakehouse_connection(lakehouse_name: str):
         f'DATABASE={lakehouse_name};'
         f'Encrypt=yes;TrustServerCertificate=no;'
     )
-    return pyodbc.connect(conn_str, attrs_before={1256: token_struct})
+    return pyodbc.connect(conn_str, attrs_before={1256: token_struct}, timeout=20)
 
 
 def query_lakehouse(lakehouse_name: str, sql: str) -> list[dict]:
@@ -808,6 +862,369 @@ def discover_source_tables(server: str, database: str, username: str = '', passw
     except pyodbc.Error as e:
         log.warning(f'Source table discovery failed for {server}/{database}: {e}')
         raise RuntimeError(f'Cannot connect to {server}/{database}: {str(e)[:200]}')
+
+# ── SQL Object Explorer ──────────────────────────────────────────────────────
+
+def sql_explorer_servers() -> list[dict]:
+    """Return all registered source connections with reachability status.
+
+    Joins Connection → DataSource to show friendly datasource labels
+    instead of raw connection names (CON_FMD_...).
+    """
+    rows = query_sql(
+        "SELECT c.ConnectionId, c.Name AS ConnName, c.ServerName, c.DatabaseName, c.Type, "
+        "       ds.Name AS DataSourceName, ds.Namespace, ds.Description "
+        "FROM integration.Connection c "
+        "LEFT JOIN integration.DataSource ds ON ds.ConnectionId = c.ConnectionId "
+        "WHERE c.ServerName IS NOT NULL AND c.ServerName <> '' "
+        "ORDER BY ds.Name, c.Name"
+    )
+    import pyodbc
+    servers = []
+    seen = set()
+    for r in rows:
+        srv = r.get('ServerName', '')
+        if not srv or srv in seen:
+            continue
+        seen.add(srv)
+        status = 'unknown'
+        error = None
+        try:
+            conn = pyodbc.connect(
+                f'DRIVER={{{SQL_DRIVER}}};SERVER={srv};DATABASE=master;'
+                f'Trusted_Connection=yes;TrustServerCertificate=yes;',
+                timeout=5
+            )
+            conn.close()
+            status = 'online'
+        except Exception as e:
+            status = 'offline'
+            error = str(e)[:200]
+
+        ds_name = r.get('DataSourceName') or ''
+        db_name = r.get('DatabaseName') or ''
+        namespace = r.get('Namespace') or ''
+        description = r.get('Description') or ''
+
+        # Priority: custom label > friendly default > datasource name > server name
+        _FRIENDLY_DEFAULTS = {
+            'mes': 'MES', 'etqstagingprd': 'ETQ', 'm3fdbprd': 'M3',
+            'di_prd_staging': 'M3C', 'optivalive': 'Optiva',
+        }
+        if srv in _server_labels:
+            display = _server_labels[srv]
+        elif db_name and db_name.lower() in _FRIENDLY_DEFAULTS:
+            display = _FRIENDLY_DEFAULTS[db_name.lower()]
+        else:
+            display = ds_name or srv
+
+        servers.append({
+            'server': srv,
+            'display': display,
+            'datasource': ds_name,
+            'database': db_name,
+            'namespace': namespace,
+            'description': description,
+            'status': status,
+            'error': error,
+        })
+    return servers
+
+
+def sql_explorer_databases(server: str) -> list[dict]:
+    """List ALL databases on a source SQL Server with table counts.
+
+    Scans sys.databases so the user can see everything available on the
+    server, not just what's registered in FMD metadata.
+    """
+    import pyodbc
+
+    try:
+        conn = pyodbc.connect(
+            f'DRIVER={{{SQL_DRIVER}}};SERVER={server};DATABASE=master;'
+            f'Trusted_Connection=yes;TrustServerCertificate=yes;',
+            timeout=10
+        )
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name, state_desc, compatibility_level, create_date, collation_name "
+            "FROM sys.databases WHERE state_desc = 'ONLINE' "
+            "AND name NOT IN ('master','tempdb','model','msdb') "
+            "ORDER BY name"
+        )
+        db_rows = cursor.fetchall()
+    except Exception as e:
+        log.warning(f'sql_explorer_databases({server}): {e}')
+        return []
+
+    results = []
+    for row in db_rows:
+        db_name = row[0]
+        entry = {
+            'name': db_name,
+            'state_desc': str(row[1] or 'ONLINE'),
+            'compatibility_level': str(row[2]) if row[2] else None,
+            'create_date': str(row[3]) if row[3] else None,
+            'collation_name': str(row[4]) if row[4] else None,
+            'table_count': '0',
+        }
+        try:
+            # Cross-database query via same master connection — fast, no extra connects
+            cursor.execute(
+                f"SELECT COUNT(*) FROM [{db_name}].INFORMATION_SCHEMA.TABLES "
+                f"WHERE TABLE_TYPE = 'BASE TABLE'"
+            )
+            entry['table_count'] = str(cursor.fetchone()[0])
+        except Exception:
+            pass  # Leave count as 0 if cross-DB query fails
+
+        results.append(entry)
+
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+    return results
+
+
+def sql_explorer_schemas(server: str, database: str) -> list[dict]:
+    """List schemas that contain tables."""
+    import pyodbc
+    s_db = _sanitize_sql_str(database)
+    conn = pyodbc.connect(
+        f'DRIVER={{{SQL_DRIVER}}};SERVER={server};DATABASE={s_db};'
+        f'Trusted_Connection=yes;TrustServerCertificate=yes;',
+        timeout=10
+    )
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT TABLE_SCHEMA AS schema_name, COUNT(*) AS table_count
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_TYPE = 'BASE TABLE'
+        GROUP BY TABLE_SCHEMA
+        ORDER BY TABLE_SCHEMA
+    """)
+    cols = [c[0] for c in cursor.description]
+    rows = cursor.fetchall()
+    conn.close()
+    return [{c: (str(v) if v is not None else None) for c, v in zip(cols, row)} for row in rows]
+
+
+def sql_explorer_tables(server: str, database: str, schema: str) -> list[dict]:
+    """List tables in a specific schema."""
+    import pyodbc
+    s_db = _sanitize_sql_str(database)
+    s_sch = _sanitize_sql_str(schema)
+    conn = pyodbc.connect(
+        f'DRIVER={{{SQL_DRIVER}}};SERVER={server};DATABASE={s_db};'
+        f'Trusted_Connection=yes;TrustServerCertificate=yes;',
+        timeout=10
+    )
+    cursor = conn.cursor()
+    cursor.execute(f"""
+        SELECT TABLE_NAME, TABLE_TYPE
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = '{s_sch}' AND TABLE_TYPE = 'BASE TABLE'
+        ORDER BY TABLE_NAME
+    """)
+    cols = [c[0] for c in cursor.description]
+    rows = cursor.fetchall()
+    conn.close()
+    return [{c: (str(v) if v is not None else None) for c, v in zip(cols, row)} for row in rows]
+
+
+def sql_explorer_columns(server: str, database: str, schema: str, table: str) -> dict:
+    """Get column metadata and row count for a source table."""
+    import pyodbc
+    s_db = _sanitize_sql_str(database)
+    s_sch = _sanitize_sql_str(schema)
+    s_tbl = _sanitize_sql_str(table)
+    conn = pyodbc.connect(
+        f'DRIVER={{{SQL_DRIVER}}};SERVER={server};DATABASE={s_db};'
+        f'Trusted_Connection=yes;TrustServerCertificate=yes;',
+        timeout=15
+    )
+    cursor = conn.cursor()
+    # Column metadata with PK detection
+    cursor.execute(f"""
+        SELECT
+            c.COLUMN_NAME, c.DATA_TYPE, c.IS_NULLABLE,
+            CAST(c.CHARACTER_MAXIMUM_LENGTH AS VARCHAR) AS CHARACTER_MAXIMUM_LENGTH,
+            CAST(c.NUMERIC_PRECISION AS VARCHAR) AS NUMERIC_PRECISION,
+            CAST(c.NUMERIC_SCALE AS VARCHAR) AS NUMERIC_SCALE,
+            CAST(c.ORDINAL_POSITION AS VARCHAR) AS ORDINAL_POSITION,
+            c.COLUMN_DEFAULT,
+            CASE WHEN kcu.COLUMN_NAME IS NOT NULL THEN '1' ELSE '0' END AS IS_PK
+        FROM INFORMATION_SCHEMA.COLUMNS c
+        LEFT JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+            ON tc.TABLE_SCHEMA = c.TABLE_SCHEMA AND tc.TABLE_NAME = c.TABLE_NAME
+            AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+        LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+            ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+            AND kcu.TABLE_SCHEMA = tc.TABLE_SCHEMA
+            AND kcu.COLUMN_NAME = c.COLUMN_NAME
+        WHERE c.TABLE_SCHEMA = '{s_sch}' AND c.TABLE_NAME = '{s_tbl}'
+        ORDER BY c.ORDINAL_POSITION
+    """)
+    cols_meta = [c[0] for c in cursor.description]
+    col_rows = cursor.fetchall()
+    columns = [{c: (str(v) if v is not None else None) for c, v in zip(cols_meta, row)} for row in col_rows]
+
+    # Row count (approx from sys.partitions for speed)
+    row_count = -1
+    try:
+        cursor.execute(f"""
+            SELECT SUM(p.rows) AS row_count
+            FROM sys.partitions p
+            JOIN sys.tables t ON p.object_id = t.object_id
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = '{s_sch}' AND t.name = '{s_tbl}' AND p.index_id IN (0, 1)
+        """)
+        r = cursor.fetchone()
+        if r and r[0] is not None:
+            row_count = int(r[0])
+    except Exception:
+        pass
+
+    conn.close()
+    return {
+        'server': server, 'database': database, 'schema': schema, 'table': table,
+        'rowCount': row_count, 'columns': columns,
+    }
+
+
+def sql_explorer_preview(server: str, database: str, schema: str, table: str, limit: int = 500) -> dict:
+    """Preview data from a source table (read-only, limited rows)."""
+    import pyodbc
+    s_db = _sanitize_sql_str(database)
+    s_sch = _sanitize_sql_str(schema)
+    s_tbl = _sanitize_sql_str(table)
+    limit = min(max(1, limit), 1000)
+    conn = pyodbc.connect(
+        f'DRIVER={{{SQL_DRIVER}}};SERVER={server};DATABASE={s_db};'
+        f'Trusted_Connection=yes;TrustServerCertificate=yes;',
+        timeout=30
+    )
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT TOP {limit} * FROM [{s_sch}].[{s_tbl}]")
+    col_names = [c[0] for c in cursor.description]
+    raw_rows = cursor.fetchall()
+    rows = [{c: (str(v) if v is not None else None) for c, v in zip(col_names, row)} for row in raw_rows]
+
+    # Get total row count
+    row_count = len(rows)
+    try:
+        cursor.execute(f"""
+            SELECT SUM(p.rows) FROM sys.partitions p
+            JOIN sys.tables t ON p.object_id = t.object_id
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = '{s_sch}' AND t.name = '{s_tbl}' AND p.index_id IN (0, 1)
+        """)
+        r = cursor.fetchone()
+        if r and r[0] is not None:
+            row_count = int(r[0])
+    except Exception:
+        pass
+
+    conn.close()
+    return {
+        'server': server, 'database': database, 'schema': schema, 'table': table,
+        'limit': limit, 'rowCount': row_count, 'columns': col_names, 'rows': rows,
+    }
+
+
+def sql_explorer_lakehouses() -> list[dict]:
+    """Return Fabric lakehouses with online/offline status."""
+    endpoints = discover_lakehouse_endpoints()
+    result = []
+    for name, ep in endpoints.items():
+        result.append({
+            'name': name,
+            'display': name.replace('LH_', '').replace('_', ' ').title(),
+            'status': 'online',
+            'error': None,
+        })
+    return result
+
+
+def sql_explorer_lakehouse_schemas(lakehouse: str) -> list[dict]:
+    """List schemas with tables in a lakehouse."""
+    try:
+        rows = query_lakehouse(lakehouse,
+            "SELECT TABLE_SCHEMA AS schema_name, CAST(COUNT(*) AS VARCHAR) AS table_count "
+            "FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' "
+            "GROUP BY TABLE_SCHEMA ORDER BY TABLE_SCHEMA"
+        )
+        return rows
+    except Exception as e:
+        log.warning(f'sql_explorer_lakehouse_schemas({lakehouse}): {e}')
+        return []
+
+
+def sql_explorer_lakehouse_tables(lakehouse: str, schema: str) -> list[dict]:
+    """List tables in a lakehouse schema."""
+    try:
+        s_sch = _sanitize_sql_str(schema)
+        return query_lakehouse(lakehouse,
+            f"SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES "
+            f"WHERE TABLE_SCHEMA = '{s_sch}' AND TABLE_TYPE = 'BASE TABLE' "
+            f"ORDER BY TABLE_NAME"
+        )
+    except Exception as e:
+        log.warning(f'sql_explorer_lakehouse_tables({lakehouse}, {schema}): {e}')
+        return []
+
+
+def sql_explorer_lakehouse_columns(lakehouse: str, schema: str, table: str) -> dict:
+    """Column metadata for a lakehouse table."""
+    s_sch = _sanitize_sql_str(schema)
+    s_tbl = _sanitize_sql_str(table)
+    col_rows = query_lakehouse(lakehouse,
+        f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
+        f"CAST(CHARACTER_MAXIMUM_LENGTH AS VARCHAR) AS CHARACTER_MAXIMUM_LENGTH, "
+        f"CAST(NUMERIC_PRECISION AS VARCHAR) AS NUMERIC_PRECISION, "
+        f"CAST(NUMERIC_SCALE AS VARCHAR) AS NUMERIC_SCALE, "
+        f"CAST(ORDINAL_POSITION AS VARCHAR) AS ORDINAL_POSITION, "
+        f"COLUMN_DEFAULT, '0' AS IS_PK "
+        f"FROM INFORMATION_SCHEMA.COLUMNS "
+        f"WHERE TABLE_SCHEMA = '{s_sch}' AND TABLE_NAME = '{s_tbl}' "
+        f"ORDER BY ORDINAL_POSITION"
+    )
+    row_count = -1
+    try:
+        rc = query_lakehouse(lakehouse, f"SELECT COUNT(*) AS cnt FROM [{s_sch}].[{s_tbl}]")
+        if rc:
+            row_count = int(rc[0].get('cnt', -1))
+    except Exception:
+        pass
+    return {
+        'server': lakehouse, 'database': lakehouse, 'schema': schema, 'table': table,
+        'rowCount': row_count, 'columns': col_rows,
+    }
+
+
+def sql_explorer_lakehouse_preview(lakehouse: str, schema: str, table: str, limit: int = 500) -> dict:
+    """Preview data from a lakehouse table."""
+    s_sch = _sanitize_sql_str(schema)
+    s_tbl = _sanitize_sql_str(table)
+    limit = min(max(1, limit), 1000)
+    rows = query_lakehouse(lakehouse,
+        f"SELECT TOP {limit} * FROM [{s_sch}].[{s_tbl}]"
+    )
+    col_names = list(rows[0].keys()) if rows else []
+    row_count = len(rows)
+    try:
+        rc = query_lakehouse(lakehouse, f"SELECT COUNT(*) AS cnt FROM [{s_sch}].[{s_tbl}]")
+        if rc:
+            row_count = int(rc[0].get('cnt', len(rows)))
+    except Exception:
+        pass
+    return {
+        'server': lakehouse, 'database': lakehouse, 'schema': schema, 'table': table,
+        'limit': limit, 'rowCount': row_count, 'columns': col_names, 'rows': rows,
+    }
+
 
 def get_pipeline_executions() -> list[dict]:
     try:
@@ -2383,6 +2800,128 @@ def _delete_onelake_path(workspace_id: str, lakehouse_id: str, path: str) -> boo
         return False
 
 
+def _list_onelake_directory(workspace_id: str, lakehouse_id: str, directory: str = 'Files') -> list[dict]:
+    """List files/directories under a OneLake path via ADLS Gen2 REST API.
+    Returns list of {name, isDirectory, contentLength, lastModified}.
+
+    OneLake maps: workspace = ADLS filesystem, lakehouse = top-level directory.
+    So directory=Files means the ADLS directory is "{lakehouse_id}/Files"."""
+    token = get_fabric_token('https://storage.azure.com/.default')
+    # In OneLake, workspace_id is the ADLS filesystem and the lakehouse_id
+    # is part of the directory path within that filesystem.
+    adls_directory = f'{lakehouse_id}/{directory}'
+    url = (
+        f'https://onelake.dfs.fabric.microsoft.com/{workspace_id}'
+        f'?resource=filesystem&directory={urllib.parse.quote(adls_directory, safe="/")}&recursive=false'
+    )
+    req = urllib.request.Request(url, headers={
+        'Authorization': f'Bearer {token}',
+        'x-ms-version': '2021-06-08',
+    })
+    resp = urllib.request.urlopen(req, timeout=15)
+    data = json.loads(resp.read())
+    results = []
+    # The lakehouse prefix to strip from returned paths
+    prefix = f'{lakehouse_id}/'
+    for path_entry in data.get('paths', []):
+        full_name = path_entry.get('name', '')
+        # Strip lakehouse prefix for cleaner paths
+        rel_path = full_name[len(prefix):] if full_name.startswith(prefix) else full_name
+        short_name = rel_path.rsplit('/', 1)[-1] if '/' in rel_path else rel_path
+        is_dir = path_entry.get('isDirectory', 'false') == 'true'
+        results.append({
+            'name': short_name,
+            'fullPath': rel_path,
+            'isDirectory': is_dir,
+            'contentLength': int(path_entry.get('contentLength', 0)) if not is_dir else 0,
+            'lastModified': path_entry.get('lastModified', ''),
+        })
+    return results
+
+
+def sql_explorer_lakehouse_files(lakehouse: str) -> list[dict]:
+    """List top-level directories under a lakehouse's Files/ (namespace folders like m3, mes)."""
+    endpoints = discover_lakehouse_endpoints()
+    ep = endpoints.get(lakehouse)
+    if not ep:
+        return []
+    try:
+        entries = _list_onelake_directory(ep['workspaceId'], ep['lakehouseId'], 'Files')
+        # Only return directories (namespace folders)
+        return [e for e in entries if e['isDirectory']]
+    except urllib.error.HTTPError as e:
+        log.warning(f'OneLake list Files/ failed for {lakehouse}: {e.code}')
+        return []
+    except Exception as e:
+        log.warning(f'OneLake list Files/ failed for {lakehouse}: {e}')
+        return []
+
+
+def sql_explorer_lakehouse_file_tables(lakehouse: str, namespace: str) -> list[dict]:
+    """List table folders under a lakehouse namespace (e.g., Files/m3/dbo_SomeTable)."""
+    endpoints = discover_lakehouse_endpoints()
+    ep = endpoints.get(lakehouse)
+    if not ep:
+        return []
+    try:
+        entries = _list_onelake_directory(ep['workspaceId'], ep['lakehouseId'], f'Files/{namespace}')
+        results = []
+        for e in entries:
+            if e['isDirectory']:
+                # Try to count files inside + total size
+                try:
+                    children = _list_onelake_directory(
+                        ep['workspaceId'], ep['lakehouseId'], e['fullPath']
+                    )
+                    file_count = sum(1 for c in children if not c['isDirectory'])
+                    total_size = sum(c['contentLength'] for c in children if not c['isDirectory'])
+                except Exception:
+                    file_count = 0
+                    total_size = 0
+                e['fileCount'] = file_count
+                e['totalSize'] = total_size
+                results.append(e)
+        return results
+    except urllib.error.HTTPError as e:
+        log.warning(f'OneLake list namespace failed for {lakehouse}/{namespace}: {e.code}')
+        return []
+    except Exception as e:
+        log.warning(f'OneLake list namespace failed for {lakehouse}/{namespace}: {e}')
+        return []
+
+
+def sql_explorer_lakehouse_file_detail(lakehouse: str, namespace: str, table_folder: str) -> dict:
+    """List parquet files inside a table folder with sizes."""
+    endpoints = discover_lakehouse_endpoints()
+    ep = endpoints.get(lakehouse)
+    if not ep:
+        return {'files': [], 'totalSize': 0}
+    try:
+        path = f'Files/{namespace}/{table_folder}'
+        entries = _list_onelake_directory(ep['workspaceId'], ep['lakehouseId'], path)
+        files = []
+        total_size = 0
+        for e in entries:
+            if not e['isDirectory']:
+                files.append({
+                    'name': e['name'],
+                    'size': e['contentLength'],
+                    'lastModified': e['lastModified'],
+                })
+                total_size += e['contentLength']
+        return {
+            'lakehouse': lakehouse,
+            'namespace': namespace,
+            'tableFolder': table_folder,
+            'files': files,
+            'fileCount': len(files),
+            'totalSize': total_size,
+        }
+    except Exception as e:
+        log.warning(f'OneLake file detail failed for {lakehouse}/{namespace}/{table_folder}: {e}')
+        return {'files': [], 'totalSize': 0}
+
+
 def _cascade_delete_entities(entity_ids: list[int]) -> dict:
     """Delete entities from Silver → Bronze → Landing (reverse order).
     Uses name-based matching ([Schema]+Name) to find related bronze/silver rows."""
@@ -3234,6 +3773,8 @@ def build_entity_digest(source_filter: str = None, layer_filter: str = None,
             'tableName': row.get('tableName') or '',
             'sourceSchema': row.get('sourceSchema') or '',
             'source': src_key,
+            'targetSchema': src_key,  # ds.Namespace = lakehouse schema (m3, mes, etq, m3c)
+            'dataSourceName': row.get('dbName') or src_key,  # original DB name (m3fdbprd, MES, etc.)
             'isActive': is_active,
             'isIncremental': is_incremental,
             'watermarkColumn': row.get('watermarkColumn') or '',
@@ -4300,6 +4841,753 @@ def _fabric_api_get(path: str) -> dict:
     req = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}'})
     resp = urllib.request.urlopen(req, timeout=30)
     return json.loads(resp.read())
+
+
+def _fabric_api_post(path: str, payload: dict, timeout: int = 60) -> tuple[int, dict]:
+    """POST to Fabric REST API with auto-token.  Returns (status_code, response_dict).
+
+    Handles:
+      - 200/201: immediate success
+      - 202: long-running operation (polls Location header)
+      - 409: conflict (already exists)
+      - 4xx/5xx: error
+    """
+    token = get_fabric_token('https://api.fabric.microsoft.com/.default')
+    url = f'https://api.fabric.microsoft.com/v1/{path}'
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=body, method='POST', headers={
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json',
+    })
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        status = resp.getcode()
+        data = json.loads(resp.read()) if resp.read else {}
+        # Handle 202 long-running operation
+        if status == 202:
+            location = resp.headers.get('Location') or resp.headers.get('x-ms-operation-url')
+            if location:
+                import time as _time
+                for _ in range(120):
+                    _time.sleep(2)
+                    poll_req = urllib.request.Request(location, headers={
+                        'Authorization': f'Bearer {get_fabric_token("https://api.fabric.microsoft.com/.default")}',
+                    })
+                    poll_resp = urllib.request.urlopen(poll_req, timeout=30)
+                    poll_data = json.loads(poll_resp.read())
+                    poll_status = poll_data.get('status', '').lower()
+                    if poll_status in ('succeeded', 'completed'):
+                        # Fetch the created resource if there's a resourceLocation
+                        resource_url = poll_data.get('resourceLocation')
+                        if resource_url:
+                            res_req = urllib.request.Request(resource_url, headers={
+                                'Authorization': f'Bearer {get_fabric_token("https://api.fabric.microsoft.com/.default")}',
+                            })
+                            res_resp = urllib.request.urlopen(res_req, timeout=30)
+                            return 201, json.loads(res_resp.read())
+                        return 201, poll_data
+                    elif poll_status == 'failed':
+                        return 500, {'error': poll_data.get('error', {}).get('message', 'LRO failed')}
+                return 504, {'error': 'Long-running operation timed out'}
+        return status, data
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode('utf-8', errors='replace') if e.fp else ''
+        try:
+            err_data = json.loads(body_text)
+        except Exception:
+            err_data = {'error': body_text or str(e)}
+        return e.code, err_data
+
+
+# ---------------------------------------------------------------------------
+# Environment Setup — Provisioning Wizard API
+# ---------------------------------------------------------------------------
+
+def setup_list_capacities() -> dict:
+    """List available Fabric capacities for the setup wizard."""
+    try:
+        data = _fabric_api_get('capacities')
+        items = [{'id': c['id'], 'displayName': c.get('displayName', ''),
+                  'sku': c.get('sku', ''), 'state': c.get('state', '')}
+                 for c in data.get('value', []) if c.get('state') == 'Active']
+        items.sort(key=lambda x: x['displayName'].lower())
+        return {'capacities': items}
+    except Exception as ex:
+        return {'capacities': [], 'error': str(ex)}
+
+
+def setup_list_workspace_items(workspace_id: str, item_type: str) -> dict:
+    """List items of a given type in a workspace (Lakehouse, Notebook, DataPipeline, etc.)."""
+    try:
+        data = _fabric_api_get(f'workspaces/{workspace_id}/items?type={item_type}')
+        items = [{'id': i['id'], 'displayName': i.get('displayName', '')}
+                 for i in data.get('value', [])]
+        items.sort(key=lambda x: x['displayName'].lower())
+        return {'items': items}
+    except Exception as ex:
+        return {'items': [], 'error': str(ex)}
+
+
+def setup_list_sql_databases(workspace_id: str) -> dict:
+    """List SQL databases in a workspace, including server FQDN from properties."""
+    try:
+        data = _fabric_api_get(f'workspaces/{workspace_id}/items?type=SQLDatabase')
+        items = []
+        for db in data.get('value', []):
+            # Fetch detail to get serverFqdn
+            try:
+                detail = _fabric_api_get(f'workspaces/{workspace_id}/sqlDatabases/{db["id"]}')
+                props = detail.get('properties', {})
+                server_fqdn = props.get('serverFqdn', '') or props.get('connectionString', '')
+                db_name = props.get('databaseName', '') or db.get('displayName', '')
+            except Exception:
+                server_fqdn = ''
+                db_name = db.get('displayName', '')
+            items.append({
+                'id': db['id'],
+                'displayName': db.get('displayName', ''),
+                'serverFqdn': server_fqdn,
+                'databaseName': db_name,
+            })
+        items.sort(key=lambda x: x['displayName'].lower())
+        return {'items': items}
+    except Exception as ex:
+        return {'items': [], 'error': str(ex)}
+
+
+def setup_get_current_config() -> dict:
+    """Load the full current environment configuration from all sources."""
+    yaml_path = _REPO_ROOT / 'config' / 'item_config.yaml'
+    yaml_config = _read_yaml(yaml_path) if yaml_path.is_file() else {}
+    ws = yaml_config.get('workspaces', {})
+    conns = yaml_config.get('connections', {})
+    db = yaml_config.get('database', {})
+
+    # Resolve display names for workspace GUIDs
+    workspace_map = {}
+    for key, guid in ws.items():
+        if guid and guid != '00000000-0000-0000-0000-000000000000':
+            name = _resolve_workspace_name(guid)
+            workspace_map[key] = {'id': guid, 'displayName': name or guid}
+        else:
+            workspace_map[key] = None
+
+    # Read lakehouse records from SQL metadata
+    lakehouses = {}
+    try:
+        rows = query_sql('SELECT LakehouseId, LakehouseGuid, WorkspaceGuid, Name, IsActive '
+                         'FROM integration.Lakehouse ORDER BY LakehouseId')
+        for r in rows:
+            lakehouses[r.get('Name', f"LH_{r['LakehouseId']}")] = {
+                'id': r.get('LakehouseGuid', ''),
+                'displayName': r.get('Name', ''),
+                'workspaceGuid': r.get('WorkspaceGuid', ''),
+                'lakehouseId': r.get('LakehouseId'),
+            }
+    except Exception as ex:
+        log.warning('setup_get_current_config: failed to read lakehouses: %s', ex)
+
+    # Read connection records from SQL metadata
+    connections_db = {}
+    try:
+        rows = query_sql('SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName '
+                         'FROM integration.Connection ORDER BY ConnectionId')
+        for r in rows:
+            connections_db[r.get('Name', f"CON_{r['ConnectionId']}")] = {
+                'id': r.get('ConnectionGuid', ''),
+                'displayName': r.get('Name', ''),
+                'type': r.get('Type', ''),
+                'serverName': r.get('ServerName', ''),
+                'databaseName': r.get('DatabaseName', ''),
+            }
+    except Exception as ex:
+        log.warning('setup_get_current_config: failed to read connections: %s', ex)
+
+    return {
+        'workspaces': workspace_map,
+        'connections_yaml': conns,
+        'connections_db': connections_db,
+        'lakehouses': lakehouses,
+        'database': {
+            'id': db.get('id', ''),
+            'displayName': db.get('displayName', ''),
+            'endpoint': db.get('endpoint', ''),
+        },
+        'fabric': {
+            'tenant_id': TENANT_ID,
+            'client_id': CLIENT_ID,
+        },
+    }
+
+
+def setup_create_workspace(body: dict) -> dict:
+    """Create a Fabric workspace and assign SP as Admin."""
+    display_name = body.get('displayName', '')
+    capacity_id = body.get('capacityId', '')
+    if not display_name:
+        return {'error': 'displayName is required'}
+
+    payload = {'displayName': display_name}
+    if capacity_id:
+        payload['capacityId'] = capacity_id
+
+    status, data = _fabric_api_post('workspaces', payload)
+    if status in (200, 201) and data.get('id'):
+        ws_id = data['id']
+        # Assign SP + user as Admin
+        sp_oid = CONFIG['fabric'].get('service_principal_object_id', '')
+        admin_upn = 'SAsnahrup@InterplasticCorporation.onmicrosoft.com'
+        for pid, ptype in [(sp_oid, 'ServicePrincipal'), (admin_upn, 'User')]:
+            if pid:
+                try:
+                    _fabric_api_post(f'workspaces/{ws_id}/roleAssignments', {
+                        'principal': {'id': pid, 'type': ptype},
+                        'role': 'Admin',
+                    })
+                except Exception:
+                    pass
+        return {'id': ws_id, 'displayName': display_name}
+    elif status == 409:
+        return {'error': f'Workspace "{display_name}" already exists', 'status': 409}
+    return {'error': data.get('error', {}).get('message', f'HTTP {status}'), 'status': status}
+
+
+def setup_create_lakehouse(body: dict) -> dict:
+    """Create a lakehouse in a workspace."""
+    display_name = body.get('displayName', '')
+    workspace_id = body.get('workspaceId', '')
+    if not display_name or not workspace_id:
+        return {'error': 'displayName and workspaceId are required'}
+
+    status, data = _fabric_api_post(f'workspaces/{workspace_id}/items', {
+        'displayName': display_name, 'type': 'Lakehouse',
+        'creationPayload': {'enableSchemas': True},
+    })
+    if status in (200, 201) and data.get('id'):
+        return {'id': data['id'], 'displayName': display_name, 'schemasEnabled': True}
+    elif status == 409:
+        return {'error': f'Lakehouse "{display_name}" already exists', 'status': 409}
+    return {'error': data.get('error', {}).get('message', f'HTTP {status}'), 'status': status}
+
+
+def setup_create_sql_database(body: dict) -> dict:
+    """Create a SQL database in a workspace and return its endpoint."""
+    display_name = body.get('displayName', '')
+    workspace_id = body.get('workspaceId', '')
+    if not display_name or not workspace_id:
+        return {'error': 'displayName and workspaceId are required'}
+
+    status, data = _fabric_api_post(f'workspaces/{workspace_id}/items', {
+        'displayName': display_name, 'type': 'SQLDatabase',
+    })
+    if status in (200, 201) and data.get('id'):
+        db_id = data['id']
+        # Fetch the connection string / server FQDN
+        try:
+            detail = _fabric_api_get(f'workspaces/{workspace_id}/sqlDatabases/{db_id}')
+            props = detail.get('properties', {})
+            return {
+                'id': db_id,
+                'displayName': display_name,
+                'serverFqdn': props.get('serverFqdn', ''),
+                'databaseName': props.get('databaseName', display_name),
+            }
+        except Exception:
+            return {'id': db_id, 'displayName': display_name, 'serverFqdn': '', 'databaseName': ''}
+    elif status == 409:
+        return {'error': f'SQL Database "{display_name}" already exists', 'status': 409}
+    return {'error': data.get('error', {}).get('message', f'HTTP {status}'), 'status': status}
+
+
+def _find_workspace_by_name(name: str) -> dict | None:
+    """Search existing workspaces by display name. Returns {id, displayName} or None."""
+    try:
+        data = _fabric_api_get('workspaces')
+        for ws in data.get('value', []):
+            if ws.get('displayName', '').lower() == name.lower():
+                return {'id': ws['id'], 'displayName': ws.get('displayName', name)}
+    except Exception:
+        pass
+    return None
+
+
+def _find_item_by_name(workspace_id: str, item_type: str, name: str) -> dict | None:
+    """Search existing items in a workspace by type and name."""
+    try:
+        data = _fabric_api_get(f'workspaces/{workspace_id}/items?type={item_type}')
+        for item in data.get('value', []):
+            if item.get('displayName', '').lower() == name.lower():
+                return {'id': item['id'], 'displayName': item.get('displayName', name)}
+    except Exception:
+        pass
+    return None
+
+
+def setup_provision_all(body: dict) -> dict:
+    """One-click: create all Fabric resources for a fresh environment.
+
+    Creates (in order):
+      1. 5 workspaces with naming conventions + SP admin role
+      2. 3 lakehouses in data_dev workspace
+      3. 1 SQL database in config workspace (+ fetches endpoint)
+
+    Idempotent: on 409 conflict, looks up the existing resource and uses it.
+    After creation, auto-saves config to all 4 targets.
+    """
+    capacity_id = body.get('capacityId', '')
+    capacity_name = body.get('capacityDisplayName', '')
+    if not capacity_id:
+        return {'error': 'capacityId is required'}
+
+    sp_oid = CONFIG['fabric'].get('service_principal_object_id', '')
+    # User + Security Group Object IDs (GUIDs required — UPNs don't work for role assignments)
+    ADMIN_USER_OID = '47f88431-a351-4062-abfb-50e30237e89b'       # SAsnahrup
+    ADMIN_GROUP_OID = '7d0cbeea-36ee-48a5-8c67-ca8183f8b0bd'      # FabricAdmins
+
+    steps = []
+
+    # ── Carry forward existing gateway connections (tenant-level, not workspace-bound) ──
+    existing_connections = {}
+    try:
+        yaml_path = _REPO_ROOT / 'config' / 'item_config.yaml'
+        yaml_cfg = _read_yaml(yaml_path) if yaml_path.is_file() else {}
+        for conn_name, conn_guid in yaml_cfg.get('connections', {}).items():
+            if conn_guid and conn_guid != '00000000-0000-0000-0000-000000000000':
+                existing_connections[conn_name] = {'id': conn_guid, 'displayName': conn_name}
+    except Exception:
+        pass
+
+    config = {
+        'capacity': {'id': capacity_id, 'displayName': capacity_name},
+        'workspaces': {},
+        'connections': existing_connections,
+        'lakehouses': {},
+        'database': None,
+    }
+
+    if existing_connections:
+        conn_names = ', '.join(existing_connections.keys())
+        steps.append({'name': f'Connections: carry forward', 'status': 'ok',
+                      'details': conn_names})
+
+    WS_NAMES = {
+        'data_dev': 'INTEGRATION DATA (D)',
+        'code_dev': 'INTEGRATION CODE (D)',
+        'config': 'INTEGRATION CONFIG',
+        'data_prod': 'INTEGRATION DATA (P)',
+        'code_prod': 'INTEGRATION CODE (P)',
+    }
+    LH_NAMES = ['LH_DATA_LANDINGZONE', 'LH_BRONZE_LAYER', 'LH_SILVER_LAYER']
+    DB_NAME = 'SQL_INTEGRATION_FRAMEWORK'
+
+    # ── Phase 1: Create workspaces ──
+    for key, ws_name in WS_NAMES.items():
+        step = {'name': f'Workspace: {ws_name}', 'status': 'creating'}
+        try:
+            status, data = _fabric_api_post('workspaces', {
+                'displayName': ws_name, 'capacityId': capacity_id,
+            })
+            if status in (200, 201) and data.get('id'):
+                ws_id = data['id']
+                step['status'] = 'ok'
+                step['id'] = ws_id
+                step['details'] = 'Created'
+                config['workspaces'][key] = {'id': ws_id, 'displayName': ws_name}
+                # Assign SP + User + FabricAdmins group as Admin
+                for pid, ptype in [(sp_oid, 'ServicePrincipal'), (ADMIN_USER_OID, 'User'), (ADMIN_GROUP_OID, 'Group')]:
+                    if pid:
+                        try:
+                            _fabric_api_post(f'workspaces/{ws_id}/roleAssignments', {
+                                'principal': {'id': pid, 'type': ptype},
+                                'role': 'Admin',
+                            })
+                        except Exception:
+                            pass  # Role may already exist
+            elif status == 409:
+                # Already exists — look it up
+                existing = _find_workspace_by_name(ws_name)
+                if existing:
+                    config['workspaces'][key] = existing
+                    step['status'] = 'ok'
+                    step['id'] = existing['id']
+                    step['details'] = 'Already exists — reusing'
+                    # Ensure SP + User + FabricAdmins admin
+                    for pid, ptype in [(sp_oid, 'ServicePrincipal'), (ADMIN_USER_OID, 'User'), (ADMIN_GROUP_OID, 'Group')]:
+                        if pid:
+                            try:
+                                _fabric_api_post(f'workspaces/{existing["id"]}/roleAssignments', {
+                                    'principal': {'id': pid, 'type': ptype},
+                                    'role': 'Admin',
+                                })
+                            except Exception:
+                                pass
+                else:
+                    step['status'] = 'error'
+                    step['details'] = f'Already exists but could not find by name'
+            else:
+                err_msg = data.get('error', {})
+                if isinstance(err_msg, dict):
+                    err_msg = err_msg.get('message', str(data))
+                step['status'] = 'error'
+                step['details'] = str(err_msg)
+        except Exception as ex:
+            step['status'] = 'error'
+            step['details'] = str(ex)
+        steps.append(step)
+
+    # ── Phase 2: Create lakehouses in data_dev workspace ──
+    data_ws = config['workspaces'].get('data_dev')
+    data_ws_id = data_ws['id'] if data_ws else None
+    if data_ws_id:
+        for lh_name in LH_NAMES:
+            step = {'name': f'Lakehouse: {lh_name}', 'status': 'creating'}
+            try:
+                status, data = _fabric_api_post(f'workspaces/{data_ws_id}/items', {
+                    'displayName': lh_name, 'type': 'Lakehouse',
+                })
+                if status in (200, 201) and data.get('id'):
+                    lh_id = data['id']
+                    step['status'] = 'ok'
+                    step['id'] = lh_id
+                    step['details'] = 'Created'
+                    config['lakehouses'][lh_name] = {
+                        'id': lh_id, 'displayName': lh_name,
+                        'workspaceGuid': data_ws_id,
+                    }
+                elif status == 409:
+                    existing = _find_item_by_name(data_ws_id, 'Lakehouse', lh_name)
+                    if existing:
+                        config['lakehouses'][lh_name] = {
+                            **existing, 'workspaceGuid': data_ws_id,
+                        }
+                        step['status'] = 'ok'
+                        step['id'] = existing['id']
+                        step['details'] = 'Already exists — reusing'
+                    else:
+                        step['status'] = 'error'
+                        step['details'] = 'Already exists but could not find by name'
+                else:
+                    err_msg = data.get('error', {})
+                    if isinstance(err_msg, dict):
+                        err_msg = err_msg.get('message', str(data))
+                    step['status'] = 'error'
+                    step['details'] = str(err_msg)
+            except Exception as ex:
+                step['status'] = 'error'
+                step['details'] = str(ex)
+            steps.append(step)
+    else:
+        for lh_name in LH_NAMES:
+            steps.append({'name': f'Lakehouse: {lh_name}', 'status': 'error',
+                          'details': 'Skipped — data workspace not created'})
+
+    # ── Phase 3: Create SQL database in config workspace ──
+    config_ws = config['workspaces'].get('config')
+    config_ws_id = config_ws['id'] if config_ws else None
+    if config_ws_id:
+        step = {'name': f'SQL Database: {DB_NAME}', 'status': 'creating'}
+        try:
+            status, data = _fabric_api_post(f'workspaces/{config_ws_id}/items', {
+                'displayName': DB_NAME, 'type': 'SQLDatabase',
+            })
+            if status in (200, 201) and data.get('id'):
+                db_id = data['id']
+                step['status'] = 'ok'
+                step['id'] = db_id
+                step['details'] = 'Created'
+                # Fetch endpoint
+                try:
+                    detail = _fabric_api_get(f'workspaces/{config_ws_id}/sqlDatabases/{db_id}')
+                    props = detail.get('properties', {})
+                    config['database'] = {
+                        'id': db_id, 'displayName': DB_NAME,
+                        'serverFqdn': props.get('serverFqdn', ''),
+                        'databaseName': props.get('databaseName', DB_NAME),
+                    }
+                except Exception:
+                    config['database'] = {'id': db_id, 'displayName': DB_NAME,
+                                          'serverFqdn': '', 'databaseName': ''}
+            elif status == 409:
+                existing = _find_item_by_name(config_ws_id, 'SQLDatabase', DB_NAME)
+                if existing:
+                    step['status'] = 'ok'
+                    step['id'] = existing['id']
+                    step['details'] = 'Already exists — reusing'
+                    try:
+                        detail = _fabric_api_get(f'workspaces/{config_ws_id}/sqlDatabases/{existing["id"]}')
+                        props = detail.get('properties', {})
+                        config['database'] = {
+                            'id': existing['id'], 'displayName': DB_NAME,
+                            'serverFqdn': props.get('serverFqdn', ''),
+                            'databaseName': props.get('databaseName', DB_NAME),
+                        }
+                    except Exception:
+                        config['database'] = {'id': existing['id'], 'displayName': DB_NAME,
+                                              'serverFqdn': '', 'databaseName': ''}
+                else:
+                    step['status'] = 'error'
+                    step['details'] = 'Already exists but could not find by name'
+            else:
+                err_msg = data.get('error', {})
+                if isinstance(err_msg, dict):
+                    err_msg = err_msg.get('message', str(data))
+                step['status'] = 'error'
+                step['details'] = str(err_msg)
+        except Exception as ex:
+            step['status'] = 'error'
+            step['details'] = str(ex)
+        steps.append(step)
+    else:
+        steps.append({'name': f'SQL Database: {DB_NAME}', 'status': 'error',
+                      'details': 'Skipped — config workspace not created'})
+
+    # ── Phase 4: Auto-save config to all targets ──
+    has_errors = any(s['status'] == 'error' for s in steps)
+    save_results = []
+    if not has_errors:
+        save_body = {
+            'workspaces': config['workspaces'],
+            'connections': config.get('connections', {}),
+            'lakehouses': config['lakehouses'],
+            'database': config.get('database') or {},
+        }
+        save_resp = setup_save_config(save_body)
+        save_results = save_resp.get('results', [])
+        steps.append({'name': 'Save & propagate config', 'status': 'ok' if save_resp.get('success') else 'warning',
+                      'details': f'{len(save_results)} targets updated'})
+    else:
+        steps.append({'name': 'Save & propagate config', 'status': 'error',
+                      'details': 'Skipped due to provisioning errors'})
+
+    return {'steps': steps, 'config': config, 'saveResults': save_results}
+
+
+def setup_save_config(body: dict) -> dict:
+    """Save the full environment configuration to all 4 targets.
+
+    Targets:
+      1. config/item_config.yaml
+      2. dashboard/app/api/config.json
+      3. SQL metadata tables (integration.Workspace, Lakehouse, Connection)
+      4. Variable libraries (VAR_CONFIG_FMD)
+    """
+    results = []
+
+    workspaces = body.get('workspaces', {})
+    connections = body.get('connections', {})
+    lakehouses = body.get('lakehouses', {})
+    database = body.get('database', {})
+
+    # ── Target 1: item_config.yaml ──
+    try:
+        yaml_path = _REPO_ROOT / 'config' / 'item_config.yaml'
+        lines = ['workspaces:']
+        ws_mapping = {
+            'workspace_data': 'data_dev', 'workspace_code': 'code_dev',
+            'workspace_config': 'config',
+            'workspace_data_prod': 'data_prod', 'workspace_code_prod': 'code_prod',
+        }
+        for yaml_key, body_key in ws_mapping.items():
+            ws_obj = workspaces.get(body_key)
+            guid = ws_obj['id'] if ws_obj else ''
+            lines.append(f'    {yaml_key}: "{guid}"')
+        lines.append('')
+        lines.append('connections:')
+        for conn_name, conn_obj in connections.items():
+            guid = conn_obj['id'] if conn_obj else '00000000-0000-0000-0000-000000000000'
+            lines.append(f'    {conn_name}: "{guid}"')
+        lines.append('')
+        lines.append('database:')
+        lines.append(f'    displayName: "{database.get("displayName", "")}"')
+        lines.append(f'    id: "{database.get("id", "")}"')
+        lines.append(f'    endpoint: "{database.get("endpoint", "") or database.get("serverFqdn", "")}"')
+        lines.append('')
+        yaml_path.write_text('\n'.join(lines), encoding='utf-8')
+        results.append({'target': 'item_config.yaml', 'status': 'ok'})
+    except Exception as ex:
+        results.append({'target': 'item_config.yaml', 'status': 'error', 'details': str(ex)})
+
+    # ── Target 2: config.json ──
+    try:
+        config_path = Path(__file__).parent / 'config.json'
+        cfg = json.loads(config_path.read_text(encoding='utf-8'))
+        ws_data = workspaces.get('data_dev')
+        ws_code = workspaces.get('code_dev')
+        if ws_data:
+            cfg['fabric']['workspace_data_id'] = ws_data['id']
+        if ws_code:
+            cfg['fabric']['workspace_code_id'] = ws_code['id']
+        if database.get('endpoint') or database.get('serverFqdn'):
+            endpoint = database.get('endpoint') or database.get('serverFqdn', '')
+            if ',' not in endpoint:
+                endpoint += ',1433'
+            cfg['sql']['server'] = endpoint
+        if database.get('databaseName') or database.get('id'):
+            # Fabric databaseName already includes the ID suffix (e.g. "SQL_INTEGRATION_FRAMEWORK-<guid>")
+            # so don't append the item ID again
+            db_name = database.get('databaseName', '')
+            if db_name:
+                cfg['sql']['database'] = db_name
+            else:
+                # Fallback: construct from displayName + item ID
+                cfg['sql']['database'] = f'{database["displayName"]}-{database["id"]}'
+        config_path.write_text(json.dumps(cfg, indent=4) + '\n', encoding='utf-8')
+        results.append({'target': 'config.json', 'status': 'ok'})
+    except Exception as ex:
+        results.append({'target': 'config.json', 'status': 'error', 'details': str(ex)})
+
+    # ── Target 3: SQL metadata tables ──
+    try:
+        sql_ok = True
+        # Workspaces
+        ws_label_map = {
+            'data_dev': 'INTEGRATION DATA (D)', 'code_dev': 'INTEGRATION CODE (D)',
+            'config': 'INTEGRATION CONFIG',
+            'data_prod': 'INTEGRATION DATA (P)', 'code_prod': 'INTEGRATION CODE (P)',
+        }
+        for body_key, display_label in ws_label_map.items():
+            ws_obj = workspaces.get(body_key)
+            if ws_obj:
+                try:
+                    query_sql(
+                        "IF NOT EXISTS (SELECT 1 FROM integration.Workspace WHERE WorkspaceGuid = '" + ws_obj['id'] + "') "
+                        "INSERT INTO integration.Workspace (WorkspaceGuid, Name, DisplayName, IsActive) "
+                        f"VALUES ('{ws_obj['id']}', '{display_label}', '{ws_obj.get('displayName', display_label)}', 1) "
+                        "ELSE UPDATE integration.Workspace SET DisplayName = '" + ws_obj.get('displayName', display_label) + "', "
+                        f"IsActive = 1 WHERE WorkspaceGuid = '{ws_obj['id']}'"
+                    )
+                except Exception as ex:
+                    log.warning('setup_save_config: workspace upsert failed for %s: %s', body_key, ex)
+                    sql_ok = False
+
+        # Lakehouses
+        lh_id_map = {'LH_DATA_LANDINGZONE': 1, 'LH_BRONZE_LAYER': 2, 'LH_SILVER_LAYER': 3}
+        for lh_name, lh_obj in lakehouses.items():
+            if lh_obj and lh_obj.get('id'):
+                lh_id = lh_id_map.get(lh_name, 0)
+                ws_guid = lh_obj.get('workspaceGuid', workspaces.get('data_dev', {}).get('id', ''))
+                try:
+                    if lh_id:
+                        query_sql(
+                            f"IF EXISTS (SELECT 1 FROM integration.Lakehouse WHERE LakehouseId = {lh_id}) "
+                            f"UPDATE integration.Lakehouse SET LakehouseGuid = '{lh_obj['id']}', "
+                            f"WorkspaceGuid = '{ws_guid}', Name = '{lh_name}', IsActive = 1 "
+                            f"WHERE LakehouseId = {lh_id} "
+                            f"ELSE INSERT INTO integration.Lakehouse (LakehouseId, LakehouseGuid, WorkspaceGuid, Name, IsActive) "
+                            f"VALUES ({lh_id}, '{lh_obj['id']}', '{ws_guid}', '{lh_name}', 1)"
+                        )
+                    else:
+                        query_sql(
+                            f"IF NOT EXISTS (SELECT 1 FROM integration.Lakehouse WHERE LakehouseGuid = '{lh_obj['id']}') "
+                            f"INSERT INTO integration.Lakehouse (LakehouseGuid, WorkspaceGuid, Name, IsActive) "
+                            f"VALUES ('{lh_obj['id']}', '{ws_guid}', '{lh_name}', 1)"
+                        )
+                except Exception as ex:
+                    log.warning('setup_save_config: lakehouse upsert failed for %s: %s', lh_name, ex)
+                    sql_ok = False
+
+        results.append({'target': 'SQL metadata', 'status': 'ok' if sql_ok else 'warning',
+                        'details': '' if sql_ok else 'Some upserts failed — check server logs'})
+    except Exception as ex:
+        results.append({'target': 'SQL metadata', 'status': 'error', 'details': str(ex)})
+
+    # ── Target 4: Variable libraries ──
+    try:
+        var_path = _REPO_ROOT / 'src' / 'VAR_CONFIG_FMD.VariableLibrary'
+        if var_path.is_dir():
+            # Update variables.json if it exists
+            var_file = var_path / 'variables.json'
+            if var_file.is_file():
+                var_data = json.loads(var_file.read_text(encoding='utf-8'))
+                # Update workspace/lakehouse variables
+                for var in var_data.get('variables', []):
+                    vn = var.get('name', '')
+                    if vn == 'VAR_WORKSPACE_DATA_ID' and workspaces.get('data_dev'):
+                        var['value'] = workspaces['data_dev']['id']
+                    elif vn == 'VAR_WORKSPACE_CODE_ID' and workspaces.get('code_dev'):
+                        var['value'] = workspaces['code_dev']['id']
+                    elif vn == 'VAR_LH_LANDINGZONE_ID' and lakehouses.get('LH_DATA_LANDINGZONE'):
+                        var['value'] = lakehouses['LH_DATA_LANDINGZONE']['id']
+                    elif vn == 'VAR_LH_BRONZE_ID' and lakehouses.get('LH_BRONZE_LAYER'):
+                        var['value'] = lakehouses['LH_BRONZE_LAYER']['id']
+                    elif vn == 'VAR_LH_SILVER_ID' and lakehouses.get('LH_SILVER_LAYER'):
+                        var['value'] = lakehouses['LH_SILVER_LAYER']['id']
+                    elif vn == 'VAR_SQL_DATABASE_ID' and database.get('id'):
+                        var['value'] = database['id']
+                var_file.write_text(json.dumps(var_data, indent=2) + '\n', encoding='utf-8')
+            results.append({'target': 'Variable libraries', 'status': 'ok'})
+        else:
+            results.append({'target': 'Variable libraries', 'status': 'warning',
+                            'details': 'VAR_CONFIG_FMD directory not found'})
+    except Exception as ex:
+        results.append({'target': 'Variable libraries', 'status': 'error', 'details': str(ex)})
+
+    all_ok = all(r['status'] == 'ok' for r in results)
+    return {'success': all_ok, 'results': results}
+
+
+def setup_validate() -> dict:
+    """Cross-check all config targets for consistency."""
+    checks = []
+
+    yaml_path = _REPO_ROOT / 'config' / 'item_config.yaml'
+    yaml_config = _read_yaml(yaml_path) if yaml_path.is_file() else {}
+    config_path = Path(__file__).parent / 'config.json'
+    json_config = json.loads(config_path.read_text(encoding='utf-8')) if config_path.is_file() else {}
+
+    yaml_ws = yaml_config.get('workspaces', {})
+    json_ws_data = json_config.get('fabric', {}).get('workspace_data_id', '')
+    json_ws_code = json_config.get('fabric', {}).get('workspace_code_id', '')
+
+    # Check workspace GUIDs match between YAML and config.json
+    yaml_data = yaml_ws.get('workspace_data', '')
+    yaml_code = yaml_ws.get('workspace_code', '')
+    if yaml_data and json_ws_data and yaml_data.lower() != json_ws_data.lower():
+        checks.append({'check': 'workspace_data sync', 'status': 'error',
+                        'details': f'YAML={yaml_data} vs config.json={json_ws_data}'})
+    elif yaml_data:
+        checks.append({'check': 'workspace_data sync', 'status': 'ok'})
+
+    if yaml_code and json_ws_code and yaml_code.lower() != json_ws_code.lower():
+        checks.append({'check': 'workspace_code sync', 'status': 'error',
+                        'details': f'YAML={yaml_code} vs config.json={json_ws_code}'})
+    elif yaml_code:
+        checks.append({'check': 'workspace_code sync', 'status': 'ok'})
+
+    # Check SQL DB endpoint matches
+    yaml_db = yaml_config.get('database', {})
+    json_sql = json_config.get('sql', {})
+    yaml_endpoint = yaml_db.get('endpoint', '')
+    json_server = json_sql.get('server', '')
+    if yaml_endpoint and json_server and yaml_endpoint.lower() != json_server.lower():
+        checks.append({'check': 'SQL endpoint sync', 'status': 'error',
+                        'details': f'YAML={yaml_endpoint} vs config.json={json_server}'})
+    elif yaml_endpoint:
+        checks.append({'check': 'SQL endpoint sync', 'status': 'ok'})
+
+    # Check SQL metadata lakehouses have valid GUIDs
+    try:
+        lh_rows = query_sql('SELECT LakehouseId, LakehouseGuid, Name FROM integration.Lakehouse WHERE IsActive = 1')
+        empty_guids = [r for r in lh_rows if not r.get('LakehouseGuid') or r['LakehouseGuid'] == '00000000-0000-0000-0000-000000000000']
+        if empty_guids:
+            names = ', '.join(r.get('Name', '?') for r in empty_guids)
+            checks.append({'check': 'Lakehouse GUIDs in SQL', 'status': 'error',
+                            'details': f'Missing GUIDs for: {names}'})
+        else:
+            checks.append({'check': 'Lakehouse GUIDs in SQL', 'status': 'ok',
+                            'details': f'{len(lh_rows)} lakehouses configured'})
+    except Exception as ex:
+        checks.append({'check': 'Lakehouse GUIDs in SQL', 'status': 'error', 'details': str(ex)})
+
+    # Check Fabric API reachability
+    try:
+        _fabric_api_get('capacities')
+        checks.append({'check': 'Fabric API reachable', 'status': 'ok'})
+    except Exception as ex:
+        checks.append({'check': 'Fabric API reachable', 'status': 'error', 'details': str(ex)})
+
+    all_ok = all(c['status'] == 'ok' for c in checks)
+    return {'valid': all_ok, 'checks': checks}
 
 
 def find_notebook_in_workspace(workspace_id: str, notebook_name: str) -> str | None:
@@ -6223,6 +7511,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('guid parameter is required', 400)
                 else:
                     self._json_response(find_guid_references(guid_val))
+            # ── Environment Setup wizard routes ──
+            elif self.path == '/api/setup/capacities':
+                self._json_response(setup_list_capacities())
+            elif self.path.startswith('/api/setup/workspaces/') and '/lakehouses' in self.path:
+                ws_id = self.path.split('/api/setup/workspaces/')[1].split('/lakehouses')[0]
+                self._json_response(setup_list_workspace_items(ws_id, 'Lakehouse'))
+            elif self.path.startswith('/api/setup/workspaces/') and '/sql-databases' in self.path:
+                ws_id = self.path.split('/api/setup/workspaces/')[1].split('/sql-databases')[0]
+                self._json_response(setup_list_sql_databases(ws_id))
+            elif self.path.startswith('/api/setup/workspaces/') and '/notebooks' in self.path:
+                ws_id = self.path.split('/api/setup/workspaces/')[1].split('/notebooks')[0]
+                self._json_response(setup_list_workspace_items(ws_id, 'Notebook'))
+            elif self.path.startswith('/api/setup/workspaces/') and '/pipelines' in self.path:
+                ws_id = self.path.split('/api/setup/workspaces/')[1].split('/pipelines')[0]
+                self._json_response(setup_list_workspace_items(ws_id, 'DataPipeline'))
+            elif self.path == '/api/setup/current-config':
+                self._json_response(setup_get_current_config())
+            elif self.path == '/api/setup/validate':
+                self._json_response(setup_validate())
             # List all Fabric workspaces (for dropdowns)
             elif self.path == '/api/fabric/workspaces':
                 try:
@@ -6378,6 +7685,123 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json_response(get_load_config(int(ds_id) if ds_id and ds_id.isdigit() else None))
             elif self.path == '/api/settings/agent-log':
                 self._json_response(_get_agent_collab_files())
+            # ── SQL Object Explorer endpoints ──
+            elif self.path == '/api/sql-explorer/servers':
+                self._json_response(sql_explorer_servers())
+            elif self.path.startswith('/api/sql-explorer/databases'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                server = qs.get('server', [''])[0]
+                if not server:
+                    self._error_response('server param required', 400)
+                else:
+                    self._json_response(sql_explorer_databases(server))
+            elif self.path.startswith('/api/sql-explorer/schemas'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                server = qs.get('server', [''])[0]
+                database = qs.get('database', [''])[0]
+                if not server or not database:
+                    self._error_response('server and database params required', 400)
+                else:
+                    self._json_response(sql_explorer_schemas(server, database))
+            elif self.path.startswith('/api/sql-explorer/tables') and 'lakehouse' not in self.path:
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                server = qs.get('server', [''])[0]
+                database = qs.get('database', [''])[0]
+                schema = qs.get('schema', [''])[0]
+                if not server or not database or not schema:
+                    self._error_response('server, database, and schema params required', 400)
+                else:
+                    self._json_response(sql_explorer_tables(server, database, schema))
+            elif self.path.startswith('/api/sql-explorer/columns') and 'lakehouse' not in self.path:
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                server = qs.get('server', [''])[0]
+                database = qs.get('database', [''])[0]
+                schema = qs.get('schema', [''])[0]
+                table = qs.get('table', [''])[0]
+                if not server or not database or not schema or not table:
+                    self._error_response('server, database, schema, and table params required', 400)
+                else:
+                    self._json_response(sql_explorer_columns(server, database, schema, table))
+            elif self.path.startswith('/api/sql-explorer/preview') and 'lakehouse' not in self.path:
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                server = qs.get('server', [''])[0]
+                database = qs.get('database', [''])[0]
+                schema = qs.get('schema', [''])[0]
+                table = qs.get('table', [''])[0]
+                limit = int(qs.get('limit', ['500'])[0]) if qs.get('limit', ['500'])[0].isdigit() else 500
+                if not server or not database or not schema or not table:
+                    self._error_response('server, database, schema, and table params required', 400)
+                else:
+                    self._json_response(sql_explorer_preview(server, database, schema, table, limit))
+            elif self.path == '/api/sql-explorer/lakehouses':
+                self._json_response(sql_explorer_lakehouses())
+            elif self.path.startswith('/api/sql-explorer/lakehouse-schemas'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                lakehouse = qs.get('lakehouse', [''])[0]
+                if not lakehouse:
+                    self._error_response('lakehouse param required', 400)
+                else:
+                    self._json_response(sql_explorer_lakehouse_schemas(lakehouse))
+            elif self.path.startswith('/api/sql-explorer/lakehouse-tables'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                lakehouse = qs.get('lakehouse', [''])[0]
+                schema = qs.get('schema', [''])[0]
+                if not lakehouse or not schema:
+                    self._error_response('lakehouse and schema params required', 400)
+                else:
+                    self._json_response(sql_explorer_lakehouse_tables(lakehouse, schema))
+            elif self.path.startswith('/api/sql-explorer/lakehouse-columns'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                lakehouse = qs.get('lakehouse', [''])[0]
+                schema = qs.get('schema', [''])[0]
+                table = qs.get('table', [''])[0]
+                if not lakehouse or not schema or not table:
+                    self._error_response('lakehouse, schema, and table params required', 400)
+                else:
+                    self._json_response(sql_explorer_lakehouse_columns(lakehouse, schema, table))
+            elif self.path.startswith('/api/sql-explorer/lakehouse-preview'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                lakehouse = qs.get('lakehouse', [''])[0]
+                schema = qs.get('schema', [''])[0]
+                table = qs.get('table', [''])[0]
+                limit = int(qs.get('limit', ['500'])[0]) if qs.get('limit', ['500'])[0].isdigit() else 500
+                if not lakehouse or not schema or not table:
+                    self._error_response('lakehouse, schema, and table params required', 400)
+                else:
+                    self._json_response(sql_explorer_lakehouse_preview(lakehouse, schema, table, limit))
+            elif self.path.startswith('/api/sql-explorer/lakehouse-files'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                lakehouse = qs.get('lakehouse', [''])[0]
+                if not lakehouse:
+                    self._error_response('lakehouse param required', 400)
+                else:
+                    self._json_response(sql_explorer_lakehouse_files(lakehouse))
+            elif self.path.startswith('/api/sql-explorer/lakehouse-file-tables'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                lakehouse = qs.get('lakehouse', [''])[0]
+                namespace = qs.get('namespace', [''])[0]
+                if not lakehouse or not namespace:
+                    self._error_response('lakehouse and namespace params required', 400)
+                else:
+                    self._json_response(sql_explorer_lakehouse_file_tables(lakehouse, namespace))
+            elif self.path.startswith('/api/sql-explorer/lakehouse-file-detail'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                lakehouse = qs.get('lakehouse', [''])[0]
+                namespace = qs.get('namespace', [''])[0]
+                table_folder = qs.get('folder', [''])[0]
+                if not lakehouse or not namespace or not table_folder:
+                    self._error_response('lakehouse, namespace, and folder params required', 400)
+                else:
+                    self._json_response(sql_explorer_lakehouse_file_detail(lakehouse, namespace, table_folder))
+            # ── Admin config ──
+            elif self.path == '/api/admin/config':
+                self._json_response({"hiddenPages": _admin_config.get("hiddenPages", [])})
+            # ── FMD v3 Engine endpoints ──
+            elif self.path.startswith('/api/engine/'):
+                from engine.api import handle_engine_request
+                handle_engine_request(self, method='GET', path=self.path,
+                                      config=CONFIG, query_sql_fn=query_sql)
+                return  # engine API (incl. SSE) manages its own response lifecycle
             elif self.path.startswith('/api/'):
                 self._error_response('Not found', 404)
             else:
@@ -6390,6 +7814,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            # ── FMD v3 Engine endpoints (must be before body read) ──
+            if self.path.startswith('/api/engine/'):
+                from engine.api import handle_engine_request
+                handle_engine_request(self, method='POST', path=self.path,
+                                      config=CONFIG, query_sql_fn=query_sql)
+                return
+
             content_length = int(self.headers.get('Content-Length', 0))
             body = json.loads(self.rfile.read(content_length)) if content_length else {}
 
@@ -6422,6 +7853,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('lakehouse and sql params required', 400)
                 else:
                     self._json_response(execute_blender_query(lh, sql))
+            elif self.path == '/api/sql-explorer/server-label':
+                srv = body.get('server', '')
+                label = body.get('label', '').strip()
+                if not srv or not label:
+                    self._error_response('server and label are required', 400)
+                else:
+                    _save_server_label(srv, label)
+                    self._json_response({'server': srv, 'label': label})
             # Onboarding endpoints
             elif self.path == '/api/onboarding':
                 source_name = body.get('sourceName', '').strip()
@@ -6463,6 +7902,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('sourceName is required', 400)
                 else:
                     self._json_response(purge_source_data(source_name))
+            # ── Environment Setup wizard POST routes ──
+            elif self.path == '/api/setup/create-workspace':
+                self._json_response(setup_create_workspace(body))
+            elif self.path == '/api/setup/create-lakehouse':
+                self._json_response(setup_create_lakehouse(body))
+            elif self.path == '/api/setup/create-sql-database':
+                self._json_response(setup_create_sql_database(body))
+            elif self.path == '/api/setup/provision-all':
+                self._json_response(setup_provision_all(body))
+            elif self.path == '/api/setup/save-config':
+                self._json_response(setup_save_config(body))
             elif self.path == '/api/config-manager/update':
                 self._json_response(update_config_value(body))
             elif self.path == '/api/notebook-config/update':
@@ -6526,6 +7976,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json_response(start_deployment(body))
             elif self.path == '/api/deploy/cancel':
                 self._json_response(cancel_deployment())
+            # ── Admin gateway ──
+            elif self.path == '/api/admin/auth':
+                pw = body.get('password', '')
+                expected = os.environ.get('ADMIN_PASSWORD', '')
+                if not expected:
+                    self._error_response('ADMIN_PASSWORD not configured on server', 500)
+                elif pw == expected:
+                    self._json_response({"ok": True})
+                else:
+                    self._error_response('Invalid password', 401)
+            elif self.path == '/api/admin/config':
+                pw = body.get('password', '')
+                expected = os.environ.get('ADMIN_PASSWORD', '')
+                if pw != expected:
+                    self._error_response('Invalid password', 401)
+                else:
+                    hidden = body.get('hiddenPages', [])
+                    _save_admin_config(hidden)
+                    self._json_response({"ok": True, "hiddenPages": hidden})
             else:
                 self._error_response('Not found', 404)
         except Exception as e:
@@ -6596,6 +8065,18 @@ if __name__ == '__main__':
     log.info('  GET  /api/load-config')
     log.info('  POST /api/register-bronze-silver')
     log.info('  POST /api/load-config        (update)')
+    log.info('  ── FMD v3 Engine ──')
+    log.info('  GET  /api/engine/status')
+    log.info('  GET  /api/engine/plan')
+    log.info('  GET  /api/engine/logs')
+    log.info('  GET  /api/engine/logs/stream  (SSE)')
+    log.info('  GET  /api/engine/health')
+    log.info('  GET  /api/engine/metrics')
+    log.info('  GET  /api/engine/runs')
+    log.info('  POST /api/engine/start')
+    log.info('  POST /api/engine/stop')
+    log.info('  POST /api/engine/retry')
+    log.info('  POST /api/engine/entity/*/reset')
     log.info(f'  Snapshot:   {CONTROL_PLANE_SNAPSHOT}')
     if mode == 'production':
         log.info('')

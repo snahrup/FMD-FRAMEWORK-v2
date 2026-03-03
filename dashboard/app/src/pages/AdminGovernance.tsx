@@ -79,7 +79,7 @@ const layerColors: Record<string, string> = {
 
 // ── API fetch helper ──
 
-const API = 'http://localhost:8787/api';
+const API = '/api';
 
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`);

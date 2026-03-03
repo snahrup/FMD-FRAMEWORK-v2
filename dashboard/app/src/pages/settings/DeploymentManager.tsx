@@ -14,7 +14,7 @@ import LiveLogPanel from './LiveLogPanel';
 import PostDeploymentSummary from './PostDeploymentSummary';
 import ResumeBanner from './ResumeBanner';
 
-const API = 'http://localhost:8787/api';
+const API = '/api';
 
 type UIState = 'idle' | 'configuring' | 'running' | 'completed' | 'failed' | 'cancelled';
 

@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const API = "http://localhost:8787/api";
+const API = "/api";
 
 // ── Types ──
 

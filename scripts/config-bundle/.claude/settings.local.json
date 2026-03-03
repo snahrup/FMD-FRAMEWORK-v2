@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__notebooklm-mcp__refresh_auth",
+      "mcp__notebooklm-mcp__notebook_list",
+      "mcp__notebooklm-mcp__save_auth_tokens",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(wmic logicaldisk get:*)",
+      "Bash(\"$LOCALAPPDATA/Programs/Windsurf/unins000.exe\" //SILENT)"
+    ]
+  }
+}

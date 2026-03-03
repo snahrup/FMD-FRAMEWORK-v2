@@ -1,0 +1,16 @@
+[20:01:36] ============================================================
+[20:01:36]   OVERNIGHT DEPLOY & LOAD ORCHESTRATOR
+[20:01:36]   Started: 2026-03-01 20:01:36
+[20:01:36] ============================================================
+[20:01:36] ============================================================
+[20:01:36] STEP 1: Waiting for NB_SETUP_FMD to finish...
+[20:01:36] ============================================================
+[20:01:38]   [0min] Status: InProgress
+[20:01:59]   [0min] Status: InProgress
+[20:02:20]   [1min] Status: InProgress
+[20:02:41]   [1min] Status: InProgress
+[20:03:02]   Notebook finished: Failed (started: 2026-03-02T00:57:00.7099904)
+[20:03:02]   Failure reason: {'requestId': '00c88b9f-a6e1-42fb-b66c-2e1c39257e70', 'errorCode': 'JobInstanceStatusFailed', 'message': 'Job instance failed without detail error'}
+[20:03:02] 
+NB_SETUP_FMD FAILED. Cannot proceed without SQL schema.
+[20:03:02] Check the notebook in Fabric portal for error details.

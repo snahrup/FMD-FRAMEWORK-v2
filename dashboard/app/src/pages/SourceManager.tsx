@@ -1479,7 +1479,7 @@ export default function SourceManager() {
               registeredConnections={registeredConnections}
               registeredDataSources={registeredDataSources}
               registeredEntities={registeredEntities}
-              onRefresh={() => { invalidateDigestCache(); refreshDigest(); loadData(true); }}
+              onRefresh={async () => { invalidateDigestCache(); refreshDigest(); await loadData(true); }}
             />
             {/* Close button */}
             <button

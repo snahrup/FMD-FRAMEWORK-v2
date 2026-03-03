@@ -19,8 +19,8 @@
     "CON_FMD_FABRIC_NOTEBOOKS": "f4d3220c-0cd3-4f76-9641-b4154e192645"
   },
   "database": {
-    "db_item_id": null,
-    "db_endpoint": "7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com",
+    "db_item_id": "ed567507-5ec0-48fd-8b46-0782241219d5",
+    "db_endpoint": "7xuydsw5a3hutnnj5z2ed72tam-sec7pymam6ju3bf4xjcxeuj6lq.database.fabric.microsoft.com,1433",
     "db_name": "SQL_INTEGRATION_FRAMEWORK"
   },
   "tenant": {

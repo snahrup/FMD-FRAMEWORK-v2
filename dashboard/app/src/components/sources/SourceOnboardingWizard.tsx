@@ -245,23 +245,30 @@ export function SourceOnboardingWizard({
     const clean = label.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
     const words = label.trim().split(/\s+/);
     const prefix = words.length > 1
-      ? words.map(w => w[0]).join('').toUpperCase() + '_'
-      : clean.substring(0, Math.min(clean.length, 6)) + '_';
+      ? words.map(w => w[0]).join('').toLowerCase()
+      : clean.substring(0, Math.min(clean.length, 6)).toLowerCase();
     return { namespace: clean, prefix, folder: clean.toLowerCase() };
   };
 
-  // ── Prefix conflict detection ──
-  // Extract existing prefixes from registered entities (FileName = prefix + SourceName)
-  const existingPrefixes = new Set<string>();
+  // ── Schema name conflict detection ──
+  // Extract existing schema names from registered entities (FileName = schema.SourceName or prefix_SourceName)
+  const existingSchemas = new Set<string>();
   registeredEntities.forEach(e => {
     const fn = e.FileName || '';
     const sn = e.SourceName || '';
-    if (fn.endsWith(sn) && fn.length > sn.length) {
-      existingPrefixes.add(fn.substring(0, fn.length - sn.length));
+    // New format: schema.TableName
+    const dotIdx = fn.indexOf('.');
+    if (dotIdx > 0 && fn.substring(dotIdx + 1) === sn) {
+      existingSchemas.add(fn.substring(0, dotIdx));
+    }
+    // Legacy format: PREFIX_TableName
+    else if (fn.endsWith(sn) && fn.length > sn.length) {
+      const legacy = fn.substring(0, fn.length - sn.length);
+      existingSchemas.add(legacy.replace(/_$/, '')); // strip trailing underscore for comparison
     }
   });
-  const prefixConflict = !!(tablePrefix && existingPrefixes.has(tablePrefix));
-  const existingPrefixList = Array.from(existingPrefixes).filter(p => p.length > 0);
+  const prefixConflict = !!(tablePrefix && existingSchemas.has(tablePrefix));
+  const existingPrefixList = Array.from(existingSchemas).filter(p => p.length > 0);
 
   // Already-registered table keys for the current onboarding source (schema.name)
   const currentDsName = getStep(2)?.referenceId || '';
@@ -401,7 +408,7 @@ export function SourceOnboardingWizard({
 
       // 3. Mark internal steps 1 and 2 complete
       await updateStep(1, 'complete', connName, `${selectedGateway.server} → ${selectedGateway.database}`);
-      await updateStep(2, 'complete', selectedGateway.database, `${namespace} / ${sourceType} / prefix: ${prefix}`);
+      await updateStep(2, 'complete', selectedGateway.database, `${namespace} / ${sourceType} / schema: ${prefix}`);
 
       // 4. Set up state for Step 2 (Select Tables)
       setFilePath(folder);
@@ -482,7 +489,7 @@ export function SourceOnboardingWizard({
         if (nspart && !filePath) {
           setFilePath(nspart.toLowerCase());
         }
-        const prefixMatch = step2.notes.match(/prefix:\s*(\S+)/);
+        const prefixMatch = step2.notes.match(/(?:schema|prefix):\s*(\S+)/);
         if (prefixMatch && !tablePrefix) {
           setTablePrefix(prefixMatch[1]);
         }
@@ -514,7 +521,7 @@ export function SourceOnboardingWizard({
     const tables = Array.from(selectedTables).map((key) => {
       const [schema, ...nameParts] = key.split('.');
       const tableName = nameParts.join('.');
-      const fileName = tablePrefix ? `${tablePrefix}${tableName}` : tableName;
+      const fileName = tablePrefix ? `${tablePrefix}.${tableName}` : tableName;
       return { schema, tableName, fileName, filePath: fp };
     });
 
@@ -766,11 +773,11 @@ export function SourceOnboardingWizard({
                     <InfoTip>
                       <p className="font-semibold mb-1">What is this?</p>
                       <p>This step sets up your data source. Pick the database you want to pull data from, give it a friendly name, and we'll configure everything automatically.</p>
-                      <p className="mt-2">The <strong>Table Prefix</strong> prevents name collisions in the lakehouse. For example, both M3 and PowerData might have a "Customer" table. Prefixes make them <code className="bg-muted px-1 rounded">M3_Customer</code> and <code className="bg-muted px-1 rounded">PD_Customer</code>.</p>
+                      <p className="mt-2">The <strong>Custom Schema Name</strong> scopes each source's tables into a logical schema. For example, both M3 and PowerData might have a "Customer" table. Schemas make them <code className="bg-muted px-1 rounded">m3.Customer</code> and <code className="bg-muted px-1 rounded">pd.Customer</code>.</p>
                     </InfoTip>
                   </div>
                   <p className="text-xs text-muted-foreground mb-4 ml-7">
-                    Pick your database, name the source, set the table prefix.
+                    Pick your database, name the source, set the custom schema name.
                   </p>
 
                   {isVisualStepComplete(0) ? (
@@ -849,7 +856,7 @@ export function SourceOnboardingWizard({
                         )}
                       </div>
 
-                      {/* Source Label + Table Prefix */}
+                      {/* Source Label + Custom Schema Name */}
                       {selectedGateway && (
                         <>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -863,7 +870,7 @@ export function SourceOnboardingWizard({
                                     <li><strong>PowerData</strong> — for the PowerData warehouse</li>
                                     <li><strong>MES</strong> — for the manufacturing execution system</li>
                                   </ul>
-                                  <p className="mt-2 text-muted-foreground">Used to auto-generate the namespace, table prefix, and folder path.</p>
+                                  <p className="mt-2 text-muted-foreground">Used to auto-generate the namespace, schema name, and folder path.</p>
                                 </InfoTip>
                               </label>
                               <input
@@ -881,11 +888,11 @@ export function SourceOnboardingWizard({
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-foreground mb-1">
-                                Table Prefix
+                                Custom Schema Name
                                 <InfoTip>
-                                  <p>Added to the beginning of every table name in the lakehouse.</p>
-                                  <p className="mt-1"><strong>Why?</strong> Lakehouses don't support custom schemas, so prefixes prevent naming conflicts.</p>
-                                  <p className="mt-1"><strong>Example:</strong> With prefix <code className="bg-muted px-1 rounded">M3_</code>, a table called <code className="bg-muted px-1 rounded">Customer</code> becomes <code className="bg-muted px-1 rounded">M3_Customer</code></p>
+                                  <p>A short schema identifier scoped to this data source.</p>
+                                  <p className="mt-1"><strong>Why?</strong> Each source's tables are namespaced under a schema to prevent naming conflicts across sources.</p>
+                                  <p className="mt-1"><strong>Example:</strong> With schema <code className="bg-muted px-1 rounded">m3</code>, a table called <code className="bg-muted px-1 rounded">Customer</code> becomes <code className="bg-muted px-1 rounded">m3.Customer</code></p>
                                   {existingPrefixList.length > 0 && (
                                     <p className="mt-2 text-amber-600 dark:text-amber-400">Already in use: {existingPrefixList.map(p => <code key={p} className="bg-muted px-1 rounded mr-1">{p}</code>)}</p>
                                   )}
@@ -895,7 +902,7 @@ export function SourceOnboardingWizard({
                                 type="text"
                                 value={tablePrefix}
                                 onChange={(e) => setTablePrefix(e.target.value)}
-                                placeholder="e.g. M3_"
+                                placeholder="e.g. m3"
                                 className={`w-full px-3 py-2 text-sm bg-muted border rounded-lg focus:outline-none focus:ring-2 text-foreground placeholder:text-muted-foreground font-mono ${
                                   prefixConflict
                                     ? 'border-red-400 dark:border-red-600 focus:ring-red-500/50'
@@ -905,7 +912,7 @@ export function SourceOnboardingWizard({
                               {prefixConflict && (
                                 <p className="text-[10px] text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
                                   <AlertTriangle className="h-3 w-3" />
-                                  Prefix "{tablePrefix}" is already in use. Choose a unique prefix to avoid name collisions.
+                                  Schema name "{tablePrefix}" is already in use. Choose a unique name to avoid conflicts.
                                 </p>
                               )}
                               {existingPrefixList.length > 0 && !prefixConflict && (
@@ -925,7 +932,7 @@ export function SourceOnboardingWizard({
                                 <span className="font-mono text-foreground">{selectedGateway.server.split('.')[0]} → {selectedGateway.database}</span>
                                 <span className="text-muted-foreground">Namespace:</span>
                                 <span className="font-mono text-foreground">{deriveFromLabel(sourceLabel).namespace}</span>
-                                <span className="text-muted-foreground">Table prefix:</span>
+                                <span className="text-muted-foreground">Schema name:</span>
                                 <span className="font-mono text-foreground">{tablePrefix}</span>
                                 <span className="text-muted-foreground">Lakehouse folder:</span>
                                 <span className="font-mono text-foreground">{filePath || deriveFromLabel(sourceLabel).folder}/</span>
@@ -1039,16 +1046,16 @@ export function SourceOnboardingWizard({
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-medium text-foreground mb-1">
-                            Table Prefix
+                            Custom Schema Name
                             <InfoTip>
-                              <p>Prepended to every table name in the lakehouse. Set in Step 1, but you can adjust it here.</p>
-                              <p className="mt-1"><strong>Example:</strong> <code className="bg-muted px-1 rounded">M3_</code> + <code className="bg-muted px-1 rounded">Customer</code> = <code className="bg-muted px-1 rounded">M3_Customer</code></p>
+                              <p>Schema identifier for this source. Set in Step 1, but you can adjust it here.</p>
+                              <p className="mt-1"><strong>Example:</strong> Schema <code className="bg-muted px-1 rounded">m3</code> + table <code className="bg-muted px-1 rounded">Customer</code> = <code className="bg-muted px-1 rounded">m3.Customer</code></p>
                             </InfoTip>
                           </label>
                           <input
                             type="text" value={tablePrefix}
                             onChange={(e) => setTablePrefix(e.target.value)}
-                            placeholder="e.g. M3_"
+                            placeholder="e.g. m3"
                             className={`w-full px-3 py-2 text-sm bg-muted border rounded-lg focus:outline-none focus:ring-2 text-foreground placeholder:text-muted-foreground font-mono ${
                               prefixConflict
                                 ? 'border-red-400 dark:border-red-600 focus:ring-red-500/50'
@@ -1194,7 +1201,7 @@ export function SourceOnboardingWizard({
                                       </span>
                                     ) : (
                                       <span className="ml-auto text-muted-foreground/50 font-mono text-[10px]">
-                                        → {tablePrefix}{t.TABLE_NAME}
+                                        → {tablePrefix ? `${tablePrefix}.${t.TABLE_NAME}` : t.TABLE_NAME}
                                       </span>
                                     )}
                                   </label>
@@ -1254,7 +1261,7 @@ export function SourceOnboardingWizard({
                               <span className="font-mono text-foreground">
                                 {selectedGateway ? `${selectedGateway.server.split('.')[0]} → ${selectedGateway.database}` : '—'}
                               </span>
-                              <span className="text-muted-foreground">Table Prefix:</span>
+                              <span className="text-muted-foreground">Schema Name:</span>
                               <span className="font-mono text-foreground font-semibold">{tablePrefix || '(none)'}</span>
                               <span className="text-muted-foreground">Folder:</span>
                               <span className="font-mono text-foreground">{filePath || '—'}/</span>
@@ -1263,14 +1270,14 @@ export function SourceOnboardingWizard({
                             </div>
                           </div>
 
-                          {/* Table list with prefix preview */}
+                          {/* Table list with schema.tablename preview */}
                           <div className="max-h-60 overflow-y-auto divide-y divide-border">
                             {Array.from(selectedTables)
                               .sort()
                               .map(key => {
                                 const [schema, ...nameParts] = key.split('.');
                                 const tableName = nameParts.join('.');
-                                const fileName = tablePrefix ? `${tablePrefix}${tableName}` : tableName;
+                                const fileName = tablePrefix ? `${tablePrefix}.${tableName}` : tableName;
                                 return (
                                   <div key={key} className="flex items-center gap-3 px-4 py-1.5 text-xs">
                                     <span className="text-muted-foreground font-mono w-12 shrink-0 text-right">{schema}</span>

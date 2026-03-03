@@ -1,3 +1,4 @@
+import os
 """
 Create sp_UpsertPipelineSilverLayerEntity stored procedure
 modeled after sp_UpsertPipelineBronzeLayerEntity.
@@ -17,7 +18,7 @@ import pyodbc
 # ── Config ──────────────────────────────────────────────────────────────
 TENANT   = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
 CLIENT   = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
-SECRET   = "Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu"
+SECRET = os.environ.get('FABRIC_CLIENT_SECRET', '')
 SERVER   = "7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433"
 DATABASE = "SQL_INTEGRATION_FRAMEWORK-501d6b17-fcee-47f3-bbb3-54e05f2a3fc0"
 
@@ -137,6 +138,9 @@ BEGIN
     WHERE [SilverLayerEntityId] = @SilverLayerEntityId
     AND [IsProcessed] = 0;
 END
+
+-- Output SELECT required by execute_with_outputs() to properly commit
+SELECT @SilverLayerEntityId AS SilverLayerEntityId;
 """.strip()
 
 print("SQL to execute:")

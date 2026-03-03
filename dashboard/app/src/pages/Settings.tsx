@@ -18,13 +18,11 @@ import {
   ArrowRight,
   RotateCcw,
   Cog,
-  MessageSquareMore,
 } from "lucide-react";
 import { getLabsFlags, setLabsFlag, type LabsFlags } from "@/lib/featureFlags";
 import DeploymentManager from "./settings/DeploymentManager";
-import AgentCollaboration from "./settings/AgentCollaboration";
 
-const API = "http://localhost:8787/api";
+const API = "/api";
 
 function fetchJson<T>(path: string): Promise<T> {
   return fetch(`${API}${path}`).then((r) => {
@@ -950,7 +948,6 @@ function DeployWizard() {
 const SETTINGS_TABS = [
   { id: 'general', label: 'General', icon: Cog },
   { id: 'deployment', label: 'Deployment', icon: Rocket },
-  { id: 'agents', label: 'Agent Collab', icon: MessageSquareMore },
 ] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number]['id'];
@@ -959,7 +956,7 @@ type SettingsTab = (typeof SETTINGS_TABS)[number]['id'];
 // GENERAL TAB CONTENT (original Settings content)
 // ============================================================================
 
-function GeneralTab() {
+export function GeneralTab() {
   const [flags, setFlags] = useState<LabsFlags>(getLabsFlags);
 
   const toggle = useCallback((key: keyof LabsFlags) => {
@@ -1111,7 +1108,6 @@ export default function Settings() {
       <div className="flex-1 min-w-0 overflow-y-auto">
         {activeTab === 'general' && <GeneralTab />}
         {activeTab === 'deployment' && <DeploymentManager />}
-        {activeTab === 'agents' && <AgentCollaboration />}
       </div>
     </div>
   );

@@ -1,0 +1,13 @@
+{
+  "hiddenPages": [
+    "/admin",
+    "/notebook-config",
+    "/config",
+    "/setup",
+    "/blender",
+    "/notebook-debug",
+    "/logs",
+    "/runner"
+  ],
+  "notes": "Pages hidden via admin gateway. Values are href paths like /engine, /settings, etc."
+}

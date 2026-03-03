@@ -1,0 +1,37 @@
+{
+  "mcpServers": {
+    "mcp-router": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@mcp_router/cli@latest",
+        "connect"
+      ],
+      "env": {
+        "MCPR_TOKEN": "mcpr_jt8LjW7Jm_36XcKsaF85bVL1LPmNyL1t"
+      }
+    },
+    "nexus": {
+      "command": "node",
+      "args": [
+        "C:/Users/snahrup/CascadeProjects/nexus/mcp/server.js"
+      ],
+      "env": {
+        "NEXUS_URL": "http://localhost:3777"
+      }
+    }
+  },
+  "preferences": {
+    "chromeExtensionEnabled": true,
+    "chillingSlothLocation": {
+      "customPath": "C:\\Users\\snahrup\\CascadeProjects"
+    },
+    "localAgentModeTrustedFolders": [
+      "C:\\Users\\sasnahrup"
+    ],
+    "coworkScheduledTasksEnabled": true,
+    "sidebarMode": "chat",
+    "bypassPermissionsModeEnabled": true,
+    "coworkWebSearchEnabled": true
+  }
+}

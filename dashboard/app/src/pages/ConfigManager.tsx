@@ -27,7 +27,7 @@ import {
   EyeOff,
 } from "lucide-react";
 
-const API = "http://localhost:8787/api";
+const API = "/api";
 const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface CascadeRef {

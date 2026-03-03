@@ -1,0 +1,199 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-cream-100 text-warmgray-800 font-sans;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  .dark body,
+  body.dark-body {
+    @apply bg-warmgray-900 text-cream-300;
+  }
+
+  ::selection {
+    @apply bg-terracotta-100 text-terracotta-800;
+  }
+  .dark ::selection {
+    @apply bg-terracotta-800 text-terracotta-100;
+  }
+}
+
+/* ─── Scroll Snap ─── */
+.snap-container {
+  scroll-snap-type: y mandatory;
+  overflow-y: auto;
+  height: 100vh;
+  scroll-behavior: smooth;
+}
+
+.snap-section {
+  scroll-snap-align: start;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Sections that need internal scroll (long content) */
+.snap-section-scroll {
+  scroll-snap-align: start;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Thin scrollbar for internal scroll panels */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  @apply bg-cream-300 dark:bg-warmgray-700 rounded-full;
+}
+
+@layer components {
+  /* ─── LIGHT ─── */
+  .section-heading {
+    @apply font-serif text-4xl md:text-5xl lg:text-6xl font-semibold text-warmgray-900 tracking-tight leading-tight;
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+
+  .section-subheading {
+    @apply text-lg md:text-xl text-warmgray-500 max-w-2xl leading-relaxed;
+  }
+
+  .card {
+    @apply bg-white rounded-card border border-cream-300 shadow-warm transition-all duration-300;
+  }
+  .card:hover {
+    @apply shadow-warm-md border-cream-400;
+  }
+
+  .card-elevated {
+    @apply bg-white rounded-card border border-cream-300 shadow-warm-lg;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-pill text-xs font-medium tracking-wide uppercase;
+  }
+
+  .badge-terracotta {
+    @apply badge bg-terracotta-50 text-terracotta-600 border border-terracotta-200;
+  }
+  .badge-bronze {
+    @apply badge bg-amber-50 text-amber-700 border border-amber-200;
+  }
+  .badge-silver {
+    @apply badge bg-slate-50 text-slate-600 border border-slate-200;
+  }
+  .badge-gold {
+    @apply badge bg-yellow-50 text-yellow-700 border border-yellow-200;
+  }
+
+  .glow-terracotta {
+    box-shadow: 0 0 20px rgba(201, 91, 58, 0.15), 0 0 60px rgba(201, 91, 58, 0.05);
+  }
+
+  /* ─── DARK ─── */
+  .dark .section-heading {
+    @apply text-cream-100;
+  }
+  .dark .section-subheading {
+    @apply text-warmgray-400;
+  }
+
+  .dark .card {
+    @apply bg-warmgray-800 border-warmgray-700;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+  .dark .card:hover {
+    @apply border-warmgray-600;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .dark .card-elevated {
+    @apply bg-warmgray-800 border-warmgray-700;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 16px 48px rgba(0, 0, 0, 0.3);
+  }
+
+  .dark .badge-terracotta {
+    @apply bg-terracotta-900/40 text-terracotta-300 border-terracotta-700;
+  }
+  .dark .badge-bronze {
+    @apply bg-amber-900/40 text-amber-300 border-amber-700;
+  }
+  .dark .badge-silver {
+    @apply bg-slate-800/40 text-slate-300 border-slate-600;
+  }
+  .dark .badge-gold {
+    @apply bg-yellow-900/40 text-yellow-300 border-yellow-700;
+  }
+
+  .dark .glow-terracotta {
+    box-shadow: 0 0 30px rgba(201, 91, 58, 0.25), 0 0 80px rgba(201, 91, 58, 0.1);
+  }
+}
+
+/* ─── Animated flow lines ─── */
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+.flow-line {
+  stroke-dasharray: 8 12;
+  animation: dash-flow 1.5s linear infinite;
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-cream-200;
+}
+.dark ::-webkit-scrollbar-track {
+  background: #2E2B27;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-cream-400 rounded-full;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #4A4640;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-warmgray-400;
+}
+
+/* ─── Nav dot ─── */
+.nav-dot {
+  @apply w-2 h-2 rounded-full bg-cream-400 transition-all duration-300;
+}
+.dark .nav-dot {
+  @apply bg-warmgray-600;
+}
+.nav-dot.active {
+  @apply w-2.5 h-2.5 bg-terracotta-400;
+  box-shadow: 0 0 12px rgba(201, 91, 58, 0.4);
+}
+.dark .nav-dot.active {
+  box-shadow: 0 0 16px rgba(201, 91, 58, 0.5);
+}
+
+/* ─── Dark theme utility overrides ─── */
+.dark .bg-cream-50 { background-color: #1A1917; }
+.dark .bg-cream-100 { background-color: #1E1D1A; }
+.dark .bg-cream-200 { background-color: #2E2B27; }
+.dark .bg-cream-300 { background-color: #3A3733; }
+
+/* Dark gradient overrides for sections */
+.dark .dark\:bg-dark-base { background-color: #1A1917; }
+.dark .dark\:bg-dark-surface { background-color: #1E1D1A; }

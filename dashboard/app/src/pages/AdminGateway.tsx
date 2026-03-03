@@ -1,0 +1,303 @@
+import { useState, useEffect, useCallback } from "react";
+import {
+  Lock,
+  Eye,
+  EyeOff,
+  Cog,
+  Rocket,
+  ShieldCheck,
+  LayoutGrid,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+} from "lucide-react";
+import {
+  getHiddenPages,
+  updateHiddenPages,
+  verifyAdminPassword,
+} from "@/lib/pageVisibility";
+import { GeneralTab } from "@/pages/Settings";
+import DeploymentManager from "@/pages/settings/DeploymentManager";
+import AdminGovernance from "@/pages/AdminGovernance";
+
+// ── All navigable pages (matches CORE_GROUPS in AppLayout) ──
+
+const ALL_PAGES = [
+  { href: "/", label: "Execution Matrix", group: "Operations" },
+  { href: "/engine", label: "Engine Control", group: "Operations" },
+  { href: "/validation", label: "Validation", group: "Operations" },
+  { href: "/live", label: "Live Monitor", group: "Operations" },
+  { href: "/control", label: "Control Plane", group: "Operations" },
+  { href: "/errors", label: "Error Intelligence", group: "Operations" },
+  { href: "/logs", label: "Execution Log", group: "Operations" },
+  { href: "/runner", label: "Pipeline Runner", group: "Operations" },
+  { href: "/notebook-debug", label: "Pipeline Testing", group: "Operations" },
+  { href: "/sources", label: "Source Manager", group: "Data" },
+  { href: "/blender", label: "Data Blender", group: "Data" },
+  { href: "/flow", label: "Flow Explorer", group: "Data" },
+  { href: "/journey", label: "Data Journey", group: "Data" },
+  { href: "/counts", label: "Record Counts", group: "Data" },
+  { href: "/sql-explorer", label: "SQL Explorer", group: "Data" },
+  { href: "/admin", label: "Admin & Governance", group: "Admin" },
+  { href: "/config", label: "Config Manager", group: "Admin" },
+  { href: "/notebook-config", label: "Notebook Config", group: "Admin" },
+  { href: "/settings", label: "Settings", group: "Admin" },
+  { href: "/setup", label: "Environment Setup", group: "Admin" },
+];
+
+// ── Tab definitions ──
+
+type AdminTab = "pages" | "general" | "deployment" | "governance";
+
+const TABS: { id: AdminTab; label: string; icon: typeof Cog }[] = [
+  { id: "pages", label: "Page Visibility", icon: LayoutGrid },
+  { id: "general", label: "General", icon: Cog },
+  { id: "deployment", label: "Deployment", icon: Rocket },
+  { id: "governance", label: "Governance", icon: ShieldCheck },
+];
+
+// ============================================================================
+// PAGE VISIBILITY TAB
+// ============================================================================
+
+function PageVisibilityTab({ password }: { password: string }) {
+  const [hiddenPages, setHiddenPages] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getHiddenPages().then((pages) => {
+      setHiddenPages(pages);
+      setLoading(false);
+    });
+  }, []);
+
+  const toggle = useCallback((href: string) => {
+    setHiddenPages((prev) =>
+      prev.includes(href) ? prev.filter((p) => p !== href) : [...prev, href]
+    );
+    setSaved(false);
+  }, []);
+
+  const save = useCallback(async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateHiddenPages(hiddenPages, password);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e: any) {
+      setError(e.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }, [hiddenPages, password]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        <span className="text-xs">Loading page visibility...</span>
+      </div>
+    );
+  }
+
+  const groups = [...new Set(ALL_PAGES.map((p) => p.group))];
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div>
+        <h2 className="font-display text-base font-semibold">Page Visibility</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Toggle which pages appear in the sidebar. Hidden pages are still accessible via direct URL.
+        </p>
+      </div>
+
+      {groups.map((group) => (
+        <div key={group}>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">
+            {group}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {ALL_PAGES.filter((p) => p.group === group).map((page) => {
+              const isHidden = hiddenPages.includes(page.href);
+              return (
+                <button
+                  key={page.href}
+                  onClick={() => toggle(page.href)}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+                    isHidden
+                      ? "border-border/50 bg-card/30 text-muted-foreground/50"
+                      : "border-primary/20 bg-primary/5 text-foreground"
+                  }`}
+                >
+                  {isHidden ? (
+                    <EyeOff className="w-3.5 h-3.5 text-muted-foreground/40" />
+                  ) : (
+                    <Eye className="w-3.5 h-3.5 text-primary" />
+                  )}
+                  <span className={isHidden ? "line-through" : ""}>{page.label}</span>
+                  <span className="ml-auto text-[9px] font-mono text-muted-foreground/40">
+                    {page.href}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      <div className="flex items-center gap-3 pt-2">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 cursor-pointer"
+        >
+          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+          {saving ? "Saving..." : "Save Changes"}
+        </button>
+        {saved && (
+          <span className="text-xs text-emerald-500 flex items-center gap-1">
+            <CheckCircle2 className="w-3 h-3" /> Saved
+          </span>
+        )}
+        {error && (
+          <span className="text-xs text-red-400 flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3" /> {error}
+          </span>
+        )}
+      </div>
+
+      <p className="text-[10px] text-muted-foreground/50">
+        {hiddenPages.length} page{hiddenPages.length !== 1 ? "s" : ""} hidden.
+        Changes apply to all users immediately.
+      </p>
+    </div>
+  );
+}
+
+// ============================================================================
+// PASSWORD GATE
+// ============================================================================
+
+function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
+  const [pw, setPw] = useState("");
+  const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const submit = async () => {
+    if (!pw.trim()) return;
+    setLoading(true);
+    setError(false);
+    const ok = await verifyAdminPassword(pw);
+    setLoading(false);
+    if (ok) {
+      onAuth(pw);
+    } else {
+      setError(true);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="w-80 space-y-4">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-12 w-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+            <Lock className="w-5 h-5 text-primary" />
+          </div>
+          <div className="text-center">
+            <h1 className="font-display text-lg font-semibold">Admin Access</h1>
+            <p className="text-xs text-muted-foreground mt-1">
+              Enter the admin password to continue.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <input
+            type="password"
+            value={pw}
+            onChange={(e) => { setPw(e.target.value); setError(false); }}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+            placeholder="Password"
+            autoFocus
+            className={`w-full px-3 py-2.5 rounded-lg border bg-card text-sm outline-none transition-colors ${
+              error
+                ? "border-red-400/50 focus:border-red-400"
+                : "border-border focus:border-primary"
+            }`}
+          />
+          {error && (
+            <p className="text-xs text-red-400 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" /> Invalid password
+            </p>
+          )}
+          <button
+            onClick={submit}
+            disabled={loading || !pw.trim()}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+            {loading ? "Verifying..." : "Unlock"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// MAIN ADMIN GATEWAY
+// ============================================================================
+
+export default function AdminGateway() {
+  const [password, setPassword] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<AdminTab>("pages");
+
+  if (!password) {
+    return <PasswordGate onAuth={setPassword} />;
+  }
+
+  return (
+    <div className="flex gap-6 min-h-0">
+      {/* Left sub-nav */}
+      <div className="w-44 flex-shrink-0">
+        <div className="flex items-center gap-2 mb-4 px-2">
+          <ShieldCheck className="w-4 h-4 text-muted-foreground" />
+          <h1 className="font-display text-sm font-semibold tracking-tight text-muted-foreground">
+            Admin
+          </h1>
+        </div>
+        <nav className="space-y-0.5">
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                  isActive
+                    ? "bg-primary/10 text-primary border border-primary/20"
+                    : "text-muted-foreground hover:text-foreground hover:bg-card border border-transparent"
+                }`}
+              >
+                <tab.icon className="w-3.5 h-3.5" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* Tab content */}
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        {activeTab === "pages" && <PageVisibilityTab password={password} />}
+        {activeTab === "general" && <GeneralTab />}
+        {activeTab === "deployment" && <DeploymentManager />}
+        {activeTab === "governance" && <AdminGovernance />}
+      </div>
+    </div>
+  );
+}

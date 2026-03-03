@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Loader2, CheckCircle2, XCircle, Server, Database, FolderGit2, Cable } from "lucide-react";
 
-const API = "http://localhost:8787";
+const API = "";
 
 interface DeploymentJob {
   id: string;

@@ -1634,12 +1634,15 @@ def phase10_sql_metadata(state, args):
 
         safe_name = ds_name.replace("'", "''")
         safe_desc = ds_def["description"].replace("'", "''")
+        # target_schema is the lakehouse schema name (e.g. "mes", "m3", "etq")
+        # Falls back to datasource name if not specified
+        ns = ds_def.get("target_schema") or ds_def.get("namespace", ds_name)
         queries.append(("DataSource", ds_name, f"""
             DECLARE @DSId INT = (SELECT DataSourceId FROM integration.DataSource WHERE Name = '{safe_name}' AND Type='{ds_def["type"]}')
             DECLARE @CId INT = (SELECT ConnectionId FROM integration.Connection WHERE ConnectionGuid = '{conn_guid}')
             IF @CId IS NOT NULL
                 EXECUTE [integration].[sp_UpsertDataSource] @ConnectionId=@CId, @DataSourceId=@DSId,
-                    @Name='{safe_name}', @Namespace='{ds_def["namespace"]}', @Type='{ds_def["type"]}',
+                    @Name='{safe_name}', @Namespace='{ns}', @Type='{ds_def["type"]}',
                     @Description='{safe_desc}', @IsActive=1
         """))
 
@@ -1949,13 +1952,18 @@ def phase13_register_entities(state, args):
     cursor = conn.cursor()
 
     # Look up lakehouse IDs
-    cursor.execute("SELECT LakehouseId, Name FROM integration.Lakehouse")
-    lh_map = {row[1]: row[0] for row in cursor.fetchall()}
+    # Pick lowest LakehouseId per name (DEV before PROD) to avoid PROD/DEV ambiguity
+    cursor.execute("SELECT LakehouseId, Name FROM integration.Lakehouse ORDER BY LakehouseId ASC")
+    lh_map = {}
+    for row in cursor.fetchall():
+        if row[1] not in lh_map:  # first (lowest ID) wins = DEV
+            lh_map[row[1]] = row[0]
+    lz_lh = lh_map.get("LH_DATA_LANDINGZONE")
     bronze_lh = lh_map.get("LH_BRONZE_LAYER")
     silver_lh = lh_map.get("LH_SILVER_LAYER")
 
-    if not bronze_lh or not silver_lh:
-        print("  [WARN] Bronze/Silver lakehouses not found in metadata DB")
+    if not lz_lh or not bronze_lh or not silver_lh:
+        print("  [WARN] LZ/Bronze/Silver lakehouses not found in metadata DB")
         print("         Run Phase 10 first to populate lakehouse records")
 
     total_lz = 0
@@ -1985,11 +1993,16 @@ def phase13_register_entities(state, args):
                 print(f"  [SKIP] Empty table name in {ds_name}/{schema}")
                 continue
             try:
-                # 1. Register LZ entity (upsert)
+                # 1. Register LZ entity (upsert) — all params required by dacpac proc
                 cursor.execute(
                     f"EXEC [integration].[sp_UpsertLandingzoneEntity] "
                     f"@LandingzoneEntityId = 0, @DataSourceId = {ds_id}, "
+                    f"@LakehouseId = {lz_lh or 1}, "
                     f"@SourceSchema = '{safe_schema}', @SourceName = '{safe_table}', "
+                    f"@SourceCustomSelect = '', "
+                    f"@FileName = '{safe_table}', @FilePath = '', "
+                    f"@FileType = 'parquet', @IsIncremental = 0, "
+                    f"@IsIncrementalColumn = '', @CustomNotebookName = '', "
                     f"@IsActive = 1"
                 )
                 cursor.commit()

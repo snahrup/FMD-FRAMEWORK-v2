@@ -1,9 +1,11 @@
 import { Routes, Route } from 'react-router-dom'
 import { BackgroundTaskProvider } from '@/contexts/BackgroundTaskContext'
 import { AppLayout } from '@/components/layout/AppLayout'
+import ExecutionMatrix from '@/pages/ExecutionMatrix'
+import EngineControl from '@/pages/EngineControl'
 import PipelineMonitor from '@/pages/PipelineMonitor'
 import ErrorIntelligence from '@/pages/ErrorIntelligence'
-import AdminGovernance from '@/pages/AdminGovernance'
+import AdminGateway from '@/pages/AdminGateway'
 import FlowExplorer from '@/pages/FlowExplorer'
 import SourceManager from '@/pages/SourceManager'
 import DataBlender from '@/pages/DataBlender'
@@ -19,19 +21,23 @@ import DataJourney from '@/pages/DataJourney'
 import ConfigManager from '@/pages/ConfigManager'
 import NotebookConfig from '@/pages/NotebookConfig'
 import PipelineRunner from '@/pages/PipelineRunner'
+import ValidationChecklist from '@/pages/ValidationChecklist'
 import NotebookDebug from '@/pages/NotebookDebug'
 import LiveMonitor from '@/pages/LiveMonitor'
+import EnvironmentSetup from '@/pages/EnvironmentSetup'
+import SqlExplorer from '@/pages/SqlExplorer'
 
 function App() {
   return (
     <BackgroundTaskProvider>
     <AppLayout>
       <Routes>
-        <Route path="/" element={<PipelineMonitor />} />
+        <Route path="/" element={<ExecutionMatrix />} />
+        <Route path="/engine" element={<EngineControl />} />
         <Route path="/control" element={<ControlPlane />} />
         <Route path="/logs" element={<ExecutionLog />} />
         <Route path="/errors" element={<ErrorIntelligence />} />
-        <Route path="/admin" element={<AdminGovernance />} />
+        <Route path="/admin" element={<AdminGateway />} />
         <Route path="/flow" element={<FlowExplorer />} />
         <Route path="/sources" element={<SourceManager />} />
         <Route path="/blender" element={<DataBlender />} />
@@ -40,9 +46,12 @@ function App() {
         <Route path="/config" element={<ConfigManager />} />
         <Route path="/notebook-config" element={<NotebookConfig />} />
         <Route path="/runner" element={<PipelineRunner />} />
+        <Route path="/validation" element={<ValidationChecklist />} />
         <Route path="/notebook-debug" element={<NotebookDebug />} />
         <Route path="/live" element={<LiveMonitor />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/setup" element={<EnvironmentSetup />} />
+        <Route path="/sql-explorer" element={<SqlExplorer />} />
         {/* Labs pages — always routed, nav visibility controlled by feature flags */}
         <Route path="/labs/cleansing" element={<CleansingRuleEditor />} />
         <Route path="/labs/scd-audit" element={<ScdAudit />} />

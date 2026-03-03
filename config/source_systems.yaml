@@ -24,20 +24,24 @@ datasources:
   MES:
     connection: CON_FMD_M3DB1_MES
     namespace: dbo
+    target_schema: mes
     type: SQL
     description: "MES production database (445 entities)"
   ETQStagingPRD:
     connection: CON_FMD_M3DB3_ETQSTAGINGPRD
     namespace: dbo
+    target_schema: etq
     type: SQL
     description: "ETQ Staging PRD (29 entities)"
   DI_PRD_Staging:
     connection: CON_FMD_M3DB1_M3CLOUD
     namespace: dbo
+    target_schema: m3c
     type: SQL
     description: "M3 Cloud DI_PRD_Staging (185 entities)"
   m3fdbprd:
     connection: CON_FMD_M3DB1_M3
     namespace: dbo
+    target_schema: m3
     type: SQL
     description: "M3 ERP production database"

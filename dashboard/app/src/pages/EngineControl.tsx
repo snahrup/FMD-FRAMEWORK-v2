@@ -1,0 +1,1980 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Play, Square, Loader2, AlertCircle, CheckCircle2, XCircle,
+  ChevronDown, ChevronUp, Activity, RefreshCw, Clock, Zap,
+  HeartPulse, RotateCcw, Terminal, Timer, Layers,
+  Gauge, TrendingUp, AlertTriangle, Search, Filter, Database,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+} from "recharts";
+
+// ── Types ──
+
+interface EngineStatus {
+  status: "idle" | "running" | "stopping" | "error";
+  current_run_id: string | null;
+  uptime_seconds: number;
+  engine_version: string;
+  load_method?: "local" | "pipeline";
+  pipeline_fallback?: boolean;
+  pipeline_configured?: boolean;
+  last_run: {
+    run_id: string;
+    status: string;
+    started_at: string;
+    finished_at: string;
+    duration_seconds: number;
+  } | null;
+}
+
+interface RunConfig {
+  layers: ("landing" | "bronze" | "silver")[];
+  mode: "run" | "plan";
+  entity_ids: number[];
+}
+
+interface StartResult {
+  run_id: string;
+  status: string;
+}
+
+interface PlanResult {
+  run_id: string;
+  entity_count: number;
+  incremental_count: number;
+  full_load_count: number;
+  layers: string[];
+  entities: Array<{ entity_id: number; name: string; load_type: string }>;
+}
+
+interface LogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  run_id?: string;
+  entity_id?: number;
+  layer?: string;
+  status?: string;
+  rows_read?: number;
+  duration_seconds?: number;
+}
+
+interface EntityResult {
+  entity_id: number;
+  entity_name?: string;
+  layer: string;
+  status: "succeeded" | "failed" | "skipped";
+  rows_read: number;
+  duration_seconds: number;
+  error?: string;
+}
+
+interface RunSummary {
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  total_rows: number;
+  duration_seconds?: number;
+}
+
+interface RunRecord {
+  run_id: string;
+  status: string;
+  mode: string;
+  started_at: string;
+  finished_at: string | null;
+  duration_seconds: number | null;
+  entities_succeeded: number;
+  entities_failed: number;
+  entities_skipped: number;
+  triggered_by: string;
+  total_rows?: number;
+}
+
+interface HealthCheck {
+  name: string;
+  passed: boolean;
+  message: string;
+}
+
+interface HealthReport {
+  checks: HealthCheck[];
+  all_passed: boolean;
+}
+
+interface MetricsData {
+  runs: Array<{ run_id: string; status: string; started_at: string; duration_seconds: number }>;
+  layers: Record<string, { count: number; avg_duration: number }>;
+  slowest_entities: Array<{ EntityId: number; SourceName: string; DataSourceName: string; DurationSeconds: number; RowsRead: number }>;
+  top_errors: Array<{ ErrorType: string; ErrorMessage: string; Occurrences: number }>;
+}
+
+// ── API ──
+
+const API = "/api";
+
+async function fetchJson<T>(path: string): Promise<T> {
+  const res = await fetch(`${API}${path}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+async function postJson<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  const res = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+// ── Helpers ──
+
+function fmtDuration(sec: number | null | undefined): string {
+  if (sec === null || sec === undefined || sec < 0) return "--";
+  const s = Math.floor(sec);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}h ${m % 60}m ${s % 60}s`;
+  if (m > 0) return `${m}m ${s % 60}s`;
+  return `${s}s`;
+}
+
+function friendlyError(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const s = raw.toLowerCase();
+  if (s.includes("forcibly closed") || s.includes("10054") || s.includes("communication link"))
+    return "Connection dropped (network/VPN)";
+  if (s.includes("timeout") || s.includes("hyt00"))
+    return "Query timed out";
+  if (s.includes("login failed") || s.includes("authentication"))
+    return "Authentication failed";
+  if (s.includes("out of memory") || s.includes("oom"))
+    return "Out of memory";
+  if (s.includes("permission") || s.includes("access denied"))
+    return "Permission denied";
+  if (s.includes("does not exist") || s.includes("invalid object"))
+    return "Table not found";
+  if (s.includes("throttl") || s.includes("429"))
+    return "Throttled (too many requests)";
+  if (s.includes("ssl") || s.includes("encryption"))
+    return "SSL/encryption error";
+  // Fallback: first meaningful chunk
+  const match = raw.match(/\]([^[\]]{10,80})/);
+  return match ? match[1].trim() : raw.slice(0, 60);
+}
+
+function fmtUptime(sec: number): string {
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function fmtTimestamp(iso: string | null | undefined): string {
+  if (!iso) return "--";
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function fmtTimeShort(iso: string | null | undefined): string {
+  if (!iso) return "--";
+  try {
+    return new Date(iso).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function truncateId(id: string | null | undefined, len = 8): string {
+  if (!id) return "--";
+  return id.length > len ? id.slice(0, len) + "..." : id;
+}
+
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; pulse: string }> = {
+  idle: { label: "Idle", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20", pulse: "bg-emerald-500" },
+  running: { label: "Running", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20", pulse: "bg-blue-500" },
+  stopping: { label: "Stopping", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20", pulse: "bg-amber-500" },
+  error: { label: "Error", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20", pulse: "bg-red-500" },
+};
+
+const LAYER_COLORS: Record<string, string> = {
+  landing: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+  bronze: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  silver: "text-violet-400 bg-violet-500/10 border-violet-500/20",
+};
+
+// ── Sub-components ──
+
+function StatusBadge({ status }: { status: string }) {
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.idle;
+  return (
+    <div className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg border", cfg.bg)}>
+      <div className="relative flex items-center justify-center">
+        <div className={cn("h-2.5 w-2.5 rounded-full", cfg.pulse, status === "running" && "animate-pulse")} />
+      </div>
+      <span className={cn("text-sm font-semibold", cfg.color)}>{cfg.label}</span>
+    </div>
+  );
+}
+
+function LayerBadge({ layer }: { layer: string }) {
+  const cls = LAYER_COLORS[layer.toLowerCase()] || "text-muted-foreground bg-muted border-border";
+  return (
+    <span className={cn("text-[10px] px-2 py-0.5 rounded border font-mono uppercase", cls)}>
+      {layer}
+    </span>
+  );
+}
+
+function EntityStatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  if (s === "succeeded") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border font-mono bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+        <CheckCircle2 className="h-3 w-3" /> OK
+      </span>
+    );
+  }
+  if (s === "failed") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border font-mono bg-red-500/10 text-red-400 border-red-500/20">
+        <XCircle className="h-3 w-3" /> FAIL
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border font-mono bg-muted text-muted-foreground border-border">
+      <Clock className="h-3 w-3" /> {status}
+    </span>
+  );
+}
+
+function ProgressBar({ current, total, label }: { current: number; total: number; label?: string }) {
+  const pct = total > 0 ? (current / total) * 100 : 0;
+  return (
+    <div className="space-y-1.5">
+      {label && (
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-medium text-foreground">{label}</span>
+          <span className="text-muted-foreground font-mono tabular-nums">
+            {current} / {total} ({pct.toFixed(0)}%)
+          </span>
+        </div>
+      )}
+      <div className="h-3 bg-muted rounded-full overflow-hidden">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all duration-500",
+            pct >= 100 ? "bg-emerald-500" : "bg-blue-500",
+          )}
+          style={{ width: `${Math.min(pct, 100)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function LogLine({ entry }: { entry: LogEntry }) {
+  const levelColor =
+    entry.level === "ERROR" ? "text-red-400" :
+    entry.level === "WARN" ? "text-amber-400" :
+    entry.level === "INFO" ? "text-blue-400" :
+    "text-muted-foreground";
+
+  return (
+    <div className="flex items-start gap-2 py-0.5 font-mono text-xs leading-relaxed">
+      <span className="text-[#8b949e] shrink-0 w-20 text-right">
+        {fmtTimeShort(entry.timestamp)}
+      </span>
+      <span className={cn("shrink-0 w-12 text-right font-semibold", levelColor)}>
+        {entry.level}
+      </span>
+      <span className="text-[#e6edf3] break-all">{entry.message}</span>
+    </div>
+  );
+}
+
+// ── Collapsible Section ──
+
+function Section({
+  title,
+  icon,
+  badge,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  badge?: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Card>
+      <CardHeader className="pb-2 cursor-pointer select-none" onClick={() => setOpen(!open)}>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            {icon}
+            {title}
+            {badge}
+          </CardTitle>
+          {open ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </div>
+      </CardHeader>
+      {open && <CardContent className="pt-0">{children}</CardContent>}
+    </Card>
+  );
+}
+
+// ── Main Component ──
+
+export default function EngineControl() {
+  // Engine status
+  const [status, setStatus] = useState<EngineStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Run config panel
+  const [configOpen, setConfigOpen] = useState(false);
+  const [configLayers, setConfigLayers] = useState<Set<string>>(new Set(["landing", "bronze", "silver"]));
+  const [configMode, setConfigMode] = useState<"run" | "plan">("run");
+  // configEntityIds removed — replaced by multi-select table (selectedEntityIds)
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+
+  // Load method
+  const [loadMethod, setLoadMethod] = useState<"local" | "pipeline">("local");
+  const [pipelineFallback, setPipelineFallback] = useState(true);
+  const [pipelineConfigured, setPipelineConfigured] = useState(false);
+
+  // Manual reload entity selector
+  const [entitySelectorOpen, setEntitySelectorOpen] = useState(false);
+  const [allEntities, setAllEntities] = useState<Array<{
+    entity_id: number; source_schema: string; source_name: string;
+    namespace: string; datasource: string; source_database: string;
+    is_incremental: boolean; last_loaded: string | null; lz_status: string;
+  }>>([]);
+  const [entitiesLoading, setEntitiesLoading] = useState(false);
+  const [selectedEntityIds, setSelectedEntityIds] = useState<Set<number>>(new Set());
+  const [entitySearch, setEntitySearch] = useState("");
+
+  // Plan result
+  const [planResult, setPlanResult] = useState<PlanResult | null>(null);
+
+  // Live run state
+  const [liveRunId, setLiveRunId] = useState<string | null>(null);
+  const [logBuffer, setLogBuffer] = useState<LogEntry[]>([]);
+  const [entityResults, setEntityResults] = useState<EntityResult[]>([]);
+  const [runSummary, setRunSummary] = useState<RunSummary | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const logContainerRef = useRef<HTMLDivElement | null>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  // Run history
+  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [expandedRunLogs, setExpandedRunLogs] = useState<LogEntry[]>([]);
+  const [expandedRunLogsLoading, setExpandedRunLogsLoading] = useState(false);
+
+  // Health check — auto-polls every 10s while panel is open
+  const [healthOpen, setHealthOpen] = useState(true);
+  const [healthReport, setHealthReport] = useState<HealthReport | null>(null);
+  const [healthLoading, setHealthLoading] = useState(true);
+  const [healthLastChecked, setHealthLastChecked] = useState<Date | null>(null);
+
+  // Metrics
+  const [metrics, setMetrics] = useState<MetricsData | null>(null);
+
+  // Stopping
+  const [stopping, setStopping] = useState(false);
+
+  // Retry
+  const [retrying, setRetrying] = useState<string | null>(null);
+
+  // Log view mode
+
+  const isRunning = status?.status === "running";
+  const isStopping = status?.status === "stopping";
+
+  // ── Fetch engine status ──
+  const fetchStatus = useCallback(async () => {
+    try {
+      const s = await fetchJson<EngineStatus>("/engine/status");
+      setStatus(s);
+      setError(null);
+
+      // Sync load method from engine status
+      if (s.load_method) setLoadMethod(s.load_method);
+      if (s.pipeline_fallback !== undefined) setPipelineFallback(s.pipeline_fallback);
+      if (s.pipeline_configured !== undefined) setPipelineConfigured(s.pipeline_configured);
+
+      // If engine is running and we don't have an active SSE, start one
+      if (s.status === "running" && s.current_run_id && !liveRunId) {
+        setLiveRunId(s.current_run_id);
+      }
+      // If engine went idle and we had a live run, clear it
+      if (s.status === "idle" && liveRunId && runSummary) {
+        // Keep summary visible, don't clear
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cannot reach engine");
+    } finally {
+      setLoading(false);
+    }
+  }, [liveRunId, runSummary]);
+
+  // ── Auto-refresh status every 5 seconds when idle ──
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 5000);
+    return () => clearInterval(interval);
+  }, [fetchStatus]);
+
+  // ── Fetch run history ──
+  const fetchRuns = useCallback(async () => {
+    setRunsLoading(true);
+    try {
+      const data = await fetchJson<{ runs: RunRecord[]; count: number }>("/engine/runs?limit=20");
+      setRuns(data.runs || []);
+    } catch {
+      // silently fail — history is non-critical
+    } finally {
+      setRunsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRuns();
+  }, [fetchRuns]);
+
+  // Refresh runs when a run completes
+  useEffect(() => {
+    if (runSummary) fetchRuns();
+  }, [runSummary, fetchRuns]);
+
+  // ── Fetch entities for manual reload selector ──
+  const fetchEntities = useCallback(async () => {
+    setEntitiesLoading(true);
+    try {
+      const data = await fetchJson<{ entities: typeof allEntities; count: number }>("/engine/entities");
+      setAllEntities(data.entities || []);
+    } catch {
+      // silently fail
+    } finally {
+      setEntitiesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (entitySelectorOpen && allEntities.length === 0) fetchEntities();
+  }, [entitySelectorOpen, allEntities.length, fetchEntities]);
+
+  // ── Fetch metrics ──
+  const fetchMetrics = useCallback(async () => {
+    try {
+      const data = await fetchJson<MetricsData>("/engine/metrics?hours=24");
+      setMetrics(data);
+    } catch {
+      // silently fail
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMetrics();
+  }, [fetchMetrics]);
+
+  // ── SSE Stream for live run ──
+  useEffect(() => {
+    if (!isRunning && !isStopping) return;
+    if (eventSourceRef.current) return; // already connected
+
+    const es = new EventSource(`${API}/engine/logs/stream`);
+    eventSourceRef.current = es;
+
+    es.addEventListener("log", (e: MessageEvent) => {
+      try {
+        const data: LogEntry = JSON.parse(e.data);
+        setLogBuffer((prev) => [...prev, data]);
+      } catch { /* ignore parse errors */ }
+    });
+
+    es.addEventListener("entity_result", (e: MessageEvent) => {
+      try {
+        const data: EntityResult = JSON.parse(e.data);
+        setEntityResults((prev) => [...prev, data]);
+      } catch { /* ignore */ }
+    });
+
+    es.addEventListener("run_complete", (e: MessageEvent) => {
+      try {
+        const data: RunSummary = JSON.parse(e.data);
+        setRunSummary(data);
+      } catch { /* ignore */ }
+      es.close();
+      eventSourceRef.current = null;
+      fetchStatus();
+      fetchRuns();
+      fetchMetrics();
+    });
+
+    es.addEventListener("run_error", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        setRunError(data.error || "Unknown error");
+      } catch { /* ignore */ }
+      es.close();
+      eventSourceRef.current = null;
+      fetchStatus();
+      fetchRuns();
+    });
+
+    es.onerror = () => {
+      // SSE reconnects automatically, but if the engine stopped, clean up
+      if (!isRunning && !isStopping) {
+        es.close();
+        eventSourceRef.current = null;
+      }
+    };
+
+    return () => {
+      es.close();
+      eventSourceRef.current = null;
+    };
+  }, [isRunning, isStopping, fetchStatus, fetchRuns, fetchMetrics]);
+
+  // ── Auto-scroll log container ──
+  useEffect(() => {
+    if (autoScroll && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logBuffer, autoScroll]);
+
+  // ── Actions ──
+
+  const handleStart = async () => {
+    setLaunchError(null);
+    setLaunching(true);
+    setPlanResult(null);
+    setRunSummary(null);
+    setRunError(null);
+    setLogBuffer([]);
+    setEntityResults([]);
+
+    const layers = Array.from(configLayers) as ("landing" | "bronze" | "silver")[];
+    const entityIds = Array.from(selectedEntityIds);
+
+    try {
+      if (configMode === "plan") {
+        // Dry run
+        const params = new URLSearchParams();
+        if (layers.length < 3) params.set("layers", layers.join(","));
+        if (entityIds.length > 0) params.set("entity_ids", entityIds.join(","));
+        const plan = await fetchJson<PlanResult>(`/engine/plan?${params.toString()}`);
+        setPlanResult(plan);
+      } else {
+        // Actual run
+        const body: Record<string, unknown> = {
+          mode: "run",
+          layers,
+          triggered_by: "dashboard",
+          load_method: loadMethod,
+          pipeline_fallback: pipelineFallback,
+        };
+        if (entityIds.length > 0) body.entity_ids = entityIds;
+
+        const result = await postJson<StartResult>("/engine/start", body);
+        setLiveRunId(result.run_id);
+        setConfigOpen(false);
+        fetchStatus();
+      }
+    } catch (err) {
+      setLaunchError(err instanceof Error ? err.message : "Failed to start");
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  const handleStop = async () => {
+    setStopping(true);
+    try {
+      await postJson("/engine/stop", {});
+      fetchStatus();
+      fetchRuns();
+    } catch {
+      // ignore
+    } finally {
+      setStopping(false);
+    }
+  };
+
+  const handleHealthCheck = useCallback(async () => {
+    setHealthLoading(true);
+    try {
+      const report = await fetchJson<HealthReport>("/engine/health");
+      setHealthReport(report);
+      setHealthLastChecked(new Date());
+    } catch (err) {
+      setHealthReport({
+        checks: [{ name: "API Connectivity", passed: false, message: err instanceof Error ? err.message : "Failed" }],
+        all_passed: false,
+      });
+      setHealthLastChecked(new Date());
+    } finally {
+      setHealthLoading(false);
+    }
+  }, []);
+
+  // Auto-poll health every 10s while panel is open
+  useEffect(() => {
+    if (!healthOpen) return;
+    handleHealthCheck();
+    const interval = setInterval(handleHealthCheck, 10000);
+    return () => clearInterval(interval);
+  }, [healthOpen, handleHealthCheck]);
+
+  const handleRetry = async (runId: string) => {
+    setRetrying(runId);
+    try {
+      const result = await postJson<StartResult>("/engine/retry", { run_id: runId });
+      setLiveRunId(result.run_id);
+      setLogBuffer([]);
+      setEntityResults([]);
+      setRunSummary(null);
+      setRunError(null);
+      fetchStatus();
+    } catch {
+      // ignore
+    } finally {
+      setRetrying(null);
+    }
+  };
+
+  const [aborting, setAborting] = useState<string | null>(null);
+
+  const handleAbortRun = async (runId: string) => {
+    setAborting(runId);
+    try {
+      await postJson<{ aborted: number; message: string }>("/engine/abort-run", { run_id: runId });
+      fetchRuns();
+      fetchStatus();
+    } catch {
+      // ignore
+    } finally {
+      setAborting(null);
+    }
+  };
+
+  const handleAbortAll = async () => {
+    setAborting("__all__");
+    try {
+      await postJson<{ aborted: number; message: string }>("/engine/abort-run", { all: true });
+      fetchRuns();
+      fetchStatus();
+    } catch {
+      // ignore
+    } finally {
+      setAborting(null);
+    }
+  };
+
+  const handleExpandRun = async (runId: string) => {
+    if (expandedRunId === runId) {
+      setExpandedRunId(null);
+      return;
+    }
+    setExpandedRunId(runId);
+    setExpandedRunLogsLoading(true);
+    setExpandedRunLogs([]);
+    try {
+      const data = await fetchJson<{ logs: LogEntry[]; count: number }>(`/engine/logs?run_id=${runId}&limit=200`);
+      setExpandedRunLogs(data.logs || []);
+    } catch {
+      setExpandedRunLogs([]);
+    } finally {
+      setExpandedRunLogsLoading(false);
+    }
+  };
+
+  const toggleLayer = (layer: string) => {
+    setConfigLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(layer)) {
+        if (next.size > 1) next.delete(layer); // must keep at least one
+      } else {
+        next.add(layer);
+      }
+      return next;
+    });
+  };
+
+  // ── Derived values ──
+
+  const completedEntities = entityResults.length;
+  const succeededEntities = entityResults.filter((e) => e.status === "succeeded").length;
+  const failedEntities = entityResults.filter((e) => e.status === "failed").length;
+  const skippedEntities = entityResults.filter((e) => e.status === "skipped").length;
+  const totalRows = entityResults.reduce((sum, e) => sum + (e.rows_read || 0), 0);
+  const totalDuration = entityResults.reduce((sum, e) => sum + (e.duration_seconds || 0), 0);
+
+  // ── Loading state ──
+
+  if (loading && !status) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Connecting to FMD Engine...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !status) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center max-w-md">
+          <AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-4" />
+          <p className="text-foreground font-medium mb-2">Cannot Reach FMD Engine</p>
+          <p className="text-sm text-muted-foreground mb-4">{error}</p>
+          <Button onClick={fetchStatus} variant="outline" className="gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const engineStatus = status?.status || "idle";
+  const statusCfg = STATUS_CONFIG[engineStatus] || STATUS_CONFIG.idle;
+
+  return (
+    <div className="space-y-4">
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* Top Bar                                             */}
+      {/* ═══════════════════════════════════════════════════ */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-display font-bold tracking-tight text-foreground flex items-center gap-3">
+            <Zap className="h-7 w-7 text-amber-500" />
+            Engine Control
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            FMD v3 Python loading engine — start, monitor, and manage data pipeline runs
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setHealthOpen(!healthOpen)}
+            className="gap-1.5"
+          >
+            <HeartPulse className="h-3.5 w-3.5" />
+            Health Check
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleStop}
+            disabled={!isRunning || stopping}
+            className={cn("gap-1.5", isRunning && "border-red-500/50 text-red-500 hover:bg-red-500/10")}
+          >
+            {stopping ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Square className="h-3.5 w-3.5" />
+            )}
+            Stop
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              setConfigOpen(!configOpen);
+              setPlanResult(null);
+              setLaunchError(null);
+            }}
+            disabled={isRunning || isStopping}
+            className="gap-1.5"
+          >
+            <Play className="h-3.5 w-3.5" />
+            Start Run
+          </Button>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* Status Bar                                          */}
+      {/* ═══════════════════════════════════════════════════ */}
+      <div className={cn("rounded-xl p-4 border flex flex-wrap items-center gap-4", statusCfg.bg)}>
+        <StatusBadge status={engineStatus} />
+
+        <div className="h-8 w-px bg-border/40 hidden sm:block" />
+
+        {status?.engine_version && (
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground">Version</span>
+            <span className="font-mono font-semibold text-foreground">{status.engine_version}</span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-1.5 text-xs">
+          {loadMethod === "pipeline" ? (
+            <Zap className="h-3 w-3 text-cyan-400" />
+          ) : (
+            <Terminal className="h-3 w-3 text-orange-400" />
+          )}
+          <span className="text-muted-foreground">Method</span>
+          <span className={cn(
+            "font-mono font-semibold",
+            loadMethod === "pipeline" ? "text-cyan-400" : "text-orange-400",
+          )}>
+            {loadMethod === "pipeline" ? "Pipeline" : "Local"}
+          </span>
+        </div>
+
+        {status && status.uptime_seconds > 0 && (
+          <div className="flex items-center gap-1.5 text-xs">
+            <Timer className="h-3 w-3 text-muted-foreground" />
+            <span className="text-muted-foreground">Uptime</span>
+            <span className="font-mono font-semibold text-foreground">{fmtUptime(status.uptime_seconds)}</span>
+          </div>
+        )}
+
+        {status?.current_run_id && (
+          <div className="flex items-center gap-1.5 text-xs">
+            <Activity className="h-3 w-3 text-blue-400 animate-pulse" />
+            <span className="text-muted-foreground">Run</span>
+            <span className="font-mono font-semibold text-foreground">{truncateId(status.current_run_id)}</span>
+          </div>
+        )}
+
+        {status?.last_run && !isRunning && (
+          <>
+            <div className="h-8 w-px bg-border/40 hidden sm:block" />
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-muted-foreground">Last run:</span>
+              <span className={cn(
+                "font-mono font-semibold",
+                status.last_run.status === "completed" ? "text-emerald-400" :
+                status.last_run.status === "failed" ? "text-red-400" : "text-muted-foreground",
+              )}>
+                {status.last_run.status}
+              </span>
+              <span className="text-muted-foreground font-mono">{fmtDuration(status.last_run.duration_seconds)}</span>
+              <span className="text-muted-foreground/60">{fmtTimestamp(status.last_run.finished_at)}</span>
+            </div>
+          </>
+        )}
+
+        {error && (
+          <>
+            <div className="h-8 w-px bg-border/40 hidden sm:block" />
+            <span className="text-xs text-amber-400 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              Status poll failed
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* Health Check Panel                                  */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {healthOpen && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <HeartPulse className="h-4 w-4 text-pink-500" />
+                Preflight Health Check
+                {healthReport && (
+                  <Badge
+                    variant={healthReport.all_passed ? "success" : "destructive"}
+                    className="ml-2"
+                  >
+                    {healthReport.all_passed ? "All Passed" : "Issues Found"}
+                  </Badge>
+                )}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                {healthLoading && healthReport && (
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                )}
+                {healthLastChecked && !healthLoading && (
+                  <span className="text-[10px] text-muted-foreground">
+                    {healthLastChecked.toLocaleTimeString()}
+                  </span>
+                )}
+                <Button variant="ghost" size="sm" onClick={() => setHealthOpen(false)}>
+                  <XCircle className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {healthLoading && !healthReport ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <span className="ml-2 text-sm text-muted-foreground">Running health checks...</span>
+              </div>
+            ) : healthReport ? (
+              <div className="divide-y divide-border">
+                {healthReport.checks.map((check, i) => (
+                  <div key={i} className="flex items-center gap-3 py-2.5">
+                    {check.passed ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-foreground">{check.name}</span>
+                    </div>
+                    <span className={cn(
+                      "text-xs",
+                      check.passed ? "text-muted-foreground" : "text-red-400",
+                    )}>
+                      {check.message}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* Run Config Panel                                    */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {configOpen && !isRunning && (
+        <Card className="border-2 border-primary/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Filter className="h-4 w-4 text-primary" />
+              Run Configuration
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5 pt-2">
+            {/* Layer selection */}
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">
+                Layers
+              </label>
+              <div className="flex gap-2">
+                {(["landing", "bronze", "silver"] as const).map((layer) => {
+                  const selected = configLayers.has(layer);
+                  const colors: Record<string, string> = {
+                    landing: "border-cyan-500 bg-cyan-500/10 text-cyan-400",
+                    bronze: "border-amber-500 bg-amber-500/10 text-amber-400",
+                    silver: "border-violet-500 bg-violet-500/10 text-violet-400",
+                  };
+                  return (
+                    <button
+                      key={layer}
+                      onClick={() => toggleLayer(layer)}
+                      className={cn(
+                        "flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all text-sm font-medium capitalize",
+                        selected
+                          ? colors[layer]
+                          : "border-border text-muted-foreground hover:border-muted-foreground/40",
+                      )}
+                    >
+                      <div className={cn(
+                        "w-4 h-4 rounded border-2 flex items-center justify-center transition-all",
+                        selected ? "border-current bg-current/20" : "border-muted-foreground/30",
+                      )}>
+                        {selected && <CheckCircle2 className="w-3 h-3" />}
+                      </div>
+                      {layer}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Mode selection */}
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">
+                Mode
+              </label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfigMode("run")}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all text-sm font-medium",
+                    configMode === "run"
+                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
+                      : "border-border text-muted-foreground hover:border-muted-foreground/40",
+                  )}
+                >
+                  <Play className="h-4 w-4" />
+                  Run
+                </button>
+                <button
+                  onClick={() => setConfigMode("plan")}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all text-sm font-medium",
+                    configMode === "plan"
+                      ? "border-blue-500 bg-blue-500/10 text-blue-400"
+                      : "border-border text-muted-foreground hover:border-muted-foreground/40",
+                  )}
+                >
+                  <Search className="h-4 w-4" />
+                  Plan (Dry Run)
+                </button>
+              </div>
+            </div>
+
+            {/* Load Method */}
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">
+                Load Method
+              </label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setLoadMethod("pipeline")}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all text-sm font-medium",
+                    loadMethod === "pipeline"
+                      ? "border-cyan-500 bg-cyan-500/10 text-cyan-400"
+                      : "border-border text-muted-foreground hover:border-muted-foreground/40",
+                    !pipelineConfigured && "opacity-50",
+                  )}
+                >
+                  <Zap className="h-4 w-4" />
+                  Fabric Pipeline
+                  {!pipelineConfigured && (
+                    <span className="text-[10px] text-amber-400 ml-1">(not configured)</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setLoadMethod("local")}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all text-sm font-medium",
+                    loadMethod === "local"
+                      ? "border-orange-500 bg-orange-500/10 text-orange-400"
+                      : "border-border text-muted-foreground hover:border-muted-foreground/40",
+                  )}
+                >
+                  <Terminal className="h-4 w-4" />
+                  Local (Python)
+                </button>
+              </div>
+              {loadMethod === "pipeline" && (
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    onClick={() => setPipelineFallback(!pipelineFallback)}
+                    className={cn(
+                      "w-4 h-4 rounded border-2 flex items-center justify-center transition-all",
+                      pipelineFallback
+                        ? "border-cyan-500 bg-cyan-500/20 text-cyan-400"
+                        : "border-muted-foreground/30",
+                    )}
+                  >
+                    {pipelineFallback && <CheckCircle2 className="w-3 h-3" />}
+                  </button>
+                  <span className="text-xs text-muted-foreground">
+                    Auto-fallback to Local on pipeline failure
+                  </span>
+                </div>
+              )}
+              <p className="text-[10px] text-muted-foreground mt-1.5">
+                {loadMethod === "pipeline"
+                  ? "Triggers Fabric Copy Activity per entity via REST API — cloud-native, ~20x faster"
+                  : "Extracts via pyodbc on this machine, uploads Parquet to OneLake — slower but reliable"}
+              </p>
+            </div>
+
+            {/* Entity selector */}
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">
+                Entities
+              </label>
+
+              {/* Toggle: All vs Select Specific */}
+              <div className="flex items-center gap-2 mb-3">
+                <button
+                  onClick={() => { setEntitySelectorOpen(false); setSelectedEntityIds(new Set()); }}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all",
+                    !entitySelectorOpen
+                      ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
+                      : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-muted-foreground/50",
+                  )}
+                >
+                  <Database className="h-4 w-4" />
+                  All Entities
+                </button>
+                <button
+                  onClick={() => setEntitySelectorOpen(true)}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all",
+                    entitySelectorOpen
+                      ? "border-cyan-500/50 bg-cyan-500/10 text-cyan-400"
+                      : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-muted-foreground/50",
+                  )}
+                >
+                  <Filter className="h-4 w-4" />
+                  Select Specific
+                  {selectedEntityIds.size > 0 && (
+                    <Badge variant="outline" className="text-cyan-400 border-cyan-500/30 bg-cyan-500/20 ml-1">
+                      {selectedEntityIds.size}
+                    </Badge>
+                  )}
+                </button>
+              </div>
+
+              {entitySelectorOpen && (
+                <div className="rounded-lg border border-border bg-background">
+                  {/* Search + bulk actions */}
+                  <div className="flex items-center gap-2 p-2.5 border-b border-border">
+                    <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <input
+                      type="text"
+                      value={entitySearch}
+                      onChange={(e) => setEntitySearch(e.target.value)}
+                      placeholder="Search by table name, schema, namespace, or source..."
+                      className="flex-1 text-sm bg-transparent text-foreground placeholder:text-muted-foreground/50 focus:outline-none font-mono"
+                    />
+                    {(() => {
+                      const filtered = allEntities.filter((e) => {
+                        if (!entitySearch) return true;
+                        const q = entitySearch.toLowerCase();
+                        return (
+                          e.source_name.toLowerCase().includes(q) ||
+                          e.source_schema.toLowerCase().includes(q) ||
+                          e.namespace.toLowerCase().includes(q) ||
+                          e.datasource.toLowerCase().includes(q) ||
+                          e.source_database.toLowerCase().includes(q)
+                        );
+                      });
+                      return (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => {
+                              const ids = new Set(selectedEntityIds);
+                              const allSelected = filtered.every((e) => ids.has(e.entity_id));
+                              if (allSelected) {
+                                filtered.forEach((e) => ids.delete(e.entity_id));
+                              } else {
+                                filtered.forEach((e) => ids.add(e.entity_id));
+                              }
+                              setSelectedEntityIds(ids);
+                            }}
+                            className="text-xs px-2 py-1 rounded bg-muted hover:bg-muted/80 text-foreground transition-colors"
+                          >
+                            {filtered.every((e) => selectedEntityIds.has(e.entity_id)) && filtered.length > 0
+                              ? "Deselect all"
+                              : "Select all"}
+                          </button>
+                          {selectedEntityIds.size > 0 && (
+                            <button
+                              onClick={() => setSelectedEntityIds(new Set())}
+                              className="text-xs px-2 py-1 rounded text-red-400 hover:bg-red-500/10 transition-colors"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Entity table */}
+                  <div className="max-h-[300px] overflow-y-auto">
+                    {entitiesLoading ? (
+                      <div className="flex items-center justify-center py-8 gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Loading entities...
+                      </div>
+                    ) : allEntities.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 gap-2 text-sm text-muted-foreground">
+                        <Database className="h-6 w-6 opacity-40" />
+                        <span>No entities found</span>
+                        <span className="text-[10px]">Server may need a restart to enable this endpoint</span>
+                      </div>
+                    ) : (
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted/50 sticky top-0">
+                          <tr>
+                            <th className="w-8 px-2 py-1.5"></th>
+                            <th className="px-2 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Source</th>
+                            <th className="px-2 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Schema.Table</th>
+                            <th className="px-2 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Status</th>
+                            <th className="px-2 py-1.5 text-right text-[10px] font-medium text-muted-foreground uppercase">Last Loaded</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allEntities
+                            .filter((e) => {
+                              if (!entitySearch) return true;
+                              const q = entitySearch.toLowerCase();
+                              return (
+                                e.source_name.toLowerCase().includes(q) ||
+                                e.source_schema.toLowerCase().includes(q) ||
+                                e.namespace.toLowerCase().includes(q) ||
+                                e.datasource.toLowerCase().includes(q) ||
+                                e.source_database.toLowerCase().includes(q)
+                              );
+                            })
+                            .map((e) => {
+                              const checked = selectedEntityIds.has(e.entity_id);
+                              return (
+                                <tr
+                                  key={e.entity_id}
+                                  onClick={() => {
+                                    const next = new Set(selectedEntityIds);
+                                    if (checked) next.delete(e.entity_id);
+                                    else next.add(e.entity_id);
+                                    setSelectedEntityIds(next);
+                                  }}
+                                  className={cn(
+                                    "cursor-pointer border-b border-border/50 transition-colors",
+                                    checked ? "bg-cyan-500/5" : "hover:bg-muted/30",
+                                  )}
+                                >
+                                  <td className="px-2 py-1.5">
+                                    <div className={cn(
+                                      "w-4 h-4 rounded border-2 flex items-center justify-center transition-colors",
+                                      checked ? "border-cyan-500 bg-cyan-500/20" : "border-muted-foreground/30",
+                                    )}>
+                                      {checked && <CheckCircle2 className="w-3 h-3 text-cyan-400" />}
+                                    </div>
+                                  </td>
+                                  <td className="px-2 py-1.5 text-muted-foreground font-mono">{e.namespace || e.datasource}</td>
+                                  <td className="px-2 py-1.5 font-mono text-foreground">
+                                    {e.source_schema}.{e.source_name}
+                                  </td>
+                                  <td className="px-2 py-1.5">
+                                    <span className={cn(
+                                      "text-[10px] px-1.5 py-0.5 rounded font-mono",
+                                      e.lz_status === "loaded" ? "text-emerald-400 bg-emerald-500/10" :
+                                      e.lz_status === "failed" ? "text-red-400 bg-red-500/10" :
+                                      "text-muted-foreground bg-muted",
+                                    )}>
+                                      {e.lz_status}
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-1.5 text-right text-muted-foreground font-mono">
+                                    {e.last_loaded ? fmtTimestamp(e.last_loaded) : "--"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between px-2.5 py-2 border-t border-border bg-muted/30 text-xs text-muted-foreground">
+                    <span>{allEntities.length} total entities</span>
+                    <span className={selectedEntityIds.size > 0 ? "text-cyan-400 font-medium" : ""}>
+                      {selectedEntityIds.size > 0 ? `${selectedEntityIds.size} selected` : "None selected — will run all"}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Launch button + error */}
+            {launchError && (
+              <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-700 rounded-lg">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                <p className="text-sm text-red-700 dark:text-red-300">{launchError}</p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-1">
+              <Button variant="outline" size="sm" onClick={() => setConfigOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleStart}
+                disabled={launching || configLayers.size === 0}
+                className={cn(
+                  "gap-2",
+                  configMode === "run"
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                    : "bg-blue-600 hover:bg-blue-700 text-white",
+                )}
+              >
+                {launching ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> {configMode === "plan" ? "Planning..." : "Launching..."}</>
+                ) : configMode === "plan" ? (
+                  <><Search className="h-4 w-4" /> Generate Plan</>
+                ) : (
+                  <><Zap className="h-4 w-4" /> Launch</>
+                )}
+              </Button>
+            </div>
+
+            {/* Plan result */}
+            {planResult && (
+              <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Search className="h-4 w-4 text-blue-400" />
+                  <span className="text-sm font-semibold text-blue-400">Dry Run Plan</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-2 rounded bg-background border text-center">
+                    <p className="text-lg font-bold text-foreground tabular-nums">{planResult.entity_count}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Entities</p>
+                  </div>
+                  <div className="p-2 rounded bg-background border text-center">
+                    <p className="text-lg font-bold text-blue-400 tabular-nums">{planResult.incremental_count}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Incremental</p>
+                  </div>
+                  <div className="p-2 rounded bg-background border text-center">
+                    <p className="text-lg font-bold text-amber-400 tabular-nums">{planResult.full_load_count}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Full Load</p>
+                  </div>
+                  <div className="p-2 rounded bg-background border text-center">
+                    <p className="text-lg font-bold text-foreground tabular-nums">{planResult.layers.length}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Layers</p>
+                  </div>
+                </div>
+                {planResult.layers.length > 0 && (
+                  <div className="flex gap-2">
+                    {planResult.layers.map((l) => (
+                      <LayerBadge key={l} layer={l} />
+                    ))}
+                  </div>
+                )}
+                {planResult.entities && planResult.entities.length > 0 && (
+                  <div className="max-h-[200px] overflow-y-auto rounded border">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/50 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Entity</th>
+                          <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Load Type</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {planResult.entities.map((e) => (
+                          <tr key={e.entity_id} className="hover:bg-muted/20">
+                            <td className="px-3 py-1 font-mono text-foreground">{e.name}</td>
+                            <td className="px-3 py-1">
+                              <span className={cn(
+                                "px-1.5 py-0.5 rounded border text-[10px] font-mono",
+                                e.load_type === "incremental"
+                                  ? "text-blue-400 bg-blue-500/10 border-blue-500/20"
+                                  : "text-muted-foreground bg-muted/30 border-border",
+                              )}>
+                                {e.load_type === "incremental" ? "INCR" : "FULL"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* Live Run Panel                                      */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {(isRunning || isStopping || liveRunId) && (
+        <div className="space-y-4">
+          {/* Progress + Summary */}
+          <Card className={cn(
+            "border-2",
+            runSummary ? (runSummary.failed > 0 ? "border-amber-500/30" : "border-emerald-500/30") :
+            runError ? "border-red-500/30" :
+            "border-blue-500/30",
+          )}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                {runSummary ? (
+                  runSummary.failed > 0 ? (
+                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  )
+                ) : runError ? (
+                  <XCircle className="h-4 w-4 text-red-500" />
+                ) : (
+                  <Activity className="h-4 w-4 text-blue-500 animate-pulse" />
+                )}
+                {runSummary ? "Run Complete" : runError ? "Run Error" : "Live Run"}
+                {liveRunId && (
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-muted text-muted-foreground font-mono ml-2">
+                    {truncateId(liveRunId, 12)}
+                  </span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-0">
+              {/* Run summary (when complete) */}
+              {runSummary && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-center">
+                    <p className="text-2xl font-bold text-emerald-400 tabular-nums">{runSummary.succeeded}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Succeeded</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/20 text-center">
+                    <p className="text-2xl font-bold text-red-400 tabular-nums">{runSummary.failed}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Failed</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30 border border-border text-center">
+                    <p className="text-2xl font-bold text-muted-foreground tabular-nums">{runSummary.skipped}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Skipped</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-center">
+                    <p className="text-2xl font-bold text-blue-400 tabular-nums">{runSummary.total_rows.toLocaleString()}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Rows</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Run error */}
+              {runError && (
+                <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-700 rounded-lg">
+                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-700 dark:text-red-300 break-all">{runError}</p>
+                </div>
+              )}
+
+              {/* In-progress stats */}
+              {!runSummary && !runError && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-5 gap-3">
+                    <div className="p-2 rounded bg-muted/30 border text-center">
+                      <p className="text-lg font-bold text-foreground tabular-nums">{completedEntities}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Processed</p>
+                    </div>
+                    <div className="p-2 rounded bg-emerald-500/5 border border-emerald-500/20 text-center">
+                      <p className="text-lg font-bold text-emerald-400 tabular-nums">{succeededEntities}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">OK</p>
+                    </div>
+                    <div className="p-2 rounded bg-red-500/5 border border-red-500/20 text-center">
+                      <p className="text-lg font-bold text-red-400 tabular-nums">{failedEntities}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Failed</p>
+                    </div>
+                    <div className="p-2 rounded bg-amber-500/5 border border-amber-500/20 text-center">
+                      <p className="text-lg font-bold text-amber-400 tabular-nums">{fmtDuration(totalDuration)}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Duration</p>
+                    </div>
+                    <div className="p-2 rounded bg-blue-500/5 border border-blue-500/20 text-center">
+                      <p className="text-lg font-bold text-blue-400 tabular-nums">{totalRows.toLocaleString()}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Rows</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Clear live run button when done */}
+              {(runSummary || runError) && !isRunning && (
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setLiveRunId(null);
+                      setLogBuffer([]);
+                      setEntityResults([]);
+                      setRunSummary(null);
+                      setRunError(null);
+                    }}
+                    className="gap-1.5 text-xs"
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Entity results stream */}
+          {entityResults.length > 0 && (
+            <Section
+              title="Entity Results"
+              icon={<Layers className="h-4 w-4 text-emerald-500" />}
+              badge={
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/60 font-mono text-muted-foreground ml-1">
+                  {entityResults.length}
+                </span>
+              }
+            >
+              <div className="max-h-[400px] overflow-y-auto rounded-lg border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/50 sticky top-0 z-10">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Entity</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Layer</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Rows</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Duration</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {entityResults.map((er, i) => (
+                      <tr key={i} className="hover:bg-muted/20 transition-colors">
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-foreground">
+                              {er.entity_name || `Entity ${er.entity_id}`}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <LayerBadge layer={er.layer} />
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <EntityStatusBadge status={er.status} />
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-mono text-foreground tabular-nums">
+                          {er.rows_read > 0 ? er.rows_read.toLocaleString() : "--"}
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-mono text-muted-foreground tabular-nums">
+                          {fmtDuration(er.duration_seconds)}
+                        </td>
+                        <td className="px-3 py-1.5 max-w-[250px]">
+                          {er.status === "failed" && er.error ? (
+                            <span className="text-red-400 text-[11px]" title={er.error}>
+                              {friendlyError(er.error)}
+                            </span>
+                          ) : er.status === "succeeded" ? (
+                            <span className="text-emerald-500/60 text-[11px]">OK</span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Section>
+          )}
+
+          {/* Live log stream — dual view */}
+          <Section
+            title="Log Stream"
+            icon={<Terminal className="h-4 w-4 text-green-500" />}
+            badge={
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/60 font-mono text-muted-foreground ml-1">
+                {logBuffer.length} lines
+              </span>
+            }
+          >
+            <div className="space-y-2">
+              <div className="flex items-center justify-end">
+                <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={autoScroll}
+                    onChange={(e) => setAutoScroll(e.target.checked)}
+                    className="rounded"
+                  />
+                  Auto-scroll
+                </label>
+              </div>
+              <div
+                ref={logContainerRef}
+                className="h-[300px] overflow-y-auto rounded-lg border bg-[#0d1117] p-3 scrollbar-thin [&_span]:!text-opacity-100"
+              >
+                {logBuffer.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-muted-foreground/50 text-sm">
+                    {isRunning ? "Waiting for log output..." : "No log entries"}
+                  </div>
+                ) : (
+                  logBuffer.map((entry, i) => <LogLine key={i} entry={entry} />)
+                )}
+              </div>
+            </div>
+          </Section>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* 24h Metrics (mini charts)                           */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {metrics && (metrics.runs?.length > 0 || metrics.top_errors?.length > 0) && (
+        <Section
+          title="24h Metrics"
+          icon={<TrendingUp className="h-4 w-4 text-purple-500" />}
+          defaultOpen={false}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Layer breakdown chart */}
+            {metrics.layers && Object.keys(metrics.layers).length > 0 && (
+              <div className="rounded-lg border bg-muted/5 p-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  Runs by Layer
+                </p>
+                <div className="h-[180px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={Object.entries(metrics.layers).map(([layer, data]) => ({
+                        layer: layer.charAt(0).toUpperCase() + layer.slice(1),
+                        count: data.count,
+                        avgDuration: Math.round(data.avg_duration),
+                      }))}
+                    >
+                      <XAxis
+                        dataKey="layer"
+                        tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={30}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "hsl(var(--card))",
+                          border: "1px solid hsl(var(--border))",
+                          borderRadius: "8px",
+                          fontSize: "12px",
+                        }}
+                        formatter={((value: number | undefined, name: string | undefined) => [
+                          name === "count" ? `${value ?? 0} runs` : `${value ?? 0}s avg`,
+                          name === "count" ? "Runs" : "Avg Duration",
+                        ]) as any}
+                      />
+                      <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                        {Object.keys(metrics.layers).map((layer, i) => {
+                          const colors: Record<string, string> = {
+                            landing: "#06b6d4",
+                            bronze: "#f59e0b",
+                            silver: "#8b5cf6",
+                          };
+                          return <Cell key={i} fill={colors[layer] || "#6b7280"} />;
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Slowest entities */}
+            {metrics.slowest_entities && metrics.slowest_entities.length > 0 && (
+              <div className="rounded-lg border bg-muted/5 p-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  Slowest Entities (avg)
+                </p>
+                <div className="space-y-2">
+                  {metrics.slowest_entities.slice(0, 8).map((ent, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-muted-foreground w-6 text-right">{i + 1}.</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-foreground truncate">
+                            {ent.SourceName || `Entity ${ent.EntityId}`}
+                          </span>
+                          {ent.DataSourceName && (
+                            <span className="text-[10px] text-muted-foreground">({ent.DataSourceName})</span>
+                          )}
+                        </div>
+                        <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-1">
+                          <div
+                            className="h-full bg-amber-500/70 rounded-full"
+                            style={{
+                              width: `${Math.min(
+                                (ent.DurationSeconds / (metrics.slowest_entities[0]?.DurationSeconds || 1)) * 100,
+                                100,
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <span className="text-xs font-mono text-amber-400 shrink-0">
+                        {fmtDuration(ent.DurationSeconds)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Top errors */}
+            {metrics.top_errors && metrics.top_errors.length > 0 && (
+              <div className="rounded-lg border bg-muted/5 p-4 md:col-span-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  Top Errors
+                </p>
+                <div className="space-y-2">
+                  {metrics.top_errors.slice(0, 5).map((err, i) => (
+                    <div key={i} className="flex items-start gap-3 py-1.5">
+                      <span className="text-xs font-bold text-red-400 shrink-0 tabular-nums w-8 text-right">
+                        x{err.Occurrences}
+                      </span>
+                      <div className="text-xs text-foreground/80 break-all">
+                        {err.ErrorType && (
+                          <span className="font-semibold text-red-300">{err.ErrorType}: </span>
+                        )}
+                        {err.ErrorMessage}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* Run History                                         */}
+      {/* ═══════════════════════════════════════════════════ */}
+      <Section
+        title="Run History"
+        icon={<Clock className="h-4 w-4 text-muted-foreground" />}
+        badge={
+          runs.length > 0 ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/60 font-mono text-muted-foreground ml-1">
+              {runs.length}
+            </span>
+          ) : undefined
+        }
+        defaultOpen={true}
+      >
+        {runsLoading && runs.length === 0 ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <span className="ml-2 text-sm text-muted-foreground">Loading run history...</span>
+          </div>
+        ) : runs.length === 0 ? (
+          <div className="text-center py-8">
+            <Clock className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">No runs recorded yet</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">Start a run using the button above</p>
+          </div>
+        ) : (
+          <div className="rounded-lg border overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-muted/40">
+                    <th className="px-3 py-2.5 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Run ID</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Mode</th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Started</th>
+                    <th className="px-3 py-2.5 text-right text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Duration</th>
+                    <th className="px-3 py-2.5 text-center text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      <span className="text-emerald-400">OK</span> / <span className="text-red-400">Fail</span> / <span className="text-muted-foreground">Skip</span>
+                    </th>
+                    <th className="px-3 py-2.5 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Triggered By</th>
+                    <th className="px-3 py-2.5 text-right text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {runs.map((run) => {
+                    const isExpanded = expandedRunId === run.run_id;
+                    const runStatus = (run.status || "unknown").toLowerCase();
+                    const hasFailures = run.entities_failed > 0;
+                    return (
+                      <tr key={run.run_id} className="group">
+                        <td colSpan={8} className="p-0">
+                          <div>
+                            {/* Main row */}
+                            <div
+                              className={cn(
+                                "flex items-center px-3 py-2 cursor-pointer transition-colors hover:bg-muted/20",
+                                isExpanded && "bg-muted/10",
+                              )}
+                              onClick={() => handleExpandRun(run.run_id)}
+                            >
+                              <div className="w-[120px] shrink-0">
+                                <span className="font-mono text-foreground/70">{truncateId(run.run_id, 10)}</span>
+                              </div>
+                              <div className="w-[100px] shrink-0">
+                                <span className={cn(
+                                  "inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border font-mono",
+                                  runStatus === "completed" || runStatus === "succeeded" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                  runStatus === "failed" ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                                  runStatus === "running" || runStatus === "inprogress" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
+                                  runStatus === "aborted" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                                  "bg-muted text-muted-foreground border-border",
+                                )}>
+                                  {(runStatus === "running" || runStatus === "inprogress") && <Loader2 className="h-3 w-3 animate-spin" />}
+                                  {(runStatus === "completed" || runStatus === "succeeded") && <CheckCircle2 className="h-3 w-3" />}
+                                  {runStatus === "failed" && <XCircle className="h-3 w-3" />}
+                                  {runStatus === "aborted" && <AlertTriangle className="h-3 w-3" />}
+                                  {run.status}
+                                </span>
+                              </div>
+                              <div className="w-[60px] shrink-0">
+                                <span className="text-muted-foreground font-mono">{run.mode || "--"}</span>
+                              </div>
+                              <div className="w-[140px] shrink-0 text-muted-foreground font-mono">
+                                {fmtTimestamp(run.started_at)}
+                              </div>
+                              <div className="w-[80px] shrink-0 text-right font-mono text-foreground">
+                                {fmtDuration(run.duration_seconds)}
+                              </div>
+                              <div className="w-[100px] shrink-0 text-center font-mono tabular-nums">
+                                <span className="text-emerald-400">{run.entities_succeeded}</span>
+                                {" / "}
+                                <span className="text-red-400">{run.entities_failed}</span>
+                                {" / "}
+                                <span className="text-muted-foreground">{run.entities_skipped}</span>
+                              </div>
+                              <div className="w-[90px] shrink-0 text-muted-foreground">
+                                {run.triggered_by || "--"}
+                              </div>
+                              <div className="flex-1 flex justify-end gap-1">
+                                {(runStatus === "running" || runStatus === "inprogress") && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-[10px] gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAbortRun(run.run_id);
+                                    }}
+                                    disabled={aborting === run.run_id}
+                                  >
+                                    {aborting === run.run_id ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <XCircle className="h-3 w-3" />
+                                    )}
+                                    Abort
+                                  </Button>
+                                )}
+                                {hasFailures && runStatus !== "running" && runStatus !== "inprogress" && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-[10px] gap-1 text-amber-400 hover:text-amber-300"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRetry(run.run_id);
+                                    }}
+                                    disabled={retrying === run.run_id || isRunning}
+                                  >
+                                    {retrying === run.run_id ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <RotateCcw className="h-3 w-3" />
+                                    )}
+                                    Retry
+                                  </Button>
+                                )}
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Expanded logs */}
+                            {isExpanded && (
+                              <div className="border-t border-border bg-muted/5 px-3 py-3">
+                                {expandedRunLogsLoading ? (
+                                  <div className="flex items-center justify-center py-4">
+                                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                    <span className="ml-2 text-xs text-muted-foreground">Loading logs...</span>
+                                  </div>
+                                ) : expandedRunLogs.length === 0 ? (
+                                  <p className="text-xs text-muted-foreground text-center py-4">No log entries for this run</p>
+                                ) : (
+                                  <div className="max-h-[300px] overflow-y-auto rounded border bg-[#0d1117] p-2">
+                                    {expandedRunLogs.map((entry, i) => (
+                                      <LogLine key={i} entry={entry} />
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {/* Actions bar */}
+            <div className="flex justify-center gap-3 py-2 border-t border-border bg-muted/10">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-xs text-muted-foreground"
+                onClick={fetchRuns}
+                disabled={runsLoading}
+              >
+                <RefreshCw className={cn("h-3 w-3", runsLoading && "animate-spin")} />
+                Refresh
+              </Button>
+              {runs.some(r => {
+                const s = (r.status || "").toLowerCase();
+                return s === "inprogress" || s === "running";
+              }) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                  onClick={handleAbortAll}
+                  disabled={aborting === "__all__"}
+                >
+                  {aborting === "__all__" ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <XCircle className="h-3 w-3" />
+                  )}
+                  Abort All Stuck
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {/* ── Footer ── */}
+      <div className="text-center text-[10px] text-muted-foreground pb-2">
+        FMD v3 Engine Control
+        {status?.engine_version && ` v${status.engine_version}`}
+        {" | "}
+        <span className={statusCfg.color}>{statusCfg.label}</span>
+        {status && status.uptime_seconds > 0 && ` | Uptime ${fmtUptime(status.uptime_seconds)}`}
+      </div>
+    </div>
+  );
+}

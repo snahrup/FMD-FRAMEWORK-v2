@@ -58,7 +58,7 @@ interface ErrorIntelligenceData {
 }
 
 // ===== Config =====
-const API = 'http://localhost:8787';
+const API = '';
 
 const severityConfig: Record<ErrorSeverity, { label: string; color: string; bgColor: string; borderColor: string; icon: React.ElementType }> = {
   critical: {
