@@ -584,6 +584,9 @@ if (Test-Path $ClaudeMcpDir) { Write-Ok "claude-mcp ready at $ClaudeMcpDir" }
 
 Write-Step "PHASE 10: npm Dependencies"
 
+# Node/npm write informational output to stderr, so relax error handling
+$ErrorActionPreference = "Continue"
+
 # Nexus
 if (Test-Path $NexusDir) {
     Write-Info "Installing Nexus deps..."
@@ -617,9 +620,14 @@ if (Test-Path $ClaudeMcpDir) {
     Write-Warn "claude-mcp dir missing -- skipping npm install"
 }
 
+$ErrorActionPreference = "Stop"
+
 # -- Phase 11: Build artifacts -------------------------------------------
 
 Write-Step "PHASE 11: Build Artifacts"
+
+# Node/npm write informational output to stderr, so relax error handling
+$ErrorActionPreference = "Continue"
 
 # Build FMD Dashboard frontend
 if (Test-Path $DashDir) {
@@ -642,6 +650,8 @@ if (Test-Path $ClaudeMcpDir) {
 } else {
     Write-Warn "claude-mcp dir missing -- skipping build"
 }
+
+$ErrorActionPreference = "Stop"
 
 # -- Phase 12: Deploy Config Bundle --------------------------------------
 #
