@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,8 +7,10 @@ import {
   ChevronDown, ChevronUp, Activity, RefreshCw, Clock, Zap,
   HeartPulse, RotateCcw, Terminal, Timer, Layers,
   Gauge, TrendingUp, AlertTriangle, Search, Filter, Database,
+  FileBarChart, X, ArrowUpDown, Server, Settings, ArrowRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { resolveSourceLabel } from "@/hooks/useSourceConfig";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
@@ -43,13 +45,51 @@ interface StartResult {
   status: string;
 }
 
+interface PlanSource {
+  name: string;
+  namespace: string;
+  server: string;
+  database: string;
+  entity_count: number;
+  incremental: number;
+  full_load: number;
+}
+
+interface PlanLayerStep {
+  layer: string;
+  action: string;
+  method: string;
+  entity_count: number;
+  batch_size: number;
+  chunk_rows: number | null;
+  notebook_id: string | null;
+  details: string;
+}
+
+interface PlanEntity {
+  id: number;
+  name: string;
+  namespace: string;
+  server: string;
+  database: string;
+  incremental: boolean;
+  watermark_column: string | null;
+  last_value: string | null;
+  load_type: string;
+  primary_keys: string | null;
+}
+
 interface PlanResult {
   run_id: string;
   entity_count: number;
   incremental_count: number;
   full_load_count: number;
   layers: string[];
-  entities: Array<{ entity_id: number; name: string; load_type: string }>;
+  entities: PlanEntity[];
+  sources: PlanSource[];
+  layer_plan: PlanLayerStep[];
+  config_snapshot: Record<string, unknown>;
+  warnings: string[];
 }
 
 interface LogEntry {
@@ -219,6 +259,64 @@ function truncateId(id: string | null | undefined, len = 8): string {
   return id.length > len ? id.slice(0, len) + "..." : id;
 }
 
+function fmtNum(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "—";
+  return n.toLocaleString("en-US");
+}
+
+/** Pretty labels for engine config keys */
+const CONFIG_LABELS: Record<string, string> = {
+  load_method: "Load Method",
+  pipeline_fallback: "Pipeline Fallback",
+  batch_size: "Batch Size",
+  chunk_rows: "Chunk Rows",
+  query_timeout: "Query Timeout",
+  lz_lakehouse: "LZ Lakehouse",
+  bronze_lakehouse: "Bronze Lakehouse",
+  silver_lakehouse: "Silver Lakehouse",
+  workspace_data: "Data Workspace",
+  workspace_code: "Code Workspace",
+  notebook_lz: "LZ Notebook",
+  notebook_bronze: "Bronze Notebook",
+  notebook_silver: "Silver Notebook",
+};
+
+/** Map well-known GUIDs to Fabric entity names */
+const GUID_NAMES: Record<string, string> = {
+  "3b9a7e79-1615-4ec2-9e93-0bdebe985d5a": "LH_DATA_LANDINGZONE",
+  "f06393ca-c024-435f-8d7f-9f5aa3bb4cb3": "LH_BRONZE_LAYER",
+  "f85e1ba0-2e40-4de5-be1e-f8ad3ddbc652": "LH_SILVER_LAYER",
+  "0596d0e7-e036-451d-a967-41a284302e8d": "INTEGRATION DATA (D)",
+  "c0366b24-e6f8-4994-b4df-b765ecb5bbf8": "INTEGRATION CODE (D)",
+  "a2712a97-ebde-4036-b704-4892b8c4f7af": "NB_FMD_LOAD_LANDING_BRONZE",
+  "8ce7bc73-35ac-4844-8937-969b7d99ec3e": "NB_FMD_LOAD_BRONZE_SILVER",
+  "efbd2436-83bf-4cad-b92e-f489dc255506": "NB_FMD_LOAD_LANDINGZONE_MAIN",
+};
+
+function ConfigValue({ k, v }: { k: string; v: unknown }) {
+  const [showGuid, setShowGuid] = useState(false);
+  const str = v ? String(v) : "";
+  const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(str);
+  const friendlyName = isGuid ? GUID_NAMES[str] : null;
+
+  if (friendlyName) {
+    return (
+      <span
+        className="text-foreground font-mono cursor-pointer hover:text-blue-400 transition-colors"
+        title={`Click to ${showGuid ? "hide" : "show"} GUID`}
+        onClick={() => setShowGuid(!showGuid)}
+      >
+        {showGuid ? str : friendlyName}
+      </span>
+    );
+  }
+
+  // Format booleans and numbers nicely
+  if (typeof v === "boolean") return <span className="text-foreground font-mono">{v ? "Yes" : "No"}</span>;
+  if (typeof v === "number") return <span className="text-foreground font-mono tabular-nums">{fmtNum(v)}</span>;
+  return <span className="text-foreground font-mono">{str || "—"}</span>;
+}
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; pulse: string }> = {
   idle: { label: "Idle", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20", pulse: "bg-emerald-500" },
   running: { label: "Running", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20", pulse: "bg-blue-500" },
@@ -286,7 +384,7 @@ function ProgressBar({ current, total, label }: { current: number; total: number
         <div className="flex items-center justify-between text-xs">
           <span className="font-medium text-foreground">{label}</span>
           <span className="text-muted-foreground font-mono tabular-nums">
-            {current} / {total} ({pct.toFixed(0)}%)
+            {fmtNum(current)} / {fmtNum(total)} ({pct.toFixed(0)}%)
           </span>
         </div>
       )}
@@ -319,6 +417,513 @@ function LogLine({ entry }: { entry: LogEntry }) {
         {entry.level}
       </span>
       <span className="text-[#e6edf3] break-all">{entry.message}</span>
+    </div>
+  );
+}
+
+// ── Task Log type (from sp_GetEngineTaskLogs) ──
+
+interface TaskLog {
+  TaskId: string;
+  RunId: string;
+  EntityId: number;
+  Layer: string;
+  Status: string;
+  StartedAtUtc: string;
+  CompletedAtUtc: string | null;
+  SourceServer: string | null;
+  SourceDatabase: string | null;
+  SourceTable: string | null;
+  RowsRead: number | null;
+  RowsWritten: number | null;
+  BytesTransferred: number | null;
+  DurationSeconds: number | null;
+  RowsPerSecond: number | null;
+  LoadType: string | null;
+  WatermarkColumn: string | null;
+  WatermarkBefore: string | null;
+  WatermarkAfter: string | null;
+  ErrorType: string | null;
+  ErrorMessage: string | null;
+  ErrorSuggestion: string | null;
+  SourceSchema: string | null;
+  SourceName: string | null;
+  DataSourceName: string | null;
+}
+
+// ── Run Summary Modal ──
+
+function RunSummaryModal({
+  run,
+  onClose,
+}: {
+  run: RunRecord;
+  onClose: () => void;
+}) {
+  const [tasks, setTasks] = useState<TaskLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"overview" | "failures" | "entities">(
+    run.entities_failed > 0 ? "failures" : "overview"
+  );
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [sortCol, setSortCol] = useState<string>("Entity");
+  const [sortAsc, setSortAsc] = useState(true);
+
+  // Fetch task logs on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchJson<{ logs: TaskLog[]; count: number }>(
+          `/engine/logs?run_id=${run.run_id}&limit=5000`
+        );
+        if (!cancelled) setTasks(data.logs || []);
+      } catch {
+        // silently fail
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [run.run_id]);
+
+  // Close on Escape
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  // ── Aggregation ──
+
+  const totalRows = tasks.reduce((s, t) => s + (t.RowsRead || 0), 0);
+  const totalSucceeded = tasks.filter(t => t.Status?.toLowerCase() === "succeeded").length;
+  const totalFailed = tasks.filter(t => t.Status?.toLowerCase() === "failed").length;
+  const totalSkipped = tasks.filter(t => t.Status?.toLowerCase() === "skipped").length;
+  const totalEntities = tasks.length;
+
+  // Group by DataSource
+  const bySource = tasks.reduce<Record<string, { count: number; succeeded: number; failed: number; rows: number; duration: number }>>((acc, t) => {
+    const src = t.DataSourceName || "Unknown";
+    if (!acc[src]) acc[src] = { count: 0, succeeded: 0, failed: 0, rows: 0, duration: 0 };
+    acc[src].count++;
+    if (t.Status?.toLowerCase() === "succeeded") acc[src].succeeded++;
+    if (t.Status?.toLowerCase() === "failed") acc[src].failed++;
+    acc[src].rows += t.RowsRead || 0;
+    acc[src].duration += t.DurationSeconds || 0;
+    return acc;
+  }, {});
+
+  // Group by Layer
+  const byLayer = tasks.reduce<Record<string, { succeeded: number; failed: number; skipped: number; totalDur: number; count: number }>>((acc, t) => {
+    const layer = (t.Layer || "unknown").toLowerCase();
+    if (!acc[layer]) acc[layer] = { succeeded: 0, failed: 0, skipped: 0, totalDur: 0, count: 0 };
+    acc[layer].count++;
+    if (t.Status?.toLowerCase() === "succeeded") acc[layer].succeeded++;
+    if (t.Status?.toLowerCase() === "failed") acc[layer].failed++;
+    if (t.Status?.toLowerCase() === "skipped") acc[layer].skipped++;
+    acc[layer].totalDur += t.DurationSeconds || 0;
+    return acc;
+  }, {});
+
+  // Group failures by ErrorType + truncated ErrorMessage
+  const errorGroups = tasks
+    .filter(t => t.Status?.toLowerCase() === "failed")
+    .reduce<Record<string, { count: number; suggestion: string | null; entities: string[] }>>((acc, t) => {
+      const errType = t.ErrorType || "unknown";
+      const errMsg = (t.ErrorMessage || "No message").slice(0, 80);
+      const key = `${errType}::${errMsg}`;
+      if (!acc[key]) acc[key] = { count: 0, suggestion: t.ErrorSuggestion || null, entities: [] };
+      acc[key].count++;
+      const name = t.SourceName ? `${t.SourceSchema || "dbo"}.${t.SourceName}` : `Entity ${t.EntityId}`;
+      if (acc[key].entities.length < 10) acc[key].entities.push(name);
+      return acc;
+    }, {});
+
+  // Sort entity table
+  const sortedTasks = [...tasks].sort((a, b) => {
+    let va: string | number = 0, vb: string | number = 0;
+    switch (sortCol) {
+      case "Entity": va = a.SourceName || ""; vb = b.SourceName || ""; break;
+      case "Source": va = a.DataSourceName || ""; vb = b.DataSourceName || ""; break;
+      case "Layer": va = a.Layer || ""; vb = b.Layer || ""; break;
+      case "Status": va = a.Status || ""; vb = b.Status || ""; break;
+      case "Rows": va = a.RowsRead || 0; vb = b.RowsRead || 0; break;
+      case "Duration": va = a.DurationSeconds || 0; vb = b.DurationSeconds || 0; break;
+    }
+    if (typeof va === "number" && typeof vb === "number") return sortAsc ? va - vb : vb - va;
+    return sortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  });
+
+  const handleSort = (col: string) => {
+    if (sortCol === col) setSortAsc(!sortAsc);
+    else { setSortCol(col); setSortAsc(true); }
+  };
+
+  const fmtNum = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}K` : String(n);
+
+  const runStatus = (run.status || "").toLowerCase();
+  const statusColor =
+    runStatus === "completed" || runStatus === "succeeded" ? "text-emerald-400" :
+    runStatus === "failed" ? "text-red-400" :
+    runStatus === "aborted" ? "text-amber-400" : "text-muted-foreground";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-background border rounded-xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b bg-muted">
+          <div className="flex items-center gap-4">
+            <FileBarChart className="h-5 w-5 text-primary" />
+            <div>
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                Run Report
+                <span className="font-mono text-xs text-muted-foreground">{truncateId(run.run_id, 12)}</span>
+              </h2>
+              <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-3">
+                <span className={cn("font-semibold uppercase", statusColor)}>{run.status}</span>
+                <span>{fmtTimestamp(run.started_at)}</span>
+                <span>{fmtDuration(run.duration_seconds)}</span>
+                <span>via {run.triggered_by || "dashboard"}</span>
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+            <X className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <span className="ml-3 text-sm text-muted-foreground">Loading run data...</span>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+            {/* KPI Cards */}
+            <div className="grid grid-cols-4 gap-3">
+              <div className="rounded-lg border bg-muted p-3 text-center">
+                <div className="text-2xl font-bold font-mono tabular-nums">{totalEntities}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Total Tasks</div>
+              </div>
+              <div className="rounded-lg border bg-emerald-500/5 border-emerald-500/20 p-3 text-center">
+                <div className="text-2xl font-bold font-mono tabular-nums text-emerald-400">{totalSucceeded}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">
+                  Succeeded {totalEntities > 0 && <span className="text-emerald-400/60">({(totalSucceeded / totalEntities * 100).toFixed(0)}%)</span>}
+                </div>
+              </div>
+              <div className="rounded-lg border bg-red-500/5 border-red-500/20 p-3 text-center">
+                <div className="text-2xl font-bold font-mono tabular-nums text-red-400">{totalFailed}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">
+                  Failed {totalEntities > 0 && totalFailed > 0 && <span className="text-red-400/60">({(totalFailed / totalEntities * 100).toFixed(0)}%)</span>}
+                </div>
+              </div>
+              <div className="rounded-lg border bg-muted p-3 text-center">
+                <div className="text-2xl font-bold font-mono tabular-nums">{fmtNum(totalRows)}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Rows Loaded</div>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-1 border-b">
+              {(["overview", "failures", "entities"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={cn(
+                    "px-4 py-2 text-xs font-medium border-b-2 transition-colors capitalize",
+                    activeTab === tab
+                      ? "border-primary text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground",
+                    tab === "failures" && totalFailed > 0 && activeTab !== tab && "text-red-400",
+                  )}
+                >
+                  {tab}
+                  {tab === "failures" && totalFailed > 0 && (
+                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-400 font-mono">
+                      {totalFailed}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab Content */}
+            {activeTab === "overview" && (
+              <div className="space-y-4">
+                {/* By Source */}
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">By Data Source</h3>
+                  <div className="rounded-lg border overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-muted">
+                          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Source</th>
+                          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Entities</th>
+                          <th className="px-3 py-2 text-right font-medium text-emerald-400/60">OK</th>
+                          <th className="px-3 py-2 text-right font-medium text-red-400/60">Fail</th>
+                          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Rows</th>
+                          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Duration</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {Object.entries(bySource)
+                          .sort(([, a], [, b]) => b.count - a.count)
+                          .map(([src, d]) => (
+                            <tr key={src} className="hover:bg-muted/50">
+                              <td className="px-3 py-1.5 font-medium">{resolveSourceLabel(src)}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums">{d.count}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-emerald-400">{d.succeeded}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-red-400">{d.failed || ""}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums">{fmtNum(d.rows)}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">{fmtDuration(d.duration)}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* By Layer */}
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">By Layer</h3>
+                  <div className="rounded-lg border overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-muted">
+                          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Layer</th>
+                          <th className="px-3 py-2 text-right font-medium text-emerald-400/60">OK</th>
+                          <th className="px-3 py-2 text-right font-medium text-red-400/60">Fail</th>
+                          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Skip</th>
+                          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Avg Duration</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {["landing", "bronze", "silver"].filter(l => byLayer[l]).map(layer => {
+                          const d = byLayer[layer];
+                          const avg = d.count > 0 ? d.totalDur / d.count : 0;
+                          return (
+                            <tr key={layer} className="hover:bg-muted/50">
+                              <td className="px-3 py-1.5">
+                                <LayerBadge layer={layer} />
+                              </td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-emerald-400">{d.succeeded}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-red-400">{d.failed || ""}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">{d.skipped || ""}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">{avg > 0 ? `${avg.toFixed(1)}s` : "--"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "failures" && (
+              <div className="space-y-4">
+                {totalFailed === 0 ? (
+                  <div className="text-center py-8">
+                    <CheckCircle2 className="h-8 w-8 text-emerald-400/30 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground">No failures in this run</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Error Groups */}
+                    <div>
+                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Error Groups</h3>
+                      <div className="space-y-2">
+                        {Object.entries(errorGroups)
+                          .sort(([, a], [, b]) => b.count - a.count)
+                          .map(([key, group]) => {
+                            const [errType, errMsg] = key.split("::");
+                            return (
+                              <div key={key} className="rounded-lg border border-red-500/10 bg-red-500/5 p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-mono">
+                                        {errType}
+                                      </span>
+                                      <span className="text-xs font-mono text-red-300/80 truncate">{errMsg}</span>
+                                    </div>
+                                    {group.suggestion && (
+                                      <p className="text-xs text-amber-300/80 mt-1">
+                                        <AlertTriangle className="h-3 w-3 inline mr-1" />
+                                        {group.suggestion}
+                                      </p>
+                                    )}
+                                    <p className="text-[10px] text-muted-foreground mt-1.5 truncate">
+                                      {group.entities.join(", ")}{group.count > 10 ? ` (+${group.count - 10} more)` : ""}
+                                    </p>
+                                  </div>
+                                  <span className="text-lg font-bold font-mono text-red-400 shrink-0">{group.count}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+
+                    {/* Failed Entity Table */}
+                    <div>
+                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Failed Entities</h3>
+                      <div className="rounded-lg border overflow-hidden">
+                        <div className="max-h-[300px] overflow-y-auto">
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-muted/40 z-10">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Entity</th>
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Source</th>
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Layer</th>
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Error</th>
+                                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Duration</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/50">
+                              {tasks
+                                .filter(t => t.Status?.toLowerCase() === "failed")
+                                .sort((a, b) => (a.SourceName || "").localeCompare(b.SourceName || ""))
+                                .map((t) => (
+                                  <tr key={t.TaskId} className="hover:bg-muted/50">
+                                    <td className="px-3 py-1.5 font-mono">
+                                      <span className="text-foreground">{t.SourceSchema || "dbo"}.{t.SourceName || `Entity ${t.EntityId}`}</span>
+                                    </td>
+                                    <td className="px-3 py-1.5 text-muted-foreground">{resolveSourceLabel(t.DataSourceName) || "--"}</td>
+                                    <td className="px-3 py-1.5"><LayerBadge layer={t.Layer} /></td>
+                                    <td className="px-3 py-1.5 text-red-300/80 max-w-[200px] truncate" title={t.ErrorMessage || ""}>
+                                      {friendlyError(t.ErrorMessage ?? undefined) || t.ErrorType || "--"}
+                                    </td>
+                                    <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">
+                                      {t.DurationSeconds != null ? `${t.DurationSeconds.toFixed(1)}s` : "--"}
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {activeTab === "entities" && (
+              <div>
+                <div className="rounded-lg border overflow-hidden">
+                  <div className="max-h-[450px] overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-muted/40 z-10">
+                        <tr>
+                          {["Entity", "Source", "Layer", "Status", "Rows", "Duration", "Load Type"].map(col => (
+                            <th
+                              key={col}
+                              className={cn(
+                                "px-3 py-2 font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors select-none",
+                                col === "Rows" || col === "Duration" ? "text-right" : "text-left",
+                              )}
+                              onClick={() => handleSort(col)}
+                            >
+                              <span className="inline-flex items-center gap-1">
+                                {col}
+                                {sortCol === col && <ArrowUpDown className="h-3 w-3" />}
+                              </span>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {sortedTasks.map((t) => {
+                          const isExp = expandedTaskId === t.TaskId;
+                          const s = (t.Status || "").toLowerCase();
+                          return (
+                            <tr key={t.TaskId} className="group">
+                              <td colSpan={7} className="p-0">
+                                <div
+                                  className={cn(
+                                    "flex items-center px-3 py-1.5 cursor-pointer transition-colors hover:bg-muted/50",
+                                    isExp && "bg-muted/5",
+                                  )}
+                                  onClick={() => setExpandedTaskId(isExp ? null : t.TaskId)}
+                                >
+                                  <div className="w-[200px] shrink-0 font-mono truncate" title={`${t.SourceSchema}.${t.SourceName}`}>
+                                    {t.SourceSchema || "dbo"}.{t.SourceName || `Entity ${t.EntityId}`}
+                                  </div>
+                                  <div className="w-[90px] shrink-0 text-muted-foreground">{resolveSourceLabel(t.DataSourceName) || "--"}</div>
+                                  <div className="w-[80px] shrink-0"><LayerBadge layer={t.Layer} /></div>
+                                  <div className="w-[70px] shrink-0">
+                                    <EntityStatusBadge status={t.Status} />
+                                  </div>
+                                  <div className="w-[80px] shrink-0 text-right font-mono tabular-nums">
+                                    {t.RowsRead != null ? fmtNum(t.RowsRead) : "--"}
+                                  </div>
+                                  <div className="w-[70px] shrink-0 text-right font-mono tabular-nums text-muted-foreground">
+                                    {t.DurationSeconds != null ? `${t.DurationSeconds.toFixed(1)}s` : "--"}
+                                  </div>
+                                  <div className="flex-1 text-right">
+                                    <span className={cn(
+                                      "text-[10px] px-1.5 py-0.5 rounded font-mono",
+                                      t.LoadType === "incremental" ? "bg-cyan-500/10 text-cyan-400" : "bg-muted text-muted-foreground",
+                                    )}>
+                                      {t.LoadType || "--"}
+                                    </span>
+                                  </div>
+                                </div>
+                                {/* Expanded detail */}
+                                {isExp && (
+                                  <div className="px-4 py-2 bg-muted/5 border-t border-border/30 text-[11px] space-y-1">
+                                    {(t.SourceServer || t.SourceDatabase) && (
+                                      <div><span className="text-muted-foreground">Source:</span> <span className="font-mono">{resolveSourceLabel(t.SourceDatabase || t.SourceServer)}</span></div>
+                                    )}
+                                    {t.WatermarkColumn && (
+                                      <div>
+                                        <span className="text-muted-foreground">Watermark:</span>{" "}
+                                        <span className="font-mono">{t.WatermarkColumn}</span>{" "}
+                                        <span className="text-muted-foreground">{t.WatermarkBefore || "null"} → {t.WatermarkAfter || "null"}</span>
+                                      </div>
+                                    )}
+                                    {t.RowsPerSecond != null && t.RowsPerSecond > 0 && (
+                                      <div><span className="text-muted-foreground">Throughput:</span> <span className="font-mono">{fmtNum(t.RowsPerSecond)} rows/s</span></div>
+                                    )}
+                                    {t.BytesTransferred != null && t.BytesTransferred > 0 && (
+                                      <div><span className="text-muted-foreground">Bytes:</span> <span className="font-mono">{fmtNum(t.BytesTransferred)}</span></div>
+                                    )}
+                                    {s === "failed" && t.ErrorMessage && (
+                                      <div className="mt-1 p-2 rounded bg-red-500/5 border border-red-500/10">
+                                        <div className="text-red-400 font-mono text-[10px] break-all">{t.ErrorMessage}</div>
+                                        {t.ErrorSuggestion && (
+                                          <div className="text-amber-300/80 mt-1 text-[10px]">
+                                            <AlertTriangle className="h-3 w-3 inline mr-1" />
+                                            {t.ErrorSuggestion}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -376,8 +981,9 @@ export default function EngineControl() {
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
 
-  // Load method
+  // Load method — sync from engine ONCE on mount, then user selection is king
   const [loadMethod, setLoadMethod] = useState<"local" | "pipeline">("local");
+  const loadMethodSynced = useRef(false);
   const [pipelineFallback, setPipelineFallback] = useState(true);
   const [pipelineConfigured, setPipelineConfigured] = useState(false);
 
@@ -401,6 +1007,12 @@ export default function EngineControl() {
   const [entityResults, setEntityResults] = useState<EntityResult[]>([]);
   const [runSummary, setRunSummary] = useState<RunSummary | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+
+  // Fabric notebook job tracking (pipeline/notebook mode)
+  const [fabricJobs, setFabricJobs] = useState<Array<{
+    job_id: string; layer: string; status: string; elapsed_seconds: number;
+  }>>([]);
+  const [fabricRunElapsed, setFabricRunElapsed] = useState(0);
   const eventSourceRef = useRef<EventSource | null>(null);
   const logContainerRef = useRef<HTMLDivElement | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -411,9 +1023,10 @@ export default function EngineControl() {
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const [expandedRunLogs, setExpandedRunLogs] = useState<LogEntry[]>([]);
   const [expandedRunLogsLoading, setExpandedRunLogsLoading] = useState(false);
+  const [reportRun, setReportRun] = useState<RunRecord | null>(null);
 
-  // Health check — auto-polls every 10s while panel is open
-  const [healthOpen, setHealthOpen] = useState(true);
+  // Health check — collapsed by default, auto-polls every 10s while panel is open
+  const [healthOpen, setHealthOpen] = useState(false);
   const [healthReport, setHealthReport] = useState<HealthReport | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [healthLastChecked, setHealthLastChecked] = useState<Date | null>(null);
@@ -432,6 +1045,12 @@ export default function EngineControl() {
   const isRunning = status?.status === "running";
   const isStopping = status?.status === "stopping";
 
+  // Refs to break dependency cycles in the status poll callback
+  const liveRunIdRef = useRef(liveRunId);
+  liveRunIdRef.current = liveRunId;
+  const runSummaryRef = useRef(runSummary);
+  runSummaryRef.current = runSummary;
+
   // ── Fetch engine status ──
   const fetchStatus = useCallback(async () => {
     try {
@@ -439,27 +1058,26 @@ export default function EngineControl() {
       setStatus(s);
       setError(null);
 
-      // Sync load method from engine status
-      if (s.load_method) setLoadMethod(s.load_method);
+      // Sync load method from engine ONCE on mount — after that, user's selection wins
+      if (s.load_method && !loadMethodSynced.current) {
+        setLoadMethod(s.load_method);
+        loadMethodSynced.current = true;
+      }
       if (s.pipeline_fallback !== undefined) setPipelineFallback(s.pipeline_fallback);
       if (s.pipeline_configured !== undefined) setPipelineConfigured(s.pipeline_configured);
 
       // If engine is running and we don't have an active SSE, start one
-      if (s.status === "running" && s.current_run_id && !liveRunId) {
+      if (s.status === "running" && s.current_run_id && !liveRunIdRef.current) {
         setLiveRunId(s.current_run_id);
-      }
-      // If engine went idle and we had a live run, clear it
-      if (s.status === "idle" && liveRunId && runSummary) {
-        // Keep summary visible, don't clear
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot reach engine");
     } finally {
       setLoading(false);
     }
-  }, [liveRunId, runSummary]);
+  }, []); // stable — no deps, reads refs
 
-  // ── Auto-refresh status every 5 seconds when idle ──
+  // ── Auto-refresh status every 5 seconds ──
   useEffect(() => {
     fetchStatus();
     const interval = setInterval(fetchStatus, 5000);
@@ -520,10 +1138,19 @@ export default function EngineControl() {
   }, [fetchMetrics]);
 
   // ── SSE Stream for live run ──
-  useEffect(() => {
-    if (!isRunning && !isStopping) return;
-    if (eventSourceRef.current) return; // already connected
+  // Connect SSE only when liveRunId is set. Use a ref-based guard so the
+  // effect doesn't re-fire on every status poll cycle.
+  const sseRunIdRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    // Only open SSE when we have a live run and haven't already connected for it
+    if (!liveRunId || sseRunIdRef.current === liveRunId) return;
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+
+    sseRunIdRef.current = liveRunId;
     const es = new EventSource(`${API}/engine/logs/stream`);
     eventSourceRef.current = es;
 
@@ -541,16 +1168,24 @@ export default function EngineControl() {
       } catch { /* ignore */ }
     });
 
+    es.addEventListener("job_status", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.jobs) setFabricJobs(data.jobs);
+        if (data.elapsed_seconds != null) setFabricRunElapsed(data.elapsed_seconds);
+      } catch { /* ignore */ }
+    });
+
     es.addEventListener("run_complete", (e: MessageEvent) => {
       try {
         const data: RunSummary = JSON.parse(e.data);
         setRunSummary(data);
       } catch { /* ignore */ }
+      setFabricJobs([]);
+      setFabricRunElapsed(0);
       es.close();
       eventSourceRef.current = null;
-      fetchStatus();
-      fetchRuns();
-      fetchMetrics();
+      sseRunIdRef.current = null;
     });
 
     es.addEventListener("run_error", (e: MessageEvent) => {
@@ -560,23 +1195,39 @@ export default function EngineControl() {
       } catch { /* ignore */ }
       es.close();
       eventSourceRef.current = null;
-      fetchStatus();
-      fetchRuns();
+      sseRunIdRef.current = null;
     });
 
     es.onerror = () => {
-      // SSE reconnects automatically, but if the engine stopped, clean up
-      if (!isRunning && !isStopping) {
-        es.close();
-        eventSourceRef.current = null;
-      }
+      // If SSE connection fails, clean up
+      es.close();
+      eventSourceRef.current = null;
+      sseRunIdRef.current = null;
     };
 
     return () => {
       es.close();
       eventSourceRef.current = null;
     };
-  }, [isRunning, isStopping, fetchStatus, fetchRuns, fetchMetrics]);
+  }, [liveRunId]);
+
+  // ── Fallback: poll /api/engine/jobs when running in pipeline mode ──
+  useEffect(() => {
+    if (!isRunning || loadMethod !== "pipeline") return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API}/engine/jobs`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.active_fabric_jobs?.length && fabricJobs.length === 0) {
+          setFabricJobs(data.active_fabric_jobs);
+        }
+      } catch { /* ignore */ }
+    };
+    poll(); // immediate
+    const interval = setInterval(poll, 15000); // every 15s
+    return () => clearInterval(interval);
+  }, [isRunning, loadMethod]);
 
   // ── Auto-scroll log container ──
   useEffect(() => {
@@ -590,7 +1241,6 @@ export default function EngineControl() {
   const handleStart = async () => {
     setLaunchError(null);
     setLaunching(true);
-    setPlanResult(null);
     setRunSummary(null);
     setRunError(null);
     setLogBuffer([]);
@@ -599,16 +1249,28 @@ export default function EngineControl() {
     const layers = Array.from(configLayers) as ("landing" | "bronze" | "silver")[];
     const entityIds = Array.from(selectedEntityIds);
 
+    // Build plan query params (shared by both dry run and actual run)
+    const params = new URLSearchParams();
+    if (layers.length < 3) params.set("layers", layers.join(","));
+    if (entityIds.length > 0) params.set("entity_ids", entityIds.join(","));
+    params.set("load_method", loadMethod);
+    params.set("pipeline_fallback", String(pipelineFallback));
+
     try {
       if (configMode === "plan") {
-        // Dry run
-        const params = new URLSearchParams();
-        if (layers.length < 3) params.set("layers", layers.join(","));
-        if (entityIds.length > 0) params.set("entity_ids", entityIds.join(","));
+        // Dry run — just show the plan
         const plan = await fetchJson<PlanResult>(`/engine/plan?${params.toString()}`);
         setPlanResult(plan);
       } else {
-        // Actual run
+        // Actual run — fetch the plan first so it stays visible during execution
+        try {
+          const plan = await fetchJson<PlanResult>(`/engine/plan?${params.toString()}`);
+          setPlanResult(plan);
+        } catch {
+          // Plan fetch failed — don't block the run, just clear
+          setPlanResult(null);
+        }
+
         const body: Record<string, unknown> = {
           mode: "run",
           layers,
@@ -865,7 +1527,7 @@ export default function EngineControl() {
             "font-mono font-semibold",
             loadMethod === "pipeline" ? "text-cyan-400" : "text-orange-400",
           )}>
-            {loadMethod === "pipeline" ? "Pipeline" : "Local"}
+            {loadMethod === "pipeline" ? "Notebook" : "Local"}
           </span>
         </div>
 
@@ -923,7 +1585,7 @@ export default function EngineControl() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <HeartPulse className="h-4 w-4 text-pink-500" />
-                Preflight Health Check
+                System Health
                 {healthReport && (
                   <Badge
                     variant={healthReport.all_passed ? "success" : "destructive"}
@@ -1079,7 +1741,7 @@ export default function EngineControl() {
                   )}
                 >
                   <Zap className="h-4 w-4" />
-                  Fabric Pipeline
+                  Fabric Notebook
                   {!pipelineConfigured && (
                     <span className="text-[10px] text-amber-400 ml-1">(not configured)</span>
                   )}
@@ -1117,7 +1779,7 @@ export default function EngineControl() {
               )}
               <p className="text-[10px] text-muted-foreground mt-1.5">
                 {loadMethod === "pipeline"
-                  ? "Triggers Fabric Copy Activity per entity via REST API — cloud-native, ~20x faster"
+                  ? `Triggers ${Array.from(configLayers).map(l => l === "landing" ? "LZ" : l === "bronze" ? "Bronze" : "Silver").join(" → ")} notebook${configLayers.size > 1 ? "s" : ""} in Fabric — cloud-native, parallel entity processing`
                   : "Extracts via pyodbc on this machine, uploads Parquet to OneLake — slower but reliable"}
               </p>
             </div>
@@ -1266,7 +1928,7 @@ export default function EngineControl() {
                                   }}
                                   className={cn(
                                     "cursor-pointer border-b border-border/50 transition-colors",
-                                    checked ? "bg-cyan-500/5" : "hover:bg-muted/30",
+                                    checked ? "bg-cyan-500/5" : "hover:bg-muted/50",
                                   )}
                                 >
                                   <td className="px-2 py-1.5">
@@ -1302,7 +1964,7 @@ export default function EngineControl() {
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between px-2.5 py-2 border-t border-border bg-muted/30 text-xs text-muted-foreground">
+                  <div className="flex items-center justify-between px-2.5 py-2 border-t border-border bg-muted text-xs text-muted-foreground">
                     <span>{allEntities.length} total entities</span>
                     <span className={selectedEntityIds.size > 0 ? "text-cyan-400 font-medium" : ""}>
                       {selectedEntityIds.size > 0 ? `${selectedEntityIds.size} selected` : "None selected — will run all"}
@@ -1344,68 +2006,216 @@ export default function EngineControl() {
               </Button>
             </div>
 
-            {/* Plan result */}
-            {planResult && (
-              <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Search className="h-4 w-4 text-blue-400" />
-                  <span className="text-sm font-semibold text-blue-400">Dry Run Plan</span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="p-2 rounded bg-background border text-center">
-                    <p className="text-lg font-bold text-foreground tabular-nums">{planResult.entity_count}</p>
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Entities</p>
-                  </div>
-                  <div className="p-2 rounded bg-background border text-center">
-                    <p className="text-lg font-bold text-blue-400 tabular-nums">{planResult.incremental_count}</p>
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Incremental</p>
-                  </div>
-                  <div className="p-2 rounded bg-background border text-center">
-                    <p className="text-lg font-bold text-amber-400 tabular-nums">{planResult.full_load_count}</p>
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Full Load</p>
-                  </div>
-                  <div className="p-2 rounded bg-background border text-center">
-                    <p className="text-lg font-bold text-foreground tabular-nums">{planResult.layers.length}</p>
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Layers</p>
-                  </div>
-                </div>
-                {planResult.layers.length > 0 && (
-                  <div className="flex gap-2">
-                    {planResult.layers.map((l) => (
-                      <LayerBadge key={l} layer={l} />
-                    ))}
-                  </div>
-                )}
-                {planResult.entities && planResult.entities.length > 0 && (
-                  <div className="max-h-[200px] overflow-y-auto rounded border">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted/50 sticky top-0">
-                        <tr>
-                          <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Entity</th>
-                          <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Load Type</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/50">
-                        {planResult.entities.map((e) => (
-                          <tr key={e.entity_id} className="hover:bg-muted/20">
-                            <td className="px-3 py-1 font-mono text-foreground">{e.name}</td>
-                            <td className="px-3 py-1">
-                              <span className={cn(
-                                "px-1.5 py-0.5 rounded border text-[10px] font-mono",
-                                e.load_type === "incremental"
-                                  ? "text-blue-400 bg-blue-500/10 border-blue-500/20"
-                                  : "text-muted-foreground bg-muted/30 border-border",
-                              )}>
-                                {e.load_type === "incremental" ? "INCR" : "FULL"}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══════════════════════════════════════════════════ */}
+      {/* Execution Plan — visible for both dry runs AND live runs */}
+      {/* ═══════════════════════════════════════════════════ */}
+      {planResult && (
+        <Card className={cn(
+          "border-2",
+          liveRunId ? "border-blue-500/20" : "border-blue-500/30",
+        )}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Search className="h-5 w-5 text-blue-400" />
+              <span className="text-blue-400">Execution Plan</span>
+              {liveRunId && (
+                <Badge variant="outline" className="ml-2 text-[10px] border-blue-500/30 text-blue-400">
+                  <Activity className="h-3 w-3 mr-1 animate-pulse" /> Running
+                </Badge>
+              )}
+              <span className="text-[10px] text-muted-foreground font-mono ml-auto">{planResult.run_id.slice(0, 8)}</span>
+              {!liveRunId && (
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 ml-1" onClick={() => setPlanResult(null)}>
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-0">
+            {/* KPI Row */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="p-2 rounded bg-background border text-center">
+                <p className="text-xl font-bold text-foreground tabular-nums">{fmtNum(planResult.entity_count)}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Entities</p>
               </div>
+              <div className="p-2 rounded bg-background border text-center">
+                <p className="text-xl font-bold text-blue-400 tabular-nums">{fmtNum(planResult.incremental_count)}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Incremental</p>
+              </div>
+              <div className="p-2 rounded bg-background border text-center">
+                <p className="text-xl font-bold text-amber-400 tabular-nums">{fmtNum(planResult.full_load_count)}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Full Load</p>
+              </div>
+              <div className="p-2 rounded bg-background border text-center">
+                <p className="text-xl font-bold text-foreground tabular-nums">{planResult.layers.length}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Layers</p>
+              </div>
+              <div className="p-2 rounded bg-background border text-center">
+                <p className="text-xl font-bold text-foreground tabular-nums">{planResult.sources?.length || 0}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Sources</p>
+              </div>
+            </div>
+
+            {/* Layer badges */}
+            <div className="flex gap-2">
+              {planResult.layers.map((l) => (
+                <LayerBadge key={l} layer={l} />
+              ))}
+            </div>
+
+            {/* Warnings */}
+            {planResult.warnings && planResult.warnings.length > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <AlertTriangle className="h-4 w-4 text-amber-400" />
+                  <span className="text-xs font-semibold text-amber-400">Warnings ({planResult.warnings.length})</span>
+                </div>
+                {planResult.warnings.map((w, i) => (
+                  <p key={i} className="text-xs text-amber-300/80 pl-6">{w}</p>
+                ))}
+              </div>
+            )}
+
+            {/* Layer-by-Layer Execution Steps */}
+            {planResult.layer_plan && planResult.layer_plan.length > 0 && (
+              <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-foreground" />
+                  <span className="text-sm font-semibold text-foreground">Execution Steps</span>
+                </div>
+                <div className="space-y-2">
+                  {planResult.layer_plan.map((step, i) => (
+                    <div key={step.layer} className="rounded border border-border/50 bg-background p-3">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold">{i + 1}</span>
+                        <LayerBadge layer={step.layer} />
+                        <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-xs text-foreground font-medium">{step.action}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground pl-7">{step.details}</p>
+                      <div className="flex gap-4 pl-7 mt-1.5">
+                        <span className="text-[10px] text-muted-foreground">
+                          Entities: <span className="text-foreground font-mono tabular-nums">{fmtNum(step.entity_count)}</span>
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          Method: <span className="text-foreground font-mono">{step.method}</span>
+                        </span>
+                        {step.batch_size && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Batch Size: <span className="text-foreground font-mono tabular-nums">{fmtNum(step.batch_size)}</span>
+                          </span>
+                        )}
+                        {step.notebook_id && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Notebook: <span className="text-foreground font-mono">{GUID_NAMES[step.notebook_id] || step.notebook_id.slice(0, 8) + "..."}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Per-Source Breakdown */}
+            {planResult.sources && planResult.sources.length > 0 && (
+              <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Server className="h-4 w-4 text-foreground" />
+                  <span className="text-sm font-semibold text-foreground">Source Breakdown</span>
+                </div>
+                <div className="overflow-x-auto rounded border">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Source</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Server</th>
+                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-muted-foreground uppercase">Entities</th>
+                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-muted-foreground uppercase">Incremental</th>
+                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-muted-foreground uppercase">Full Load</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {planResult.sources.map((src) => (
+                        <tr key={src.name} className="hover:bg-muted/50">
+                          <td className="px-3 py-1.5 font-semibold text-foreground uppercase">{src.namespace || src.name}</td>
+                          <td className="px-3 py-1.5 font-mono text-muted-foreground">{src.server || "—"}</td>
+                          <td className="px-3 py-1.5 text-right font-mono text-foreground tabular-nums">{fmtNum(src.entity_count)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono text-blue-400 tabular-nums">{fmtNum(src.incremental)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono text-amber-400 tabular-nums">{fmtNum(src.full_load)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Engine Config */}
+            {planResult.config_snapshot && (
+              <details className="rounded-lg border border-border bg-card">
+                <summary className="px-4 py-2.5 cursor-pointer flex items-center gap-2 text-sm font-semibold text-foreground hover:bg-muted/50">
+                  <Settings className="h-4 w-4" />
+                  Engine Configuration
+                </summary>
+                <div className="px-4 pb-3 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5">
+                  {Object.entries(planResult.config_snapshot).map(([k, v]) => (
+                    <div key={k} className="text-[11px] flex items-baseline gap-1.5">
+                      <span className="text-muted-foreground whitespace-nowrap">{CONFIG_LABELS[k] || k}:</span>
+                      <ConfigValue k={k} v={v} />
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {/* Full Entity List */}
+            {planResult.entities && planResult.entities.length > 0 && (
+              <details className="rounded-lg border border-border bg-card">
+                <summary className="px-4 py-2.5 cursor-pointer flex items-center gap-2 text-sm font-semibold text-foreground hover:bg-muted/50">
+                  <Database className="h-4 w-4" />
+                  Entity Details ({fmtNum(planResult.entities.length)})
+                </summary>
+                <div className="max-h-[400px] overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">ID</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Entity</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Source</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Type</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">Watermark</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-muted-foreground uppercase">PKs</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {planResult.entities.map((e) => (
+                        <tr key={e.id} className="hover:bg-muted/50">
+                          <td className="px-3 py-1 font-mono text-muted-foreground tabular-nums">{e.id}</td>
+                          <td className="px-3 py-1 font-mono text-foreground text-[11px]">{e.name}</td>
+                          <td className="px-3 py-1 text-foreground font-semibold uppercase text-[11px]">{e.namespace || e.database}</td>
+                          <td className="px-3 py-1">
+                            <span className={cn(
+                              "px-1.5 py-0.5 rounded border text-[10px] font-mono",
+                              e.incremental
+                                ? "text-blue-400 bg-blue-500/10 border-blue-500/20"
+                                : "text-muted-foreground bg-muted border-border",
+                            )}>
+                              {e.incremental ? "INCR" : "FULL"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-1 font-mono text-[10px] text-muted-foreground">{e.watermark_column || "—"}</td>
+                          <td className="px-3 py-1 font-mono text-[10px] text-muted-foreground truncate max-w-[120px]" title={e.primary_keys || ""}>{e.primary_keys || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
             )}
           </CardContent>
         </Card>
@@ -1449,15 +2259,15 @@ export default function EngineControl() {
               {runSummary && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-center">
-                    <p className="text-2xl font-bold text-emerald-400 tabular-nums">{runSummary.succeeded}</p>
+                    <p className="text-2xl font-bold text-emerald-400 tabular-nums">{fmtNum(runSummary.succeeded)}</p>
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Succeeded</p>
                   </div>
                   <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/20 text-center">
-                    <p className="text-2xl font-bold text-red-400 tabular-nums">{runSummary.failed}</p>
+                    <p className="text-2xl font-bold text-red-400 tabular-nums">{fmtNum(runSummary.failed)}</p>
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Failed</p>
                   </div>
-                  <div className="p-3 rounded-lg bg-muted/30 border border-border text-center">
-                    <p className="text-2xl font-bold text-muted-foreground tabular-nums">{runSummary.skipped}</p>
+                  <div className="p-3 rounded-lg bg-muted border border-border text-center">
+                    <p className="text-2xl font-bold text-muted-foreground tabular-nums">{fmtNum(runSummary.skipped)}</p>
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Skipped</p>
                   </div>
                   <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-center">
@@ -1478,17 +2288,58 @@ export default function EngineControl() {
               {/* In-progress stats */}
               {!runSummary && !runError && (
                 <div className="space-y-3">
+                  {/* Fabric notebook job tracker (pipeline/notebook mode) */}
+                  {fabricJobs.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Server className="h-3.5 w-3.5 text-cyan-500" />
+                        <span>Fabric Notebook Jobs</span>
+                        <span className="ml-auto tabular-nums">{fmtDuration(fabricRunElapsed)} elapsed</span>
+                      </div>
+                      {fabricJobs.map((job) => (
+                        <div key={job.job_id} className={cn(
+                          "flex items-center gap-3 p-2.5 rounded-lg border",
+                          job.status === "Completed" ? "border-emerald-500/30 bg-emerald-500/5" :
+                          job.status === "Failed" || job.status === "Cancelled" ? "border-red-500/30 bg-red-500/5" :
+                          "border-cyan-500/30 bg-cyan-500/5",
+                        )}>
+                          {job.status === "Completed" ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                          ) : job.status === "Failed" || job.status === "Cancelled" ? (
+                            <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+                          ) : (
+                            <Loader2 className="h-4 w-4 text-cyan-500 animate-spin shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium capitalize">{job.layer} Notebook</p>
+                            <p className="text-[10px] text-muted-foreground font-mono">{job.job_id.slice(0, 12)}...</p>
+                          </div>
+                          <Badge variant="outline" className={cn(
+                            "text-[10px] shrink-0",
+                            job.status === "Completed" ? "border-emerald-500/40 text-emerald-400" :
+                            job.status === "Failed" ? "border-red-500/40 text-red-400" :
+                            "border-cyan-500/40 text-cyan-400",
+                          )}>
+                            {job.status === "InProgress" ? `Running ${fmtDuration(job.elapsed_seconds)}` : job.status}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Entity-level counters (local mode or when entities stream in) */}
+                  {(entityResults.length > 0 || fabricJobs.length === 0) && (
                   <div className="grid grid-cols-5 gap-3">
-                    <div className="p-2 rounded bg-muted/30 border text-center">
-                      <p className="text-lg font-bold text-foreground tabular-nums">{completedEntities}</p>
+                    <div className="p-2 rounded bg-muted border text-center">
+                      <p className="text-lg font-bold text-foreground tabular-nums">{fmtNum(completedEntities)}</p>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Processed</p>
                     </div>
                     <div className="p-2 rounded bg-emerald-500/5 border border-emerald-500/20 text-center">
-                      <p className="text-lg font-bold text-emerald-400 tabular-nums">{succeededEntities}</p>
+                      <p className="text-lg font-bold text-emerald-400 tabular-nums">{fmtNum(succeededEntities)}</p>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">OK</p>
                     </div>
                     <div className="p-2 rounded bg-red-500/5 border border-red-500/20 text-center">
-                      <p className="text-lg font-bold text-red-400 tabular-nums">{failedEntities}</p>
+                      <p className="text-lg font-bold text-red-400 tabular-nums">{fmtNum(failedEntities)}</p>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Failed</p>
                     </div>
                     <div className="p-2 rounded bg-amber-500/5 border border-amber-500/20 text-center">
@@ -1500,6 +2351,7 @@ export default function EngineControl() {
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Rows</p>
                     </div>
                   </div>
+                  )}
                 </div>
               )}
 
@@ -1515,6 +2367,9 @@ export default function EngineControl() {
                       setEntityResults([]);
                       setRunSummary(null);
                       setRunError(null);
+                      setPlanResult(null);
+                      setFabricJobs([]);
+                      setFabricRunElapsed(0);
                     }}
                     className="gap-1.5 text-xs"
                   >
@@ -1550,7 +2405,7 @@ export default function EngineControl() {
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {entityResults.map((er, i) => (
-                      <tr key={i} className="hover:bg-muted/20 transition-colors">
+                      <tr key={i} className="hover:bg-muted/50 transition-colors">
                         <td className="px-3 py-1.5">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-foreground">
@@ -1707,7 +2562,7 @@ export default function EngineControl() {
                             {ent.SourceName || `Entity ${ent.EntityId}`}
                           </span>
                           {ent.DataSourceName && (
-                            <span className="text-[10px] text-muted-foreground">({ent.DataSourceName})</span>
+                            <span className="text-[10px] text-muted-foreground">({resolveSourceLabel(ent.DataSourceName)})</span>
                           )}
                         </div>
                         <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-1">
@@ -1814,8 +2669,8 @@ export default function EngineControl() {
                             {/* Main row */}
                             <div
                               className={cn(
-                                "flex items-center px-3 py-2 cursor-pointer transition-colors hover:bg-muted/20",
-                                isExpanded && "bg-muted/10",
+                                "flex items-center px-3 py-2 cursor-pointer transition-colors hover:bg-muted/50",
+                                isExpanded && "bg-muted",
                               )}
                               onClick={() => handleExpandRun(run.run_id)}
                             >
@@ -1848,11 +2703,11 @@ export default function EngineControl() {
                                 {fmtDuration(run.duration_seconds)}
                               </div>
                               <div className="w-[100px] shrink-0 text-center font-mono tabular-nums">
-                                <span className="text-emerald-400">{run.entities_succeeded}</span>
+                                <span className="text-emerald-400">{fmtNum(run.entities_succeeded)}</span>
                                 {" / "}
-                                <span className="text-red-400">{run.entities_failed}</span>
+                                <span className="text-red-400">{fmtNum(run.entities_failed)}</span>
                                 {" / "}
-                                <span className="text-muted-foreground">{run.entities_skipped}</span>
+                                <span className="text-muted-foreground">{fmtNum(run.entities_skipped)}</span>
                               </div>
                               <div className="w-[90px] shrink-0 text-muted-foreground">
                                 {run.triggered_by || "--"}
@@ -1896,6 +2751,21 @@ export default function EngineControl() {
                                     Retry
                                   </Button>
                                 )}
+                                {runStatus !== "running" && runStatus !== "inprogress" && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-2 text-[10px] gap-1 text-primary hover:text-primary/80"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setReportRun(run);
+                                    }}
+                                    title="Run Report"
+                                  >
+                                    <FileBarChart className="h-3 w-3" />
+                                    Report
+                                  </Button>
+                                )}
                                 {isExpanded ? (
                                   <ChevronUp className="h-4 w-4 text-muted-foreground" />
                                 ) : (
@@ -1932,7 +2802,7 @@ export default function EngineControl() {
               </table>
             </div>
             {/* Actions bar */}
-            <div className="flex justify-center gap-3 py-2 border-t border-border bg-muted/10">
+            <div className="flex justify-center gap-3 py-2 border-t border-border bg-muted">
               <Button
                 variant="ghost"
                 size="sm"
@@ -1975,6 +2845,11 @@ export default function EngineControl() {
         <span className={statusCfg.color}>{statusCfg.label}</span>
         {status && status.uptime_seconds > 0 && ` | Uptime ${fmtUptime(status.uptime_seconds)}`}
       </div>
+
+      {/* Run Summary Modal */}
+      {reportRun && (
+        <RunSummaryModal run={reportRun} onClose={() => setReportRun(null)} />
+      )}
     </div>
   );
 }

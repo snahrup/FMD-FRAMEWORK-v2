@@ -1,0 +1,83 @@
+# MRI — Backend API Tests for FMD Dashboard
+name: "FMD Dashboard API"
+base_url: "http://localhost:8787"
+tests:
+  - name: "Engine status returns valid JSON"
+    method: GET
+    path: /api/engine/status
+    expect:
+      status: 200
+      body:
+        has_keys:
+          - "status"
+      response_time_ms: 5000
+
+  - name: "Entity digest returns entities"
+    method: GET
+    path: /api/entity/digest
+    expect:
+      status: 200
+      body:
+        has_keys:
+          - "entities"
+          - "summary"
+      response_time_ms: 15000
+
+  - name: "Control plane snapshot loads"
+    method: GET
+    path: /api/control-plane/snapshot
+    expect:
+      status: 200
+      response_time_ms: 5000
+
+  - name: "Config endpoint returns JSON"
+    method: GET
+    path: /api/config
+    expect:
+      status: 200
+      response_time_ms: 3000
+
+  - name: "Admin config returns JSON"
+    method: GET
+    path: /api/admin/config
+    expect:
+      status: 200
+      response_time_ms: 3000
+
+  - name: "Source labels endpoint"
+    method: GET
+    path: /api/source-labels
+    expect:
+      status: 200
+      response_time_ms: 3000
+
+  - name: "Audit history returns array"
+    method: GET
+    path: /api/audit/history
+    expect:
+      status: 200
+      response_time_ms: 5000
+
+  - name: "Audit status returns status"
+    method: GET
+    path: /api/audit/status
+    expect:
+      status: 200
+      body:
+        has_keys:
+          - "status"
+      response_time_ms: 3000
+
+  - name: "Test swarm runs endpoint"
+    method: GET
+    path: /api/test-swarm/runs
+    expect:
+      status: 200
+      response_time_ms: 5000
+
+  - name: "Test swarm status endpoint"
+    method: GET
+    path: /api/test-swarm/status
+    expect:
+      status: 200
+      response_time_ms: 3000

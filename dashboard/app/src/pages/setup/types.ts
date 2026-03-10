@@ -38,6 +38,13 @@ export interface EnvironmentConfig {
     LH_BRONZE_LAYER: LakehouseAssignment | null;
     LH_SILVER_LAYER: LakehouseAssignment | null;
   };
+  notebooks: {
+    NB_FMD_LOAD_LANDING_BRONZE: FabricEntity | null;
+    NB_FMD_LOAD_BRONZE_SILVER: FabricEntity | null;
+  };
+  pipelines: {
+    PL_FMD_LDZ_COPY_SQL: FabricEntity | null;
+  };
   database: FabricSqlDatabase | null;
 }
 
@@ -107,6 +114,13 @@ export const EMPTY_CONFIG: EnvironmentConfig = {
     LH_DATA_LANDINGZONE: null,
     LH_BRONZE_LAYER: null,
     LH_SILVER_LAYER: null,
+  },
+  notebooks: {
+    NB_FMD_LOAD_LANDING_BRONZE: null,
+    NB_FMD_LOAD_BRONZE_SILVER: null,
+  },
+  pipelines: {
+    PL_FMD_LDZ_COPY_SQL: null,
   },
   database: null,
 };

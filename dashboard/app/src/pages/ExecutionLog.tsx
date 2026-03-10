@@ -29,10 +29,14 @@ type LogTab = 'pipelines' | 'copies' | 'notebooks';
 
 // ── Helpers ──
 
+function utc(iso: string): Date {
+  return new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+}
+
 function humanDuration(startStr: string | null, endStr: string | null): string {
   if (!startStr || !endStr) return '—';
-  const start = new Date(startStr).getTime();
-  const end = new Date(endStr).getTime();
+  const start = utc(startStr).getTime();
+  const end = utc(endStr).getTime();
   const diff = end - start;
   if (isNaN(diff) || diff < 0) return '—';
   if (diff < 1000) return '<1s';
@@ -43,21 +47,20 @@ function humanDuration(startStr: string | null, endStr: string | null): string {
 
 function timeAgo(isoDate: string | null): string {
   if (!isoDate) return '—';
-  const now = Date.now();
-  const then = new Date(isoDate).getTime();
+  const then = utc(isoDate).getTime();
   if (isNaN(then)) return '—';
-  const diff = now - then;
+  const diff = Date.now() - then;
   if (diff < 60000) return 'just now';
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
   if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
-  return new Date(isoDate).toLocaleDateString();
+  return utc(isoDate).toLocaleDateString();
 }
 
 function formatTimestamp(iso: string | null): string {
   if (!iso) return '—';
   try {
-    return new Date(iso).toLocaleString(undefined, {
+    return utc(iso).toLocaleString(undefined, {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
     });
   } catch {
@@ -426,7 +429,7 @@ export default function ExecutionLog() {
                     <tr
                       key={key}
                       onClick={() => setExpandedRow(isExpanded ? null : key)}
-                      className="border-b border-border last:border-0 hover:bg-muted/30 cursor-pointer transition-colors"
+                      className="border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer transition-colors"
                     >
                       <td className="py-2.5 px-3">
                         <StatusIcon className={`h-4 w-4 ${statusInfo.color} ${isRunning ? 'animate-spin' : ''}`} />
@@ -450,7 +453,7 @@ export default function ExecutionLog() {
           </div>
 
           {/* Row count footer */}
-          <div className="border-t border-border bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+          <div className="border-t border-border bg-muted px-4 py-2 text-xs text-muted-foreground">
             Showing {currentData.length} of {stats.total} records
             {searchTerm && <span> (filtered by "{searchTerm}")</span>}
           </div>

@@ -45,9 +45,8 @@ class Entity:
 
     @property
     def onelake_folder(self) -> str:
-        """OneLake folder path segment: {Namespace}/{Schema}_{Table}/"""
-        ns = self.namespace or self.source_database
-        return f"{ns}/{self.source_schema}_{self.source_name}"
+        """OneLake folder = just the namespace. See ARCHITECTURE.md."""
+        return self.namespace or self.source_database
 
     def build_source_query(self) -> str:
         """Build the extraction SQL — full or incremental."""
@@ -180,6 +179,8 @@ class EngineConfig:
     # Notebook item IDs in CODE workspace (for triggering)
     notebook_bronze_id: str = ""
     notebook_silver_id: str = ""
+    notebook_processing_id: str = ""     # NB_FMD_PROCESSING_PARALLEL_MAIN
+    notebook_maintenance_id: str = ""    # NB_FMD_MAINTENANCE_AGENT
 
     # Operational tunables
     batch_size: int = 12                    # concurrent entity extractions (bumped from 8, 15 was too aggressive for VPN)
@@ -204,7 +205,12 @@ class EngineConfig:
 
 @dataclass
 class LoadPlan:
-    """What would happen if you ran the engine right now."""
+    """What would happen if you ran the engine right now.
+
+    This is a COMPLETE simulation of a live run — every entity, every layer,
+    every source, every notebook.  The frontend renders this as a detailed
+    execution plan so users know EXACTLY what will happen before they commit.
+    """
 
     run_id: str
     entity_count: int
@@ -213,6 +219,18 @@ class LoadPlan:
     layers: List[str]
     entities: List[dict] = field(default_factory=list)
     estimated_rows: int = 0
+
+    # ── Per-source breakdown ──
+    sources: List[dict] = field(default_factory=list)
+
+    # ── Per-layer execution plan ──
+    layer_plan: List[dict] = field(default_factory=list)
+
+    # ── Engine config snapshot ──
+    config_snapshot: dict = field(default_factory=dict)
+
+    # ── Warnings / issues detected during planning ──
+    warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)

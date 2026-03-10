@@ -33,7 +33,7 @@ export function ConnectionStep({ connections, onChange }: ConnectionStepProps) {
 
       <div className="space-y-3">
         {CONNECTION_FIELDS.map((field) => (
-          <div key={field.key} className="rounded-md border border-border/40 bg-card/50 p-3">
+          <div key={field.key} className="rounded-md border border-border/40 bg-card p-3">
             <FabricDropdown
               label={field.label}
               endpoint="/fabric/connections"
@@ -47,7 +47,7 @@ export function ConnectionStep({ connections, onChange }: ConnectionStepProps) {
         ))}
       </div>
 
-      <div className="rounded-md border border-border/30 bg-muted/10 p-3">
+      <div className="rounded-md border border-border/30 bg-muted p-3">
         <p className="text-[10px] text-muted-foreground/70">
           Connections use Service Principal authentication. Create them in the Fabric portal
           under Settings → Manage connections and gateways, then select them here.

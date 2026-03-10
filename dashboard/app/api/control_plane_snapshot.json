@@ -1,11 +1,11 @@
 {
   "health": "healthy",
-  "lastRefreshed": "2026-03-01T03:37:51.084243Z",
+  "lastRefreshed": "2026-03-09T17:26:02.633639Z",
   "_fromSnapshot": false,
   "summary": {
     "connections": {
-      "total": 9,
-      "active": 9
+      "total": 10,
+      "active": 10
     },
     "dataSources": {
       "total": 8,
@@ -13,34 +13,34 @@
     },
     "entities": {
       "landing": {
-        "total": 1735,
-        "active": 1572
+        "total": 1666,
+        "active": 1666
       },
       "bronze": {
-        "total": 1732,
-        "active": 1732
+        "total": 1666,
+        "active": 1666
       },
       "silver": {
-        "total": 1730,
-        "active": 1730
+        "total": 1666,
+        "active": 1666
       }
     },
     "pipelines": {
-      "total": 44,
-      "active": 44
+      "total": 0,
+      "active": 0
     },
     "lakehouses": 3,
     "workspaces": 5
   },
   "pipelineHealth": {
-    "recentRuns": 132,
-    "succeeded": 47,
+    "recentRuns": 3,
+    "succeeded": 0,
     "failed": 0,
-    "running": 84
+    "running": 0
   },
   "sourceSystems": [
     {
-      "namespace": "ETQ",
+      "namespace": "etq",
       "connections": [
         {
           "name": "CON_FMD_M3DB3_ETQSTAGINGPRD",
@@ -51,7 +51,7 @@
       "dataSources": [
         {
           "name": "ETQStagingPRD",
-          "type": "ASQL_01",
+          "type": "SQL",
           "isActive": "True",
           "connectionName": "CON_FMD_M3DB3_ETQSTAGINGPRD"
         }
@@ -68,10 +68,10 @@
       }
     },
     {
-      "namespace": "M3",
+      "namespace": "m3",
       "connections": [
         {
-          "name": "CON_FMD_SQLLOGSHIPPRD_M3FDBPRD",
+          "name": "CON_FMD_M3DB1_M3",
           "type": "SQL",
           "isActive": "True"
         }
@@ -79,9 +79,9 @@
       "dataSources": [
         {
           "name": "m3fdbprd",
-          "type": "ASQL_01",
+          "type": "SQL",
           "isActive": "True",
-          "connectionName": "CON_FMD_SQLLOGSHIPPRD_M3FDBPRD"
+          "connectionName": "CON_FMD_M3DB1_M3"
         }
       ],
       "entities": {
@@ -96,10 +96,10 @@
       }
     },
     {
-      "namespace": "M3 Cloud",
+      "namespace": "m3c",
       "connections": [
         {
-          "name": "CON_FMD_SQL2016LIVE_DIPRDSTAGING",
+          "name": "CON_FMD_M3DB1_M3CLOUD",
           "type": "SQL",
           "isActive": "True"
         }
@@ -107,24 +107,24 @@
       "dataSources": [
         {
           "name": "DI_PRD_Staging",
-          "type": "ASQL_01",
+          "type": "SQL",
           "isActive": "True",
-          "connectionName": "CON_FMD_SQL2016LIVE_DIPRDSTAGING"
+          "connectionName": "CON_FMD_M3DB1_M3CLOUD"
         }
       ],
       "entities": {
-        "landing": 185,
-        "bronze": 185,
-        "silver": 185
+        "landing": 187,
+        "bronze": 187,
+        "silver": 187
       },
       "activeEntities": {
-        "landing": 185,
-        "bronze": 185,
-        "silver": 185
+        "landing": 187,
+        "bronze": 187,
+        "silver": 187
       }
     },
     {
-      "namespace": "MES",
+      "namespace": "mes",
       "connections": [
         {
           "name": "CON_FMD_M3DB1_MES",
@@ -134,8 +134,8 @@
       ],
       "dataSources": [
         {
-          "name": "mes",
-          "type": "ASQL_01",
+          "name": "MES",
+          "type": "SQL",
           "isActive": "True",
           "connectionName": "CON_FMD_M3DB1_MES"
         }
@@ -214,7 +214,7 @@
       }
     },
     {
-      "namespace": "OPTIVA",
+      "namespace": "optiva",
       "connections": [
         {
           "name": "CON_FMD_SQLOPTIVALIVE_OPTIVALIVE",
@@ -224,34 +224,39 @@
       ],
       "dataSources": [
         {
-          "name": "OptivaLive",
-          "type": "ASQL_01",
+          "name": "optivalive",
+          "type": null,
           "isActive": "True",
           "connectionName": "CON_FMD_SQLOPTIVALIVE_OPTIVALIVE"
         }
       ],
       "entities": {
-        "landing": 480,
-        "bronze": 477,
-        "silver": 475
+        "landing": 409,
+        "bronze": 409,
+        "silver": 409
       },
       "activeEntities": {
-        "landing": 317,
-        "bronze": 477,
-        "silver": 475
+        "landing": 409,
+        "bronze": 409,
+        "silver": 409
       }
     },
     {
       "namespace": "Unlinked",
       "connections": [
         {
+          "name": "CON_FMD_FABRIC_NOTEBOOKS",
+          "type": "NOTEBOOK",
+          "isActive": "True"
+        },
+        {
           "name": "CON_FMD_FABRIC_PIPELINES",
-          "type": "FabricDataPipelines",
+          "type": "PIPELINE",
           "isActive": "True"
         },
         {
           "name": "CON_FMD_FABRIC_SQL",
-          "type": "FabricSql",
+          "type": "SQL",
           "isActive": "True"
         }
       ],
@@ -302,19 +307,19 @@
   ],
   "workspaces": [
     {
-      "WorkspaceId": "1",
+      "WorkspaceId": "2",
       "Name": "INTEGRATION CODE (D)"
     },
     {
-      "WorkspaceId": "2",
+      "WorkspaceId": "5",
       "Name": "INTEGRATION CODE (P)"
     },
     {
-      "WorkspaceId": "5",
+      "WorkspaceId": "3",
       "Name": "INTEGRATION CONFIG"
     },
     {
-      "WorkspaceId": "3",
+      "WorkspaceId": "1",
       "Name": "INTEGRATION DATA (D)"
     },
     {
@@ -324,167 +329,35 @@
   ],
   "recentRuns": [
     {
-      "RunGuid": "0AB3EB98-4BE6-4B6C-ACB3-AED0EFF37289",
-      "PipelineName": "PL_FMD_LDZ_COPY_FROM_ASQL_01",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-03-01 02:58:17.780000",
+      "RunGuid": "D8820882-AB0B-46DC-AC12-6C084E52FE84",
+      "PipelineName": "FMD_ENGINE_V3",
+      "EntityLayer": "all",
+      "TriggerType": "Engine",
+      "StartTime": null,
       "EndTime": null,
-      "Status": "InProgress",
+      "Status": "Unknown",
       "Duration": null,
       "DurationSec": null
     },
     {
-      "RunGuid": "561BA172-6DFE-458C-B209-7D9B34B10FCD",
-      "PipelineName": "PL_FMD_LDZ_COMMAND_ASQL",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-03-01 02:57:46.633333",
+      "RunGuid": "0A014906-2689-46E3-93F0-050D82D57D52",
+      "PipelineName": "FMD_ENGINE_V3",
+      "EntityLayer": "all",
+      "TriggerType": "Engine",
+      "StartTime": null,
       "EndTime": null,
-      "Status": "InProgress",
+      "Status": "Unknown",
       "Duration": null,
       "DurationSec": null
     },
     {
-      "RunGuid": "1D78E7A2-C495-4FF3-9963-80625C636530",
-      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-03-01 02:57:15.500000",
+      "RunGuid": "4533C38E-6E62-4A94-9B54-97C39FDC5E7E",
+      "PipelineName": "FMD_ENGINE_V3",
+      "EntityLayer": "all",
+      "TriggerType": "Engine",
+      "StartTime": null,
       "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "A284A6A7-8F5C-4406-ADAA-031097D2565F",
-      "PipelineName": "PL_FMD_LOAD_ALL",
-      "EntityLayer": "Control",
-      "TriggerType": "Manual",
-      "StartTime": "2026-03-01 02:56:50.870000",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "4C518A63-E663-44F3-AC3F-6F2FE0037BE5",
-      "PipelineName": "PL_FMD_LOAD_SILVER",
-      "EntityLayer": "Silver",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-28 22:34:46.393333",
-      "EndTime": "2026-02-28 23:38:24.250000",
-      "Status": "Succeeded",
-      "Duration": "1h 3m",
-      "DurationSec": 3817.856667
-    },
-    {
-      "RunGuid": "F79F85D5-9AA5-48F1-ACFD-1BE0E9416BA7",
-      "PipelineName": "PL_FMD_LOAD_BRONZE",
-      "EntityLayer": "Bronze",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-28 19:09:08.153333",
-      "EndTime": "2026-02-28 20:28:44.316667",
-      "Status": "Succeeded",
-      "Duration": "1h 19m",
-      "DurationSec": 4776.163334
-    },
-    {
-      "RunGuid": "D3452BDF-C1F0-405D-829B-5CE107E25989",
-      "PipelineName": "PL_FMD_LDZ_COPY_FROM_ASQL_01",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-27 15:03:52.213333",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "39D8004B-A180-4431-9382-4C657EFFFB38",
-      "PipelineName": "PL_FMD_LDZ_COMMAND_ASQL",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-27 15:00:53.766667",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "49C020EA-02AD-4828-9504-94619ED5840A",
-      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-27 14:56:52.126667",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "DFA49696-AD82-433B-8337-AC131199D7CE",
-      "PipelineName": "PL_FMD_LDZ_COPY_FROM_ASQL_01",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-27 13:53:19.266667",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "1193F761-2005-43F7-9F79-4C6FF05A874C",
-      "PipelineName": "PL_FMD_LDZ_COMMAND_ASQL",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-27 13:49:20.540000",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "7E207747-F999-434E-B8C4-F59A4CC2B7D6",
-      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-27 13:47:23.520000",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "4B058B39-9BA0-4B8F-95DB-0D03814ED68E",
-      "PipelineName": "PL_FMD_LDZ_COPY_FROM_ASQL_01",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-27 12:41:13.396667",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "9021B39E-A1A9-4251-B4EC-0D7ABBBE0FF5",
-      "PipelineName": "PL_FMD_LDZ_COMMAND_ASQL",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-27 12:39:13.750000",
-      "EndTime": null,
-      "Status": "InProgress",
-      "Duration": null,
-      "DurationSec": null
-    },
-    {
-      "RunGuid": "58C7AB01-F474-4377-9E55-2765C4DC9834",
-      "PipelineName": "PL_FMD_LOAD_LANDINGZONE",
-      "EntityLayer": "Landingzone",
-      "TriggerType": "Manual",
-      "StartTime": "2026-02-27 12:34:12.580000",
-      "EndTime": null,
-      "Status": "InProgress",
+      "Status": "Unknown",
       "Duration": null,
       "DurationSec": null
     }

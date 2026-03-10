@@ -1,0 +1,686 @@
+## FMD Framework — Optiva Overnight Load Run (true-falcon)
+## Created: 2026-02-26
+## Owner: true-falcon session (separate from steady-falcon's PRD.yaml)
+## Goal: Load analysis on Optiva + full pipeline run LZ→Bronze→Silver for ALL sources
+## Bug tracking: All agents MUST append to scripts/overnight_bug_tracker.md
+
+tasks:
+  # ═══════════════════════════════════════════════════════════════
+  # GROUP 1: Poll for Optiva registration + export entity inventory
+  # ═══════════════════════════════════════════════════════════════
+
+  - title: "Poll Optiva registration completion and export entity inventory"
+    parallel_group: 1
+    completed: true
+    description: |
+      OBJECTIVE: Confirm Optiva entity registration is complete (Steve is registering ~150 remaining
+      tables right now), then export a full entity inventory for load analysis.
+
+      DO NOT restart or touch the dashboard server. This is READ-ONLY on the metadata DB.
+      DO NOT modify any server.py or dashboard files.
+
+      STEP 1: Connect to Fabric SQL metadata DB using Service Principal auth.
+
+      Auth pattern (MUST use urllib — NEVER use azure.identity, it hangs on Windows):
+      ```python
+      import urllib.request, urllib.parse, json, struct, pyodbc, time
+      from datetime import datetime, timezone
+
+      TENANT = 'ca81e9fd-06dd-49cf-b5a9-ee7441ff5303'
+      CLIENT = 'ac937c5d-4bdd-438f-be8b-84a850021d2d'
+      # Read secret from dashboard/app/api/.env file (FABRIC_CLIENT_SECRET line)
+      import os
+      env_path = os.path.join(os.path.dirname(os.path.abspath('.')), 'dashboard', 'app', 'api', '.env')
+      # Actually just hardcode it — it's in the .env:
+      SECRET = 'Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu'
+      SERVER = '7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433'
+      DATABASE = 'SQL_INTEGRATION_FRAMEWORK-501d6b17-fcee-47f3-bbb3-54e05f2a3fc0'
+
+      def get_token(scope='https://analysis.windows.net/powerbi/api/.default'):
+          body = urllib.parse.urlencode({
+              'grant_type': 'client_credentials', 'client_id': CLIENT, 'client_secret': SECRET,
+              'scope': scope,
+          }).encode()
+          req = urllib.request.Request(
+              f'https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/token',
+              data=body, headers={'Content-Type': 'application/x-www-form-urlencoded'})
+          return json.loads(urllib.request.urlopen(req).read())['access_token']
+
+      def connect_sql():
+          token = get_token('https://analysis.windows.net/powerbi/api/.default')
+          token_bytes = token.encode('UTF-16-LE')
+          token_struct = struct.pack(f'<I{len(token_bytes)}s', len(token_bytes), token_bytes)
+          conn_str = (f'DRIVER={{ODBC Driver 18 for SQL Server}};SERVER={SERVER};'
+                      f'DATABASE={DATABASE};Encrypt=yes;TrustServerCertificate=no')
+          return pyodbc.connect(conn_str, attrs_before={1256: token_struct})
+      ```
+
+      STEP 2: Poll until Optiva entity counts stabilize. Every 60 seconds for up to 15 minutes:
+      ```sql
+      SELECT ds.DataSourceId, ds.Name, ds.Namespace,
+             COUNT(DISTINCT le.LandingzoneEntityId) AS lz_count,
+             COUNT(DISTINCT ble.BronzeLayerEntityId) AS bronze_count,
+             COUNT(DISTINCT sle.SilverLayerEntityId) AS silver_count
+      FROM integration.DataSource ds
+      LEFT JOIN integration.LandingzoneEntity le ON ds.DataSourceId = le.DataSourceId
+      LEFT JOIN integration.BronzeLayerEntity ble ON le.LandingzoneEntityId = ble.LandingzoneEntityId
+      LEFT JOIN integration.SilverLayerEntity sle ON ble.BronzeLayerEntityId = sle.BronzeLayerEntityId
+      GROUP BY ds.DataSourceId, ds.Name, ds.Namespace
+      ORDER BY ds.DataSourceId
+      ```
+      When OPTIVA counts don't change for 2 consecutive polls (2 minutes stable), registration is complete.
+      If after 15 minutes counts are still changing, proceed anyway — Steve said overnight run.
+
+      STEP 3: Get the Optiva DataSourceId for later use:
+      ```sql
+      SELECT DataSourceId, ConnectionId, Name, Namespace FROM integration.DataSource
+      WHERE Namespace = 'OPTIVA' OR Name = 'OptivaLive'
+      ```
+
+      STEP 4: Export ALL entities (all sources) for load analysis:
+      ```sql
+      SELECT le.LandingzoneEntityId AS id,
+             ds.Namespace AS ns,
+             le.SourceSchema AS [schema],
+             le.SourceName AS name,
+             CASE WHEN le.IsIncremental = 1 THEN 1 ELSE 0 END AS is_incr,
+             le.IsIncrementalColumn AS incr_col,
+             le.IsActive,
+             ds.DataSourceId
+      FROM integration.LandingzoneEntity le
+      JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+      WHERE le.IsActive = 1
+      ORDER BY ds.Namespace, le.SourceSchema, le.SourceName
+      ```
+      Save as JSON to `scripts/entities_to_analyze.json`:
+      ```json
+      [{"id": 1, "ns": "MES", "schema": "dbo", "name": "TableName", "is_incr": false, "incr_col": null}, ...]
+      ```
+      Convert is_incr to boolean (True/False), incr_col to string or None.
+
+      STEP 5: Check entity activation status:
+      ```sql
+      SELECT ds.Namespace, le.IsActive, COUNT(*) as cnt
+      FROM integration.LandingzoneEntity le
+      JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+      GROUP BY ds.Namespace, le.IsActive ORDER BY ds.Namespace, le.IsActive
+      ```
+
+      STEP 6: Get pipeline names and GUIDs:
+      ```sql
+      SELECT PipelineId, Name, PipelineGuid, IsActive FROM integration.Pipeline ORDER BY PipelineId
+      ```
+
+      STEP 7: Initialize bug tracker file at `scripts/overnight_bug_tracker.md`:
+      ```markdown
+      # Overnight Load Run — Bug Tracker (true-falcon)
+      ## Started: {UTC timestamp}
+      ## Purpose: Track bugs and resolution attempts to avoid infinite loops
+
+      | # | Timestamp | Bug Description | Attempted Fix | Result |
+      |---|-----------|-----------------|---------------|--------|
+      ```
+
+      Write all findings to `scripts/overnight_preflight_report.txt`.
+
+      SUCCESS CRITERIA: entities_to_analyze.json written with ALL sources including OPTIVA,
+      preflight report written, bug tracker initialized, pipeline names captured.
+
+  # ═══════════════════════════════════════════════════════════════
+  # GROUP 2: Load Analysis (read-only on source SQL servers)
+  # ═══════════════════════════════════════════════════════════════
+
+  - title: "Run load analysis on Optiva source tables"
+    parallel_group: 2
+    completed: true
+    description: |
+      OBJECTIVE: Connect to the Optiva SQL Server and analyze ALL Optiva tables for:
+      1. Primary keys (for Delta merge operations)
+      2. Watermark columns (for incremental loads)
+      3. Approximate row counts
+
+      SOURCE SERVER:
+      - Server: SQLOptivaLive
+      - Database: OptivaLive
+      - Try BOTH auth methods (one will work):
+        Method 1 (Windows Auth): Trusted_Connection=yes;TrustServerCertificate=yes
+        Method 2 (SQL Auth): UID=UsrSQLRead;PWD=Ku7T@hoqFDmDPqG4deMgrrxQ9
+      - Driver: ODBC Driver 18 for SQL Server
+      - Connection Timeout: 30s, Command Timeout: 120s
+
+      STEP 1: Read `scripts/entities_to_analyze.json` and filter to ns == 'OPTIVA'.
+
+      STEP 2: Connect to SQLOptivaLive/OptivaLive. Try Windows Auth first, fall back to SQL Auth.
+      ```python
+      import pyodbc
+      DRIVER = 'ODBC Driver 18 for SQL Server'
+      # Try Windows Auth first
+      try:
+          conn = pyodbc.connect(
+              f'DRIVER={{{DRIVER}}};SERVER=SQLOptivaLive;DATABASE=OptivaLive;'
+              f'Trusted_Connection=yes;TrustServerCertificate=yes;'
+              f'Connection Timeout=30;Command Timeout=120')
+          print('Connected via Windows Auth')
+      except Exception as e1:
+          print(f'Windows Auth failed: {e1}')
+          try:
+              conn = pyodbc.connect(
+                  f'DRIVER={{{DRIVER}}};SERVER=SQLOptivaLive;DATABASE=OptivaLive;'
+                  f'UID=UsrSQLRead;PWD=Ku7T@hoqFDmDPqG4deMgrrxQ9;'
+                  f'TrustServerCertificate=yes;Encrypt=yes;'
+                  f'Connection Timeout=30;Command Timeout=120')
+              print('Connected via SQL Auth')
+          except Exception as e2:
+              print(f'SQL Auth also failed: {e2}')
+              # Log to bug tracker and exit
+      ```
+
+      STEP 3: For each OPTIVA entity, analyze:
+
+      a) Primary Keys:
+      ```sql
+      SELECT c.name FROM sys.indexes i
+      JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+      JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+      JOIN sys.tables t ON i.object_id = t.object_id
+      JOIN sys.schemas s ON t.schema_id = s.schema_id
+      WHERE i.is_primary_key = 1 AND s.name = ? AND t.name = ?
+      ORDER BY ic.key_ordinal
+      ```
+
+      b) Watermark Columns (priority: rowversion > Modified datetime > Created datetime > identity > any datetime):
+      ```sql
+      SELECT c.name AS ColumnName, t2.name AS DataType,
+             COLUMNPROPERTY(OBJECT_ID(QUOTENAME(s.name) + '.' + QUOTENAME(t.name)), c.name, 'IsIdentity') AS IsIdentity
+      FROM sys.tables t
+      JOIN sys.schemas s ON t.schema_id = s.schema_id
+      JOIN sys.columns c ON t.object_id = c.object_id
+      JOIN sys.types t2 ON c.system_type_id = t2.system_type_id AND c.user_type_id = t2.user_type_id
+      WHERE s.name = ? AND t.name = ?
+      AND (t2.name IN ('timestamp','rowversion')
+           OR (t2.name IN ('datetime','datetime2','datetimeoffset','smalldatetime')
+               AND (c.name LIKE '%[Mm]odif%' OR c.name LIKE '%[Uu]pdat%' OR c.name LIKE '%[Cc]hang%'
+                    OR c.name LIKE '%[Tt]imestamp%' OR c.name LIKE '%[Cc]reat%'))
+           OR COLUMNPROPERTY(OBJECT_ID(QUOTENAME(s.name)+'.'+QUOTENAME(t.name)), c.name, 'IsIdentity') = 1
+           OR t2.name IN ('datetime','datetime2','datetimeoffset','smalldatetime'))
+      ORDER BY CASE
+          WHEN t2.name IN ('timestamp','rowversion') THEN 1
+          WHEN (c.name LIKE '%[Mm]odif%' OR c.name LIKE '%[Uu]pdat%') AND t2.name IN ('datetime','datetime2','datetimeoffset','smalldatetime') THEN 2
+          WHEN c.name LIKE '%[Cc]hang%' AND t2.name IN ('datetime','datetime2','datetimeoffset','smalldatetime') THEN 3
+          WHEN c.name LIKE '%[Cc]reat%' AND t2.name IN ('datetime','datetime2','datetimeoffset','smalldatetime') THEN 4
+          WHEN COLUMNPROPERTY(OBJECT_ID(QUOTENAME(s.name)+'.'+QUOTENAME(t.name)), c.name, 'IsIdentity') = 1 THEN 5
+          ELSE 6
+      END
+      ```
+
+      c) Row count:
+      ```sql
+      SELECT SUM(p.rows) FROM sys.tables t
+      JOIN sys.schemas s ON t.schema_id = s.schema_id
+      JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id IN (0,1)
+      WHERE s.name = ? AND t.name = ?
+      ```
+
+      STEP 4: Update `scripts/entities_to_analyze.json` — for each OPTIVA entity, set:
+      - is_incr: True if watermark column found with priority <= 5
+      - incr_col: the best watermark column name (or None)
+      Save detailed results separately to `scripts/load_optimization_results_optiva.json`:
+      ```json
+      {
+        "timestamp": "ISO8601",
+        "source": "OPTIVA",
+        "server": "SQLOptivaLive",
+        "database": "OptivaLive",
+        "auth_method": "Windows|SQL",
+        "total_analyzed": N,
+        "incremental_found": N,
+        "with_pks": N,
+        "results": [
+          {"id": N, "schema": "dbo", "name": "Table", "primary_keys": "Col1,Col2",
+           "watermark_col": "ModifiedDate", "watermark_type": "datetime2",
+           "row_count": 12345, "is_incremental": true}
+        ]
+      }
+      ```
+
+      STEP 5: Print summary and log any errors to `scripts/overnight_bug_tracker.md`.
+
+      If connection fails after both auth methods, write a detailed error to the bug tracker
+      including the exact error message, and mark as FAILED. DO NOT retry more than 3 times total.
+
+      SUCCESS: entities_to_analyze.json updated with Optiva analysis, detailed results saved.
+
+  - title: "Refresh load analysis on existing 4 sources (MES, ETQ, M3C, M3 ERP)"
+    parallel_group: 2
+    completed: true
+    description: |
+      OBJECTIVE: Re-analyze the 4 existing source servers for any entities that DON'T already
+      have is_incr set. This catches newly registered entities and fills gaps.
+
+      SOURCE SERVERS (all via VPN, Windows Auth):
+      - MES: Server=m3-db1, Database=mes (IP 172.29.97.151)
+      - ETQ: Server=M3-DB3, Database=ETQStagingPRD (IP 172.29.97.162)
+      - M3 ERP: Server=sqllogshipprd, Database=m3fdbprd (IP 172.29.97.115)
+      - M3 Cloud: Server=sql2016live, Database=DI_PRD_Staging (IP 172.29.97.101)
+      - Auth: Trusted_Connection=yes;TrustServerCertificate=yes
+      - Driver: ODBC Driver 18 for SQL Server
+      - DO NOT use .ipaper.com suffix — just the short hostname
+      - Connection Timeout: 30s, Command Timeout: 60s
+
+      STEP 1: Read `scripts/entities_to_analyze.json`.
+      Filter: ns IN ('MES','ETQ','M3','M3C') AND (is_incr is NOT True).
+      If all entities already have is_incr set, skip analysis and just print "All entities already analyzed".
+
+      STEP 2: For each source that has un-analyzed entities:
+      - Connect using Windows Auth
+      - Analyze PKs, watermarks, row counts (same queries as the Optiva task)
+      - Update entities_to_analyze.json with results
+
+      STEP 3: Save results to `scripts/load_optimization_results_refresh.json`.
+
+      STEP 4: Print summary per source. Example:
+      ```
+      MES: 410/445 incremental (5 new discoveries)
+      ETQ: 28/29 incremental (0 new)
+      M3C: 182/185 incremental (0 new)
+      M3 ERP: 9/596 incremental (0 new)
+      ```
+
+      M3 ERP having very few incremental is EXPECTED (almost no datetime columns).
+
+      If a source connection fails, log to `scripts/overnight_bug_tracker.md` and continue
+      with other sources. One failure must NOT block the others.
+
+      SUCCESS: entities_to_analyze.json up to date for all 4 original sources.
+
+  # ═══════════════════════════════════════════════════════════════
+  # GROUP 3: Push metadata updates to Fabric SQL DB
+  # ═══════════════════════════════════════════════════════════════
+
+  - title: "Push incremental flags, reactivate entities, fix known bugs"
+    parallel_group: 3
+    completed: true
+    description: |
+      OBJECTIVE: Push load analysis results to Fabric SQL DB, ensure all entities active,
+      and fix known MES incremental load type mismatch.
+
+      FABRIC SQL DB AUTH (use urllib — NEVER azure.identity):
+      ```python
+      import urllib.request, urllib.parse, json, struct, pyodbc
+      TENANT = 'ca81e9fd-06dd-49cf-b5a9-ee7441ff5303'
+      CLIENT = 'ac937c5d-4bdd-438f-be8b-84a850021d2d'
+      SECRET = 'Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu'
+      SERVER = '7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433'
+      DATABASE = 'SQL_INTEGRATION_FRAMEWORK-501d6b17-fcee-47f3-bbb3-54e05f2a3fc0'
+      body = urllib.parse.urlencode({
+          'grant_type': 'client_credentials', 'client_id': CLIENT, 'client_secret': SECRET,
+          'scope': 'https://analysis.windows.net/powerbi/api/.default',
+      }).encode()
+      req = urllib.request.Request(
+          f'https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/token',
+          data=body, headers={'Content-Type': 'application/x-www-form-urlencoded'})
+      token = json.loads(urllib.request.urlopen(req).read())['access_token']
+      token_bytes = token.encode('UTF-16-LE')
+      token_struct = struct.pack(f'<I{len(token_bytes)}s', len(token_bytes), token_bytes)
+      conn = pyodbc.connect(
+          f'DRIVER={{ODBC Driver 18 for SQL Server}};SERVER={SERVER};DATABASE={DATABASE};Encrypt=yes;TrustServerCertificate=no',
+          attrs_before={1256: token_struct})
+      ```
+
+      PART A — Push incremental flags for ALL sources (including Optiva):
+      1. Read `scripts/entities_to_analyze.json`
+      2. For each entity where is_incr=True and incr_col is set:
+         ```sql
+         UPDATE integration.LandingzoneEntity
+         SET IsIncremental = 1, IsIncrementalColumn = ?
+         WHERE LandingzoneEntityId = ?
+         ```
+      3. conn.commit() every 100 rows — CRITICAL: must commit!
+      4. Print progress and final count
+
+      PART B — Ensure ALL entities are active:
+      ```sql
+      -- Check current state first
+      SELECT ds.Namespace, le.IsActive, COUNT(*) as cnt
+      FROM integration.LandingzoneEntity le
+      JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+      GROUP BY ds.Namespace, le.IsActive ORDER BY ds.Namespace, le.IsActive
+      ```
+      If ANY entities have IsActive=0:
+      ```sql
+      UPDATE integration.LandingzoneEntity SET IsActive = 1 WHERE IsActive = 0
+      ```
+      conn.commit()
+
+      PART C — Fix MES incremental load type mismatch (Root Cause #12):
+      128 MES entities have INT/identity watermark columns but datetime LastLoadValues.
+      ```sql
+      -- Check if the table exists first
+      SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+      WHERE TABLE_SCHEMA = 'integration' AND TABLE_NAME = 'LandingzoneEntityLastLoadValue'
+      ```
+      If the table exists:
+      ```sql
+      UPDATE llv SET llv.LoadValue = '0'
+      FROM integration.LandingzoneEntityLastLoadValue llv
+      JOIN integration.LandingzoneEntity le ON llv.LandingzoneEntityId = le.LandingzoneEntityId
+      WHERE llv.LoadValue LIKE '202[0-9]-%-%'
+        AND le.IsIncremental = 1
+      ```
+      conn.commit()
+
+      PART D — Verify final state:
+      ```sql
+      SELECT ds.Namespace,
+             SUM(CASE WHEN le.IsActive = 1 THEN 1 ELSE 0 END) as active,
+             SUM(CASE WHEN le.IsIncremental = 1 THEN 1 ELSE 0 END) as incremental,
+             COUNT(*) as total
+      FROM integration.LandingzoneEntity le
+      JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+      GROUP BY ds.Namespace ORDER BY ds.Namespace
+      ```
+
+      Log all actions and results to `scripts/overnight_bug_tracker.md`.
+
+      SUCCESS: All incremental flags pushed, all entities active, MES LoadValues fixed.
+
+  # ═══════════════════════════════════════════════════════════════
+  # GROUP 4: Trigger LZ pipeline and monitor
+  # ═══════════════════════════════════════════════════════════════
+
+  - title: "Trigger Landing Zone pipeline and monitor to completion"
+    parallel_group: 4
+    completed: false
+    description: |
+      OBJECTIVE: Trigger the Landing Zone pipeline via Fabric REST API and monitor until
+      it completes. This copies data from ALL source SQL servers (including Optiva) to OneLake.
+
+      IMPORTANT: This pipeline can take 1-4 HOURS. Write a Python script with a polling loop.
+      IMPORTANT: Check if a pipeline is already running first — steady-falcon may have triggered one.
+      If already running, wait for it to complete then trigger a fresh run.
+
+      Write a SINGLE Python script that does everything and run it with a long timeout.
+
+      AUTH PATTERNS:
+      - Fabric REST API scope: https://api.fabric.microsoft.com/.default
+      - Fabric SQL scope: https://analysis.windows.net/powerbi/api/.default
+      ```python
+      import urllib.request, urllib.parse, json, struct, pyodbc, time
+      TENANT = 'ca81e9fd-06dd-49cf-b5a9-ee7441ff5303'
+      CLIENT = 'ac937c5d-4bdd-438f-be8b-84a850021d2d'
+      SECRET = 'Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu'
+      CODE_WS = '146fe38c-f6c3-4e9d-a18c-5c01cad5941e'
+      SQL_SERVER = '7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433'
+      SQL_DB = 'SQL_INTEGRATION_FRAMEWORK-501d6b17-fcee-47f3-bbb3-54e05f2a3fc0'
+      ```
+
+      STEP 1: Get pipeline GUID from metadata DB:
+      ```sql
+      SELECT PipelineId, Name, PipelineGuid FROM integration.Pipeline
+      WHERE Name LIKE '%LDZ%' OR Name LIKE '%Landing%' ORDER BY PipelineId
+      ```
+      Expected LZ pipeline GUID: 3d0b3b2b-a069-40dc-b735-d105f9e66838
+
+      STEP 2: Check if pipeline is already running:
+      ```python
+      token = get_token('https://api.fabric.microsoft.com/.default')
+      url = f'https://api.fabric.microsoft.com/v1/workspaces/{CODE_WS}/items/{pipeline_guid}/jobs/instances?jobType=Pipeline'
+      req = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}'})
+      resp = json.loads(urllib.request.urlopen(req).read())
+      active_runs = [r for r in resp.get('value', []) if r.get('status','').lower() in ('notstarted','inprogress')]
+      if active_runs:
+          print(f'Pipeline already running: {active_runs[0]["id"]}. Waiting...')
+          # Poll until it completes
+      ```
+
+      STEP 3: Trigger the pipeline:
+      ```python
+      url = f'https://api.fabric.microsoft.com/v1/workspaces/{CODE_WS}/items/{pipeline_guid}/jobs/instances?jobType=Pipeline'
+      req = urllib.request.Request(url, method='POST',
+          headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+          data=b'{}')
+      resp = urllib.request.urlopen(req)
+      location = resp.headers.get('Location', '')
+      job_id = location.rstrip('/').split('/')[-1] if location else ''
+      ```
+
+      STEP 4: Monitor every 60 seconds. Re-acquire token every 45 minutes:
+      ```python
+      start = time.time()
+      iteration = 0
+      while True:
+          iteration += 1
+          if iteration % 45 == 0:
+              token = get_token('https://api.fabric.microsoft.com/.default')
+          status_url = f'https://api.fabric.microsoft.com/v1/workspaces/{CODE_WS}/items/{pipeline_guid}/jobs/instances/{job_id}'
+          req = urllib.request.Request(status_url, headers={'Authorization': f'Bearer {token}'})
+          try:
+              resp = json.loads(urllib.request.urlopen(req).read())
+              status = resp.get('status', 'Unknown')
+          except Exception as e:
+              status = f'PollError: {e}'
+          elapsed = int((time.time() - start) / 60)
+          print(f'[{time.strftime("%H:%M:%S UTC", time.gmtime())}] LZ Pipeline: {status} ({elapsed}min)')
+          if status.lower() in ('completed', 'failed', 'cancelled'):
+              break
+          if elapsed > 240:  # 4 hour max
+              print('MAX WAIT EXCEEDED. Pipeline still running in Fabric. Logging and moving on.')
+              break
+          time.sleep(60)
+      ```
+
+      STEP 5: After completion, query processing status from SQL DB:
+      ```sql
+      SELECT ds.Namespace,
+             SUM(CASE WHEN ple.IsProcessed = 1 THEN 1 ELSE 0 END) as processed,
+             SUM(CASE WHEN ple.IsProcessed = 0 THEN 1 ELSE 0 END) as pending,
+             COUNT(*) as total
+      FROM execution.PipelineLandingzoneEntity ple
+      JOIN integration.LandingzoneEntity le ON ple.LandingzoneEntityId = le.LandingzoneEntityId
+      JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+      GROUP BY ds.Namespace
+      ```
+
+      Write results to `scripts/overnight_lz_results.txt` and log to bug tracker.
+
+      SUCCESS: LZ pipeline completed (or timed out with detailed logs).
+
+  # ═══════════════════════════════════════════════════════════════
+  # GROUP 5: Trigger Bronze pipeline and monitor
+  # ═══════════════════════════════════════════════════════════════
+
+  - title: "Trigger Bronze pipeline and monitor to completion"
+    parallel_group: 5
+    completed: false
+    description: |
+      OBJECTIVE: Trigger the Bronze pipeline and monitor. Same patterns as LZ (Group 4).
+
+      Write a SINGLE Python script with the full polling loop and run it.
+
+      AUTH (same as Group 4):
+      ```python
+      import urllib.request, urllib.parse, json, struct, pyodbc, time
+      TENANT = 'ca81e9fd-06dd-49cf-b5a9-ee7441ff5303'
+      CLIENT = 'ac937c5d-4bdd-438f-be8b-84a850021d2d'
+      SECRET = 'Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu'
+      CODE_WS = '146fe38c-f6c3-4e9d-a18c-5c01cad5941e'
+      SQL_SERVER = '7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433'
+      SQL_DB = 'SQL_INTEGRATION_FRAMEWORK-501d6b17-fcee-47f3-bbb3-54e05f2a3fc0'
+      ```
+
+      STEP 1: Get Bronze pipeline GUID from SQL:
+      ```sql
+      SELECT PipelineId, Name, PipelineGuid FROM integration.Pipeline
+      WHERE Name LIKE '%Bronze%' OR Name LIKE '%BRZ%' ORDER BY PipelineId
+      ```
+      Expected: 8b7008ac-b4da-4861-9e1f-6b99d9f2f1e3
+
+      STEP 2: Check if pipeline is already running (steady-falcon may have triggered one).
+      If running, WAIT for it to complete, then trigger a new run.
+
+      STEP 3: Trigger, poll every 60 seconds, max 4 hours.
+
+      STEP 4: After completion, query Bronze status:
+      ```sql
+      SELECT ds.Namespace,
+             SUM(CASE WHEN pble.IsProcessed = 1 THEN 1 ELSE 0 END) as processed,
+             SUM(CASE WHEN pble.IsProcessed = 0 THEN 1 ELSE 0 END) as pending,
+             COUNT(*) as total
+      FROM execution.PipelineBronzeLayerEntity pble
+      JOIN integration.BronzeLayerEntity ble ON pble.BronzeLayerEntityId = ble.BronzeLayerEntityId
+      JOIN integration.LandingzoneEntity le ON ble.LandingzoneEntityId = le.LandingzoneEntityId
+      JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+      GROUP BY ds.Namespace
+      ```
+
+      KNOWN ISSUES (from previous debugging — log if seen, DON'T spin):
+      - PK=N/A: Already fixed in notebook (falls back to ALL columns)
+      - Empty non_key_columns: Already fixed (uses sha2 of key columns)
+      - Pipeline crash on entity failure: Already fixed (failures logged, not raised)
+      - "FA_THROW_ERROR": This is the notebook signaling a KNOWN error, not a bug
+
+      Write results to `scripts/overnight_bronze_results.txt` and bug tracker.
+
+      SUCCESS: Bronze pipeline completed (or timed out with logs).
+
+  # ═══════════════════════════════════════════════════════════════
+  # GROUP 6: Trigger Silver pipeline and monitor
+  # ═══════════════════════════════════════════════════════════════
+
+  - title: "Trigger Silver pipeline and monitor to completion"
+    parallel_group: 6
+    completed: false
+    description: |
+      OBJECTIVE: Trigger the Silver pipeline and monitor. Same patterns as Bronze (Group 5).
+
+      Write a SINGLE Python script with the full polling loop and run it.
+
+      AUTH (same as Groups 4-5):
+      ```python
+      import urllib.request, urllib.parse, json, struct, pyodbc, time
+      TENANT = 'ca81e9fd-06dd-49cf-b5a9-ee7441ff5303'
+      CLIENT = 'ac937c5d-4bdd-438f-be8b-84a850021d2d'
+      SECRET = 'Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu'
+      CODE_WS = '146fe38c-f6c3-4e9d-a18c-5c01cad5941e'
+      SQL_SERVER = '7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433'
+      SQL_DB = 'SQL_INTEGRATION_FRAMEWORK-501d6b17-fcee-47f3-bbb3-54e05f2a3fc0'
+      ```
+
+      STEP 1: Get Silver pipeline GUID:
+      ```sql
+      SELECT PipelineId, Name, PipelineGuid FROM integration.Pipeline
+      WHERE Name LIKE '%Silver%' OR Name LIKE '%SLV%' ORDER BY PipelineId
+      ```
+      Expected: 90c0535c-c5dc-43a3-b51e-c44ef1808a60
+
+      STEP 2: Check if already running. Wait if so.
+      STEP 3: Trigger, poll every 60 seconds, max 4 hours.
+      STEP 4: After completion, query Silver status.
+
+      Write results to `scripts/overnight_silver_results.txt` and bug tracker.
+
+      SUCCESS: Silver pipeline completed (or timed out with logs).
+
+  # ═══════════════════════════════════════════════════════════════
+  # GROUP 7: Final verification
+  # ═══════════════════════════════════════════════════════════════
+
+  - title: "Run final verification and produce overnight report"
+    parallel_group: 7
+    completed: false
+    description: |
+      OBJECTIVE: Comprehensive status report after all pipeline runs.
+
+      AUTH (same as all previous groups):
+      ```python
+      import urllib.request, urllib.parse, json, struct, pyodbc
+      TENANT = 'ca81e9fd-06dd-49cf-b5a9-ee7441ff5303'
+      CLIENT = 'ac937c5d-4bdd-438f-be8b-84a850021d2d'
+      SECRET = 'Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu'
+      SQL_SERVER = '7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433'
+      SQL_DB = 'SQL_INTEGRATION_FRAMEWORK-501d6b17-fcee-47f3-bbb3-54e05f2a3fc0'
+      ```
+
+      STEP 1: Query comprehensive status from SQL metadata DB:
+      ```sql
+      -- Registration counts
+      SELECT ds.Namespace,
+             COUNT(DISTINCT le.LandingzoneEntityId) AS lz_registered,
+             COUNT(DISTINCT ble.BronzeLayerEntityId) AS bronze_registered,
+             COUNT(DISTINCT sle.SilverLayerEntityId) AS silver_registered
+      FROM integration.DataSource ds
+      LEFT JOIN integration.LandingzoneEntity le ON ds.DataSourceId = le.DataSourceId AND le.IsActive = 1
+      LEFT JOIN integration.BronzeLayerEntity ble ON le.LandingzoneEntityId = ble.LandingzoneEntityId
+      LEFT JOIN integration.SilverLayerEntity sle ON ble.BronzeLayerEntityId = sle.BronzeLayerEntityId
+      GROUP BY ds.Namespace ORDER BY ds.Namespace
+
+      -- Processing status per layer
+      SELECT ds.Namespace,
+             SUM(CASE WHEN ple.IsProcessed = 1 THEN 1 ELSE 0 END) as lz_processed,
+             COUNT(ple.PipelineLandingzoneEntityId) as lz_total
+      FROM execution.PipelineLandingzoneEntity ple
+      JOIN integration.LandingzoneEntity le ON ple.LandingzoneEntityId = le.LandingzoneEntityId
+      JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+      GROUP BY ds.Namespace ORDER BY ds.Namespace
+
+      -- Incremental coverage
+      SELECT ds.Namespace,
+             SUM(CASE WHEN le.IsIncremental = 1 THEN 1 ELSE 0 END) as incremental,
+             COUNT(*) as total
+      FROM integration.LandingzoneEntity le
+      JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+      WHERE le.IsActive = 1
+      GROUP BY ds.Namespace ORDER BY ds.Namespace
+      ```
+
+      STEP 2: Try running the existing status_matrix script:
+      ```bash
+      cd /c/Users/snahrup/CascadeProjects/FMD_FRAMEWORK && python scripts/status_matrix.py --markdown
+      ```
+
+      STEP 3: Read the bug tracker and individual results files:
+      - scripts/overnight_bug_tracker.md
+      - scripts/overnight_lz_results.txt
+      - scripts/overnight_bronze_results.txt
+      - scripts/overnight_silver_results.txt
+
+      STEP 4: Compile into `scripts/overnight_final_report.md`:
+      ```markdown
+      # FMD Framework — Overnight Load Run Final Report
+      ## Session: true-falcon | Completed: {UTC timestamp}
+
+      ### Entity Registration Summary
+      | Source | LZ Registered | Bronze Registered | Silver Registered |
+      |--------|---------------|-------------------|-------------------|
+      | MES | ... | ... | ... |
+      | ETQ | ... | ... | ... |
+      | M3 Cloud | ... | ... | ... |
+      | M3 ERP | ... | ... | ... |
+      | OPTIVA | ... | ... | ... |
+      | **TOTAL** | ... | ... | ... |
+
+      ### Pipeline Processing Results
+      | Source | LZ Loaded | Bronze Processed | Silver Processed |
+      |--------|-----------|------------------|------------------|
+
+      ### Incremental Load Coverage
+      | Source | Incremental | Full Load | Total | % Incremental |
+      |--------|-------------|-----------|-------|---------------|
+
+      ### Pipeline Run Timeline
+      | Pipeline | Job ID | Start | End | Duration | Status |
+      |----------|--------|-------|-----|----------|--------|
+
+      ### Issues Encountered
+      (Copy from bug tracker)
+
+      ### Recommendations for Morning Review
+      - Any failed entities that need attention
+      - Any pipeline failures that need investigation
+      - Next steps for Gold layer
+      ```
+
+      Also update `memory/bronze-pipeline-debugging.md` with the new OPTIVA section and updated
+      FINAL MEDALLION STATUS table (now with 5 sources).
+
+      SUCCESS: overnight_final_report.md written with complete 5-source status.

@@ -128,7 +128,6 @@ class FabricPipelineRunner:
 
     def _build_pipeline_params(self, entity: Entity, run_id: str) -> dict:
         """Map Entity fields to PL_FMD_LDZ_COPY_SQL parameters."""
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         return {
             "ConnectionGuid": entity.connection_guid,
             "SourceSchema": entity.source_schema,
@@ -137,8 +136,8 @@ class FabricPipelineRunner:
             "DatasourceName": entity.source_database,
             "WorkspaceGuid": entity.workspace_guid,
             "TargetLakehouseGuid": entity.lakehouse_guid,
-            "TargetFilePath": f"{entity.namespace}/{entity.source_schema}_{entity.source_name}",
-            "TargetFileName": f"{entity.source_schema}_{entity.source_name}_{ts}.parquet",
+            "TargetFilePath": entity.namespace or entity.source_database,
+            "TargetFileName": f"{entity.source_name.strip()}.parquet",
         }
 
     def _trigger(self, params: dict) -> Optional[str]:

@@ -1,4 +1,5 @@
 import { Database } from "lucide-react";
+import { useSourceConfig } from "@/hooks/useSourceConfig";
 
 interface SourceBreakdown {
   source: string;
@@ -14,33 +15,6 @@ interface SourceBreakdownCardsProps {
   className?: string;
 }
 
-const SOURCE_ACCENTS: Record<string, { bg: string; border: string; text: string; bar: string }> = {
-  MES: {
-    bg: "bg-sky-500/5",
-    border: "border-sky-500/20",
-    text: "text-sky-400",
-    bar: "bg-sky-500",
-  },
-  ETQ: {
-    bg: "bg-amber-500/5",
-    border: "border-amber-500/20",
-    text: "text-amber-400",
-    bar: "bg-amber-500",
-  },
-  "M3 Cloud": {
-    bg: "bg-purple-500/5",
-    border: "border-purple-500/20",
-    text: "text-purple-400",
-    bar: "bg-purple-500",
-  },
-  M3: {
-    bg: "bg-emerald-500/5",
-    border: "border-emerald-500/20",
-    text: "text-emerald-400",
-    bar: "bg-emerald-500",
-  },
-};
-
 const DEFAULT_ACCENT = {
   bg: "bg-muted/10",
   border: "border-border",
@@ -49,12 +23,17 @@ const DEFAULT_ACCENT = {
 };
 
 export function SourceBreakdownCards({ sources, className = "" }: SourceBreakdownCardsProps) {
+  const { resolveLabel, getColor } = useSourceConfig();
+
   if (sources.length === 0) return null;
 
   return (
     <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 ${className}`}>
       {sources.map((src) => {
-        const accent = SOURCE_ACCENTS[src.source] || DEFAULT_ACCENT;
+        const c = getColor(src.source);
+        const accent = c.key !== "slate"
+          ? { bg: c.bg, border: c.ring.replace("ring-", "border-"), text: c.text, bar: c.bar }
+          : DEFAULT_ACCENT;
         const coveragePct = src.entityCount > 0 ? (src.withData / src.entityCount) * 100 : 0;
 
         return (
@@ -64,7 +43,7 @@ export function SourceBreakdownCards({ sources, className = "" }: SourceBreakdow
           >
             <div className="flex items-center gap-2 mb-3">
               <Database className={`w-4 h-4 ${accent.text}`} />
-              <span className={`text-sm font-semibold ${accent.text}`}>{src.source}</span>
+              <span className={`text-sm font-semibold ${accent.text}`}>{resolveLabel(src.source)}</span>
             </div>
 
             <div className="space-y-2">
@@ -79,7 +58,7 @@ export function SourceBreakdownCards({ sources, className = "" }: SourceBreakdow
                   <span>Coverage</span>
                   <span className="font-medium tabular-nums">{coveragePct.toFixed(0)}%</span>
                 </div>
-                <div className="h-1.5 rounded-full bg-muted/30 overflow-hidden">
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-700 ${accent.bar}`}
                     style={{ width: `${coveragePct}%` }}

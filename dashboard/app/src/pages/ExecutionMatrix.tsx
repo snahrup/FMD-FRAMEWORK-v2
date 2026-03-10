@@ -124,23 +124,26 @@ function fmt(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+function utc(iso: string): Date {
+  return new Date(iso.endsWith("Z") ? iso : iso + "Z");
+}
+
 function timeAgo(isoDate: string | null | undefined): string {
   if (!isoDate) return "\u2014";
-  const now = Date.now();
-  const then = new Date(isoDate).getTime();
+  const then = utc(isoDate).getTime();
   if (isNaN(then)) return "\u2014";
-  const diff = now - then;
+  const diff = Date.now() - then;
   if (diff < 60000) return "just now";
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
   if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
-  return new Date(isoDate).toLocaleDateString();
+  return utc(isoDate).toLocaleDateString();
 }
 
 function formatTimestamp(iso: string | null | undefined): string {
   if (!iso) return "\u2014";
   try {
-    return new Date(iso).toLocaleString(undefined, {
+    return utc(iso).toLocaleString(undefined, {
       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
     });
   } catch {
@@ -228,19 +231,47 @@ export default function ExecutionMatrix() {
 
   const PAGE_SIZE = 50;
 
+  // ── Normalize engine metrics (pyodbc returns all values as strings) ──
+  function normalizeMetrics(raw: Record<string, unknown> | null): EngineMetrics | null {
+    if (!raw) return null;
+    const num = (v: unknown) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+    const str = (v: unknown) => (v == null ? "" : String(v));
+    return {
+      runs: num(raw.runs),
+      layers: (Array.isArray(raw.layers) ? raw.layers : []).map((l: Record<string, unknown>) => ({
+        Layer: str(l.Layer),
+        TotalTasks: num(l.TotalTasks),
+        Succeeded: num(l.Succeeded),
+        Failed: num(l.Failed),
+        TotalRowsRead: num(l.TotalRowsRead),
+        AvgDurationSeconds: num(l.AvgDurationSeconds),
+      })),
+      slowest_entities: (Array.isArray(raw.slowest_entities) ? raw.slowest_entities : []).map((s: Record<string, unknown>) => ({
+        entity_id: num(s.entity_id ?? s.EntityId),
+        entity_name: str(s.entity_name ?? s.SourceName ?? ""),
+        layer: str(s.layer ?? s.Layer ?? ""),
+        duration_seconds: num(s.duration_seconds ?? s.DurationSeconds),
+      })),
+      top_errors: (Array.isArray(raw.top_errors) ? raw.top_errors : []).map((e: Record<string, unknown>) => ({
+        error_message: str(e.error_message ?? e.ErrorMessage ?? ""),
+        count: num(e.count ?? e.Count),
+      })),
+    };
+  }
+
   // ── Data fetching ──
   const loadEngineData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const hours = TIME_RANGE_HOURS[timeRange];
-      const [status, metrics, runsResp] = await Promise.all([
+      const [status, rawMetrics, runsResp] = await Promise.all([
         fetchJson<EngineStatus>("/engine/status").catch(() => null),
-        fetchJson<EngineMetrics>(`/engine/metrics?hours=${hours}`).catch(() => null),
+        fetchJson<Record<string, unknown>>(`/engine/metrics?hours=${hours}`).catch(() => null),
         fetchJson<EngineRunsResponse>("/engine/runs?limit=20").catch(() => null),
       ]);
       setEngineStatus(status);
-      setEngineMetrics(metrics);
+      setEngineMetrics(normalizeMetrics(rawMetrics));
       setEngineRuns(runsResp?.runs || []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load engine data");
@@ -672,33 +703,55 @@ export default function ExecutionMatrix() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {engineStatus?.last_run ? (
-                  <>
-                    <div className="text-lg font-bold tabular-nums text-foreground">
-                      {timeAgo(engineStatus.last_run.ended_at || engineStatus.last_run.started_at)}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className={cn(
-                        "text-[10px] px-1.5 py-0.5 rounded border font-mono",
-                        engineStatus.last_run.status === "completed" || engineStatus.last_run.status === "succeeded"
-                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                          : engineStatus.last_run.status === "failed"
-                            ? "bg-red-500/10 text-red-400 border-red-500/20"
-                            : "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                      )}>
-                        {engineStatus.last_run.status}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {humanDuration(engineStatus.last_run.duration_seconds)}
-                      </span>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-lg font-bold text-muted-foreground/50">{"\u2014"}</div>
-                    <div className="text-[10px] text-muted-foreground">No runs recorded</div>
-                  </>
-                )}
+                {(() => {
+                  // Use engineStatus.last_run first, fallback to most recent engineRun
+                  const lr = engineStatus?.last_run as Record<string, unknown> | null | undefined;
+                  const fallback = (engineRuns[0] as unknown) as Record<string, unknown> | undefined;
+                  const s = (v: unknown) => (v == null ? "" : String(v));
+                  const n = (v: unknown) => { const x = Number(v); return isNaN(x) ? 0 : x; };
+                  const run = lr
+                    ? { status: s(lr.status), started: s(lr.started_at ?? lr.started), ended: s(lr.ended_at ?? lr.completed), duration: n(lr.duration_seconds ?? lr.elapsed_seconds), succeeded: n(lr.succeeded ?? lr.total), failed: n(lr.failed), mode: s(lr.mode) }
+                    : fallback
+                      ? { status: s(fallback.status), started: s(fallback.started_at), ended: s(fallback.finished_at ?? fallback.ended_at), duration: n(fallback.duration_seconds), succeeded: n(fallback.entities_succeeded ?? fallback.succeeded), failed: n(fallback.entities_failed ?? fallback.failed), mode: s(fallback.mode) }
+                      : null;
+                  if (!run) return (
+                    <>
+                      <div className="text-lg font-bold text-muted-foreground/50">{"\u2014"}</div>
+                      <div className="text-[10px] text-muted-foreground">No runs recorded</div>
+                    </>
+                  );
+                  const statusNorm = (run.status || "").toLowerCase();
+                  const isSuccess = statusNorm === "completed" || statusNorm === "succeeded" || statusNorm === "completed_with_errors";
+                  const isFail = statusNorm === "failed";
+                  const isRunning = statusNorm === "running";
+                  return (
+                    <>
+                      <div className="text-lg font-bold tabular-nums text-foreground">
+                        {timeAgo(run.ended || run.started)}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded border font-mono",
+                          isSuccess ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                            : isFail ? "bg-red-500/10 text-red-400 border-red-500/20"
+                            : isRunning ? "bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse"
+                            : "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
+                        )}>
+                          {run.status}{run.mode ? ` (${run.mode})` : ""}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {humanDuration(run.duration)}
+                        </span>
+                      </div>
+                      {fallback && (run.succeeded > 0 || run.failed > 0) && (
+                        <div className="text-[10px] text-muted-foreground mt-0.5">
+                          <span className="text-emerald-400">{fmt(run.succeeded)}</span> ok
+                          {run.failed > 0 && <>, <span className="text-red-400">{fmt(run.failed)}</span> failed</>}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </CardContent>
             </Card>
 
@@ -880,7 +933,7 @@ export default function ExecutionMatrix() {
                         "w-full flex items-center gap-3 px-3 py-2 rounded-md border text-left transition-colors",
                         errorFilter === err.error_message
                           ? "border-red-500/30 bg-red-500/10"
-                          : "border-border bg-muted/30 hover:bg-muted/50"
+                          : "border-border bg-muted hover:bg-muted/50"
                       )}
                     >
                       <span className="flex-shrink-0 w-8 h-8 rounded-md bg-red-500/10 flex items-center justify-center">
@@ -932,7 +985,7 @@ export default function ExecutionMatrix() {
                     <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Slowest Entities</span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 mt-2">
                       {engineMetrics.slowest_entities.slice(0, 6).map((se, i) => (
-                        <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/30 border border-border">
+                        <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted border border-border">
                           <span className="text-[10px] text-amber-400 font-mono font-bold">{humanDuration(se.duration_seconds)}</span>
                           <span className="text-[10px] text-muted-foreground truncate flex-1">{se.entity_name}</span>
                           <span className="text-[9px] text-muted-foreground/60 uppercase">{se.layer}</span>
@@ -980,7 +1033,7 @@ function EntityRow({ entity, isExpanded, onToggleExpand, logs, logsLoading, rese
       <tr
         className={cn(
           "border-b border-border/50 cursor-pointer transition-colors",
-          isExpanded ? "bg-muted/30" : "hover:bg-muted/20"
+          isExpanded ? "bg-muted" : "hover:bg-muted/50"
         )}
         onClick={onToggleExpand}
       >
@@ -1076,7 +1129,7 @@ function EntityRow({ entity, isExpanded, onToggleExpand, logs, logsLoading, rese
 
       {/* Expanded row: entity logs */}
       {isExpanded && (
-        <tr className="bg-muted/20">
+        <tr className="bg-muted">
           <td colSpan={10} className="px-6 py-3">
             <div className="space-y-2">
               {/* Entity metadata summary */}

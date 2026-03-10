@@ -66,6 +66,8 @@ interface Counts {
   brzPipelineTotal?: string;
   brzProcessed?: string;
   slvRegistered?: string;
+  slvPipelineTotal?: string;
+  slvProcessed?: string;
   brzViewPending?: string;
   slvViewPending?: string;
 }
@@ -120,16 +122,18 @@ function num(v: string | undefined): number {
   return parseInt(v || '0', 10) || 0;
 }
 
-function parseCopyOutput(logData: string | null): { rowsCopied: number; dataWritten: number } {
-  if (!logData) return { rowsCopied: 0, dataWritten: 0 };
+function parseCopyOutput(logData: string | null): { rowsCopied: number; dataWritten: number; duration: string } {
+  if (!logData) return { rowsCopied: 0, dataWritten: 0, duration: '' };
   try {
     const parsed = JSON.parse(logData);
-    const co = parsed?.CopyOutput || parsed?.copyOutput || {};
+    // Handle both formats: nested CopyOutput (pipeline) and flat (notebook)
+    const co = parsed?.CopyOutput || parsed?.copyOutput || parsed || {};
     return {
       rowsCopied: co.rowsCopied || 0,
       dataWritten: co.dataWritten || 0,
+      duration: co.duration || '',
     };
-  } catch { return { rowsCopied: 0, dataWritten: 0 }; }
+  } catch { return { rowsCopied: 0, dataWritten: 0, duration: '' }; }
 }
 
 function parseNotebookDetail(logData: string | null): { action: string; detail: string } {
@@ -138,12 +142,13 @@ function parseNotebookDetail(logData: string | null): { action: string; detail: 
     const parsed = JSON.parse(logData);
     const action = parsed?.Action || '';
     if (action === 'End') {
-      const co = parsed?.CopyOutput || {};
+      // Handle pipeline format (nested CopyOutput) and notebook format (flat)
+      const co = parsed?.CopyOutput || parsed;
       const schema = co?.TargetSchema || '';
-      const name = co?.TargetName || '';
-      const runtime = co?.['Total Runtime'] || '';
+      const name = co?.TargetName || co?.source || '';
+      const runtime = co?.['Total Runtime'] || co?.duration || '';
       const rows = co?.RowsInserted ?? co?.rowsCopied ?? '';
-      let detail = schema && name ? `${schema}.${name}` : '';
+      let detail = schema && name ? `${schema}.${name}` : name || '';
       if (rows) detail += ` (${typeof rows === 'number' ? rows.toLocaleString() : rows} rows)`;
       if (runtime) detail += ` [${runtime}]`;
       return { action, detail };
@@ -435,43 +440,47 @@ export default function LiveMonitor() {
             <ProgressBar
               label="Landing Zone"
               current={num(counts.lzProcessed)}
-              total={num(counts.lzPipelineTotal)}
+              total={num(counts.lzRegistered)}
               color="bg-cyan-500"
             />
             <div className="flex items-center gap-4 text-[11px] text-muted-foreground -mt-1 pl-1">
               <span>Registered: {num(counts.lzRegistered).toLocaleString()}</span>
               <span>·</span>
-              <span>Pipeline queue: {num(counts.lzPipelineTotal).toLocaleString()}</span>
+              <span>Queued: {num(counts.lzPipelineTotal).toLocaleString()}</span>
               <span>·</span>
-              <span>Processed: {num(counts.lzProcessed).toLocaleString()}</span>
+              <span>Loaded: {num(counts.lzProcessed).toLocaleString()}</span>
             </div>
 
             <ProgressBar
               label="Bronze"
               current={num(counts.brzProcessed)}
-              total={num(counts.brzPipelineTotal) || num(counts.brzViewPending)}
+              total={num(counts.brzRegistered)}
               color="bg-amber-500"
             />
             <div className="flex items-center gap-4 text-[11px] text-muted-foreground -mt-1 pl-1">
               <span>Registered: {num(counts.brzRegistered).toLocaleString()}</span>
               <span>·</span>
-              <span>Pipeline queue: {num(counts.brzPipelineTotal).toLocaleString()}</span>
+              <span>Queued: {num(counts.brzPipelineTotal).toLocaleString()}</span>
               <span>·</span>
-              <span>Pending (view): {num(counts.brzViewPending).toLocaleString()}</span>
+              <span>Pending: {num(counts.brzViewPending).toLocaleString()}</span>
               <span>·</span>
-              <span>Processed: {num(counts.brzProcessed).toLocaleString()}</span>
+              <span>Loaded: {num(counts.brzProcessed).toLocaleString()}</span>
             </div>
 
             <ProgressBar
               label="Silver"
-              current={0}
+              current={num(counts.slvProcessed)}
               total={num(counts.slvRegistered)}
               color="bg-violet-500"
             />
             <div className="flex items-center gap-4 text-[11px] text-muted-foreground -mt-1 pl-1">
               <span>Registered: {num(counts.slvRegistered).toLocaleString()}</span>
               <span>·</span>
-              <span>Pending (view): {num(counts.slvViewPending).toLocaleString()}</span>
+              <span>Queued: {num(counts.slvPipelineTotal).toLocaleString()}</span>
+              <span>·</span>
+              <span>Pending: {num(counts.slvViewPending).toLocaleString()}</span>
+              <span>·</span>
+              <span>Loaded: {num(counts.slvProcessed).toLocaleString()}</span>
             </div>
           </CardContent>
         )}
@@ -570,7 +579,7 @@ export default function LiveMonitor() {
             ) : (
               <div className="divide-y divide-border max-h-[400px] overflow-y-auto">
                 {copyEnds.map((evt, i) => {
-                  const { rowsCopied, dataWritten } = parseCopyOutput(evt.LogData);
+                  const { rowsCopied, dataWritten, duration } = parseCopyOutput(evt.LogData);
                   return (
                     <div key={i} className="flex items-center gap-3 py-2 px-2">
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
@@ -580,7 +589,7 @@ export default function LiveMonitor() {
                         {rowsCopied > 0 ? `${rowsCopied.toLocaleString()} rows` : '—'}
                       </span>
                       <span className="text-xs font-mono text-muted-foreground w-16 text-right">
-                        {dataWritten > 0 ? fmtBytes(dataWritten) : '—'}
+                        {dataWritten > 0 ? fmtBytes(dataWritten) : duration || '—'}
                       </span>
                     </div>
                   );

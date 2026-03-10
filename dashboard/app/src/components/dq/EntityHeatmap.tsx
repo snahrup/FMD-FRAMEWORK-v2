@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSourceConfig } from "@/hooks/useSourceConfig";
 
 interface HeatmapEntity {
   entityId: string;
@@ -50,14 +51,8 @@ function groupBySource(entities: HeatmapEntity[]): Record<string, HeatmapEntity[
   return groups;
 }
 
-const SOURCE_COLORS: Record<string, string> = {
-  MES: "#38bdf8",
-  ETQ: "#fbbf24",
-  "M3 Cloud": "#a78bfa",
-  M3: "#34d399",
-};
-
 export function EntityHeatmap({ entities, onEntityClick, className = "" }: EntityHeatmapProps) {
+  const { resolveLabel, getColor } = useSourceConfig();
   const [tooltip, setTooltip] = useState<{ x: number; y: number; entity: string; dim: string; score: number } | null>(null);
   const groups = groupBySource(entities);
 
@@ -86,10 +81,10 @@ export function EntityHeatmap({ entities, onEntityClick, className = "" }: Entit
           <div className="flex items-center gap-2 mb-1">
             <div
               className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: SOURCE_COLORS[source] || "#94a3b8" }}
+              style={{ backgroundColor: getColor(source).hex }}
             />
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {source}
+              {resolveLabel(source)}
             </span>
           </div>
 
@@ -97,7 +92,7 @@ export function EntityHeatmap({ entities, onEntityClick, className = "" }: Entit
           {ents.map((entity) => (
             <div
               key={entity.entityId}
-              className="flex items-center group cursor-pointer hover:bg-muted/20 rounded transition-colors"
+              className="flex items-center group cursor-pointer hover:bg-muted/50 rounded transition-colors"
               onClick={() => onEntityClick?.(entity.entityId)}
             >
               <div className="w-[180px] px-2 py-1 text-xs font-mono truncate text-foreground/80 group-hover:text-foreground">

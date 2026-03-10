@@ -10,6 +10,7 @@ Usage:
   Development:  python server.py                    (uses config.json next to this file)
   Production:   python server.py --config /path/to/config.json
 """
+import hashlib
 import json
 import os
 import struct
@@ -30,6 +31,12 @@ import time
 _project_root = str(Path(__file__).resolve().parent.parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
+
+# Local SQLite control plane (primary read source — replaces laggy Fabric SQL)
+import dashboard.app.api.control_plane_db as cpdb
+
+# Metrics store (DQ snapshots, layer trends — local SQLite)
+import dashboard.app.api.metrics_store as metrics_store
 
 # ── Configuration ──
 
@@ -558,12 +565,38 @@ def sample_lakehouse_table(lakehouse_name: str, schema: str, table: str, limit: 
 _lakehouse_counts_cache: dict | None = None
 _lakehouse_counts_cache_ts: float = 0
 LAKEHOUSE_COUNTS_CACHE_TTL = 300  # 5 minutes — counts don't change often
+_LAKEHOUSE_COUNTS_FILE = os.path.join(os.path.dirname(__file__), 'lakehouse_counts_cache.json')
+
+
+def _load_counts_from_file() -> dict | None:
+    """Load lakehouse counts from disk cache file as fallback."""
+    try:
+        if os.path.exists(_LAKEHOUSE_COUNTS_FILE):
+            with open(_LAKEHOUSE_COUNTS_FILE, 'r') as f:
+                data = json.load(f)
+            counts = data.get('counts', data)
+            # Ensure it has lakehouse keys with non-empty lists
+            if any(isinstance(v, list) and len(v) > 0 for v in counts.values()):
+                return counts
+    except Exception as e:
+        log.warning(f'Failed to read lakehouse counts cache file: {e}')
+    return None
+
+
+def _save_counts_to_file(counts: dict):
+    """Persist lakehouse counts to disk for cross-restart fallback."""
+    try:
+        with open(_LAKEHOUSE_COUNTS_FILE, 'w') as f:
+            json.dump({'counts': counts, 'savedAt': datetime.utcnow().isoformat() + 'Z'}, f)
+    except Exception as e:
+        log.warning(f'Failed to save lakehouse counts cache file: {e}')
 
 
 def get_lakehouse_row_counts(force_refresh: bool = False) -> dict:
     """Get row counts for all tables across all lakehouses in parallel.
     Uses sys.partitions metadata for fast counts, falls back to batch COUNT queries.
-    Results are cached for 5 minutes to avoid hammering lakehouse endpoints."""
+    Results are cached for 5 minutes to avoid hammering lakehouse endpoints.
+    Falls back to disk-cached results if Fabric queries fail."""
     global _lakehouse_counts_cache, _lakehouse_counts_cache_ts
 
     if not force_refresh and _lakehouse_counts_cache and (time.time() - _lakehouse_counts_cache_ts) < LAKEHOUSE_COUNTS_CACHE_TTL:
@@ -633,14 +666,34 @@ def get_lakehouse_row_counts(force_refresh: bool = False) -> dict:
                 log.error(f'Row count future failed: {e}')
 
     now_utc = datetime.utcnow().isoformat() + 'Z'
+
+    # Check if results are all empty — fall back to disk cache
+    non_meta = {k: v for k, v in results.items() if k != '_meta'}
+    all_empty = all(isinstance(v, list) and len(v) == 0 for v in non_meta.values())
+    if all_empty:
+        log.warning('All lakehouse queries returned empty — trying disk cache fallback')
+        file_data = _load_counts_from_file()
+        if file_data:
+            log.info(f'Using disk-cached lakehouse counts ({sum(len(v) for v in file_data.values() if isinstance(v, list))} tables)')
+            _lakehouse_counts_cache = file_data
+            _lakehouse_counts_cache_ts = time.time()
+            return {**file_data, '_meta': {
+                'cachedAt': now_utc,
+                'fromCache': True,
+                'cacheAgeSec': 0,
+                'source': 'disk_fallback',
+            }}
+
     results['_meta'] = {
         'cachedAt': now_utc,
         'fromCache': False,
         'cacheAgeSec': 0,
         'queryTimeSec': round(time.time() - t_start, 1),
     }
-    _lakehouse_counts_cache = {k: v for k, v in results.items() if k != '_meta'}
+    _lakehouse_counts_cache = non_meta
     _lakehouse_counts_cache_ts = time.time()
+    # Save to disk for cross-restart fallback
+    _save_counts_to_file(non_meta)
     log.info(f'Lakehouse row counts: {len(endpoints)} lakehouses in {time.time() - t_start:.1f}s')
     return results
 
@@ -795,12 +848,24 @@ def get_blender_tables() -> list[dict]:
 # ── Data Queries ──
 
 def get_registered_connections() -> list[dict]:
+    try:
+        rows = cpdb.get_connections()
+        if rows:
+            return rows
+    except Exception as exc:
+        log.warning("Local DB connections read failed, falling back to Fabric SQL: %s", exc)
     return query_sql(
         'SELECT ConnectionId, ConnectionGuid, Name, Type, IsActive '
         'FROM integration.Connection ORDER BY ConnectionId'
     )
 
 def get_registered_datasources() -> list[dict]:
+    try:
+        rows = cpdb.get_datasources()
+        if rows:
+            return rows
+    except Exception as exc:
+        log.warning("Local DB datasources read failed, falling back to Fabric SQL: %s", exc)
     return query_sql(
         'SELECT ds.DataSourceId, ds.Name, ds.Namespace, ds.Type, ds.Description, '
         'ds.IsActive, c.Name AS ConnectionName '
@@ -809,7 +874,119 @@ def get_registered_datasources() -> list[dict]:
         'ORDER BY ds.DataSourceId'
     )
 
+
+# ── Color palette for auto-assigning source colors ──
+_SOURCE_COLOR_PALETTE = [
+    {"key": "cyan",    "bg": "bg-cyan-500/10",    "text": "text-cyan-400",    "ring": "ring-cyan-500/30",    "bar": "bg-cyan-500",    "hex": "#06b6d4"},
+    {"key": "violet",  "bg": "bg-violet-500/10",  "text": "text-violet-400",  "ring": "ring-violet-500/30",  "bar": "bg-violet-500",  "hex": "#8b5cf6"},
+    {"key": "amber",   "bg": "bg-amber-500/10",   "text": "text-amber-400",   "ring": "ring-amber-500/30",   "bar": "bg-amber-500",   "hex": "#f59e0b"},
+    {"key": "emerald", "bg": "bg-emerald-500/10",  "text": "text-emerald-400", "ring": "ring-emerald-500/30", "bar": "bg-emerald-500", "hex": "#10b981"},
+    {"key": "rose",    "bg": "bg-rose-500/10",    "text": "text-rose-400",    "ring": "ring-rose-500/30",    "bar": "bg-rose-500",    "hex": "#f43f5e"},
+    {"key": "sky",     "bg": "bg-sky-500/10",     "text": "text-sky-400",     "ring": "ring-sky-500/30",     "bar": "bg-sky-500",     "hex": "#0ea5e9"},
+    {"key": "fuchsia", "bg": "bg-fuchsia-500/10",  "text": "text-fuchsia-400", "ring": "ring-fuchsia-500/30", "bar": "bg-fuchsia-500", "hex": "#d946ef"},
+    {"key": "orange",  "bg": "bg-orange-500/10",  "text": "text-orange-400",  "ring": "ring-orange-500/30",  "bar": "bg-orange-500",  "hex": "#f97316"},
+]
+
+# User-editable display labels keyed by DataSource.Name or Namespace (target_schema).
+# If not present here, falls back to DataSource.Name from DB.
+_SOURCE_DISPLAY_LABELS_FILE = os.path.join(os.path.dirname(__file__), 'source_labels.json')
+_source_display_labels: dict[str, str] = {}
+
+def _load_source_display_labels() -> dict[str, str]:
+    global _source_display_labels
+    try:
+        if os.path.exists(_SOURCE_DISPLAY_LABELS_FILE):
+            with open(_SOURCE_DISPLAY_LABELS_FILE, 'r') as f:
+                _source_display_labels = json.load(f)
+    except Exception:
+        _source_display_labels = {}
+    return _source_display_labels
+
+def _save_source_display_labels() -> None:
+    with open(_SOURCE_DISPLAY_LABELS_FILE, 'w') as f:
+        json.dump(_source_display_labels, f, indent=2)
+
+_load_source_display_labels()
+
+
+def get_source_config() -> dict:
+    """Return all registered data sources with display labels, colors, and a
+    lookup map so the frontend never needs hardcoded source names."""
+    rows = None
+    try:
+        rows = cpdb.get_source_config()
+    except Exception as exc:
+        log.warning("Local DB source_config read failed, falling back to Fabric SQL: %s", exc)
+    if not rows:
+        rows = query_sql(
+            'SELECT ds.DataSourceId, ds.Name, ds.Namespace, ds.Type, ds.Description, '
+            'ds.IsActive, c.Name AS ConnectionName, c.ServerName, c.DatabaseName '
+            'FROM integration.DataSource ds '
+            'JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId '
+            'ORDER BY ds.DataSourceId'
+        )
+
+    sources = []
+    label_map: dict[str, str] = {}   # any raw key -> display label
+    color_map: dict[str, dict] = {}  # display label -> color config
+
+    for i, row in enumerate(rows):
+        ds_id = row.get('DataSourceId')
+        name = row.get('Name', '')             # e.g. "MES", "ETQStagingPRD"
+        namespace = row.get('Namespace', '')    # e.g. "mes", "etq"  (target_schema)
+        server = row.get('ServerName', '')
+        database = row.get('DatabaseName', '')
+
+        # Resolve display label: custom labels > DataSource.Name
+        label = (
+            _source_display_labels.get(namespace)
+            or _source_display_labels.get(name)
+            or _source_display_labels.get(name.lower())
+            or name  # fall back to DB name field
+        )
+
+        # Auto-assign color from palette based on order
+        color = _SOURCE_COLOR_PALETTE[i % len(_SOURCE_COLOR_PALETTE)]
+
+        src = {
+            'id': ds_id,
+            'name': name,
+            'namespace': namespace,
+            'label': label,
+            'type': row.get('Type', ''),
+            'description': row.get('Description', ''),
+            'connectionName': row.get('ConnectionName', ''),
+            'serverName': server,
+            'databaseName': database,
+            'isActive': row.get('IsActive', True),
+            'color': color,
+        }
+        sources.append(src)
+
+        # Build lookup map: many keys -> one label
+        raw_keys = [name, namespace, database, server, label]
+        all_keys = set()
+        for k in raw_keys:
+            if k:
+                all_keys.add(k)
+                all_keys.add(k.lower())
+        for key in all_keys:
+            label_map[key] = label
+            color_map[key] = color
+
+    return {
+        'sources': sources,
+        'labelMap': label_map,
+        'colorMap': color_map,
+    }
+
 def get_registered_entities() -> list[dict]:
+    try:
+        rows = cpdb.get_registered_entities_full()
+        if rows:
+            return rows
+    except Exception as exc:
+        log.warning("Local DB entities read failed, falling back to Fabric SQL: %s", exc)
     return query_sql(
         'SELECT le.LandingzoneEntityId, le.SourceSchema, le.SourceName, '
         'le.FileName, le.FilePath, le.FileType, le.IsIncremental, le.IsActive, '
@@ -936,8 +1113,25 @@ def sql_explorer_databases(server: str) -> list[dict]:
 
     Scans sys.databases so the user can see everything available on the
     server, not just what's registered in FMD metadata.
+    Marks the registered source database with isRegistered=True.
     """
     import pyodbc
+
+    # Look up ALL databases registered for this server (case-insensitive)
+    registered_dbs: set = set()
+    try:
+        ds_rows = query_sql(
+            "SELECT c.DatabaseName FROM integration.Connection c "
+            "JOIN integration.DataSource ds ON ds.ConnectionId = c.ConnectionId "
+            "WHERE LOWER(c.ServerName) = LOWER(?) AND ds.IsActive = 1", (server,)
+        )
+        for r in ds_rows:
+            db = (r.get('DatabaseName') or '').strip()
+            if db:
+                registered_dbs.add(db.lower())
+        log.debug(f'sql_explorer_databases({server}): registered_dbs={registered_dbs}')
+    except Exception as ex:
+        log.warning(f'sql_explorer_databases({server}): registered DB lookup failed: {ex}')
 
     try:
         conn = pyodbc.connect(
@@ -967,6 +1161,7 @@ def sql_explorer_databases(server: str) -> list[dict]:
             'create_date': str(row[3]) if row[3] else None,
             'collation_name': str(row[4]) if row[4] else None,
             'table_count': '0',
+            'isRegistered': db_name.lower() in registered_dbs,
         }
         try:
             # Cross-database query via same master connection — fast, no extra connects
@@ -1176,63 +1371,167 @@ def sql_explorer_lakehouse_tables(lakehouse: str, schema: str) -> list[dict]:
         return []
 
 
+def _read_onelake_parquet(lakehouse: str, schema: str, table: str):
+    """Download a parquet file from OneLake and return a pyarrow ParquetFile.
+    Returns (ParquetFile, endpoints_dict) or raises."""
+    import io
+    import pyarrow.parquet as pq
+    endpoints = discover_lakehouse_endpoints()
+    ep = endpoints.get(lakehouse)
+    if not ep:
+        raise FileNotFoundError(f'Lakehouse {lakehouse} not found')
+    file_path = f'Files/{schema}/{table}.parquet'
+    token = get_fabric_token('https://storage.azure.com/.default')
+    adls_path = f'{ep["lakehouseId"]}/{file_path}'
+    url = (
+        f'https://onelake.dfs.fabric.microsoft.com/{ep["workspaceId"]}'
+        f'/{urllib.parse.quote(adls_path, safe="/")}'
+    )
+    req = urllib.request.Request(url, headers={
+        'Authorization': f'Bearer {token}',
+        'x-ms-version': '2021-06-08',
+    })
+    resp = urllib.request.urlopen(req, timeout=30)
+    buf = io.BytesIO(resp.read())
+    return pq.ParquetFile(buf)
+
+
 def sql_explorer_lakehouse_columns(lakehouse: str, schema: str, table: str) -> dict:
-    """Column metadata for a lakehouse table."""
+    """Column metadata for a lakehouse table. Falls back to reading parquet from OneLake."""
     s_sch = _sanitize_sql_str(schema)
     s_tbl = _sanitize_sql_str(table)
-    col_rows = query_lakehouse(lakehouse,
-        f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
-        f"CAST(CHARACTER_MAXIMUM_LENGTH AS VARCHAR) AS CHARACTER_MAXIMUM_LENGTH, "
-        f"CAST(NUMERIC_PRECISION AS VARCHAR) AS NUMERIC_PRECISION, "
-        f"CAST(NUMERIC_SCALE AS VARCHAR) AS NUMERIC_SCALE, "
-        f"CAST(ORDINAL_POSITION AS VARCHAR) AS ORDINAL_POSITION, "
-        f"COLUMN_DEFAULT, '0' AS IS_PK "
-        f"FROM INFORMATION_SCHEMA.COLUMNS "
-        f"WHERE TABLE_SCHEMA = '{s_sch}' AND TABLE_NAME = '{s_tbl}' "
-        f"ORDER BY ORDINAL_POSITION"
-    )
-    row_count = -1
+    col_rows = []
     try:
-        rc = query_lakehouse(lakehouse, f"SELECT COUNT(*) AS cnt FROM [{s_sch}].[{s_tbl}]")
-        if rc:
-            row_count = int(rc[0].get('cnt', -1))
-    except Exception:
-        pass
-    return {
-        'server': lakehouse, 'database': lakehouse, 'schema': schema, 'table': table,
-        'rowCount': row_count, 'columns': col_rows,
-    }
+        col_rows = query_lakehouse(lakehouse,
+            f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
+            f"CAST(CHARACTER_MAXIMUM_LENGTH AS VARCHAR) AS CHARACTER_MAXIMUM_LENGTH, "
+            f"CAST(NUMERIC_PRECISION AS VARCHAR) AS NUMERIC_PRECISION, "
+            f"CAST(NUMERIC_SCALE AS VARCHAR) AS NUMERIC_SCALE, "
+            f"CAST(ORDINAL_POSITION AS VARCHAR) AS ORDINAL_POSITION, "
+            f"COLUMN_DEFAULT, '0' AS IS_PK "
+            f"FROM INFORMATION_SCHEMA.COLUMNS "
+            f"WHERE TABLE_SCHEMA = '{s_sch}' AND TABLE_NAME = '{s_tbl}' "
+            f"ORDER BY ORDINAL_POSITION"
+        )
+    except Exception as e:
+        log.debug(f'Lakehouse SQL columns query failed for {lakehouse}/{schema}/{table}: {e}')
+    if col_rows:
+        row_count = -1
+        try:
+            rc = query_lakehouse(lakehouse, f"SELECT COUNT(*) AS cnt FROM [{s_sch}].[{s_tbl}]")
+            if rc:
+                row_count = int(rc[0].get('cnt', -1))
+        except Exception:
+            pass
+        return {
+            'server': lakehouse, 'database': lakehouse, 'schema': schema, 'table': table,
+            'rowCount': row_count, 'columns': col_rows,
+        }
+    # Fallback: read parquet file schema from OneLake
+    try:
+        pf = _read_onelake_parquet(lakehouse, schema, table)
+        arrow_schema = pf.schema_arrow
+        num_rows = pf.metadata.num_rows
+        cols = []
+        for i, field in enumerate(arrow_schema):
+            dtype = str(field.type)
+            cols.append({
+                'COLUMN_NAME': field.name,
+                'DATA_TYPE': dtype,
+                'IS_NULLABLE': 'YES' if field.nullable else 'NO',
+                'CHARACTER_MAXIMUM_LENGTH': None,
+                'NUMERIC_PRECISION': None,
+                'NUMERIC_SCALE': None,
+                'ORDINAL_POSITION': str(i + 1),
+                'COLUMN_DEFAULT': None,
+                'IS_PK': '0',
+            })
+        return {
+            'server': lakehouse, 'database': lakehouse, 'schema': schema, 'table': table,
+            'rowCount': num_rows, 'columns': cols,
+        }
+    except Exception as e:
+        log.warning(f'Parquet fallback failed for {lakehouse}/{schema}/{table}: {e}')
+        return {
+            'server': lakehouse, 'database': lakehouse, 'schema': schema, 'table': table,
+            'rowCount': -1, 'columns': [],
+        }
 
 
 def sql_explorer_lakehouse_preview(lakehouse: str, schema: str, table: str, limit: int = 500) -> dict:
-    """Preview data from a lakehouse table."""
+    """Preview data from a lakehouse table. Falls back to reading parquet from OneLake."""
     s_sch = _sanitize_sql_str(schema)
     s_tbl = _sanitize_sql_str(table)
     limit = min(max(1, limit), 1000)
-    rows = query_lakehouse(lakehouse,
-        f"SELECT TOP {limit} * FROM [{s_sch}].[{s_tbl}]"
-    )
-    col_names = list(rows[0].keys()) if rows else []
-    row_count = len(rows)
+    rows = []
     try:
-        rc = query_lakehouse(lakehouse, f"SELECT COUNT(*) AS cnt FROM [{s_sch}].[{s_tbl}]")
-        if rc:
-            row_count = int(rc[0].get('cnt', len(rows)))
-    except Exception:
-        pass
-    return {
-        'server': lakehouse, 'database': lakehouse, 'schema': schema, 'table': table,
-        'limit': limit, 'rowCount': row_count, 'columns': col_names, 'rows': rows,
-    }
+        rows = query_lakehouse(lakehouse,
+            f"SELECT TOP {limit} * FROM [{s_sch}].[{s_tbl}]"
+        )
+    except Exception as e:
+        log.debug(f'Lakehouse SQL preview query failed for {lakehouse}/{schema}/{table}: {e}')
+    if rows:
+        col_names = list(rows[0].keys()) if rows else []
+        row_count = len(rows)
+        try:
+            rc = query_lakehouse(lakehouse, f"SELECT COUNT(*) AS cnt FROM [{s_sch}].[{s_tbl}]")
+            if rc:
+                row_count = int(rc[0].get('cnt', len(rows)))
+        except Exception:
+            pass
+        return {
+            'server': lakehouse, 'database': lakehouse, 'schema': schema, 'table': table,
+            'limit': limit, 'rowCount': row_count, 'columns': col_names, 'rows': rows,
+        }
+    # Fallback: read parquet file from OneLake
+    try:
+        pf = _read_onelake_parquet(lakehouse, schema, table)
+        tbl = pf.read()
+        num_rows = tbl.num_rows
+        col_names = [f.name for f in tbl.schema]
+        # Convert to list of dicts, limited to requested rows
+        preview_tbl = tbl.slice(0, min(limit, num_rows))
+        rows_out = []
+        for i in range(preview_tbl.num_rows):
+            row = {}
+            for col_name in col_names:
+                val = preview_tbl.column(col_name)[i].as_py()
+                row[col_name] = str(val) if val is not None else None
+            rows_out.append(row)
+        return {
+            'server': lakehouse, 'database': lakehouse, 'schema': schema, 'table': table,
+            'limit': limit, 'rowCount': num_rows, 'columns': col_names, 'rows': rows_out,
+        }
+    except Exception as e:
+        log.warning(f'Parquet preview fallback failed for {lakehouse}/{schema}/{table}: {e}')
+        return {
+            'server': lakehouse, 'database': lakehouse, 'schema': schema, 'table': table,
+            'limit': limit, 'rowCount': 0, 'columns': [], 'rows': [],
+        }
 
 
 def get_pipeline_executions() -> list[dict]:
     try:
-        return query_sql(
+        rows = query_sql(
             'SELECT * FROM logging.PipelineExecution ORDER BY 1 DESC'
         )
+        if rows:
+            return rows
     except Exception as e:
         log.warning(f'PipelineExecution query failed (table may not exist yet): {e}')
+
+    # Fallback: derive from copy activity when notebook runs directly
+    try:
+        return query_sql(
+            'SELECT CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid, '
+            'CopyActivityName AS PipelineName, '
+            'EntityLayer, TriggerType, '
+            'LogType, LogDateTime, LogData, '
+            'CopyActivityParameters, EntityId '
+            'FROM logging.CopyActivityExecution '
+            'ORDER BY LogDateTime DESC'
+        )
+    except Exception:
         return []
 
 def get_copy_executions() -> list[dict]:
@@ -1255,7 +1554,11 @@ def get_notebook_executions() -> list[dict]:
 
 def get_live_monitor(minutes: int = 240) -> dict:
     """Real-time pipeline monitoring: pipeline runs, entity progress, notebook/copy activity.
-    minutes: how far back to look (default 240 = 4 hours). Pass 0 for all time."""
+    minutes: how far back to look (default 240 = 4 hours). Pass 0 for all time.
+
+    When the notebook runs directly (not via pipeline), PipelineExecution and
+    NotebookExecution tables are empty. In that case, we synthesize run events
+    from CopyActivityExecution so the dashboard still shows activity."""
     result = {}
     time_filter = f"WHERE LogDateTime > DATEADD(MINUTE, -{minutes}, GETUTCDATE())" if minutes > 0 else ""
 
@@ -1288,7 +1591,7 @@ def get_live_monitor(minutes: int = 240) -> dict:
     # 3. Recent copy activity (LZ loads)
     try:
         result['copyEvents'] = query_sql(f"""
-            SELECT TOP 100 CopyActivityName, CopyActivityParameters AS EntityName,
+            SELECT TOP 200 CopyActivityName, CopyActivityParameters AS EntityName,
                    LogType, LogDateTime, LogData, EntityId, EntityLayer,
                    CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid
             FROM [logging].[CopyActivityExecution]
@@ -1298,41 +1601,159 @@ def get_live_monitor(minutes: int = 240) -> dict:
     except Exception:
         result['copyEvents'] = []
 
-    # 4. Processing counts
+    # 3b. Synthesize pipeline/notebook events from copy activity when tables are empty.
+    # This ensures the dashboard shows activity when notebook runs directly.
+    if not result['pipelineEvents'] and result['copyEvents']:
+        try:
+            # Build two events per run: StartPipeline + optionally EndPipeline
+            run_rows = query_sql(f"""
+                SELECT
+                    CopyActivityName AS PipelineName,
+                    MIN(LogDateTime) AS StartTime,
+                    MAX(LogDateTime) AS LatestTime,
+                    COUNT(*) AS EventCount,
+                    SUM(CASE WHEN LogType = 'StartCopyActivity' THEN 1 ELSE 0 END) AS Starts,
+                    SUM(CASE WHEN LogType = 'EndCopyActivity' THEN 1 ELSE 0 END) AS Ends,
+                    SUM(CASE WHEN LogType = 'FailCopyActivity' THEN 1 ELSE 0 END) AS Fails,
+                    CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid
+                FROM [logging].[CopyActivityExecution]
+                {time_filter}
+                GROUP BY PipelineRunGuid, CopyActivityName
+                ORDER BY MIN(LogDateTime) DESC
+            """)
+            synth = []
+            for r in run_rows:
+                guid = r['PipelineRunGuid']
+                name = r['PipelineName']
+                starts = int(r.get('Starts', 0) or 0)
+                ends = int(r.get('Ends', 0) or 0)
+                fails = int(r.get('Fails', 0) or 0)
+                # Always emit a StartPipeline event
+                synth.append({
+                    'PipelineName': name,
+                    'LogType': 'StartPipeline',
+                    'LogDateTime': r['StartTime'],
+                    'LogData': None,
+                    'PipelineRunGuid': guid,
+                    'EntityLayer': 'Landingzone',
+                })
+                # If all started entities have finished, emit EndPipeline
+                if ends + fails > 0 and starts <= ends + fails:
+                    end_type = 'FailPipeline' if fails > 0 else 'EndPipeline'
+                    synth.append({
+                        'PipelineName': name,
+                        'LogType': end_type,
+                        'LogDateTime': r['LatestTime'],
+                        'LogData': json.dumps({'entities': ends + fails, 'failed': fails}),
+                        'PipelineRunGuid': guid,
+                        'EntityLayer': 'Landingzone',
+                    })
+            result['pipelineEvents'] = synth
+        except Exception:
+            pass
+
+    if not result['notebookEvents'] and result['copyEvents']:
+        try:
+            result['notebookEvents'] = query_sql(f"""
+                SELECT TOP 200
+                    CopyActivityName AS NotebookName,
+                    LogType, LogDateTime, LogData,
+                    CAST(EntityId AS VARCHAR(20)) AS EntityId,
+                    EntityLayer,
+                    CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid
+                FROM [logging].[CopyActivityExecution]
+                {time_filter}
+                ORDER BY LogDateTime DESC
+            """)
+        except Exception:
+            pass
+
+    # 4. Processing counts — pull actual layer counts from entity digest (source of truth)
+    #    Registered = integration tables (what's configured)
+    #    Loaded = entities that actually have data in that layer (from entity digest status)
     try:
         counts_rows = query_sql("""
             SELECT
                 (SELECT COUNT(*) FROM [integration].[LandingzoneEntity]) AS lzRegistered,
-                (SELECT COUNT(*) FROM [execution].[PipelineLandingzoneEntity]) AS lzPipelineTotal,
-                (SELECT COUNT(*) FROM [execution].[PipelineLandingzoneEntity] WHERE IsProcessed = 1) AS lzProcessed,
                 (SELECT COUNT(*) FROM [integration].[BronzeLayerEntity]) AS brzRegistered,
-                (SELECT COUNT(*) FROM [execution].[PipelineBronzeLayerEntity]) AS brzPipelineTotal,
-                (SELECT COUNT(*) FROM [execution].[PipelineBronzeLayerEntity] WHERE IsProcessed = 1) AS brzProcessed,
                 (SELECT COUNT(*) FROM [integration].[SilverLayerEntity]) AS slvRegistered,
                 (SELECT COUNT(*) FROM [execution].[vw_LoadToBronzeLayer]) AS brzViewPending,
                 (SELECT COUNT(*) FROM [execution].[vw_LoadToSilverLayer]) AS slvViewPending
         """)
         result['counts'] = counts_rows[0] if counts_rows else {}
-    except Exception:
+    except Exception as _ce:
+        log.warning(f'Live monitor counts query failed: {_ce}')
         result['counts'] = {}
 
-    # 5. Recently processed Bronze entities
+    # 4b. Actual loaded counts from entity digest (what really has data in each layer)
+    try:
+        digest = build_entity_digest()
+        lz_loaded = 0
+        brz_loaded = 0
+        slv_loaded = 0
+        for src in digest.get('sources', {}).values():
+            for ent in src.get('entities', []):
+                if ent.get('lzStatus') == 'loaded':
+                    lz_loaded += 1
+                if ent.get('bronzeStatus') == 'loaded':
+                    brz_loaded += 1
+                if ent.get('silverStatus') == 'loaded':
+                    slv_loaded += 1
+        result['counts']['lzPipelineTotal'] = result['counts'].get('lzRegistered', 0)
+        result['counts']['lzProcessed'] = lz_loaded
+        result['counts']['brzPipelineTotal'] = result['counts'].get('brzRegistered', 0)
+        result['counts']['brzProcessed'] = brz_loaded
+        result['counts']['slvPipelineTotal'] = result['counts'].get('slvRegistered', 0)
+        result['counts']['slvProcessed'] = slv_loaded
+    except Exception as _de:
+        log.warning(f'Live monitor digest counts failed: {_de}')
+        # Fallback to DISTINCT pipeline execution counts
+        try:
+            fallback = query_sql("""
+                SELECT
+                    (SELECT COUNT(DISTINCT LandingzoneEntityId) FROM [execution].[PipelineLandingzoneEntity] WHERE IsProcessed = 1) AS lzProcessed,
+                    (SELECT COUNT(DISTINCT BronzeLayerEntityId) FROM [execution].[PipelineBronzeLayerEntity] WHERE IsProcessed = 1) AS brzProcessed
+            """)
+            if fallback:
+                result['counts']['lzProcessed'] = fallback[0].get('lzProcessed', 0)
+                result['counts']['brzProcessed'] = fallback[0].get('brzProcessed', 0)
+        except Exception:
+            pass
+        result['counts'].setdefault('lzProcessed', 0)
+        result['counts'].setdefault('brzProcessed', 0)
+        result['counts'].setdefault('slvProcessed', 0)
+        result['counts'].setdefault('slvPipelineTotal', 0)
+
+    # 5. Recently processed Bronze entities (latest run per entity only)
     try:
         result['bronzeEntities'] = query_sql("""
             SELECT TOP 20 pbe.BronzeLayerEntityId, pbe.SchemaName, pbe.TableName,
                    pbe.InsertDateTime, pbe.IsProcessed, pbe.LoadEndDateTime
             FROM [execution].[PipelineBronzeLayerEntity] pbe
+            INNER JOIN (
+                SELECT BronzeLayerEntityId, MAX(InsertDateTime) AS MaxInsert
+                FROM [execution].[PipelineBronzeLayerEntity]
+                GROUP BY BronzeLayerEntityId
+            ) latest ON pbe.BronzeLayerEntityId = latest.BronzeLayerEntityId
+                    AND pbe.InsertDateTime = latest.MaxInsert
             ORDER BY pbe.InsertDateTime DESC
         """)
     except Exception:
         result['bronzeEntities'] = []
 
-    # 6. Recently processed LZ entities
+    # 6. Recently processed LZ entities (latest run per entity only)
     try:
         result['lzEntities'] = query_sql("""
             SELECT TOP 20 ple.LandingzoneEntityId, ple.FilePath, ple.FileName,
-                   ple.InsertDateTime, ple.IsProcessed, ple.LoadEndDateTime
+                   ple.InsertDateTime, ple.IsProcessed,
+                   COALESCE(ple.LoadEndDateTime, ple.InsertDateTime) AS LoadEndDateTime
             FROM [execution].[PipelineLandingzoneEntity] ple
+            INNER JOIN (
+                SELECT LandingzoneEntityId, MAX(InsertDateTime) AS MaxInsert
+                FROM [execution].[PipelineLandingzoneEntity]
+                GROUP BY LandingzoneEntityId
+            ) latest ON ple.LandingzoneEntityId = latest.LandingzoneEntityId
+                    AND ple.InsertDateTime = latest.MaxInsert
             ORDER BY ple.InsertDateTime DESC
         """)
     except Exception:
@@ -2278,6 +2699,97 @@ def get_error_intelligence() -> dict:
     except Exception as e:
         log.warning(f'Error intelligence - SQL logging query failed: {e}')
 
+    # Source 3: CopyActivityExecution / notebook audit errors
+    try:
+        nb_errors = query_sql(
+            "SELECT TOP 200 CopyActivityName, CopyActivityParameters, "
+            "EntityLayer, LogType, LogDateTime, LogData, EntityId, "
+            "CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid "
+            "FROM logging.CopyActivityExecution "
+            "WHERE LogData LIKE '%error%' OR LogData LIKE '%Error%' "
+            "   OR LogData LIKE '%fail%' OR LogData LIKE '%Fail%' "
+            "   OR LogType LIKE '%Error%' OR LogType LIKE '%Fail%' "
+            "ORDER BY LogDateTime DESC"
+        )
+        for nb in nb_errors:
+            raw = nb.get('LogData', '') or ''
+            if not raw:
+                continue
+            entity_name = nb.get('CopyActivityParameters', '') or ''
+            run_id = nb.get('PipelineRunGuid', '')
+            # Avoid duplicates
+            dup_key = f'nb-{run_id}-{entity_name}'
+            if any(e['id'] == dup_key for e in errors):
+                continue
+            ctx = _extract_error_context(raw)
+            errors.append({
+                'id': dup_key,
+                'source': 'notebook',
+                'pipelineName': nb.get('CopyActivityName', ''),
+                'workspaceName': '',
+                'startTime': str(nb.get('LogDateTime', '')),
+                'endTime': '',
+                'rawError': raw,
+                'category': _classify_error(raw),
+                'jobInstanceId': '',
+                'workspaceGuid': '',
+                'summary': ctx['summary'] or entity_name,
+                'entityName': ctx['entityName'] or entity_name,
+                'errorType': ctx['errorType'] or nb.get('EntityLayer', ''),
+            })
+    except Exception as e:
+        log.warning(f'Error intelligence - notebook audit query failed: {e}')
+
+    # Source 4: NotebookExecution (sp_AuditNotebook EndNotebookActivity errors)
+    try:
+        nb_exec_errors = query_sql(
+            "SELECT TOP 200 ne.NotebookExecutionId, ne.NotebookName, ne.EntityId, "
+            "ne.EntityLayer, ne.LogType, ne.LogDateTime, ne.LogData, "
+            "CONVERT(NVARCHAR(36), ne.PipelineRunGuid) AS PipelineRunGuid "
+            "FROM logging.NotebookExecution ne "
+            "WHERE (ne.LogData LIKE '%error%' OR ne.LogData LIKE '%Error%' "
+            "   OR ne.LogData LIKE '%fail%' OR ne.LogData LIKE '%Fail%' "
+            "   OR ne.LogType LIKE '%Error%' OR ne.LogType LIKE '%Fail%') "
+            "ORDER BY ne.LogDateTime DESC"
+        )
+        for nb in nb_exec_errors:
+            raw = nb.get('LogData', '') or ''
+            if not raw:
+                continue
+            run_id = nb.get('PipelineRunGuid', '')
+            entity_id = nb.get('EntityId', '')
+            layer = nb.get('EntityLayer', '') or ''
+            dup_key = f'nbexec-{run_id}-{entity_id}-{layer}'
+            if any(e['id'] == dup_key for e in errors):
+                continue
+            # Try to extract error details from LogData JSON
+            entity_name = ''
+            try:
+                ld = json.loads(raw) if isinstance(raw, str) else raw
+                entity_name = ld.get('CopyOutput', {}).get('TargetName', '') or ''
+                if ld.get('CopyOutput', {}).get('Error'):
+                    raw = ld['CopyOutput']['Error']
+            except Exception:
+                pass
+            ctx = _extract_error_context(raw)
+            errors.append({
+                'id': dup_key,
+                'source': 'notebook-execution',
+                'pipelineName': nb.get('NotebookName', ''),
+                'workspaceName': '',
+                'startTime': str(nb.get('LogDateTime', '')),
+                'endTime': '',
+                'rawError': raw,
+                'category': _classify_error(raw),
+                'jobInstanceId': '',
+                'workspaceGuid': '',
+                'summary': ctx['summary'] or entity_name or f'Entity {entity_id}',
+                'entityName': ctx['entityName'] or entity_name,
+                'errorType': ctx['errorType'] or layer,
+            })
+    except Exception as e:
+        log.warning(f'Error intelligence - NotebookExecution query failed: {e}')
+
     # Group by category for pattern analysis
     pattern_counts: dict[str, int] = {}
     for err in errors:
@@ -2698,18 +3210,22 @@ def get_entity_journey(lz_entity_id: int) -> dict:
         except Exception:
             return None
 
+    # Lakehouse tables are stored under the DataSource namespace (e.g. etq, mes, m3c),
+    # NOT the source SQL schema (dbo). Use namespace for lakehouse queries.
+    lakehouse_schema = lz.get('Namespace') or lz['SourceSchema']
+
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {}
         if bronze:
             futures['bronze_cols'] = pool.submit(
-                _get_columns_safe, bronze['LakehouseName'], bronze['Schema'], bronze['Name'])
+                _get_columns_safe, bronze['LakehouseName'], lakehouse_schema, bronze['Name'])
             futures['bronze_count'] = pool.submit(
-                _get_row_count_safe, bronze['LakehouseName'], bronze['Schema'], bronze['Name'])
+                _get_row_count_safe, bronze['LakehouseName'], lakehouse_schema, bronze['Name'])
         if silver:
             futures['silver_cols'] = pool.submit(
-                _get_columns_safe, silver['LakehouseName'], silver['Schema'], silver['Name'])
+                _get_columns_safe, silver['LakehouseName'], lakehouse_schema, silver['Name'])
             futures['silver_count'] = pool.submit(
-                _get_row_count_safe, silver['LakehouseName'], silver['Schema'], silver['Name'])
+                _get_row_count_safe, silver['LakehouseName'], lakehouse_schema, silver['Name'])
 
         if 'bronze_cols' in futures:
             bronze_columns = futures['bronze_cols'].result(timeout=30)
@@ -2755,7 +3271,7 @@ def get_entity_journey(lz_entity_id: int) -> dict:
     if bronze:
         result['bronze'] = {
             'entityId': int(bronze['BronzeLayerEntityId']),
-            'schema': bronze['Schema'],
+            'schema': lakehouse_schema,
             'name': bronze['Name'],
             'primaryKeys': bronze.get('PrimaryKeys'),
             'fileType': bronze.get('FileType', 'DELTA'),
@@ -2768,7 +3284,7 @@ def get_entity_journey(lz_entity_id: int) -> dict:
     if silver:
         result['silver'] = {
             'entityId': int(silver['SilverLayerEntityId']),
-            'schema': silver['Schema'],
+            'schema': lakehouse_schema,
             'name': silver['Name'],
             'fileType': silver.get('FileType', 'DELTA'),
             'lakehouse': silver['LakehouseName'],
@@ -2778,6 +3294,481 @@ def get_entity_journey(lz_entity_id: int) -> dict:
         }
 
     return result
+
+
+# ── Data Microscope ──────────────────────────────────────────────────────────
+
+# System columns added at each layer (used for diff detection)
+_BRONZE_SYSTEM_COLS = {'HashedPKColumn', 'HashedNonKeyColumns', 'RecordLoadDate'}
+_SILVER_SYSTEM_COLS = {'IsCurrent', 'RecordStartDate', 'RecordEndDate',
+                       'RecordModifiedDate', 'IsDeleted', 'Action'}
+
+
+def _compute_hashed_pk(pk_value: str) -> str:
+    """Compute HashedPKColumn exactly as the PySpark notebooks do:
+    sha2(concat_ws("||", pk_cols), 256).  For a single PK this is sha256(str(value))."""
+    # PySpark concat_ws("||", ...) treats NULLs as empty strings
+    pk_parts = [str(pk_value) if pk_value else ""]
+    hash_input = "||".join(pk_parts)
+    return hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
+
+
+def _build_transformations(source_cols: list[str] | None, bronze_cols: list[str] | None,
+                           silver_cols: list[str] | None,
+                           source_row: dict | None, bronze_row: dict | None,
+                           silver_row: dict | None,
+                           bronze_rules: list[dict], silver_rules: list[dict]) -> list[dict]:
+    """Build the transformation explanation array by comparing data across layers."""
+    steps: list[dict] = []
+    step_num = 1
+
+    # Step 1: Raw copy (always present)
+    steps.append({
+        'step': step_num, 'layer': 'landing', 'operation': 'raw_copy',
+        'description': 'Raw extraction from source SQL Server to Parquet in OneLake',
+        'impact': 'none',
+        'details': 'No data modifications — faithful byte-level copy via Fabric Copy Activity'
+    })
+    step_num += 1
+
+    # Step 2: Column name sanitization (compare source vs bronze column names)
+    renamed: list[str] = []
+    if source_cols and bronze_cols:
+        source_set = {c.replace(' ', '').replace('.', '').replace('-', ''): c for c in source_cols}
+        for bc in bronze_cols:
+            if bc in _BRONZE_SYSTEM_COLS:
+                continue
+            # Look for a source column that sanitizes to this bronze column
+            for sanitized, original in source_set.items():
+                if sanitized == bc and original != bc:
+                    renamed.append(f'{original} → {bc}')
+                    break
+    if renamed:
+        steps.append({
+            'step': step_num, 'layer': 'bronze', 'operation': 'column_sanitize',
+            'description': 'Column name sanitization (spaces, dots, dashes removed)',
+            'columns': renamed, 'impact': 'rename',
+            'details': f'{len(renamed)} column(s) renamed for Delta table compatibility'
+        })
+        step_num += 1
+
+    # Step 3: Bronze system columns added
+    added_bronze_sys = [c for c in (bronze_cols or []) if c in _BRONZE_SYSTEM_COLS]
+    if added_bronze_sys:
+        steps.append({
+            'step': step_num, 'layer': 'bronze', 'operation': 'system_columns',
+            'description': 'Bronze system columns added for change tracking',
+            'columns': added_bronze_sys, 'impact': 'add',
+            'details': 'HashedPKColumn = SHA-256 of PK values; HashedNonKeyColumns = SHA-256 of all other columns; RecordLoadDate = UTC timestamp of Bronze load'
+        })
+        step_num += 1
+
+    # Step 4: Bronze cleansing rules
+    if bronze_rules:
+        for rule in bronze_rules:
+            rule_desc = rule.get('RuleName', rule.get('CleansingRuleName', 'Unknown rule'))
+            rule_col = rule.get('ColumnName', '')
+            steps.append({
+                'step': step_num, 'layer': 'bronze', 'operation': 'cleansing_rule',
+                'description': f'Bronze cleansing: {rule_desc}',
+                'columns': [rule_col] if rule_col else [],
+                'impact': 'transform',
+                'details': rule.get('Description', rule.get('RuleExpression', ''))
+            })
+            step_num += 1
+
+    # Step 5: Silver SCD2 system columns
+    added_silver_sys = [c for c in (silver_cols or []) if c in _SILVER_SYSTEM_COLS]
+    if added_silver_sys:
+        steps.append({
+            'step': step_num, 'layer': 'silver', 'operation': 'scd2_columns',
+            'description': 'Silver SCD Type 2 history tracking columns',
+            'columns': added_silver_sys, 'impact': 'add',
+            'details': 'IsCurrent = active version flag; RecordStartDate/RecordEndDate = version validity window; IsDeleted = soft-delete marker; Action = Insert/Update/Delete'
+        })
+        step_num += 1
+
+    # Step 6: Silver cleansing rules
+    if silver_rules:
+        for rule in silver_rules:
+            rule_desc = rule.get('RuleName', rule.get('CleansingRuleName', 'Unknown rule'))
+            rule_col = rule.get('ColumnName', '')
+            steps.append({
+                'step': step_num, 'layer': 'silver', 'operation': 'cleansing_rule',
+                'description': f'Silver cleansing: {rule_desc}',
+                'columns': [rule_col] if rule_col else [],
+                'impact': 'transform',
+                'details': rule.get('Description', rule.get('RuleExpression', ''))
+            })
+            step_num += 1
+
+    # Step 7: Value changes (compare actual data if available)
+    if source_row and bronze_row:
+        changed_cols: list[str] = []
+        for col in source_row:
+            sanitized = col.replace(' ', '').replace('.', '').replace('-', '')
+            if sanitized in bronze_row and str(source_row[col]) != str(bronze_row.get(sanitized)):
+                changed_cols.append(col)
+        if changed_cols:
+            steps.append({
+                'step': step_num, 'layer': 'bronze', 'operation': 'value_change',
+                'description': f'Values differ between Source and Bronze for {len(changed_cols)} column(s)',
+                'columns': changed_cols, 'impact': 'transform',
+                'details': 'May be due to type casting, encoding, or cleansing rules'
+            })
+            step_num += 1
+
+    return steps
+
+
+def get_microscope_data(lz_entity_id: int, pk_value: str) -> dict:
+    """Cross-layer row inspection for Data Microscope.
+    Given a LandingzoneEntityId and PK value, returns row data from Source, Bronze, Silver
+    plus cleansing rules and transformation explanations."""
+
+    # ── 1. Entity metadata (reuse entity_journey pattern) ──
+    lz_rows = _execute_parameterized(
+        "SELECT le.LandingzoneEntityId, le.SourceSchema, le.SourceName, "
+        "le.FileName, le.FilePath, le.FileType, le.IsIncremental, "
+        "le.IsIncrementalColumn, le.IsActive, "
+        "ds.Name AS DataSourceName, ds.Namespace, ds.Type AS DataSourceType, "
+        "c.Name AS ConnectionName, c.Type AS ConnectionType, "
+        "c.ConnectionGuid, "
+        "lh.Name AS LakehouseName "
+        "FROM integration.LandingzoneEntity le "
+        "JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId "
+        "JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId "
+        "JOIN integration.Lakehouse lh ON le.LakehouseId = lh.LakehouseId "
+        "WHERE le.LandingzoneEntityId = ?",
+        (lz_entity_id,)
+    )
+    if not lz_rows:
+        return {'error': f'Entity {lz_entity_id} not found'}
+    lz = lz_rows[0]
+
+    # ── 2. Bronze entity ──
+    bronze_rows = _execute_parameterized(
+        "SELECT be.BronzeLayerEntityId, be.[Schema], be.Name, "
+        "be.PrimaryKeys, be.FileType, be.IsActive, "
+        "lh.Name AS LakehouseName "
+        "FROM integration.BronzeLayerEntity be "
+        "JOIN integration.Lakehouse lh ON be.LakehouseId = lh.LakehouseId "
+        "WHERE be.LandingzoneEntityId = ?",
+        (lz_entity_id,)
+    )
+    bronze = bronze_rows[0] if bronze_rows else None
+    bronze_id = int(bronze['BronzeLayerEntityId']) if bronze else None
+
+    # ── 3. Silver entity ──
+    silver = None
+    silver_id = None
+    if bronze_id:
+        silver_rows = _execute_parameterized(
+            "SELECT se.SilverLayerEntityId, se.[Schema], se.Name, "
+            "se.FileType, se.IsActive, "
+            "lh.Name AS LakehouseName "
+            "FROM integration.SilverLayerEntity se "
+            "JOIN integration.Lakehouse lh ON se.LakehouseId = lh.LakehouseId "
+            "WHERE se.BronzeLayerEntityId = ?",
+            (bronze_id,)
+        )
+        silver = silver_rows[0] if silver_rows else None
+        silver_id = int(silver['SilverLayerEntityId']) if silver else None
+
+    # Determine PK columns
+    pk_columns_str = bronze.get('PrimaryKeys', '') if bronze else ''
+    pk_columns = [c.strip() for c in pk_columns_str.split(',') if c.strip()] if pk_columns_str else []
+
+    # If no PK value provided, return entity info only (no row data)
+    if not pk_value:
+        return {
+            'entityId': lz_entity_id,
+            'entityName': lz['SourceName'],
+            'primaryKeys': pk_columns,
+            'pkValue': '',
+            'source': {
+                'available': False,
+                'server': None,
+                'database': None,
+                'row': None
+            },
+            'landing': {
+                'available': True,
+                'note': 'Identical to source (raw Parquet copy)',
+                'row': None
+            },
+            'bronze': {
+                'available': bool(bronze),
+                'lakehouse': bronze['LakehouseName'] if bronze else None,
+                'row': None
+            },
+            'silver': {
+                'available': bool(silver),
+                'lakehouse': silver['LakehouseName'] if silver else None,
+                'versions': [],
+                'currentVersion': 0
+            },
+            'cleansingRules': {'bronze': [], 'silver': []},
+            'transformations': []
+        }
+
+    # ── 4. Compute hashed PK ──
+    hashed_pk = _compute_hashed_pk(pk_value)
+
+    # ── 5. Parallel data fetches ──
+    source_row = None
+    source_available = False
+    source_columns: list[str] = []
+    bronze_row_data = None
+    bronze_columns: list[str] = []
+    silver_versions: list[dict] = []
+    silver_columns: list[str] = []
+    bronze_rules_data: list[dict] = []
+    silver_rules_data: list[dict] = []
+
+    namespace = lz.get('Namespace', '')
+
+    def _fetch_source():
+        nonlocal source_row, source_available, source_columns
+        try:
+            # Resolve server/database from gateway connection
+            gw_conns = get_gateway_connections()
+            conn_guid = lz.get('ConnectionGuid', '')
+            gw_match = [g for g in gw_conns if g['id'].lower() == conn_guid.lower()]
+            if not gw_match:
+                source_available = False
+                return
+            server = gw_match[0]['server']
+            database = gw_match[0]['database']
+
+            source_conn = _connect_source_sql(server, database)
+            try:
+                cursor = source_conn.cursor()
+                src_schema = lz['SourceSchema']
+                src_table = lz['SourceName']
+                # Discover the actual PK column name from the source
+                pk_col = pk_columns[0] if pk_columns else None
+                if not pk_col:
+                    source_available = True
+                    return
+                cursor.execute(
+                    f"SELECT TOP 1 * FROM [{src_schema}].[{src_table}] "
+                    f"WHERE [{pk_col}] = ?",
+                    (pk_value,)
+                )
+                if cursor.description:
+                    cols = [c[0] for c in cursor.description]
+                    source_columns = cols
+                    row = cursor.fetchone()
+                    if row:
+                        source_row = {c: (str(v) if v is not None else None) for c, v in zip(cols, row)}
+                source_available = True
+            finally:
+                source_conn.close()
+        except Exception as e:
+            log.warning(f'Microscope: Source query failed: {e}')
+            source_available = False
+
+    def _fetch_bronze():
+        nonlocal bronze_row_data, bronze_columns
+        if not bronze:
+            return
+        try:
+            s_name = _sanitize_sql_str(bronze['Name'])
+            s_ns = _sanitize_sql_str(namespace) if namespace else _sanitize_sql_str(bronze['Schema'])
+            # Lakehouse tables: [{namespace}].[{tablename}] — no schema prefix on table name
+            cols_data = get_lakehouse_columns(bronze['LakehouseName'], s_ns, s_name)
+            bronze_columns = [c['COLUMN_NAME'] for c in cols_data]
+            # Try by HashedPKColumn first
+            rows = query_lakehouse(bronze['LakehouseName'],
+                f"SELECT TOP 1 * FROM [{s_ns}].[{s_name}] "
+                f"WHERE HashedPKColumn = '{_sanitize_sql_str(hashed_pk)}'")
+            if not rows and pk_columns:
+                # Fallback: try by raw PK column
+                pk_col = _sanitize_sql_str(pk_columns[0])
+                pk_val = _sanitize_sql_str(pk_value)
+                rows = query_lakehouse(bronze['LakehouseName'],
+                    f"SELECT TOP 1 * FROM [{s_ns}].[{s_name}] "
+                    f"WHERE [{pk_col}] = '{pk_val}'")
+            bronze_row_data = rows[0] if rows else None
+        except Exception as e:
+            log.warning(f'Microscope: Bronze query failed: {e}')
+
+    def _fetch_silver():
+        nonlocal silver_versions, silver_columns
+        if not silver:
+            return
+        try:
+            s_name = _sanitize_sql_str(silver['Name'])
+            s_ns = _sanitize_sql_str(namespace) if namespace else _sanitize_sql_str(silver['Schema'])
+            # Lakehouse tables: [{namespace}].[{tablename}] — no schema prefix on table name
+            cols_data = get_lakehouse_columns(silver['LakehouseName'], s_ns, s_name)
+            silver_columns = [c['COLUMN_NAME'] for c in cols_data]
+            # Get all SCD2 versions
+            rows = query_lakehouse(silver['LakehouseName'],
+                f"SELECT * FROM [{s_ns}].[{s_name}] "
+                f"WHERE HashedPKColumn = '{_sanitize_sql_str(hashed_pk)}' "
+                f"ORDER BY RecordStartDate DESC")
+            if not rows and pk_columns:
+                pk_col = _sanitize_sql_str(pk_columns[0])
+                pk_val = _sanitize_sql_str(pk_value)
+                rows = query_lakehouse(silver['LakehouseName'],
+                    f"SELECT * FROM [{s_ns}].[{s_name}] "
+                    f"WHERE [{pk_col}] = '{pk_val}' "
+                    f"ORDER BY RecordStartDate DESC")
+            silver_versions = rows
+        except Exception as e:
+            log.warning(f'Microscope: Silver query failed: {e}')
+
+    def _fetch_bronze_rules():
+        nonlocal bronze_rules_data
+        if not bronze_id:
+            return
+        try:
+            bronze_rules_data = query_sql(
+                f"EXEC [execution].[sp_GetBronzeCleansingRule] @BronzeLayerEntityId = {int(bronze_id)}")
+        except Exception as e:
+            log.warning(f'Microscope: Bronze rules query failed: {e}')
+
+    def _fetch_silver_rules():
+        nonlocal silver_rules_data
+        if not silver_id:
+            return
+        try:
+            silver_rules_data = query_sql(
+                f"EXEC [execution].[sp_GetSilverCleansingRule] @SilverLayerEntityId = {int(silver_id)}")
+        except Exception as e:
+            log.warning(f'Microscope: Silver rules query failed: {e}')
+
+    # Run all fetches in parallel
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = [
+            pool.submit(_fetch_source),
+            pool.submit(_fetch_bronze),
+            pool.submit(_fetch_silver),
+            pool.submit(_fetch_bronze_rules),
+            pool.submit(_fetch_silver_rules),
+        ]
+        for f in futures:
+            try:
+                f.result(timeout=30)
+            except Exception as e:
+                log.warning(f'Microscope: parallel fetch error: {e}')
+
+    # ── 6. Resolve source server/database for response ──
+    source_server = None
+    source_database = None
+    try:
+        gw_conns = get_gateway_connections()
+        conn_guid = lz.get('ConnectionGuid', '')
+        gw_match = [g for g in gw_conns if g['id'].lower() == conn_guid.lower()]
+        if gw_match:
+            source_server = gw_match[0]['server']
+            source_database = gw_match[0]['database']
+    except Exception:
+        pass
+
+    # ── 7. Build transformations ──
+    transformations = _build_transformations(
+        source_columns or None,
+        bronze_columns or None,
+        silver_columns or None,
+        source_row, bronze_row_data,
+        silver_versions[0] if silver_versions else None,
+        bronze_rules_data, silver_rules_data
+    )
+
+    # ── 8. Assemble response ──
+    return {
+        'entityId': lz_entity_id,
+        'entityName': lz['SourceName'],
+        'primaryKeys': pk_columns,
+        'pkValue': pk_value,
+        'source': {
+            'available': source_available,
+            'server': source_server,
+            'database': source_database,
+            'row': source_row
+        },
+        'landing': {
+            'available': True,
+            'note': 'Identical to source (raw Parquet copy)',
+            'row': None  # LZ is always same as source
+        },
+        'bronze': {
+            'available': bronze_row_data is not None,
+            'lakehouse': bronze['LakehouseName'] if bronze else None,
+            'row': bronze_row_data
+        },
+        'silver': {
+            'available': len(silver_versions) > 0,
+            'lakehouse': silver['LakehouseName'] if silver else None,
+            'versions': silver_versions,
+            'currentVersion': 0
+        },
+        'cleansingRules': {
+            'bronze': bronze_rules_data,
+            'silver': silver_rules_data
+        },
+        'transformations': transformations
+    }
+
+
+def get_microscope_pks(lz_entity_id: int, search_query: str, limit: int = 20) -> dict:
+    """Return matching PK values for autocomplete in the Data Microscope."""
+    # Get entity metadata
+    bronze_rows = _execute_parameterized(
+        "SELECT be.BronzeLayerEntityId, be.[Schema], be.Name, "
+        "be.PrimaryKeys, "
+        "lh.Name AS LakehouseName "
+        "FROM integration.BronzeLayerEntity be "
+        "JOIN integration.Lakehouse lh ON be.LakehouseId = lh.LakehouseId "
+        "WHERE be.LandingzoneEntityId = ?",
+        (lz_entity_id,)
+    )
+    if not bronze_rows:
+        return {'values': [], 'error': 'Bronze entity not found'}
+    bronze = bronze_rows[0]
+
+    # Get namespace from LZ entity
+    lz_rows = _execute_parameterized(
+        "SELECT ds.Namespace FROM integration.LandingzoneEntity le "
+        "JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId "
+        "WHERE le.LandingzoneEntityId = ?",
+        (lz_entity_id,)
+    )
+    namespace = lz_rows[0]['Namespace'] if lz_rows else ''
+
+    pk_str = bronze.get('PrimaryKeys', '')
+    pk_cols = [c.strip() for c in pk_str.split(',') if c.strip()] if pk_str else []
+    if not pk_cols:
+        return {'values': [], 'error': 'No primary key columns defined'}
+
+    pk_col = pk_cols[0]  # Use first PK column for autocomplete
+    s_name = _sanitize_sql_str(bronze['Name'])
+    s_ns = _sanitize_sql_str(namespace) if namespace else _sanitize_sql_str(bronze['Schema'])
+    s_pk = _sanitize_sql_str(pk_col)
+    s_search = _sanitize_sql_str(search_query)
+    limit = min(limit, 100)
+
+    try:
+        if search_query:
+            rows = query_lakehouse(bronze['LakehouseName'],
+                f"SELECT DISTINCT TOP {limit} [{s_pk}] "
+                f"FROM [{s_ns}].[{s_name}] "
+                f"WHERE CAST([{s_pk}] AS NVARCHAR(200)) LIKE '%{s_search}%' "
+                f"ORDER BY [{s_pk}]")
+        else:
+            rows = query_lakehouse(bronze['LakehouseName'],
+                f"SELECT DISTINCT TOP {limit} [{s_pk}] "
+                f"FROM [{s_ns}].[{s_name}] "
+                f"ORDER BY [{s_pk}]")
+
+        values = [row[pk_col] for row in rows if pk_col in row]
+        return {'values': values, 'pkColumn': pk_col}
+    except Exception as e:
+        log.warning(f'Microscope PK search failed: {e}')
+        return {'values': [], 'error': str(e)}
 
 
 def _delete_onelake_path(workspace_id: str, lakehouse_id: str, path: str) -> bool:
@@ -2858,17 +3849,24 @@ def sql_explorer_lakehouse_files(lakehouse: str) -> list[dict]:
 
 
 def sql_explorer_lakehouse_file_tables(lakehouse: str, namespace: str) -> list[dict]:
-    """List table folders under a lakehouse namespace (e.g., Files/m3/dbo_SomeTable)."""
+    """List tables under a lakehouse namespace.
+
+    Supports both flat format (Files/{ns}/{Table}.parquet) and legacy
+    subfolder format (Files/{ns}/{Table}/{Table}.parquet).
+    """
     endpoints = discover_lakehouse_endpoints()
     ep = endpoints.get(lakehouse)
     if not ep:
         return []
     try:
         entries = _list_onelake_directory(ep['workspaceId'], ep['lakehouseId'], f'Files/{namespace}')
+        log.info(f'OneLake {lakehouse}/Files/{namespace}: {len(entries)} entries')
+        if len(entries) == 0:
+            log.warning(f'  Zero entries for {lakehouse}/Files/{namespace} — directory may be empty or implicit')
         results = []
         for e in entries:
             if e['isDirectory']:
-                # Try to count files inside + total size
+                # Legacy subfolder format — count files inside
                 try:
                     children = _list_onelake_directory(
                         ep['workspaceId'], ep['lakehouseId'], e['fullPath']
@@ -2881,6 +3879,19 @@ def sql_explorer_lakehouse_file_tables(lakehouse: str, namespace: str) -> list[d
                 e['fileCount'] = file_count
                 e['totalSize'] = total_size
                 results.append(e)
+            elif e['name'].endswith('.parquet'):
+                # Flat format — parquet file directly under namespace
+                table_name = e['name'].replace('.parquet', '')
+                results.append({
+                    'name': table_name,
+                    'fullPath': e['fullPath'],
+                    'isDirectory': False,
+                    'contentLength': e['contentLength'],
+                    'lastModified': e['lastModified'],
+                    'fileCount': 1,
+                    'totalSize': e['contentLength'],
+                    'isFlat': True,
+                })
         return results
     except urllib.error.HTTPError as e:
         log.warning(f'OneLake list namespace failed for {lakehouse}/{namespace}: {e.code}')
@@ -3383,100 +4394,146 @@ def get_control_plane() -> dict:
 
 
 def _get_control_plane_live() -> dict:
-    """Live SQL-backed control plane data. Runs all queries in parallel for speed."""
+    """Control plane data from local SQLite (primary) with Fabric SQL fallback."""
     now_utc = datetime.utcnow().isoformat() + 'Z'
     t_start = time.time()
 
-    # Define all queries upfront
-    queries = {
-        'connections': 'SELECT ConnectionId, Name, Type, IsActive FROM integration.Connection ORDER BY Name',
-        'datasources': (
-            'SELECT ds.DataSourceId, ds.Name, ds.Namespace, ds.Type, ds.Description, '
-            'ds.IsActive, c.Name AS ConnectionName '
-            'FROM integration.DataSource ds '
-            'JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId '
-            'ORDER BY ds.Namespace, ds.Name'
-        ),
-        'lz_entities': (
-            'SELECT le.LandingzoneEntityId, le.SourceSchema, le.SourceName, le.IsActive, '
-            'le.IsIncremental, ds.Name AS DataSourceName, ds.Namespace '
-            'FROM integration.LandingzoneEntity le '
-            'JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId '
-            'ORDER BY ds.Namespace, le.SourceName'
-        ),
-        # Bronze + Silver: join back to LZ → DataSource to get Namespace for per-source counting
-        'bronze_entities': (
-            'SELECT be.BronzeLayerEntityId, be.[Schema], be.Name, be.IsActive, ds.Namespace '
-            'FROM integration.BronzeLayerEntity be '
-            'JOIN integration.LandingzoneEntity le ON be.LandingzoneEntityId = le.LandingzoneEntityId '
-            'JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId '
-            'ORDER BY be.Name'
-        ),
-        'silver_entities': (
-            'SELECT se.SilverLayerEntityId, se.[Schema], se.Name, se.IsActive, ds.Namespace '
-            'FROM integration.SilverLayerEntity se '
-            'JOIN integration.BronzeLayerEntity be ON se.BronzeLayerEntityId = be.BronzeLayerEntityId '
-            'JOIN integration.LandingzoneEntity le ON be.LandingzoneEntityId = le.LandingzoneEntityId '
-            'JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId '
-            'ORDER BY se.Name'
-        ),
-        'lakehouses': 'SELECT LakehouseId, Name FROM integration.Lakehouse ORDER BY Name',
-        'workspaces': 'SELECT WorkspaceId, Name FROM integration.Workspace ORDER BY Name',
-        'pipelines': 'SELECT PipelineId, Name, IsActive FROM integration.Pipeline ORDER BY Name',
-        # Pipeline runs: group by RunGuid to get distinct runs with start/end/status
-        'pipeline_runs': (
-            'SELECT PipelineRunGuid, PipelineName, EntityLayer, TriggerType, '
-            'MIN(CASE WHEN LogType LIKE \'Start%\' THEN LogDateTime END) AS StartTime, '
-            'MAX(CASE WHEN LogType LIKE \'End%\' THEN LogDateTime END) AS EndTime, '
-            'MAX(CASE WHEN LogType LIKE \'End%\' THEN LogData END) AS EndLogData, '
-            'MAX(CASE WHEN LogType LIKE \'Error%\' OR LogType = \'PipelineError\' THEN LogData END) AS ErrorData, '
-            'COUNT(*) AS LogCount '
-            'FROM logging.PipelineExecution '
-            'GROUP BY PipelineRunGuid, PipelineName, EntityLayer, TriggerType '
-            'ORDER BY MIN(LogDateTime) DESC'
-        ),
-    }
+    # Try local SQLite first (instant, no sync lag)
+    _from_local = False
+    try:
+        connections = cpdb.get_connections()
+        datasources = cpdb.get_datasources()
+        lz_entities = cpdb.get_lz_entities()
+        bronze_entities = cpdb.get_bronze_entities()
+        silver_entities = cpdb.get_silver_entities()
+        lakehouses = cpdb.get_lakehouses()
+        workspaces = cpdb.get_workspaces()
+        pipelines = cpdb.get_pipelines()
+        pipeline_runs_raw = cpdb.get_pipeline_runs_grouped()
+        # Only trust local if it has entity data (i.e. has been seeded)
+        if lz_entities:
+            _from_local = True
+            log.info(f'Control plane: local SQLite in {time.time() - t_start:.3f}s')
+    except Exception as exc:
+        log.warning(f'Local control plane DB read failed: {exc}')
+        _from_local = False
 
-    # Run all queries in parallel (each gets its own connection)
-    results = {}
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        futures = {key: pool.submit(query_sql, sql) for key, sql in queries.items()}
-        for key, future in futures.items():
-            try:
-                results[key] = future.result(timeout=30)
-            except Exception:
-                results[key] = []
+    # Fallback to Fabric SQL if local is empty or failed
+    if not _from_local:
+        queries = {
+            'connections': 'SELECT ConnectionId, Name, Type, IsActive FROM integration.Connection ORDER BY Name',
+            'datasources': (
+                'SELECT ds.DataSourceId, ds.Name, ds.Namespace, ds.Type, ds.Description, '
+                'ds.IsActive, c.Name AS ConnectionName '
+                'FROM integration.DataSource ds '
+                'JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId '
+                'ORDER BY ds.Namespace, ds.Name'
+            ),
+            'lz_entities': (
+                'SELECT le.LandingzoneEntityId, le.SourceSchema, le.SourceName, le.IsActive, '
+                'le.IsIncremental, ds.Name AS DataSourceName, ds.Namespace '
+                'FROM integration.LandingzoneEntity le '
+                'JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId '
+                'ORDER BY ds.Namespace, le.SourceName'
+            ),
+            'bronze_entities': (
+                'SELECT be.BronzeLayerEntityId, be.[Schema], be.Name, be.IsActive, ds.Namespace '
+                'FROM integration.BronzeLayerEntity be '
+                'JOIN integration.LandingzoneEntity le ON be.LandingzoneEntityId = le.LandingzoneEntityId '
+                'JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId '
+                'ORDER BY be.Name'
+            ),
+            'silver_entities': (
+                'SELECT se.SilverLayerEntityId, se.[Schema], se.Name, se.IsActive, ds.Namespace '
+                'FROM integration.SilverLayerEntity se '
+                'JOIN integration.BronzeLayerEntity be ON se.BronzeLayerEntityId = be.BronzeLayerEntityId '
+                'JOIN integration.LandingzoneEntity le ON be.LandingzoneEntityId = le.LandingzoneEntityId '
+                'JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId '
+                'ORDER BY se.Name'
+            ),
+            'lakehouses': 'SELECT LakehouseId, Name FROM integration.Lakehouse ORDER BY Name',
+            'workspaces': 'SELECT WorkspaceId, Name FROM integration.Workspace ORDER BY Name',
+            'pipelines': 'SELECT PipelineId, Name, IsActive FROM integration.Pipeline ORDER BY Name',
+            'pipeline_runs': (
+                'SELECT PipelineRunGuid, PipelineName, EntityLayer, TriggerType, '
+                'MIN(CASE WHEN LogType LIKE \'Start%\' THEN LogDateTime END) AS StartTime, '
+                'MAX(CASE WHEN LogType LIKE \'End%\' THEN LogDateTime END) AS EndTime, '
+                'MAX(CASE WHEN LogType LIKE \'End%\' THEN LogData END) AS EndLogData, '
+                'MAX(CASE WHEN LogType LIKE \'Error%\' OR LogType = \'PipelineError\' THEN LogData END) AS ErrorData, '
+                'COUNT(*) AS LogCount '
+                'FROM logging.PipelineExecution '
+                'GROUP BY PipelineRunGuid, PipelineName, EntityLayer, TriggerType '
+                'ORDER BY MIN(LogDateTime) DESC'
+            ),
+        }
+        results = {}
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = {key: pool.submit(query_sql, sql) for key, sql in queries.items()}
+            for key, future in futures.items():
+                try:
+                    results[key] = future.result(timeout=30)
+                except Exception:
+                    results[key] = []
 
-    connections = results['connections']
-    datasources = results['datasources']
-    lz_entities = results['lz_entities']
-    bronze_entities = results['bronze_entities']
-    silver_entities = results['silver_entities']
-    lakehouses = results['lakehouses']
-    workspaces = results['workspaces']
-    pipelines = results['pipelines']
-    pipeline_runs_raw = results['pipeline_runs']
+        connections = results['connections']
+        datasources = results['datasources']
+        lz_entities = results['lz_entities']
+        bronze_entities = results['bronze_entities']
+        silver_entities = results['silver_entities']
+        lakehouses = results['lakehouses']
+        workspaces = results['workspaces']
+        pipelines = results['pipelines']
+        pipeline_runs_raw = results['pipeline_runs']
 
-    log.info(f'Control plane: 9 queries in {time.time() - t_start:.1f}s (parallel)')
+        log.info(f'Control plane: Fabric SQL fallback in {time.time() - t_start:.1f}s')
+
+    # -- Fallback: derive runs from copy activity when PipelineExecution is empty --
+    if not pipeline_runs_raw:
+        try:
+            pipeline_runs_raw = query_sql(
+                'SELECT CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid, '
+                'CopyActivityName AS PipelineName, '
+                'EntityLayer, TriggerType, '
+                'MIN(LogDateTime) AS StartTime, '
+                'MAX(LogDateTime) AS LatestTime, '
+                'SUM(CASE WHEN LogType = \'StartCopyActivity\' THEN 1 ELSE 0 END) AS Starts, '
+                'SUM(CASE WHEN LogType = \'EndCopyActivity\' THEN 1 ELSE 0 END) AS Ends, '
+                'SUM(CASE WHEN LogType = \'FailCopyActivity\' THEN 1 ELSE 0 END) AS Fails, '
+                'COUNT(*) AS LogCount '
+                'FROM logging.CopyActivityExecution '
+                'GROUP BY PipelineRunGuid, CopyActivityName, EntityLayer, TriggerType '
+                'ORDER BY MIN(LogDateTime) DESC'
+            )
+        except Exception:
+            pipeline_runs_raw = []
 
     # -- Derive pipeline run statuses from log events --
     pipeline_runs = []
     for run in pipeline_runs_raw:
         start_time = run.get('StartTime')
-        end_time = run.get('EndTime')
-        error_data = run.get('ErrorData') or ''
-        end_data = run.get('EndLogData') or ''
-        # Derive status from log events
-        if error_data:
+        starts = int(run.get('Starts') or 0)
+        ends = int(run.get('Ends') or 0)
+        fails = int(run.get('Fails') or 0)
+        finished = ends + fails
+        # Derive status: still running if more starts than finishes
+        if starts > finished:
+            status = 'InProgress'
+            end_time = None
+        elif fails > 0 and ends == 0:
             status = 'Failed'
-        elif end_time and ('Error' in end_data or 'Fail' in end_data):
-            status = 'Failed'
-        elif end_time:
+            end_time = run.get('LatestTime')
+        elif fails > 0:
+            status = 'Succeeded'  # completed with some failures
+            end_time = run.get('LatestTime')
+        elif ends > 0:
             status = 'Succeeded'
+            end_time = run.get('LatestTime')
         elif start_time:
             status = 'InProgress'
+            end_time = None
         else:
             status = 'Unknown'
+            end_time = None
         # Calculate duration
         duration = None
         if start_time and end_time:
@@ -3643,6 +4700,494 @@ def _get_control_plane_live() -> dict:
     # Persist snapshot for failsafe
     _save_control_plane_snapshot(result)
     return result
+
+
+def get_load_progress() -> dict:
+    """Real-time load progress derived from base tables (no views required).
+
+    Field names match the frontend TypeScript interfaces:
+      OverallProgress, SourceProgress, RecentActivity, LoadedEntity, PendingBySource
+    """
+    try:
+        # Overall progress — includes PendingEntities, RunStarted, LastActivity, ElapsedSeconds
+        overall = query_sql(
+            "SELECT "
+            "  COUNT(*) AS TotalEntities, "
+            "  SUM(CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 1 ELSE 0 END) AS LoadedEntities, "
+            "  SUM(CASE WHEN ple.LandingzoneEntityId IS NULL THEN 1 ELSE 0 END) AS PendingEntities, "
+            "  CASE WHEN COUNT(*) > 0 "
+            "    THEN ROUND(CAST(SUM(CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 1 ELSE 0 END) AS FLOAT) "
+            "         / COUNT(*) * 100, 1) ELSE 0 END AS PctComplete, "
+            "  (SELECT MIN(ca2.LogDateTime) FROM logging.CopyActivityExecution ca2) AS RunStarted, "
+            "  (SELECT MAX(ca3.LogDateTime) FROM logging.CopyActivityExecution ca3) AS LastActivity, "
+            "  DATEDIFF(SECOND, "
+            "    (SELECT MIN(ca4.LogDateTime) FROM logging.CopyActivityExecution ca4), "
+            "    (SELECT MAX(ca5.LogDateTime) FROM logging.CopyActivityExecution ca5) "
+            "  ) AS ElapsedSeconds "
+            "FROM integration.LandingzoneEntity le "
+            "LEFT JOIN ( "
+            "  SELECT DISTINCT LandingzoneEntityId FROM execution.PipelineLandingzoneEntity "
+            ") ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId "
+            "WHERE le.IsActive = 1"
+        )
+
+        # Progress by source — field names: Source, TotalEntities, LoadedCount, PendingCount, PctComplete
+        by_source = query_sql(
+            "SELECT "
+            "  ds.Name AS Source, "
+            "  COUNT(*) AS TotalEntities, "
+            "  SUM(CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 1 ELSE 0 END) AS LoadedCount, "
+            "  SUM(CASE WHEN ple.LandingzoneEntityId IS NULL THEN 1 ELSE 0 END) AS PendingCount, "
+            "  CASE WHEN COUNT(*) > 0 "
+            "    THEN ROUND(CAST(SUM(CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 1 ELSE 0 END) AS FLOAT) "
+            "         / COUNT(*) * 100, 1) ELSE 0 END AS PctComplete, "
+            "  MIN(ca.LogDateTime) AS FirstLoaded, "
+            "  MAX(ca.LogDateTime) AS LastLoaded "
+            "FROM integration.LandingzoneEntity le "
+            "JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId "
+            "LEFT JOIN ( "
+            "  SELECT DISTINCT LandingzoneEntityId FROM execution.PipelineLandingzoneEntity "
+            ") ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId "
+            "LEFT JOIN logging.CopyActivityExecution ca ON le.LandingzoneEntityId = ca.EntityId "
+            "WHERE le.IsActive = 1 "
+            "GROUP BY ds.Name "
+            "ORDER BY PctComplete DESC"
+        )
+
+        # Recent activity from copy activity execution
+        recent = query_sql(
+            "SELECT TOP 50 "
+            "  le.SourceName AS TableName, "
+            "  ds.Name AS Source, "
+            "  ca.LogType, "
+            "  ca.LogDateTime AS LogTime, "
+            "  'Landingzone' AS Layer, "
+            "  ca.LogData, "
+            "  ca.EntityId "
+            "FROM logging.CopyActivityExecution ca "
+            "LEFT JOIN integration.LandingzoneEntity le ON ca.EntityId = le.LandingzoneEntityId "
+            "LEFT JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId "
+            "ORDER BY ca.LogDateTime DESC"
+        )
+
+        # All entities (loaded + pending) with row count / duration from copy activity
+        loaded = query_sql(
+            "SELECT "
+            "  ds.Name AS Source, "
+            "  le.SourceSchema AS [Schema], "
+            "  le.SourceName AS TableName, "
+            "  MAX(ca.LogDateTime) AS LoadedAt, "
+            "  le.SourceName AS TargetFile, "
+            "  le.IsIncremental, "
+            "  le.LandingzoneEntityId AS EntityId, "
+            "  MAX(CASE WHEN ca.LogType = 'EndCopyActivity' "
+            "      THEN JSON_VALUE(ca.LogData, '$.rowsCopied') END) AS RowsCopied, "
+            "  MAX(CASE WHEN ca.LogType = 'EndCopyActivity' "
+            "      THEN JSON_VALUE(ca.LogData, '$.duration') END) AS Duration, "
+            "  CASE WHEN MAX(ple.LandingzoneEntityId) IS NOT NULL THEN 'Loaded' ELSE 'Pending' END AS Status "
+            "FROM integration.LandingzoneEntity le "
+            "JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId "
+            "LEFT JOIN execution.PipelineLandingzoneEntity ple "
+            "  ON le.LandingzoneEntityId = ple.LandingzoneEntityId "
+            "LEFT JOIN logging.CopyActivityExecution ca "
+            "  ON le.LandingzoneEntityId = ca.EntityId "
+            "WHERE le.IsActive = 1 "
+            "GROUP BY ds.Name, le.SourceSchema, le.SourceName, le.IsIncremental, le.LandingzoneEntityId "
+            "ORDER BY CASE WHEN MAX(ca.LogDateTime) IS NOT NULL THEN 0 ELSE 1 END, MAX(ca.LogDateTime) DESC"
+        )
+
+        # Pending entities (active but not yet loaded)
+        pending_count = query_sql(
+            "SELECT ds.Name AS Source, COUNT(*) AS cnt "
+            "FROM integration.LandingzoneEntity le "
+            "JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId "
+            "LEFT JOIN ( "
+            "  SELECT DISTINCT LandingzoneEntityId FROM execution.PipelineLandingzoneEntity "
+            ") ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId "
+            "WHERE le.IsActive = 1 AND ple.LandingzoneEntityId IS NULL "
+            "GROUP BY ds.Name"
+        )
+
+        # Concurrency timeline — count overlapping copy activities in time buckets
+        # Uses Start/End events to compute running concurrency at each minute
+        concurrency = query_sql(
+            "WITH events AS ( "
+            "  SELECT "
+            "    CAST(ca.LogDateTime AS DATETIME2(0)) AS ts, "
+            "    CASE WHEN ca.LogType LIKE '%Start%' THEN 1 "
+            "         WHEN ca.LogType LIKE '%End%' OR ca.LogType LIKE '%Fail%' THEN -1 "
+            "         ELSE 0 END AS delta, "
+            "    ds.Name AS Source "
+            "  FROM logging.CopyActivityExecution ca "
+            "  LEFT JOIN integration.LandingzoneEntity le ON ca.EntityId = le.LandingzoneEntityId "
+            "  LEFT JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId "
+            "  WHERE ca.LogType IN ('StartCopyActivity','EndCopyActivity','FailCopyActivity') "
+            "), "
+            "buckets AS ( "
+            "  SELECT "
+            "    DATEADD(MINUTE, DATEDIFF(MINUTE, 0, ts), 0) AS bucket, "
+            "    Source, "
+            "    SUM(delta) AS net_change "
+            "  FROM events "
+            "  GROUP BY DATEADD(MINUTE, DATEDIFF(MINUTE, 0, ts), 0), Source "
+            ") "
+            "SELECT bucket AS time, Source AS source, net_change AS delta "
+            "FROM buckets "
+            "ORDER BY bucket"
+        )
+
+        # Build running concurrency series from deltas
+        concurrency_timeline = []
+        running = {}  # source -> running count
+        total_running = 0
+        for row in (concurrency or []):
+            src = row.get('source', 'Unknown') or 'Unknown'
+            delta = int(row.get('delta', 0))
+            running[src] = max(0, running.get(src, 0) + delta)
+            total_running = sum(running.values())
+            concurrency_timeline.append({
+                'time': row['time'],
+                'concurrent': total_running,
+                'bySource': dict(running),
+            })
+
+        return {
+            'overall': overall[0] if overall else {},
+            'bySource': by_source,
+            'recentActivity': recent,
+            'loadedEntities': loaded,
+            'pendingBySource': pending_count,
+            'concurrencyTimeline': concurrency_timeline,
+            'serverTime': datetime.utcnow().isoformat() + 'Z',
+        }
+    except Exception as e:
+        log.exception('get_load_progress failed')
+        return {'error': str(e)}
+
+
+def get_executive_dashboard() -> dict:
+    """Aggregation endpoint for the Executive Dashboard page.
+
+    Synthesizes data from entity digest, copy-activity logs, and Fabric jobs
+    to match the ExecData interface expected by ExecutiveDashboard.tsx.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+
+    ts = datetime.utcnow().isoformat() + 'Z'
+
+    # ── Entity/layer counts from digest ──
+    try:
+        digest = build_entity_digest()
+        sources_dict = digest.get('sources', {})
+    except Exception:
+        sources_dict = {}
+
+    total_entities = 0
+    lz_loaded = 0
+    bronze_loaded = 0
+    silver_loaded = 0
+    source_list = []
+
+    for key, src in sources_dict.items():
+        s = src.get('summary', {})
+        ent_count = s.get('total', 0)
+        total_entities += ent_count
+
+        # Count per-entity layer status
+        src_lz = 0
+        src_bronze = 0
+        src_silver = 0
+        for e in src.get('entities', []):
+            if e.get('lzStatus') == 'loaded':
+                src_lz += 1
+            if e.get('bronzeStatus') == 'loaded':
+                src_bronze += 1
+            if e.get('silverStatus') == 'loaded':
+                src_silver += 1
+
+        lz_loaded += src_lz
+        bronze_loaded += src_bronze
+        silver_loaded += src_silver
+
+        source_list.append({
+            'name': src.get('name', key),
+            'namespace': key,
+            'entityCount': ent_count,
+            'layers': {
+                'landing': {'count': ent_count, 'active': ent_count, 'total': ent_count, 'loaded': src_lz, 'completion': round(src_lz / ent_count * 100, 1) if ent_count else 0},
+                'bronze':  {'count': ent_count, 'active': ent_count, 'total': ent_count, 'loaded': src_bronze, 'completion': round(src_bronze / ent_count * 100, 1) if ent_count else 0},
+                'silver':  {'count': ent_count, 'active': ent_count, 'total': ent_count, 'loaded': src_silver, 'completion': round(src_silver / ent_count * 100, 1) if ent_count else 0},
+            },
+            'rowCounts': {'bronze': 0, 'silver': 0},
+        })
+
+    # ── Row counts (cached) ──
+    try:
+        lh_counts = get_lakehouse_row_counts()
+        bronze_rows = sum(v for k, v in lh_counts.items() if isinstance(v, (int, float)) and 'bronze' in str(k).lower())
+        silver_rows = sum(v for k, v in lh_counts.items() if isinstance(v, (int, float)) and 'silver' in str(k).lower())
+        lz_rows = sum(v for k, v in lh_counts.items() if isinstance(v, (int, float)) and ('landing' in str(k).lower() or 'lz' in str(k).lower()))
+    except Exception:
+        bronze_rows = silver_rows = lz_rows = 0
+
+    # ── Pipeline health from copy activity ──
+    total_runs = succeeded = failed = running = 0
+    try:
+        ph_rows = query_sql(
+            "SELECT "
+            "  COUNT(DISTINCT PipelineRunGuid) AS TotalRuns, "
+            "  COUNT(DISTINCT CASE WHEN LogType LIKE 'End%' THEN PipelineRunGuid END) AS Ended, "
+            "  COUNT(DISTINCT CASE WHEN LogType LIKE 'Fail%' THEN PipelineRunGuid END) AS Failed "
+            "FROM logging.CopyActivityExecution "
+            "WHERE LogDateTime >= DATEADD(HOUR, -24, SYSUTCDATETIME())"
+        )
+        if ph_rows:
+            r = ph_rows[0]
+            total_runs = int(r.get('TotalRuns', 0) or 0)
+            ended_runs = int(r.get('Ended', 0) or 0)
+            failed = int(r.get('Failed', 0) or 0)
+            succeeded = ended_runs - failed
+            running = total_runs - ended_runs - failed
+            if running < 0:
+                running = 0
+    except Exception:
+        pass
+
+    success_rate = round(succeeded / total_runs * 100, 1) if total_runs else 0
+
+    # ── Recent activity ──
+    recent_activity = []
+    try:
+        recent_rows = query_sql(
+            "SELECT TOP 20 "
+            "  le.SourceName AS TableName, "
+            "  ca.CopyActivityName AS Pipeline, "
+            "  ca.LogType, "
+            "  ca.LogDateTime, "
+            "  'Landingzone' AS Layer, "
+            "  ca.LogData "
+            "FROM logging.CopyActivityExecution ca "
+            "LEFT JOIN integration.LandingzoneEntity le ON ca.EntityId = le.LandingzoneEntityId "
+            "ORDER BY ca.LogDateTime DESC"
+        )
+        for row in recent_rows:
+            log_type = str(row.get('LogType', ''))
+            if 'Start' in log_type:
+                status_str = 'running'
+                desc = f"Started loading {row.get('TableName', '?')}"
+            elif 'End' in log_type:
+                status_str = 'succeeded'
+                desc = f"Loaded {row.get('TableName', '?')}"
+            elif 'Fail' in log_type:
+                status_str = 'failed'
+                desc = f"Failed loading {row.get('TableName', '?')}"
+            else:
+                status_str = 'unknown'
+                desc = f"{log_type}: {row.get('TableName', '?')}"
+
+            dur_str = ''
+            try:
+                ld = json.loads(row.get('LogData', '{}') or '{}')
+                if ld.get('duration'):
+                    dur_str = str(ld['duration']) + 's'
+            except Exception:
+                pass
+
+            recent_activity.append({
+                'description': desc,
+                'pipeline': row.get('Pipeline', ''),
+                'layer': row.get('Layer', 'Landingzone'),
+                'status': status_str,
+                'duration': dur_str,
+                'startTime': str(row.get('LogDateTime', '')),
+                'endTime': str(row.get('LogDateTime', '')),
+            })
+    except Exception:
+        pass
+
+    # ── Issues from error intelligence ──
+    issues = []
+    try:
+        ei = get_error_intelligence()
+        for s in (ei.get('summaries', []) or [])[:5]:
+            if s.get('severity') == 'critical' or s.get('occurrenceCount', 0) > 2:
+                issues.append({
+                    'pipeline': s.get('latestPipeline', ''),
+                    'layer': '',
+                    'message': s.get('title', '') + ': ' + s.get('suggestion', ''),
+                    'time': s.get('latestTime', ''),
+                })
+    except Exception:
+        pass
+
+    # ── Health determination ──
+    if total_entities == 0:
+        health = 'setup'
+    elif failed > 0 and success_rate < 50:
+        health = 'critical'
+    elif failed > 0 or lz_loaded < total_entities * 0.5:
+        health = 'warning'
+    else:
+        health = 'healthy'
+
+    # ── Data source count ──
+    ds_count = len(source_list)
+
+    return {
+        'timestamp': ts,
+        'health': health,
+        'dataSources': ds_count,
+        'overview': {
+            'totalEntities': total_entities,
+            'layers': {
+                'landing': {'total': total_entities, 'loaded': lz_loaded, 'pending': total_entities - lz_loaded, 'completion': round(lz_loaded / total_entities * 100, 1) if total_entities else 0},
+                'bronze':  {'total': total_entities, 'loaded': bronze_loaded, 'pending': total_entities - bronze_loaded, 'completion': round(bronze_loaded / total_entities * 100, 1) if total_entities else 0},
+                'silver':  {'total': total_entities, 'loaded': silver_loaded, 'pending': total_entities - silver_loaded, 'completion': round(silver_loaded / total_entities * 100, 1) if total_entities else 0},
+            },
+            'rowCounts': {'bronze': bronze_rows, 'silver': silver_rows, 'landing': lz_rows},
+        },
+        'sources': source_list,
+        'pipelineHealth': {
+            'totalRuns': total_runs,
+            'succeeded': succeeded,
+            'failed': failed,
+            'running': running,
+            'successRate': success_rate,
+        },
+        'recentActivity': recent_activity,
+        'issues': issues,
+        'trends': {
+            'health': [],
+            'layers': [],
+            'pipelineRate': {
+                'total': total_runs,
+                'succeeded': succeeded,
+                'failed': failed,
+                'running': running,
+                'successRate': success_rate,
+            },
+        },
+    }
+
+
+def get_pipeline_matrix() -> dict:
+    """Aggregation endpoint for the Pipeline Matrix page.
+
+    Returns per-source layer status, recent pipeline runs, and totals.
+    Matches the MatrixData interface in PipelineMatrix.tsx.
+    """
+    try:
+        digest = build_entity_digest()
+        sources_dict = digest.get('sources', {})
+    except Exception:
+        sources_dict = {}
+
+    SOURCE_ICON_MAP = {
+        'mes': 'factory',
+        'etq': 'shield-check',
+        'di_prd_staging': 'cloud',
+        'm3fdbprd': 'database',
+    }
+
+    sources_out = {}
+    total_lz = total_bronze = total_silver = 0
+    bronze_pending = silver_pending = 0
+
+    for key, src in sources_dict.items():
+        entities = src.get('entities', [])
+        registered = len(entities)
+        lz_count = sum(1 for e in entities if e.get('lzStatus') == 'loaded')
+        br_count = sum(1 for e in entities if e.get('bronzeStatus') == 'loaded')
+        sv_count = sum(1 for e in entities if e.get('silverStatus') == 'loaded')
+
+        def _status(loaded, total):
+            if total == 0:
+                return 'not_started'
+            if loaded == total:
+                return 'complete'
+            if loaded > 0:
+                return 'in_progress' if loaded > total * 0.5 else 'partial'
+            return 'not_started'
+
+        sources_out[key] = {
+            'key': key,
+            'name': src.get('name', key),
+            'icon': SOURCE_ICON_MAP.get(key.lower(), 'database'),
+            'lz':     {'loaded': lz_count, 'registered': registered, 'pending': registered - lz_count, 'status': _status(lz_count, registered)},
+            'bronze': {'loaded': br_count, 'registered': registered, 'pending': registered - br_count, 'status': _status(br_count, registered)},
+            'silver': {'loaded': sv_count, 'registered': registered, 'pending': registered - sv_count, 'status': _status(sv_count, registered)},
+        }
+        total_lz += lz_count
+        total_bronze += br_count
+        total_silver += sv_count
+        bronze_pending += registered - br_count
+        silver_pending += registered - sv_count
+
+    # Recent pipeline runs from copy activity
+    pipelines = []
+    recent_runs = []
+    try:
+        runs = query_sql(
+            "SELECT TOP 20 "
+            "  CONVERT(NVARCHAR(36), PipelineRunGuid) AS RunId, "
+            "  CopyActivityName AS Pipeline, "
+            "  MIN(LogDateTime) AS StartTime, "
+            "  MAX(LogDateTime) AS EndTime, "
+            "  SUM(CASE WHEN LogType LIKE 'End%' THEN 1 ELSE 0 END) AS Ended, "
+            "  SUM(CASE WHEN LogType LIKE 'Fail%' THEN 1 ELSE 0 END) AS Failed, "
+            "  SUM(CASE WHEN LogType LIKE 'Start%' THEN 1 ELSE 0 END) AS Started "
+            "FROM logging.CopyActivityExecution "
+            "GROUP BY PipelineRunGuid, CopyActivityName "
+            "ORDER BY MIN(LogDateTime) DESC"
+        )
+        for r in runs:
+            ended = int(r.get('Ended', 0) or 0)
+            failed = int(r.get('Failed', 0) or 0)
+            started = int(r.get('Started', 0) or 0)
+            if started > ended + failed:
+                st = 'InProgress'
+            elif failed > 0:
+                st = 'Failed'
+            else:
+                st = 'Completed'
+            pipelines.append({
+                'name': r.get('Pipeline', ''),
+                'itemName': r.get('Pipeline', ''),
+                'status': st,
+                'startTime': str(r.get('StartTime', '')),
+                'endTime': str(r.get('EndTime', '')),
+                'runId': r.get('RunId', ''),
+            })
+            layer = 'Landingzone'
+            pn = str(r.get('Pipeline', '')).upper()
+            if 'BRONZE' in pn or 'BRZ' in pn:
+                layer = 'Bronze'
+            elif 'SILVER' in pn or 'SLV' in pn:
+                layer = 'Silver'
+            recent_runs.append({
+                'runId': r.get('RunId', ''),
+                'pipeline': r.get('Pipeline', ''),
+                'layer': layer,
+                'startTime': str(r.get('StartTime', '')),
+                'endTime': str(r.get('EndTime', '')),
+                'status': st,
+            })
+    except Exception:
+        pass
+
+    return {
+        'sources': sources_out,
+        'totals': {
+            'lz': total_lz,
+            'bronze': total_bronze,
+            'silver': total_silver,
+            'bronzePending': bronze_pending,
+            'silverPending': silver_pending,
+        },
+        'pipelines': pipelines,
+        'recentRuns': recent_runs,
+        'serverTime': datetime.utcnow().isoformat() + 'Z',
+    }
 
 
 def get_dashboard_stats() -> dict:
@@ -3829,6 +5374,234 @@ def build_entity_digest(source_filter: str = None, layer_filter: str = None,
     _digest_cache[cache_key] = {'data': result, 'expires': time.time() + _DIGEST_TTL}
 
     return result
+
+
+def resync_entity_digest() -> dict:
+    """Resync EntityStatusSummary: update stored proc, clean stale rows, reseed.
+
+    This fixes count drift between the cached summary table and the live
+    integration tables.  Call when entity counts look wrong.
+    """
+    t0 = time.time()
+    steps = []
+
+    conn = get_sql_connection()
+    cursor = conn.cursor()
+
+    # Step 1: Update sp_BuildEntityDigest to cross-check against integration tables
+    try:
+        cursor.execute("""
+        CREATE OR ALTER PROCEDURE [execution].[sp_BuildEntityDigest]
+            @SourceFilter VARCHAR(50) = NULL, @LayerFilter VARCHAR(20) = NULL, @StatusFilter VARCHAR(20) = NULL
+        WITH EXECUTE AS CALLER
+        AS
+        SET NOCOUNT ON;
+        DECLARE @summaryCount INT;
+        SELECT @summaryCount = COUNT(*) FROM [execution].[EntityStatusSummary];
+        IF @summaryCount > 0
+        BEGIN
+            SELECT ess.SourceNamespace AS source, ess.DatabaseName AS dbName,
+                ess.ConnectionName AS connectionName, ess.ServerName AS serverName,
+                ess.DatabaseName AS databaseName, ess.LandingzoneEntityId AS id,
+                ess.SourceSchema AS sourceSchema, ess.SourceName AS tableName,
+                ess.IsIncremental, ess.WatermarkColumn AS watermarkColumn, le.IsActive,
+                be.BronzeLayerEntityId AS bronzeId, COALESCE(be.PrimaryKeys, ess.BronzePKs) AS bronzePKs,
+                se.SilverLayerEntityId AS silverId, ess.LzStatus AS lzStatus, ess.LzLastLoad AS lastLzLoad,
+                ess.BronzeStatus AS bronzeStatus, ess.BronzeLastLoad AS lastBrzLoad,
+                ess.SilverStatus AS silverStatus, ess.SilverLastLoad AS lastSlvLoad,
+                ess.LastErrorMessage AS lastErrorMessage, ess.LastErrorLayer AS lastErrorLayer,
+                ess.LastErrorTime AS lastErrorTime, ess.OverallStatus AS overall
+            FROM [execution].[EntityStatusSummary] ess
+            INNER JOIN integration.LandingzoneEntity le ON ess.LandingzoneEntityId = le.LandingzoneEntityId
+            INNER JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+            LEFT JOIN integration.BronzeLayerEntity be ON le.LandingzoneEntityId = be.LandingzoneEntityId
+            LEFT JOIN integration.SilverLayerEntity se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
+            WHERE le.IsActive = 1 AND ds.IsActive = 1
+              AND (@SourceFilter IS NULL OR ess.SourceNamespace = @SourceFilter)
+            ORDER BY ess.SourceNamespace, ess.SourceName;
+        END
+        ELSE
+        BEGIN
+            CREATE TABLE #SlvProcessed (SilverLayerEntityId INT, lastSlvLoad DATETIME2);
+            IF OBJECT_ID('execution.PipelineSilverLayerEntity', 'U') IS NOT NULL
+                INSERT INTO #SlvProcessed EXEC sp_executesql N'SELECT SilverLayerEntityId, MAX(LoadEndDateTime) AS lastSlvLoad FROM execution.PipelineSilverLayerEntity WHERE IsProcessed = 1 GROUP BY SilverLayerEntityId';
+            CREATE TABLE #SlvPending (BronzeLayerEntityId INT);
+            IF OBJECT_ID('execution.vw_LoadToSilverLayer', 'V') IS NOT NULL
+                INSERT INTO #SlvPending EXEC sp_executesql N'SELECT DISTINCT BronzeLayerEntityId FROM execution.vw_LoadToSilverLayer';
+            SELECT ds.Namespace AS source, ds.Name AS dbName, c.Name AS connectionName, c.ServerName AS serverName, c.DatabaseName AS databaseName,
+                le.LandingzoneEntityId AS id, le.SourceSchema AS sourceSchema, le.SourceName AS tableName, le.FileName,
+                le.IsIncremental, le.IsIncrementalColumn AS watermarkColumn, le.IsActive,
+                be.BronzeLayerEntityId AS bronzeId, be.PrimaryKeys AS bronzePKs, be.IsActive AS bronzeActive,
+                se.SilverLayerEntityId AS silverId, se.IsActive AS silverActive,
+                CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END AS lzStatus, ple.lastLzLoad,
+                CASE WHEN pbe.BronzeLayerEntityId IS NOT NULL THEN 'loaded' WHEN bp.BronzeLayerEntityId IS NOT NULL THEN 'pending' ELSE 'not_started' END AS bronzeStatus, pbe.lastBrzLoad,
+                CASE WHEN pse.SilverLayerEntityId IS NOT NULL THEN 'loaded' WHEN spp.BronzeLayerEntityId IS NOT NULL THEN 'pending' ELSE 'not_started' END AS silverStatus, pse.lastSlvLoad,
+                err.LogData AS lastErrorMessage, err.EntityLayer AS lastErrorLayer, err.LogDateTime AS lastErrorTime,
+                CASE WHEN ple.LandingzoneEntityId IS NOT NULL AND pbe.BronzeLayerEntityId IS NOT NULL AND pse.SilverLayerEntityId IS NOT NULL THEN 'complete'
+                     WHEN err.LogData IS NOT NULL THEN 'error'
+                     WHEN bp.BronzeLayerEntityId IS NOT NULL OR spp.BronzeLayerEntityId IS NOT NULL THEN 'pending'
+                     WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'partial' ELSE 'not_started' END AS overall
+            FROM integration.LandingzoneEntity le
+            JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+            LEFT JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId
+            LEFT JOIN integration.BronzeLayerEntity be ON le.LandingzoneEntityId = be.LandingzoneEntityId
+            LEFT JOIN integration.SilverLayerEntity se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
+            LEFT JOIN (SELECT LandingzoneEntityId, MAX(LoadEndDateTime) AS lastLzLoad FROM execution.PipelineLandingzoneEntity WHERE IsProcessed = 1 GROUP BY LandingzoneEntityId) ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId
+            LEFT JOIN (SELECT BronzeLayerEntityId, MAX(LoadEndDateTime) AS lastBrzLoad FROM execution.PipelineBronzeLayerEntity WHERE IsProcessed = 1 GROUP BY BronzeLayerEntityId) pbe ON be.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+            LEFT JOIN #SlvProcessed pse ON se.SilverLayerEntityId = pse.SilverLayerEntityId
+            LEFT JOIN (SELECT DISTINCT EntityId AS BronzeLayerEntityId FROM execution.vw_LoadToBronzeLayer) bp ON be.BronzeLayerEntityId = bp.BronzeLayerEntityId
+            LEFT JOIN #SlvPending spp ON be.BronzeLayerEntityId = spp.BronzeLayerEntityId
+            OUTER APPLY (SELECT TOP 1 pe.LogData, pe.EntityLayer, pe.LogDateTime FROM logging.PipelineExecution pe WHERE pe.LogType LIKE '%Error%' AND pe.LogDateTime > DATEADD(day, -7, GETUTCDATE()) AND pe.LogData LIKE '%' + le.SourceName + '%' ORDER BY pe.LogDateTime DESC) err
+            WHERE ds.IsActive = 1 AND (@SourceFilter IS NULL OR ds.Namespace = @SourceFilter)
+            ORDER BY ds.Namespace, le.SourceName;
+            DROP TABLE #SlvProcessed;
+            DROP TABLE #SlvPending;
+        END
+        """)
+        cursor.commit()
+        steps.append('Updated sp_BuildEntityDigest (cross-checks integration tables)')
+    except Exception as e:
+        steps.append(f'FAILED to update proc: {e}')
+
+    # Step 2: Delete orphan rows (entities no longer in integration tables)
+    try:
+        cursor.execute("""
+            DELETE FROM execution.EntityStatusSummary
+            WHERE LandingzoneEntityId NOT IN (
+                SELECT le.LandingzoneEntityId
+                FROM integration.LandingzoneEntity le
+                JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+                WHERE le.IsActive = 1 AND ds.IsActive = 1
+            )
+        """)
+        orphans_deleted = cursor.rowcount
+        cursor.commit()
+        steps.append(f'Deleted {orphans_deleted} orphan summary rows')
+    except Exception as e:
+        steps.append(f'FAILED to delete orphans: {e}')
+        orphans_deleted = 0
+
+    # Step 3: Refresh status from execution pipeline tables (ground truth)
+    # NOTE: PipelineSilverLayerEntity does NOT exist — Silver status comes only from
+    # sp_UpsertEntityStatus calls (written by Silver notebook to EntityStatusSummary).
+    # So we preserve existing SilverStatus if already set.
+    try:
+        cursor.execute("""
+            UPDATE ess SET
+                ess.LzStatus = CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END,
+                ess.LzLastLoad = ple.lastLzLoad,
+                ess.BronzeStatus = CASE WHEN pbe.BronzeLayerEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END,
+                ess.BronzeLastLoad = pbe.lastBrzLoad,
+                ess.BronzeLayerEntityId = be.BronzeLayerEntityId,
+                ess.SilverLayerEntityId = se.SilverLayerEntityId,
+                ess.BronzePKs = COALESCE(be.PrimaryKeys, ess.BronzePKs),
+                ess.IsActive = le.IsActive,
+                ess.IsIncremental = le.IsIncremental,
+                ess.WatermarkColumn = le.IsIncrementalColumn,
+                ess.OverallStatus = CASE
+                    WHEN ple.LandingzoneEntityId IS NOT NULL AND pbe.BronzeLayerEntityId IS NOT NULL AND ess.SilverStatus = 'loaded' THEN 'complete'
+                    WHEN ess.LastErrorMessage IS NOT NULL AND ess.LastErrorTime > DATEADD(day, -7, GETUTCDATE()) THEN 'error'
+                    WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'partial'
+                    ELSE 'not_started' END,
+                ess.LastUpdated = GETUTCDATE(),
+                ess.LastUpdatedBy = 'resync'
+            FROM execution.EntityStatusSummary ess
+            INNER JOIN integration.LandingzoneEntity le ON ess.LandingzoneEntityId = le.LandingzoneEntityId
+            LEFT JOIN integration.BronzeLayerEntity be ON le.LandingzoneEntityId = be.LandingzoneEntityId
+            LEFT JOIN integration.SilverLayerEntity se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
+            LEFT JOIN (SELECT LandingzoneEntityId, MAX(LoadEndDateTime) AS lastLzLoad FROM execution.PipelineLandingzoneEntity WHERE IsProcessed = 1 GROUP BY LandingzoneEntityId) ple ON ess.LandingzoneEntityId = ple.LandingzoneEntityId
+            LEFT JOIN (SELECT BronzeLayerEntityId, MAX(LoadEndDateTime) AS lastBrzLoad FROM execution.PipelineBronzeLayerEntity WHERE IsProcessed = 1 GROUP BY BronzeLayerEntityId) pbe ON be.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+        """)
+        refreshed = cursor.rowcount
+        cursor.commit()
+        steps.append(f'Refreshed status on {refreshed} summary rows from execution tables')
+    except Exception as e:
+        steps.append(f'FAILED to refresh status: {e}')
+        refreshed = 0
+
+    # Step 4: Insert any missing entities
+    try:
+        cursor.execute("""
+            INSERT INTO execution.EntityStatusSummary (
+                LandingzoneEntityId, SourceNamespace, SourceSchema, SourceName,
+                ConnectionName, ServerName, DatabaseName,
+                IsActive, IsIncremental, WatermarkColumn,
+                BronzeLayerEntityId, BronzePKs, SilverLayerEntityId,
+                LzStatus, LzLastLoad, BronzeStatus, BronzeLastLoad, SilverStatus, SilverLastLoad,
+                OverallStatus, LastUpdated, LastUpdatedBy)
+            SELECT le.LandingzoneEntityId, ds.Namespace, le.SourceSchema, le.SourceName,
+                c.Name, c.ServerName, c.DatabaseName, le.IsActive, le.IsIncremental, le.IsIncrementalColumn,
+                be.BronzeLayerEntityId, be.PrimaryKeys, se.SilverLayerEntityId,
+                CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END, ple.lastLzLoad,
+                CASE WHEN pbe.BronzeLayerEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END, pbe.lastBrzLoad,
+                'not_started', NULL,
+                CASE WHEN ple.LandingzoneEntityId IS NOT NULL AND pbe.BronzeLayerEntityId IS NOT NULL THEN 'partial'
+                     WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'partial' ELSE 'not_started' END,
+                GETUTCDATE(), 'resync'
+            FROM integration.LandingzoneEntity le
+            JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+            LEFT JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId
+            LEFT JOIN integration.BronzeLayerEntity be ON le.LandingzoneEntityId = be.LandingzoneEntityId
+            LEFT JOIN integration.SilverLayerEntity se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
+            LEFT JOIN (SELECT LandingzoneEntityId, MAX(LoadEndDateTime) AS lastLzLoad FROM execution.PipelineLandingzoneEntity WHERE IsProcessed = 1 GROUP BY LandingzoneEntityId) ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId
+            LEFT JOIN (SELECT BronzeLayerEntityId, MAX(LoadEndDateTime) AS lastBrzLoad FROM execution.PipelineBronzeLayerEntity WHERE IsProcessed = 1 GROUP BY BronzeLayerEntityId) pbe ON be.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+            WHERE ds.IsActive = 1 AND le.IsActive = 1
+              AND le.LandingzoneEntityId NOT IN (SELECT LandingzoneEntityId FROM execution.EntityStatusSummary)
+        """)
+        inserted = cursor.rowcount
+        cursor.commit()
+        steps.append(f'Inserted {inserted} missing entity rows')
+    except Exception as e:
+        steps.append(f'FAILED to insert missing: {e}')
+        inserted = 0
+
+    # Step 5: Get final counts
+    try:
+        cursor.execute("SELECT COUNT(*) AS total FROM execution.EntityStatusSummary")
+        total = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) AS lz FROM execution.EntityStatusSummary WHERE LzStatus = 'loaded'")
+        lz_loaded = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) AS brz FROM execution.EntityStatusSummary WHERE BronzeStatus = 'loaded'")
+        brz_loaded = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) AS slv FROM execution.EntityStatusSummary WHERE SilverStatus = 'loaded'")
+        slv_loaded = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM integration.LandingzoneEntity WHERE IsActive = 1")
+        live_lz_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM integration.BronzeLayerEntity WHERE IsActive = 1")
+        live_brz_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM integration.SilverLayerEntity WHERE IsActive = 1")
+        live_slv_count = cursor.fetchone()[0]
+    except Exception as e:
+        steps.append(f'FAILED to get final counts: {e}')
+        total = lz_loaded = brz_loaded = slv_loaded = 0
+        live_lz_count = live_brz_count = live_slv_count = 0
+
+    cursor.close()
+    conn.close()
+
+    # Clear digest cache so next request gets fresh data
+    _digest_cache.clear()
+
+    elapsed_ms = round((time.time() - t0) * 1000)
+
+    return {
+        'success': True,
+        'elapsedMs': elapsed_ms,
+        'steps': steps,
+        'summary': {
+            'totalInSummaryTable': total,
+            'liveEntityCounts': {
+                'lz': live_lz_count,
+                'bronze': live_brz_count,
+                'silver': live_slv_count,
+            },
+            'loadedCounts': {
+                'lz': lz_loaded,
+                'bronze': brz_loaded,
+                'silver': slv_loaded,
+            },
+        },
+    }
 
 
 # ── Registration (POST handlers) ──
@@ -4440,6 +6213,101 @@ MIME_TYPES = {
     '.map': 'application/json',
 }
 
+# ── Audit / Test Runner helpers ──
+
+import subprocess as _audit_subprocess
+
+_DASHBOARD_APP_DIR = Path(__file__).resolve().parent.parent  # dashboard/app
+_AUDIT_HISTORY_DIR = _DASHBOARD_APP_DIR / 'audit-history'
+_AUDIT_HISTORY_INDEX = _AUDIT_HISTORY_DIR / 'run-history.json'
+_audit_running_process = None  # Track running audit process
+_audit_run_lock = threading.Lock()
+
+
+def _audit_get_history():
+    """Return the run-history.json contents (list of run summaries)."""
+    if _AUDIT_HISTORY_INDEX.exists():
+        try:
+            return json.loads(_AUDIT_HISTORY_INDEX.read_text())
+        except Exception:
+            return []
+    return []
+
+
+def _audit_get_status():
+    """Return current audit run status (running/idle)."""
+    global _audit_running_process
+    with _audit_run_lock:
+        if _audit_running_process is not None:
+            poll = _audit_running_process.poll()
+            if poll is None:
+                return {'status': 'running', 'pid': _audit_running_process.pid}
+            else:
+                _audit_running_process = None
+                return {'status': 'idle', 'lastExitCode': poll}
+        return {'status': 'idle'}
+
+
+def _audit_trigger_run():
+    """Trigger a Playwright audit run in the background. Returns immediately."""
+    global _audit_running_process
+    with _audit_run_lock:
+        if _audit_running_process is not None and _audit_running_process.poll() is None:
+            return {'error': 'Audit is already running', 'pid': _audit_running_process.pid}
+        try:
+            _audit_running_process = _audit_subprocess.Popen(
+                ['npx', 'playwright', 'test', 'fmd-dashboard-audit.spec.ts'],
+                cwd=str(_DASHBOARD_APP_DIR),
+                stdout=open(str(_DASHBOARD_APP_DIR / 'test-results' / 'run-stdout.log'), 'w'),
+                stderr=_audit_subprocess.STDOUT,
+                shell=True,
+            )
+            return {'status': 'started', 'pid': _audit_running_process.pid}
+        except Exception as e:
+            return {'error': str(e)}
+
+
+def _audit_serve_artifact(handler, url_path: str):
+    """Serve an artifact file from audit-history/<runId>/<testDir>/<file>.
+    URL: /api/audit/artifacts/<runId>/<testDir>/<file>
+    """
+    parts = url_path.replace('/api/audit/artifacts/', '').split('/')
+    if len(parts) < 3:
+        handler._error_response('Invalid artifact path', 400)
+        return
+
+    run_id = parts[0]
+    test_dir = parts[1]
+    filename = '/'.join(parts[2:])
+
+    file_path = _AUDIT_HISTORY_DIR / run_id / test_dir / filename
+    try:
+        file_path.resolve().relative_to(_AUDIT_HISTORY_DIR.resolve())
+    except ValueError:
+        handler._error_response('Access denied', 403)
+        return
+
+    if not file_path.is_file():
+        handler._error_response('Not found', 404)
+        return
+
+    ext = file_path.suffix.lower()
+    content_types = {
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.mp4': 'video/mp4', '.webm': 'video/webm',
+        '.zip': 'application/zip', '.json': 'application/json',
+        '.log': 'text/plain',
+    }
+    ct = content_types.get(ext, 'application/octet-stream')
+
+    handler.send_response(200)
+    handler.send_header('Content-Type', ct)
+    handler.send_header('Content-Length', str(file_path.stat().st_size))
+    handler.send_header('Access-Control-Allow-Origin', '*')
+    handler.end_headers()
+    handler.wfile.write(file_path.read_bytes())
+
+
 def serve_static(handler, url_path: str) -> bool:
     """Serve a static file from STATIC_DIR. Returns True if served, False if not found."""
     if not STATIC_DIR.exists():
@@ -5003,15 +6871,68 @@ def setup_get_current_config() -> dict:
     except Exception as ex:
         log.warning('setup_get_current_config: failed to read connections: %s', ex)
 
+    # Map YAML workspace keys to frontend EnvironmentConfig keys
+    ws_key_map = {
+        'workspace_data': 'data_dev', 'workspace_code': 'code_dev',
+        'workspace_config': 'config',
+        'workspace_data_prod': 'data_prod', 'workspace_code_prod': 'code_prod',
+    }
+    workspaces_out = {}
+    for yaml_key, fe_key in ws_key_map.items():
+        workspaces_out[fe_key] = workspace_map.get(yaml_key)
+
+    # Map connection YAML keys to frontend format (use YAML connection names directly)
+    connections_out = {}
+    for conn_name, conn_guid in conns.items():
+        if conn_guid and conn_guid != '00000000-0000-0000-0000-000000000000':
+            # Try to get display name from SQL metadata
+            db_entry = connections_db.get(conn_name)
+            connections_out[conn_name] = {
+                'id': conn_guid,
+                'displayName': db_entry.get('displayName', conn_name) if db_entry else conn_name,
+            }
+        else:
+            connections_out[conn_name] = None
+
+    # Read notebook + pipeline IDs from config.json engine section
+    config_path = Path(__file__).parent / 'config.json'
+    engine_cfg = {}
+    try:
+        json_config = json.loads(config_path.read_text(encoding='utf-8'))
+        engine_cfg = json_config.get('engine', {})
+    except Exception:
+        pass
+
+    notebooks_out = {
+        'NB_FMD_LOAD_LANDING_BRONZE': None,
+        'NB_FMD_LOAD_BRONZE_SILVER': None,
+    }
+    nb_bronze_id = engine_cfg.get('notebook_bronze_id', '')
+    nb_silver_id = engine_cfg.get('notebook_silver_id', '')
+    if nb_bronze_id:
+        notebooks_out['NB_FMD_LOAD_LANDING_BRONZE'] = {'id': nb_bronze_id, 'displayName': 'NB_FMD_LOAD_LANDING_BRONZE'}
+    if nb_silver_id:
+        notebooks_out['NB_FMD_LOAD_BRONZE_SILVER'] = {'id': nb_silver_id, 'displayName': 'NB_FMD_LOAD_BRONZE_SILVER'}
+
+    pipelines_out = {
+        'PL_FMD_LDZ_COPY_SQL': None,
+    }
+    pl_copy_id = engine_cfg.get('pipeline_copy_sql_id', '')
+    if pl_copy_id:
+        pipelines_out['PL_FMD_LDZ_COPY_SQL'] = {'id': pl_copy_id, 'displayName': 'PL_FMD_LDZ_COPY_SQL'}
+
     return {
-        'workspaces': workspace_map,
-        'connections_yaml': conns,
-        'connections_db': connections_db,
-        'lakehouses': lakehouses,
-        'database': {
-            'id': db.get('id', ''),
-            'displayName': db.get('displayName', ''),
-            'endpoint': db.get('endpoint', ''),
+        'config': {
+            'workspaces': workspaces_out,
+            'connections': connections_out,
+            'lakehouses': lakehouses,
+            'notebooks': notebooks_out,
+            'pipelines': pipelines_out,
+            'database': {
+                'id': db.get('id', ''),
+                'displayName': db.get('displayName', ''),
+                'endpoint': db.get('endpoint', ''),
+            },
         },
         'fabric': {
             'tenant_id': TENANT_ID,
@@ -5363,13 +7284,14 @@ def setup_provision_all(body: dict) -> dict:
 
 
 def setup_save_config(body: dict) -> dict:
-    """Save the full environment configuration to all 4 targets.
+    """Save the full environment configuration to all 5 targets.
 
     Targets:
       1. config/item_config.yaml
-      2. dashboard/app/api/config.json
+      2. dashboard/app/api/config.json (fabric + sql + engine sections)
       3. SQL metadata tables (integration.Workspace, Lakehouse, Connection)
       4. Variable libraries (VAR_CONFIG_FMD)
+      5. scripts/config-bundle/dashboard-config.json
     """
     results = []
 
@@ -5431,6 +7353,39 @@ def setup_save_config(body: dict) -> dict:
             else:
                 # Fallback: construct from displayName + item ID
                 cfg['sql']['database'] = f'{database["displayName"]}-{database["id"]}'
+
+        # ── Engine section propagation (lakehouse, notebook, pipeline IDs) ──
+        if 'engine' not in cfg:
+            cfg['engine'] = {}
+
+        # Lakehouse IDs → engine section
+        lh_lz = lakehouses.get('LH_DATA_LANDINGZONE')
+        lh_bronze = lakehouses.get('LH_BRONZE_LAYER')
+        lh_silver = lakehouses.get('LH_SILVER_LAYER')
+        if lh_lz and lh_lz.get('id'):
+            cfg['engine']['lz_lakehouse_id'] = lh_lz['id']
+        if lh_bronze and lh_bronze.get('id'):
+            cfg['engine']['bronze_lakehouse_id'] = lh_bronze['id']
+        if lh_silver and lh_silver.get('id'):
+            cfg['engine']['silver_lakehouse_id'] = lh_silver['id']
+
+        # Notebook IDs → engine section
+        notebooks = body.get('notebooks', {})
+        nb_bronze = notebooks.get('NB_FMD_LOAD_LANDING_BRONZE')
+        nb_silver = notebooks.get('NB_FMD_LOAD_BRONZE_SILVER')
+        if nb_bronze and nb_bronze.get('id'):
+            cfg['engine']['notebook_bronze_id'] = nb_bronze['id']
+        if nb_silver and nb_silver.get('id'):
+            cfg['engine']['notebook_silver_id'] = nb_silver['id']
+
+        # Pipeline + workspace IDs → engine section
+        pipelines = body.get('pipelines', {})
+        pl_copy = pipelines.get('PL_FMD_LDZ_COPY_SQL')
+        if pl_copy and pl_copy.get('id'):
+            cfg['engine']['pipeline_copy_sql_id'] = pl_copy['id']
+        if ws_code:
+            cfg['engine']['pipeline_workspace_id'] = ws_code['id']
+
         config_path.write_text(json.dumps(cfg, indent=4) + '\n', encoding='utf-8')
         results.append({'target': 'config.json', 'status': 'ok'})
     except Exception as ex:
@@ -5522,6 +7477,21 @@ def setup_save_config(body: dict) -> dict:
     except Exception as ex:
         results.append({'target': 'Variable libraries', 'status': 'error', 'details': str(ex)})
 
+    # ── Target 5: config-bundle/dashboard-config.json ──
+    try:
+        bundle_path = _REPO_ROOT / 'scripts' / 'config-bundle' / 'dashboard-config.json'
+        if bundle_path.parent.is_dir():
+            # Re-read the just-written config.json to mirror it to the bundle
+            config_path = Path(__file__).parent / 'config.json'
+            cfg_fresh = json.loads(config_path.read_text(encoding='utf-8'))
+            bundle_path.write_text(json.dumps(cfg_fresh, indent=2) + '\n', encoding='utf-8')
+            results.append({'target': 'config-bundle', 'status': 'ok'})
+        else:
+            results.append({'target': 'config-bundle', 'status': 'warning',
+                            'details': 'scripts/config-bundle/ directory not found'})
+    except Exception as ex:
+        results.append({'target': 'config-bundle', 'status': 'error', 'details': str(ex)})
+
     all_ok = all(r['status'] == 'ok' for r in results)
     return {'success': all_ok, 'results': results}
 
@@ -5578,6 +7548,63 @@ def setup_validate() -> dict:
                             'details': f'{len(lh_rows)} lakehouses configured'})
     except Exception as ex:
         checks.append({'check': 'Lakehouse GUIDs in SQL', 'status': 'error', 'details': str(ex)})
+
+    # Check engine section has notebook + pipeline IDs
+    engine = json_config.get('engine', {})
+    nb_bronze = engine.get('notebook_bronze_id', '')
+    nb_silver = engine.get('notebook_silver_id', '')
+    pl_copy = engine.get('pipeline_copy_sql_id', '')
+    lz_lh = engine.get('lz_lakehouse_id', '')
+    bronze_lh = engine.get('bronze_lakehouse_id', '')
+    silver_lh = engine.get('silver_lakehouse_id', '')
+
+    if nb_bronze:
+        checks.append({'check': 'notebook_bronze_id', 'status': 'ok', 'details': nb_bronze[:8] + '...'})
+    else:
+        checks.append({'check': 'notebook_bronze_id', 'status': 'error',
+                        'details': 'Missing — Bronze notebook will be SKIPPED by engine'})
+
+    if nb_silver:
+        checks.append({'check': 'notebook_silver_id', 'status': 'ok', 'details': nb_silver[:8] + '...'})
+    else:
+        checks.append({'check': 'notebook_silver_id', 'status': 'error',
+                        'details': 'Missing — Silver notebook will be SKIPPED by engine'})
+
+    if pl_copy:
+        checks.append({'check': 'pipeline_copy_sql_id', 'status': 'ok', 'details': pl_copy[:8] + '...'})
+    else:
+        checks.append({'check': 'pipeline_copy_sql_id', 'status': 'warning',
+                        'details': 'Missing — LDZ copy pipeline not configured'})
+
+    # Check engine lakehouse IDs are populated
+    missing_lh = []
+    if not lz_lh: missing_lh.append('lz_lakehouse_id')
+    if not bronze_lh: missing_lh.append('bronze_lakehouse_id')
+    if not silver_lh: missing_lh.append('silver_lakehouse_id')
+    if missing_lh:
+        checks.append({'check': 'Engine lakehouse IDs', 'status': 'error',
+                        'details': f'Missing: {", ".join(missing_lh)}'})
+    else:
+        checks.append({'check': 'Engine lakehouse IDs', 'status': 'ok'})
+
+    # Check config-bundle matches config.json
+    bundle_path = _REPO_ROOT / 'scripts' / 'config-bundle' / 'dashboard-config.json'
+    if bundle_path.is_file():
+        try:
+            bundle = json.loads(bundle_path.read_text(encoding='utf-8'))
+            bundle_engine = bundle.get('engine', {})
+            mismatches = []
+            for key in ['lz_lakehouse_id', 'bronze_lakehouse_id', 'silver_lakehouse_id',
+                        'notebook_bronze_id', 'notebook_silver_id', 'pipeline_copy_sql_id']:
+                if engine.get(key, '') != bundle_engine.get(key, ''):
+                    mismatches.append(key)
+            if mismatches:
+                checks.append({'check': 'Config bundle sync', 'status': 'warning',
+                                'details': f'Out of sync: {", ".join(mismatches)}. Re-run Save & Propagate.'})
+            else:
+                checks.append({'check': 'Config bundle sync', 'status': 'ok'})
+        except Exception as ex:
+            checks.append({'check': 'Config bundle sync', 'status': 'error', 'details': str(ex)})
 
     # Check Fabric API reachability
     try:
@@ -6063,6 +8090,55 @@ def trigger_setup_notebook() -> dict:
         return {'error': f'Fabric API error {e.code}: {err_msg}'}
 
 
+def trigger_maintenance_agent() -> dict:
+    """Trigger the NB_FMD_MAINTENANCE_AGENT notebook in the CODE workspace.
+
+    This notebook scans OneLake lakehouses, compares actual files/tables against
+    EntityStatusSummary, and auto-fixes any drift. Safe to run repeatedly.
+    """
+    code_ws = CONFIG.get('fabric', {}).get('workspace_code_id', '')
+    if not code_ws:
+        return {'error': 'workspace_code_id not set in config.json'}
+
+    # Find the maintenance agent notebook
+    notebook_id = find_notebook_in_workspace(code_ws, 'NB_FMD_MAINTENANCE_AGENT')
+    if not notebook_id:
+        return {'error': f'NB_FMD_MAINTENANCE_AGENT not found in CODE workspace ({code_ws[:8]}...). Deploy it first.'}
+
+    log.info(f'Triggering maintenance agent notebook: {notebook_id}')
+    sys.stdout.flush()
+
+    token = get_fabric_token('https://api.fabric.microsoft.com/.default')
+    url = (
+        f'https://api.fabric.microsoft.com/v1/workspaces/{code_ws}'
+        f'/items/{notebook_id}/jobs/instances?jobType=RunNotebook'
+    )
+    req = urllib.request.Request(url, method='POST', data=b'{}',
+                                headers={'Authorization': f'Bearer {token}',
+                                         'Content-Type': 'application/json'})
+    try:
+        resp = urllib.request.urlopen(req, timeout=30)
+        location = resp.headers.get('Location', '')
+        log.info(f'Maintenance agent triggered — status: {resp.status}, location: {location}')
+        return {
+            'success': True,
+            'notebookId': notebook_id,
+            'workspaceId': code_ws,
+            'status': resp.status,
+            'location': location,
+        }
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', errors='replace')
+        log.error(f'Maintenance agent trigger failed: {e.code} — {body}')
+        err_msg = body[:300]
+        try:
+            err_data = json.loads(body)
+            err_msg = f"{err_data.get('errorCode', '')}: {err_data.get('message', body)[:300]}"
+        except Exception:
+            pass
+        return {'error': f'Fabric API error {e.code}: {err_msg}'}
+
+
 def get_notebook_job_status(workspace_id: str, notebook_id: str) -> dict:
     """Get recent job instances for a notebook."""
     try:
@@ -6116,9 +8192,104 @@ def notebook_debug_get_entities(layer: str = 'bronze') -> dict:
     """
     try:
         if layer == 'bronze':
-            rows = query_sql('EXEC [execution].[sp_GetBronzelayerEntity_Full]')
+            brz_rows = query_sql('''
+                SELECT SourceFilePath, SourceFileName, TargetSchema, TargetName,
+                       PrimaryKeys, SourceFileType, IsIncremental,
+                       LOWER(CONVERT(NVARCHAR(36), TargetLakehouseId)) AS TargetLakehouseId,
+                       LOWER(CONVERT(NVARCHAR(36), SourceLakehouseId)) AS SourceLakehouseId,
+                       LOWER(CONVERT(NVARCHAR(36), TargetWorkspaceId)) AS TargetWorkspaceId,
+                       LOWER(CONVERT(NVARCHAR(36), SourceWorkspaceId)) AS SourceWorkspaceId,
+                       TargetLakehouseName, SourceLakehouseName,
+                       LandingzoneEntityId, EntityId AS BronzeLayerEntityId,
+                       LOWER(CONVERT(NVARCHAR(20), DataSourceNamespace)) AS DataSourceNamespace
+                FROM [execution].[vw_LoadToBronzeLayer]
+                ORDER BY EntityId
+            ''')
+            if not brz_rows:
+                return {'entities': [], 'totalCount': 0, 'notebookParams': None}
+            entity_summary = []
+            params = []
+            for r in brz_rows:
+                entity_summary.append({
+                    'namespace': r.get('DataSourceNamespace', ''),
+                    'schema': r.get('TargetSchema', ''),
+                    'table': r.get('TargetName', ''),
+                    'fileName': r.get('SourceFileName', ''),
+                })
+                params.append({
+                    'path': 'NB_FMD_LOAD_LANDING_BRONZE',
+                    'params': {
+                        'SourceFilePath': r.get('SourceFilePath', ''),
+                        'SourceFileName': r.get('SourceFileName', ''),
+                        'TargetSchema': r.get('TargetSchema', ''),
+                        'TargetName': r.get('TargetName', ''),
+                        'PrimaryKeys': r.get('PrimaryKeys', ''),
+                        'SourceFileType': r.get('SourceFileType', 'parquet'),
+                        'IsIncremental': 'True' if r.get('IsIncremental') else 'False',
+                        'TargetLakehouse': r.get('TargetLakehouseId', ''),
+                        'SourceLakehouse': r.get('SourceLakehouseId', ''),
+                        'TargetWorkspace': r.get('TargetWorkspaceId', ''),
+                        'SourceWorkspace': r.get('SourceWorkspaceId', ''),
+                        'TargetLakehouseName': r.get('TargetLakehouseName', ''),
+                        'SourceLakehouseName': r.get('SourceLakehouseName', ''),
+                        'LandingzoneEntityId': str(r.get('LandingzoneEntityId', '')),
+                        'BronzeLayerEntityId': str(r.get('BronzeLayerEntityId', '')),
+                        'DataSourceNamespace': r.get('DataSourceNamespace', ''),
+                    }
+                })
+            return {
+                'entities': entity_summary,
+                'totalCount': len(entity_summary),
+                'notebookParams': params,
+            }
         elif layer == 'silver':
-            rows = query_sql('EXEC [execution].[sp_GetSilverlayerEntity_Full]')
+            slv_rows = query_sql('''
+                SELECT SourceSchema, SourceName, TargetSchema, TargetName,
+                       LOWER(CONVERT(NVARCHAR(36), TargetLakehouseId)) AS TargetLakehouseId,
+                       LOWER(CONVERT(NVARCHAR(36), SourceLakehouseId)) AS SourceLakehouseId,
+                       LOWER(CONVERT(NVARCHAR(36), TargetWorkspaceId)) AS TargetWorkspaceId,
+                       LOWER(CONVERT(NVARCHAR(36), SourceWorkspaceId)) AS SourceWorkspaceId,
+                       TargetLakehouseName, SourceLakehouseName,
+                       BronzeLayerEntityId, EntityId AS SilverLayerEntityId,
+                       LOWER(CONVERT(NVARCHAR(20), DataSourceNamespace)) AS DataSourceNamespace
+                FROM [execution].[vw_LoadToSilverLayer]
+                ORDER BY EntityId
+            ''')
+            if not slv_rows:
+                return {'entities': [], 'totalCount': 0, 'notebookParams': None}
+            entity_summary = []
+            params = []
+            for r in slv_rows:
+                entity_summary.append({
+                    'namespace': r.get('DataSourceNamespace', ''),
+                    'schema': r.get('TargetSchema', ''),
+                    'table': r.get('TargetName', ''),
+                })
+                params.append({
+                    'path': 'NB_FMD_LOAD_BRONZE_SILVER',
+                    'params': {
+                        'SourceSchema': r.get('SourceSchema', ''),
+                        'SourceName': r.get('SourceName', ''),
+                        'TargetSchema': r.get('TargetSchema', ''),
+                        'TargetName': r.get('TargetName', ''),
+                        'PrimaryKeys': 'HashedPKColumn',
+                        'IsIncremental': 'False',
+                        'TargetLakehouse': r.get('TargetLakehouseId', ''),
+                        'SourceLakehouse': r.get('SourceLakehouseId', ''),
+                        'TargetWorkspace': r.get('TargetWorkspaceId', ''),
+                        'SourceWorkspace': r.get('SourceWorkspaceId', ''),
+                        'TargetLakehouseName': r.get('TargetLakehouseName', ''),
+                        'SourceLakehouseName': r.get('SourceLakehouseName', ''),
+                        'BronzeLayerEntityId': str(r.get('BronzeLayerEntityId', '')),
+                        'SilverLayerEntityId': str(r.get('SilverLayerEntityId', '')),
+                        'DataSourceNamespace': r.get('DataSourceNamespace', ''),
+                    }
+                })
+            return {
+                'entities': entity_summary,
+                'totalCount': len(entity_summary),
+                'notebookParams': params,
+            }
         elif layer == 'landing':
             # No stored proc exists for landing zone — query the view directly
             lz_rows = query_sql('''
@@ -7237,6 +9408,634 @@ def _get_agent_collab_files() -> dict:
         'bulletin': _read_file('bulletin_board.md'),
     }
 
+# ── test-swarm API helpers ──
+
+def _get_test_swarm_runs_dir():
+    """Find the .test-swarm/runs/ directory in the project root."""
+    project_root = Path(__file__).resolve().parent.parent  # dashboard/app -> dashboard -> project root? No...
+    # Walk up to find .test-swarm or use the FMD project root
+    for candidate in [
+        Path(__file__).resolve().parent.parent,           # dashboard/app
+        Path(__file__).resolve().parent.parent.parent,    # dashboard
+        Path(__file__).resolve().parent.parent.parent.parent,  # project root (FMD_FRAMEWORK)
+    ]:
+        runs_dir = candidate / '.test-swarm' / 'runs'
+        if runs_dir.is_dir():
+            return runs_dir
+    # Default to dashboard/app/.test-swarm/runs/
+    return Path(__file__).resolve().parent.parent / '.test-swarm' / 'runs'
+
+
+def get_test_swarm_runs():
+    """List all test-swarm runs, newest first."""
+    runs_dir = _get_test_swarm_runs_dir()
+    if not runs_dir.is_dir():
+        return []
+    runs = []
+    for d in sorted(runs_dir.iterdir(), reverse=True):
+        if not d.is_dir():
+            continue
+        summary = None
+        summary_path = d / 'summary.json'
+        if summary_path.exists():
+            try:
+                summary = json.loads(summary_path.read_text(encoding='utf-8'))
+            except Exception:
+                pass
+        runs.append({'runId': d.name, 'summary': summary})
+    return runs
+
+
+def get_test_swarm_run_convergence(run_id):
+    """Get convergence data for a specific run."""
+    runs_dir = _get_test_swarm_runs_dir()
+    conv_path = runs_dir / run_id / 'convergence.json'
+    if not conv_path.exists():
+        return []
+    try:
+        return json.loads(conv_path.read_text(encoding='utf-8'))
+    except Exception:
+        return []
+
+
+def get_test_swarm_iteration(run_id, iteration):
+    """Get full iteration detail."""
+    runs_dir = _get_test_swarm_runs_dir()
+    iter_path = runs_dir / run_id / f'iteration-{iteration}.json'
+    if not iter_path.exists():
+        return None
+    try:
+        return json.loads(iter_path.read_text(encoding='utf-8'))
+    except Exception:
+        return None
+
+
+def get_test_swarm_status():
+    """Get current/latest run status."""
+    runs = get_test_swarm_runs()
+    if not runs:
+        return {'active': False, 'lastRun': None}
+    latest = runs[0]
+    return {
+        'active': latest.get('summary', {}).get('status') == 'in_progress' if latest.get('summary') else False,
+        'lastRun': latest,
+    }
+
+
+# ── MRI (Machine Regression Intelligence) API helpers ──
+
+def _get_mri_dir():
+    """Find the .mri/ directory in the project root."""
+    for candidate in [
+        Path(__file__).resolve().parent.parent,           # dashboard/app
+        Path(__file__).resolve().parent.parent.parent,    # dashboard
+        Path(__file__).resolve().parent.parent.parent.parent,  # project root (FMD_FRAMEWORK)
+    ]:
+        mri_dir = candidate / '.mri'
+        if mri_dir.is_dir():
+            return mri_dir
+    return Path(__file__).resolve().parent.parent / '.mri'
+
+def _get_mri_runs_dir():
+    return _get_mri_dir() / 'runs'
+
+def get_mri_runs():
+    """List all MRI runs, newest first."""
+    runs_dir = _get_mri_runs_dir()
+    if not runs_dir.is_dir():
+        return []
+    runs = []
+    for d in sorted(runs_dir.iterdir(), reverse=True):
+        if not d.is_dir():
+            continue
+        summary = None
+        summary_path = d / 'summary.json'
+        if summary_path.exists():
+            try:
+                summary = json.loads(summary_path.read_text(encoding='utf-8'))
+            except Exception:
+                pass
+        runs.append({'runId': d.name, 'summary': summary})
+    return runs
+
+def get_mri_status():
+    """Get current/latest MRI run status."""
+    runs = get_mri_runs()
+    # Check both the process state AND the summary to determine if active
+    process_active = _mri_running_process is not None and _mri_running_process.poll() is None
+    summary_active = False
+    latest = None
+    if runs:
+        latest = runs[0]
+        summary_active = latest.get('summary', {}).get('status') == 'in_progress' if latest.get('summary') else False
+    return {
+        'active': process_active or summary_active,
+        'lastRun': latest,
+    }
+
+def get_mri_run_convergence(run_id):
+    """Get convergence data for an MRI run."""
+    conv_path = _get_mri_runs_dir() / run_id / 'convergence.json'
+    if not conv_path.exists():
+        return []
+    try:
+        return json.loads(conv_path.read_text(encoding='utf-8'))
+    except Exception:
+        return []
+
+def get_mri_run_json(run_id, filename):
+    """Read a JSON file from a specific MRI run directory."""
+    fpath = _get_mri_runs_dir() / run_id / filename
+    if not fpath.exists():
+        return []
+    try:
+        return json.loads(fpath.read_text(encoding='utf-8'))
+    except Exception:
+        return []
+
+def get_mri_iteration(run_id, iteration):
+    """Get full iteration detail for an MRI run."""
+    iter_path = _get_mri_runs_dir() / run_id / f'iteration-{iteration}.json'
+    if not iter_path.exists():
+        return None
+    try:
+        return json.loads(iter_path.read_text(encoding='utf-8'))
+    except Exception:
+        return None
+
+def get_mri_baselines():
+    """List all MRI baselines."""
+    baselines_dir = _get_mri_dir() / 'baselines'
+    if not baselines_dir.is_dir():
+        return []
+    entries = []
+    for test_dir in sorted(baselines_dir.iterdir()):
+        if not test_dir.is_dir():
+            continue
+        for img in sorted(test_dir.iterdir()):
+            if img.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+                entries.append({
+                    'testName': test_dir.name,
+                    'viewport': img.stem,
+                    'path': str(img.relative_to(_get_mri_dir())),
+                    'lastUpdated': int(img.stat().st_mtime * 1000),
+                })
+    return entries
+
+def mri_accept_baseline(test_name, run_id=None):
+    """Accept a screenshot as the new baseline for a test."""
+    mri_dir = _get_mri_dir()
+    baselines_dir = mri_dir / 'baselines' / test_name
+
+    # Find the latest screenshot for this test
+    if run_id:
+        screenshots_dir = _get_mri_runs_dir() / run_id / 'screenshots'
+    else:
+        # Use latest run
+        runs = get_mri_runs()
+        if not runs:
+            return {'error': 'No runs found'}
+        screenshots_dir = _get_mri_runs_dir() / runs[0]['runId'] / 'screenshots'
+
+    if not screenshots_dir.is_dir():
+        return {'error': 'No screenshots directory found'}
+
+    # Find screenshots matching the test name
+    import shutil
+    baselines_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for f in screenshots_dir.iterdir():
+        if f.is_file() and test_name in f.stem and f.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+            shutil.copy2(str(f), str(baselines_dir / f.name))
+            copied += 1
+
+    return {'accepted': copied, 'testName': test_name}
+
+def mri_accept_all_baselines():
+    """Accept all current screenshots as baselines."""
+    runs = get_mri_runs()
+    if not runs:
+        return {'error': 'No runs found'}
+    screenshots_dir = _get_mri_runs_dir() / runs[0]['runId'] / 'screenshots'
+    if not screenshots_dir.is_dir():
+        return {'error': 'No screenshots directory found'}
+
+    import shutil
+    mri_dir = _get_mri_dir()
+    baselines_dir = mri_dir / 'baselines'
+    copied = 0
+    for f in screenshots_dir.iterdir():
+        if f.is_file() and f.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+            test_name = f.stem.split('-')[0] if '-' in f.stem else f.stem
+            dest = baselines_dir / test_name
+            dest.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(f), str(dest / f.name))
+            copied += 1
+
+    return {'accepted': copied}
+
+def mri_serve_artifact(handler, url_path: str):
+    """Serve an artifact file from .mri/runs/ or .mri/baselines/.
+    URL: /api/mri/artifacts/<path...>
+    """
+    rel_path = url_path.replace('/api/mri/artifacts/', '')
+    mri_dir = _get_mri_dir()
+    file_path = mri_dir / rel_path
+
+    # Security: prevent directory traversal
+    try:
+        file_path.resolve().relative_to(mri_dir.resolve())
+    except ValueError:
+        handler._error_response('Access denied', 403)
+        return
+
+    if not file_path.is_file():
+        handler._error_response('Not found', 404)
+        return
+
+    ext = file_path.suffix.lower()
+    content_types = {
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.mp4': 'video/mp4', '.webm': 'video/webm',
+        '.zip': 'application/zip', '.json': 'application/json',
+        '.log': 'text/plain', '.html': 'text/html',
+    }
+    ct = content_types.get(ext, 'application/octet-stream')
+
+    handler.send_response(200)
+    handler.send_header('Content-Type', ct)
+    handler.send_header('Content-Length', str(file_path.stat().st_size))
+    handler.send_header('Access-Control-Allow-Origin', '*')
+    handler.send_header('Cache-Control', 'public, max-age=3600')
+    handler.end_headers()
+    handler.wfile.write(file_path.read_bytes())
+
+
+# MRI run management
+_mri_running_process = None
+_mri_run_started_at = 0
+_mri_run_lock = threading.Lock()
+_MRI_RUN_TIMEOUT = 600  # 10 minutes max before considering stuck
+
+def mri_trigger_run():
+    """Trigger a full MRI scan: Playwright tests + screenshot collection.
+    Creates a timestamped run directory, runs Playwright, and collects results."""
+    global _mri_running_process, _mri_run_started_at
+    with _mri_run_lock:
+        if _mri_running_process is not None and _mri_running_process.poll() is None:
+            # Check for stale/stuck process
+            if time.time() - _mri_run_started_at > _MRI_RUN_TIMEOUT:
+                try:
+                    _mri_running_process.kill()
+                except Exception:
+                    pass
+                _mri_running_process = None
+            else:
+                return {'error': 'MRI scan is already running', 'pid': _mri_running_process.pid}
+        # Clear dead process refs
+        if _mri_running_process is not None and _mri_running_process.poll() is not None:
+            _mri_running_process = None
+
+        run_id = str(int(time.time() * 1000))
+        mri_dir = _get_mri_dir()
+        run_dir = mri_dir / 'runs' / run_id
+        screenshots_dir = run_dir / 'screenshots'
+        screenshots_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write initial summary
+        summary = {
+            'runId': run_id,
+            'status': 'in_progress',
+            'startedAt': int(time.time() * 1000),
+            'totalDuration': 0,
+            'iterations': 0,
+            'testsBefore': {'total': 0, 'passed': 0, 'failed': 0},
+            'testsAfter': {'total': 0, 'passed': 0, 'failed': 0},
+            'testsFixed': 0,
+        }
+        (run_dir / 'summary.json').write_text(json.dumps(summary, indent=2))
+
+        # Run Playwright tests with JSON reporter, capturing screenshots
+        log_path = run_dir / 'run-stdout.log'
+        try:
+            _mri_run_started_at = time.time()
+            _mri_running_process = _audit_subprocess.Popen(
+                ['npx', 'playwright', 'test', '--reporter=json'],
+                cwd=str(_DASHBOARD_APP_DIR),
+                stdout=open(str(log_path), 'w'),
+                stderr=_audit_subprocess.STDOUT,
+                shell=True,
+            )
+
+            # Start a background thread to collect results when done
+            def _mri_collect_results():
+                global _mri_running_process
+                proc = _mri_running_process
+                if proc is None:
+                    return
+                exit_code = proc.wait()
+                end_time = int(time.time() * 1000)
+
+                # Parse Playwright JSON results
+                test_results_dir = _DASHBOARD_APP_DIR / 'test-results'
+                results = {'total': 0, 'passed': 0, 'failed': 0}
+                test_list = []
+
+                # Helper: parse PW JSON data into results
+                def _parse_pw_json(pw_data):
+                    def _walk_suites(suites):
+                        for suite in suites:
+                            for spec in suite.get('specs', []):
+                                for test in spec.get('tests', []):
+                                    for result in test.get('results', []):
+                                        results['total'] += 1
+                                        st = result.get('status', 'unknown')
+                                        if st == 'expected':
+                                            results['passed'] += 1
+                                        elif st == 'passed':
+                                            results['passed'] += 1
+                                        elif st in ('failed', 'timedOut', 'unexpected'):
+                                            results['failed'] += 1
+                                        # 'skipped' counted in total but neither pass nor fail
+                                        test_list.append({
+                                            'name': spec.get('title', 'unknown'),
+                                            'status': 'passed' if st in ('passed', 'expected') else ('skipped' if st == 'skipped' else 'failed'),
+                                            'duration': result.get('duration', 0),
+                                        })
+                            _walk_suites(suite.get('suites', []))
+                    _walk_suites(pw_data.get('suites', []))
+                    # Also check stats block as fallback
+                    stats = pw_data.get('stats', {})
+                    if results['total'] == 0 and stats:
+                        results['passed'] = stats.get('expected', 0)
+                        results['failed'] = stats.get('unexpected', 0)
+                        results['total'] = results['passed'] + results['failed'] + stats.get('skipped', 0)
+
+                # Strategy 1: Separate test-results.json file
+                json_results_path = _DASHBOARD_APP_DIR / 'test-results.json'
+                if json_results_path.exists():
+                    try:
+                        _parse_pw_json(json.loads(json_results_path.read_text(encoding='utf-8')))
+                    except Exception:
+                        pass
+
+                # Strategy 2: Parse JSON from the stdout log (Playwright --reporter=json writes to stdout)
+                if results['total'] == 0 and log_path.exists():
+                    try:
+                        raw = log_path.read_text(encoding='utf-8', errors='replace')
+                        # Find the JSON block — starts with { on its own line
+                        json_start = raw.find('\n{')
+                        if json_start == -1:
+                            json_start = 0 if raw.startswith('{') else -1
+                        if json_start >= 0:
+                            json_text = raw[json_start:].strip()
+                            _parse_pw_json(json.loads(json_text))
+                    except Exception:
+                        pass
+
+                # Collect screenshots from test-results into MRI run dir
+                if test_results_dir.is_dir():
+                    import shutil
+                    for root, dirs, files in os.walk(str(test_results_dir)):
+                        for f in files:
+                            if f.endswith('.png') or f.endswith('.jpg'):
+                                src = Path(root) / f
+                                shutil.copy2(str(src), str(screenshots_dir / f))
+
+                # Save parsed test list
+                if test_list:
+                    (run_dir / 'tests.json').write_text(json.dumps(test_list, indent=2))
+
+                # Update summary
+                summary['status'] = 'converged' if results['failed'] == 0 else 'error'
+                summary['completedAt'] = end_time
+                summary['totalDuration'] = end_time - summary['startedAt']
+                summary['testsAfter'] = results
+                summary['testsBefore'] = results  # first run, before=after
+                summary['visualSummary'] = {
+                    'totalScreenshots': len(list(screenshots_dir.glob('*.png'))),
+                    'mismatches': 0,
+                    'newScreenshots': len(list(screenshots_dir.glob('*.png'))),
+                    'matches': 0,
+                }
+                (run_dir / 'summary.json').write_text(json.dumps(summary, indent=2))
+
+                with _mri_run_lock:
+                    _mri_running_process = None
+
+            t = threading.Thread(target=_mri_collect_results, daemon=True)
+            t.start()
+
+            return {'status': 'started', 'runId': run_id, 'pid': _mri_running_process.pid}
+        except Exception as e:
+            return {'error': str(e)}
+
+
+def mri_trigger_api_tests():
+    """Run MRI backend API tests defined in .mri/api-tests/*.yaml."""
+    import urllib.request as _urllib_req
+
+    mri_dir = _get_mri_dir()
+    test_dir = mri_dir / 'api-tests'
+    if not test_dir.is_dir():
+        return {'error': 'No api-tests directory found', 'path': str(test_dir)}
+
+    # Find latest run dir or create one
+    runs_dir = mri_dir / 'runs'
+    runs = sorted(runs_dir.iterdir(), reverse=True) if runs_dir.is_dir() else []
+    if runs:
+        run_dir = runs[0]
+    else:
+        run_id = str(int(time.time() * 1000))
+        run_dir = runs_dir / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+    results = []
+    for yaml_file in sorted(test_dir.glob('*.yaml')) + sorted(test_dir.glob('*.yml')):
+        try:
+            content = yaml_file.read_text(encoding='utf-8')
+            suite = _parse_mri_test_yaml(content)
+            if not suite:
+                continue
+            base_url = suite.get('base_url', 'http://localhost:8787')
+            for test in suite.get('tests', []):
+                result = _run_mri_api_test(test, base_url)
+                results.append(result)
+        except Exception as e:
+            results.append({'name': yaml_file.name, 'status': 'error', 'error': str(e),
+                           'endpoint': '', 'method': '', 'statusCode': 0,
+                           'expectedStatusCode': 0, 'responseTimeMs': 0, 'payloadValid': False})
+
+    # Save results
+    (run_dir / 'backend-results.json').write_text(json.dumps(results, indent=2))
+
+    passed = sum(1 for r in results if r['status'] == 'passed')
+    return {'total': len(results), 'passed': passed, 'failed': len(results) - passed, 'runDir': run_dir.name}
+
+
+def _parse_mri_test_yaml(content: str):
+    """Simple YAML parser for MRI API test suites."""
+    lines = content.split('\n')
+    suite_name = ''
+    base_url = ''
+    tests = []
+    current_test = None
+    current_expect = None
+    current_body = None
+    has_keys = None
+    in_tests = False
+
+    for line in lines:
+        trimmed = line.strip()
+        if not trimmed or trimmed.startswith('#'):
+            continue
+        if not in_tests:
+            if trimmed.startswith('name:'):
+                suite_name = trimmed[5:].strip().strip('"\'')
+            elif trimmed.startswith('base_url:'):
+                base_url = trimmed[9:].strip().strip('"\'')
+            elif trimmed == 'tests:':
+                in_tests = True
+            continue
+
+        if trimmed.startswith('- name:'):
+            if current_test and current_test.get('name'):
+                if current_body and has_keys is not None:
+                    current_body['has_keys'] = has_keys
+                if current_body:
+                    current_expect['body'] = current_body
+                if current_expect:
+                    current_test['expect'] = current_expect
+                tests.append(current_test)
+            current_test = {'name': trimmed[7:].strip().strip('"\''), 'method': 'GET', 'path': '/'}
+            current_expect = None
+            current_body = None
+            has_keys = None
+            continue
+
+        if not current_test:
+            continue
+
+        if trimmed.startswith('method:'):
+            current_test['method'] = trimmed[7:].strip()
+        elif trimmed.startswith('path:'):
+            current_test['path'] = trimmed[5:].strip()
+        elif trimmed == 'expect:':
+            current_expect = {}
+        elif current_expect is not None:
+            if trimmed.startswith('status:'):
+                val = trimmed[7:].strip()
+                current_expect['status'] = int(val) if val.isdigit() else 200
+            elif trimmed.startswith('response_time_ms:'):
+                current_expect['response_time_ms'] = int(trimmed[17:].strip())
+            elif trimmed == 'body:':
+                current_body = {}
+            elif current_body is not None:
+                if trimmed == 'has_keys:':
+                    has_keys = []
+                elif has_keys is not None and trimmed.startswith('-'):
+                    has_keys.append(trimmed[1:].strip().strip('"\''))
+
+    # Flush last test
+    if current_test and current_test.get('name'):
+        if current_body and has_keys is not None:
+            current_body['has_keys'] = has_keys
+        if current_body:
+            current_expect['body'] = current_body
+        if current_expect:
+            current_test['expect'] = current_expect
+        tests.append(current_test)
+
+    return {'name': suite_name, 'base_url': base_url, 'tests': tests} if tests else None
+
+
+def _run_mri_api_test(test: dict, base_url: str) -> dict:
+    """Execute a single MRI API test."""
+    import urllib.request as _req
+    import urllib.error as _err
+
+    url = base_url.rstrip('/') + test['path']
+    method = test.get('method', 'GET')
+    expect = test.get('expect', {})
+    expected_status = expect.get('status', 200)
+    max_time_ms = expect.get('response_time_ms', 30000)
+
+    start = time.time()
+    try:
+        req = _req.Request(url, method=method)
+        req.add_header('Accept', 'application/json')
+        resp = _req.urlopen(req, timeout=max_time_ms / 1000)
+        status_code = resp.status
+        body_bytes = resp.read()
+        response_ms = int((time.time() - start) * 1000)
+
+        # Validate status
+        status_match = status_code == expected_status
+
+        # Validate response time
+        time_match = response_ms <= max_time_ms
+
+        # Validate body
+        body_valid = True
+        body_error = ''
+        if expect.get('body') and b'{' in body_bytes[:10]:
+            try:
+                body_json = json.loads(body_bytes)
+                has_keys = expect['body'].get('has_keys', [])
+                missing = [k for k in has_keys if k not in body_json]
+                if missing:
+                    body_valid = False
+                    body_error = f'Missing keys: {", ".join(missing)}'
+            except Exception:
+                body_valid = False
+                body_error = 'Failed to parse JSON'
+
+        passed = status_match and time_match and body_valid
+        error_parts = []
+        if not status_match:
+            error_parts.append(f'Expected {expected_status}, got {status_code}')
+        if not time_match:
+            error_parts.append(f'{response_ms}ms exceeds {max_time_ms}ms')
+        if body_error:
+            error_parts.append(body_error)
+
+        return {
+            'name': test['name'],
+            'endpoint': f'{method} {test["path"]}',
+            'method': method,
+            'status': 'passed' if passed else 'failed',
+            'statusCode': status_code,
+            'expectedStatusCode': expected_status,
+            'responseTimeMs': response_ms,
+            'payloadValid': body_valid,
+            'error': '; '.join(error_parts) if error_parts else None,
+        }
+    except _err.HTTPError as e:
+        return {
+            'name': test['name'],
+            'endpoint': f'{method} {test["path"]}',
+            'method': method,
+            'status': 'failed',
+            'statusCode': e.code,
+            'expectedStatusCode': expected_status,
+            'responseTimeMs': int((time.time() - start) * 1000),
+            'payloadValid': False,
+            'error': f'HTTP {e.code}: {e.reason}',
+        }
+    except Exception as e:
+        return {
+            'name': test['name'],
+            'endpoint': f'{method} {test["path"]}',
+            'method': method,
+            'status': 'error',
+            'statusCode': 0,
+            'expectedStatusCode': expected_status,
+            'responseTimeMs': int((time.time() - start) * 1000),
+            'payloadValid': False,
+            'error': str(e),
+        }
+
+
 # ── HTTP Handler ──
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
@@ -7359,18 +10158,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             pass  # Client disconnected
 
     def do_GET(self):
+        parsed_url = urllib.parse.urlparse(self.path)
+        path = parsed_url.path
         log.info(f'GET {self.path}')
         try:
             # API routes
-            if self.path == '/api/gateway-connections':
+            if path == '/api/gateway-connections':
                 self._json_response(get_gateway_connections())
-            elif self.path == '/api/connections':
+            elif path == '/api/connections':
                 self._json_response(get_registered_connections())
-            elif self.path == '/api/datasources':
+            elif path == '/api/datasources':
                 self._json_response(get_registered_datasources())
-            elif self.path == '/api/entities':
+            elif path == '/api/entities':
                 self._json_response(get_registered_entities())
-            elif self.path.startswith('/api/entities/cascade-impact'):
+            elif path.startswith('/api/entities/cascade-impact'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 ids_str = qs.get('ids', [''])[0]
                 if not ids_str:
@@ -7378,41 +10179,41 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 else:
                     ids = [int(x) for x in ids_str.split(',') if x.strip().isdigit()]
                     self._json_response(get_cascade_impact(ids))
-            elif self.path == '/api/pipeline-view':
+            elif path == '/api/pipeline-view':
                 self._json_response(get_pipeline_view())
-            elif self.path == '/api/bronze-view':
+            elif path == '/api/bronze-view':
                 self._json_response(get_bronze_view())
-            elif self.path == '/api/silver-view':
+            elif path == '/api/silver-view':
                 self._json_response(get_silver_view())
-            elif self.path == '/api/pipelines':
+            elif path == '/api/pipelines':
                 self._json_response(get_pipelines())
-            elif self.path == '/api/workspaces':
+            elif path == '/api/workspaces':
                 self._json_response(get_workspaces())
-            elif self.path == '/api/lakehouses':
+            elif path == '/api/lakehouses':
                 self._json_response(get_lakehouses())
-            elif self.path == '/api/bronze-entities':
+            elif path == '/api/bronze-entities':
                 self._json_response(get_bronze_entities())
-            elif self.path == '/api/silver-entities':
+            elif path == '/api/silver-entities':
                 self._json_response(get_silver_entities())
-            elif self.path == '/api/pipeline-executions':
+            elif path == '/api/pipeline-executions':
                 self._json_response(get_pipeline_executions())
-            elif self.path == '/api/error-intelligence':
+            elif path == '/api/error-intelligence':
                 self._json_response(get_error_intelligence())
-            elif self.path == '/api/fabric-jobs':
+            elif path == '/api/fabric-jobs':
                 self._json_response(get_fabric_job_instances())
             # ── Pipeline Runner GET endpoints ──
-            elif self.path == '/api/runner/sources':
+            elif path == '/api/runner/sources':
                 self._json_response(runner_get_sources())
-            elif self.path.startswith('/api/runner/entities'):
+            elif path.startswith('/api/runner/entities'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 ds_id = int(qs.get('dataSourceId', ['0'])[0])
                 if not ds_id:
                     self._error_response('dataSourceId is required', 400)
                 else:
                     self._json_response(runner_get_entities(ds_id))
-            elif self.path == '/api/runner/state':
+            elif path == '/api/runner/state':
                 self._json_response(runner_get_state())
-            elif self.path.startswith('/api/pipeline-activity-runs'):
+            elif path.startswith('/api/pipeline-activity-runs'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 ws = qs.get('workspaceGuid', [''])[0]
                 job_id = qs.get('jobInstanceId', [''])[0]
@@ -7420,25 +10221,33 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('workspaceGuid and jobInstanceId are required', 400)
                 else:
                     self._json_response(get_pipeline_activity_runs(ws, job_id))
-            elif self.path.startswith('/api/live-monitor'):
+            elif path.startswith('/api/live-monitor'):
                 lm_qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 mins = int(lm_qs.get('minutes', ['240'])[0]) if lm_qs.get('minutes') else 240
                 self._json_response(get_live_monitor(mins))
-            elif self.path == '/api/copy-executions':
+            elif path == '/api/copy-executions':
                 self._json_response(get_copy_executions())
-            elif self.path == '/api/notebook-executions':
+            elif path == '/api/notebook-executions':
                 self._json_response(get_notebook_executions())
-            elif self.path == '/api/schema':
+            elif path == '/api/schema':
                 self._json_response(get_schema_info())
-            elif self.path.startswith('/api/entity-digest'):
+            elif path.startswith('/api/entity-digest'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 source = qs.get('source', [None])[0]
                 layer = qs.get('layer', [None])[0]
                 status = qs.get('status', [None])[0]
                 self._json_response(build_entity_digest(source, layer, status))
-            elif self.path == '/api/stats':
+            elif path.startswith('/api/load-progress'):
+                self._json_response(get_load_progress())
+            elif path == '/api/source-config':
+                self._json_response(get_source_config())
+            elif path == '/api/executive':
+                self._json_response(get_executive_dashboard())
+            elif path == '/api/pipeline-matrix':
+                self._json_response(get_pipeline_matrix())
+            elif path == '/api/stats':
                 self._json_response(get_dashboard_stats())
-            elif self.path == '/api/health':
+            elif path == '/api/health':
                 self._json_response({
                     'status': 'ok',
                     'sql': SQL_SERVER,
@@ -7447,13 +10256,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'purview': PURVIEW_ACCOUNT or None,
                 })
             # Control Plane (read-only aggregate view)
-            elif self.path == '/api/control-plane':
+            elif path == '/api/control-plane':
                 self._json_response(get_control_plane())
             # Onboarding endpoints
-            elif self.path == '/api/onboarding':
+            elif path == '/api/onboarding':
                 self._json_response(get_onboarding_sources())
             # Data Journey endpoint
-            elif self.path.startswith('/api/journey'):
+            elif path.startswith('/api/journey'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 entity_id = qs.get('entity', [''])[0]
                 if not entity_id or not entity_id.isdigit():
@@ -7461,50 +10270,52 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 else:
                     self._json_response(get_entity_journey(int(entity_id)))
             # Blender endpoints
-            elif self.path == '/api/blender/tables':
+            elif path == '/api/blender/tables':
                 self._json_response(get_blender_tables())
-            elif self.path == '/api/blender/endpoints':
+            elif path == '/api/blender/endpoints':
                 self._json_response(discover_lakehouse_endpoints())
-            elif self.path.startswith('/api/lakehouse-counts'):
+            elif path == '/api/blender/lakehouses':
+                self._json_response(discover_lakehouse_endpoints())
+            elif path.startswith('/api/lakehouse-counts'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 force = qs.get('force', [''])[0].lower() in ('1', 'true')
                 self._json_response(get_lakehouse_row_counts(force_refresh=force))
-            elif self.path.startswith('/api/blender/profile?'):
+            elif path == '/api/blender/profile':
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 lh = qs.get('lakehouse', [''])[0]
-                schema = qs.get('schema', ['dbo'])[0]
+                schema = qs.get('schema', [''])[0]
                 table = qs.get('table', [''])[0]
-                if not lh or not table:
-                    self._error_response('lakehouse and table params required', 400)
+                if not lh or not schema or not table:
+                    self._error_response('lakehouse, schema, and table params required', 400)
                 else:
                     self._json_response(profile_lakehouse_table(lh, schema, table))
-            elif self.path.startswith('/api/blender/sample?'):
+            elif path == '/api/blender/sample':
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 lh = qs.get('lakehouse', [''])[0]
-                schema = qs.get('schema', ['dbo'])[0]
+                schema = qs.get('schema', [''])[0]
                 table = qs.get('table', [''])[0]
                 limit = max(1, min(int(qs.get('limit', ['25'])[0]), 1000))
-                if not lh or not table:
-                    self._error_response('lakehouse and table params required', 400)
+                if not lh or not schema or not table:
+                    self._error_response('lakehouse, schema, and table params required', 400)
                 else:
                     self._json_response(sample_lakehouse_table(lh, schema, table, limit))
             # Purview endpoints
-            elif self.path == '/api/purview/status':
+            elif path == '/api/purview/status':
                 self._json_response(purview_status())
-            elif self.path.startswith('/api/purview/search?'):
+            elif path == '/api/purview/search':
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 keyword = qs.get('q', [''])[0]
                 limit = max(1, min(int(qs.get('limit', ['25'])[0]), 1000))
                 self._json_response(purview_search(keyword, limit))
-            elif self.path.startswith('/api/purview/entity/'):
-                guid = self.path.split('/api/purview/entity/')[1].split('?')[0]
+            elif path.startswith('/api/purview/entity/'):
+                guid = path.split('/api/purview/entity/')[1].split('?')[0]
                 self._json_response(purview_get_entity(guid))
             # Config Manager
-            elif self.path == '/api/config-manager':
+            elif path == '/api/config-manager' or path == '/api/config':
                 self._json_response(get_config_manager())
-            elif self.path == '/api/notebook-config':
+            elif path == '/api/notebook-config':
                 self._json_response(get_notebook_config())
-            elif self.path.startswith('/api/config-manager/references?'):
+            elif path == '/api/config-manager/references':
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 guid_val = qs.get('guid', [''])[0]
                 if not guid_val:
@@ -7512,26 +10323,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 else:
                     self._json_response(find_guid_references(guid_val))
             # ── Environment Setup wizard routes ──
-            elif self.path == '/api/setup/capacities':
+            elif path == '/api/setup/capacities':
                 self._json_response(setup_list_capacities())
-            elif self.path.startswith('/api/setup/workspaces/') and '/lakehouses' in self.path:
-                ws_id = self.path.split('/api/setup/workspaces/')[1].split('/lakehouses')[0]
+            elif path.startswith('/api/setup/workspaces/') and '/lakehouses' in path:
+                ws_id = path.split('/api/setup/workspaces/')[1].split('/lakehouses')[0]
                 self._json_response(setup_list_workspace_items(ws_id, 'Lakehouse'))
-            elif self.path.startswith('/api/setup/workspaces/') and '/sql-databases' in self.path:
-                ws_id = self.path.split('/api/setup/workspaces/')[1].split('/sql-databases')[0]
+            elif path.startswith('/api/setup/workspaces/') and '/sql-databases' in path:
+                ws_id = path.split('/api/setup/workspaces/')[1].split('/sql-databases')[0]
                 self._json_response(setup_list_sql_databases(ws_id))
-            elif self.path.startswith('/api/setup/workspaces/') and '/notebooks' in self.path:
-                ws_id = self.path.split('/api/setup/workspaces/')[1].split('/notebooks')[0]
+            elif path.startswith('/api/setup/workspaces/') and '/notebooks' in path:
+                ws_id = path.split('/api/setup/workspaces/')[1].split('/notebooks')[0]
                 self._json_response(setup_list_workspace_items(ws_id, 'Notebook'))
-            elif self.path.startswith('/api/setup/workspaces/') and '/pipelines' in self.path:
-                ws_id = self.path.split('/api/setup/workspaces/')[1].split('/pipelines')[0]
+            elif path.startswith('/api/setup/workspaces/') and '/pipelines' in path:
+                ws_id = path.split('/api/setup/workspaces/')[1].split('/pipelines')[0]
                 self._json_response(setup_list_workspace_items(ws_id, 'DataPipeline'))
-            elif self.path == '/api/setup/current-config':
+            elif path == '/api/setup/current-config':
                 self._json_response(setup_get_current_config())
-            elif self.path == '/api/setup/validate':
+            elif path == '/api/setup/validate':
                 self._json_response(setup_validate())
             # List all Fabric workspaces (for dropdowns)
-            elif self.path == '/api/fabric/workspaces':
+            elif path == '/api/fabric/workspaces':
                 try:
                     data = _fabric_api_get('workspaces')
                     items = [{'id': w['id'], 'displayName': w.get('displayName', '')}
@@ -7541,7 +10352,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 except Exception as ex:
                     self._json_response({'workspaces': [], 'error': str(ex)})
             # List all Fabric connections (for dropdowns)
-            elif self.path == '/api/fabric/connections':
+            elif path == '/api/fabric/connections':
                 try:
                     token = get_fabric_token('https://api.fabric.microsoft.com/.default')
                     url = 'https://api.fabric.microsoft.com/v1/connections'
@@ -7557,7 +10368,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 except Exception as ex:
                     self._json_response({'connections': [], 'error': str(ex)})
             # List Azure AD security groups (for admin group dropdown)
-            elif self.path == '/api/fabric/security-groups':
+            elif path == '/api/fabric/security-groups':
                 try:
                     token = get_fabric_token('https://graph.microsoft.com/.default')
                     # List security-enabled groups, filter to security groups (not M365/distribution)
@@ -7573,7 +10384,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 except Exception as ex:
                     self._json_response({'groups': [], 'error': str(ex)})
             # Resolve a workspace GUID to its Fabric display name
-            elif self.path.startswith('/api/fabric/resolve-workspace?'):
+            elif path == '/api/fabric/resolve-workspace':
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 ws_id = qs.get('id', [''])[0]
                 if not ws_id:
@@ -7585,7 +10396,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     else:
                         self._json_response({'id': ws_id, 'displayName': None, 'error': 'Workspace not found'})
             # Notebook job status polling
-            elif self.path.startswith('/api/notebook/job-status?'):
+            elif path == '/api/notebook/job-status':
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 ws = qs.get('workspaceId', [''])[0]
                 nb = qs.get('notebookId', [''])[0]
@@ -7594,13 +10405,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 else:
                     self._json_response(get_notebook_job_status(ws, nb))
             # Notebook Debug Runner
-            elif self.path == '/api/notebook-debug/notebooks':
+            elif path == '/api/notebook-debug/notebooks':
                 self._json_response(notebook_debug_list())
-            elif self.path.startswith('/api/notebook-debug/entities'):
+            elif path.startswith('/api/notebook-debug/entities'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 layer = qs.get('layer', ['bronze'])[0]
                 self._json_response(notebook_debug_get_entities(layer))
-            elif self.path.startswith('/api/notebook-debug/job-status?'):
+            elif path == '/api/notebook-debug/job-status':
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 job_id = qs.get('jobId', [''])[0]
                 nb_id = qs.get('notebookId', [''])[0]
@@ -7614,20 +10425,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 else:
                     self._error_response('jobId or notebookId required', 400)
             # Diagnostic: list stored procedures
-            elif self.path == '/api/diag/stored-procs':
+            elif path == '/api/diag/stored-procs':
                 try:
                     rows = query_sql("SELECT s.name as [schema], p.name as [proc] FROM sys.procedures p JOIN sys.schemas s ON p.schema_id = s.schema_id ORDER BY s.name, p.name")
                     self._json_response({'procs': rows or []})
                 except Exception as ex:
                     self._json_response({'error': str(ex)})
             # Deploy pre-flight check
-            elif self.path == '/api/deploy/preflight':
+            elif path == '/api/deploy/preflight':
                 self._json_response(deploy_preflight())
             # Deployment status (notebook running + auto-discover new env)
-            elif self.path == '/api/deployment/status':
+            elif path == '/api/deployment/status':
                 self._json_response(get_deployment_status())
             # Pipeline run snapshot (REST, for initial load / non-SSE clients)
-            elif self.path.startswith('/api/pipeline/run-snapshot?'):
+            elif path == '/api/pipeline/run-snapshot':
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 ws = qs.get('workspaceGuid', [''])[0]
                 pg = qs.get('pipelineGuid', [''])[0]
@@ -7641,7 +10452,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     snapshots = [e['data'] for e in poller.events if e['event'] in ('snapshot', 'final')]
                     self._json_response(snapshots[-1] if snapshots else {'status': 'Initializing', 'runId': ji})
             # Pipeline failure trace — recursively finds the root cause in nested pipelines
-            elif self.path.startswith('/api/pipeline/failure-trace?'):
+            elif path == '/api/pipeline/failure-trace':
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 ws = qs.get('workspaceGuid', [''])[0]
                 ji = qs.get('jobInstanceId', [''])[0]
@@ -7652,7 +10463,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     result = trace_pipeline_failure(ws, ji, pn)
                     self._json_response(result)
             # Pipeline run live monitor (SSE)
-            elif self.path.startswith('/api/pipeline/stream?'):
+            elif path == '/api/pipeline/stream':
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 ws = qs.get('workspaceGuid', [''])[0]
                 pg = qs.get('pipelineGuid', [''])[0]
@@ -7664,13 +10475,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._sse_pipeline_stream(ws, pg, ji, pn)
                 return  # SSE handler manages its own response lifecycle
             # Deployment Manager endpoints
-            elif self.path == '/api/deploy/stream':
+            elif path == '/api/deploy/stream':
                 self._sse_deploy_stream()
                 return  # SSE handler manages its own response lifecycle
-            elif self.path == '/api/deploy/state':
+            elif path == '/api/deploy/state':
                 self._json_response(get_deploy_state())
             # Load Optimization Engine endpoints
-            elif self.path.startswith('/api/analyze-source'):
+            elif path.startswith('/api/analyze-source'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 ds_id = qs.get('datasource', [''])[0]
                 if not ds_id or not ds_id.isdigit():
@@ -7679,23 +10490,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     username = qs.get('username', [''])[0]
                     password = qs.get('password', [''])[0]
                     self._json_response(analyze_source_tables(int(ds_id), username, password))
-            elif self.path.startswith('/api/load-config'):
+            elif path.startswith('/api/load-config'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 ds_id = qs.get('datasource', [''])[0]
                 self._json_response(get_load_config(int(ds_id) if ds_id and ds_id.isdigit() else None))
-            elif self.path == '/api/settings/agent-log':
+            elif path == '/api/settings/agent-log':
                 self._json_response(_get_agent_collab_files())
             # ── SQL Object Explorer endpoints ──
-            elif self.path == '/api/sql-explorer/servers':
+            elif path == '/api/sql-explorer/servers':
                 self._json_response(sql_explorer_servers())
-            elif self.path.startswith('/api/sql-explorer/databases'):
+            elif path.startswith('/api/sql-explorer/databases'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 server = qs.get('server', [''])[0]
                 if not server:
                     self._error_response('server param required', 400)
                 else:
                     self._json_response(sql_explorer_databases(server))
-            elif self.path.startswith('/api/sql-explorer/schemas'):
+            elif path.startswith('/api/sql-explorer/schemas'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 server = qs.get('server', [''])[0]
                 database = qs.get('database', [''])[0]
@@ -7703,7 +10514,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('server and database params required', 400)
                 else:
                     self._json_response(sql_explorer_schemas(server, database))
-            elif self.path.startswith('/api/sql-explorer/tables') and 'lakehouse' not in self.path:
+            elif path.startswith('/api/sql-explorer/tables') and 'lakehouse' not in path:
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 server = qs.get('server', [''])[0]
                 database = qs.get('database', [''])[0]
@@ -7712,7 +10523,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('server, database, and schema params required', 400)
                 else:
                     self._json_response(sql_explorer_tables(server, database, schema))
-            elif self.path.startswith('/api/sql-explorer/columns') and 'lakehouse' not in self.path:
+            elif path.startswith('/api/sql-explorer/columns') and 'lakehouse' not in path:
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 server = qs.get('server', [''])[0]
                 database = qs.get('database', [''])[0]
@@ -7722,7 +10533,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('server, database, schema, and table params required', 400)
                 else:
                     self._json_response(sql_explorer_columns(server, database, schema, table))
-            elif self.path.startswith('/api/sql-explorer/preview') and 'lakehouse' not in self.path:
+            elif path.startswith('/api/sql-explorer/preview') and 'lakehouse' not in path:
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 server = qs.get('server', [''])[0]
                 database = qs.get('database', [''])[0]
@@ -7733,16 +10544,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('server, database, schema, and table params required', 400)
                 else:
                     self._json_response(sql_explorer_preview(server, database, schema, table, limit))
-            elif self.path == '/api/sql-explorer/lakehouses':
+            elif path == '/api/sql-explorer/lakehouses':
                 self._json_response(sql_explorer_lakehouses())
-            elif self.path.startswith('/api/sql-explorer/lakehouse-schemas'):
+            elif path.startswith('/api/sql-explorer/lakehouse-schemas'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 lakehouse = qs.get('lakehouse', [''])[0]
                 if not lakehouse:
                     self._error_response('lakehouse param required', 400)
                 else:
                     self._json_response(sql_explorer_lakehouse_schemas(lakehouse))
-            elif self.path.startswith('/api/sql-explorer/lakehouse-tables'):
+            elif path.startswith('/api/sql-explorer/lakehouse-tables'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 lakehouse = qs.get('lakehouse', [''])[0]
                 schema = qs.get('schema', [''])[0]
@@ -7750,7 +10561,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('lakehouse and schema params required', 400)
                 else:
                     self._json_response(sql_explorer_lakehouse_tables(lakehouse, schema))
-            elif self.path.startswith('/api/sql-explorer/lakehouse-columns'):
+            elif path.startswith('/api/sql-explorer/lakehouse-columns'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 lakehouse = qs.get('lakehouse', [''])[0]
                 schema = qs.get('schema', [''])[0]
@@ -7759,7 +10570,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('lakehouse, schema, and table params required', 400)
                 else:
                     self._json_response(sql_explorer_lakehouse_columns(lakehouse, schema, table))
-            elif self.path.startswith('/api/sql-explorer/lakehouse-preview'):
+            elif path.startswith('/api/sql-explorer/lakehouse-preview'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 lakehouse = qs.get('lakehouse', [''])[0]
                 schema = qs.get('schema', [''])[0]
@@ -7769,14 +10580,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('lakehouse, schema, and table params required', 400)
                 else:
                     self._json_response(sql_explorer_lakehouse_preview(lakehouse, schema, table, limit))
-            elif self.path.startswith('/api/sql-explorer/lakehouse-files'):
+            elif path.startswith('/api/sql-explorer/lakehouse-files'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 lakehouse = qs.get('lakehouse', [''])[0]
                 if not lakehouse:
                     self._error_response('lakehouse param required', 400)
                 else:
                     self._json_response(sql_explorer_lakehouse_files(lakehouse))
-            elif self.path.startswith('/api/sql-explorer/lakehouse-file-tables'):
+            elif path.startswith('/api/sql-explorer/lakehouse-file-tables'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 lakehouse = qs.get('lakehouse', [''])[0]
                 namespace = qs.get('namespace', [''])[0]
@@ -7784,7 +10595,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('lakehouse and namespace params required', 400)
                 else:
                     self._json_response(sql_explorer_lakehouse_file_tables(lakehouse, namespace))
-            elif self.path.startswith('/api/sql-explorer/lakehouse-file-detail'):
+            elif path.startswith('/api/sql-explorer/lakehouse-file-detail'):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 lakehouse = qs.get('lakehouse', [''])[0]
                 namespace = qs.get('namespace', [''])[0]
@@ -7793,16 +10604,129 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('lakehouse, namespace, and folder params required', 400)
                 else:
                     self._json_response(sql_explorer_lakehouse_file_detail(lakehouse, namespace, table_folder))
+            # ── Data Microscope endpoints ──
+            elif path.startswith('/api/microscope/pks'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                entity_id = int(qs.get('entity', ['0'])[0])
+                search = qs.get('q', [''])[0]
+                limit = min(int(qs.get('limit', ['20'])[0]), 100)
+                if not entity_id:
+                    self._error_response('entity param required', 400)
+                else:
+                    self._json_response(get_microscope_pks(entity_id, search, limit))
+            elif path.startswith('/api/microscope'):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                entity_id = int(qs.get('entity', ['0'])[0])
+                pk_value = qs.get('pk', [''])[0]
+                if not entity_id:
+                    self._error_response('entity param required', 400)
+                elif not pk_value:
+                    self._json_response(get_microscope_data(entity_id, ''))
+                else:
+                    self._json_response(get_microscope_data(entity_id, pk_value))
+            # ── Audit / Test Runner endpoints ──
+            elif path == '/api/audit/history':
+                self._json_response(_audit_get_history())
+            elif path == '/api/audit/status':
+                self._json_response(_audit_get_status())
+            elif path.startswith('/api/audit/artifacts/'):
+                # /api/audit/artifacts/<runId>/<testDir>/<file>
+                _audit_serve_artifact(self, path)
+                return
             # ── Admin config ──
-            elif self.path == '/api/admin/config':
+            elif path == '/api/admin/config':
                 self._json_response({"hiddenPages": _admin_config.get("hiddenPages", [])})
             # ── FMD v3 Engine endpoints ──
-            elif self.path.startswith('/api/engine/'):
+            elif path.startswith('/api/engine/'):
                 from engine.api import handle_engine_request
                 handle_engine_request(self, method='GET', path=self.path,
                                       config=CONFIG, query_sql_fn=query_sql)
                 return  # engine API (incl. SSE) manages its own response lifecycle
-            elif self.path.startswith('/api/'):
+            # ── test-swarm endpoints ──
+            elif path == '/api/test-swarm/runs':
+                self._json_response(get_test_swarm_runs())
+            elif path == '/api/test-swarm/status':
+                self._json_response(get_test_swarm_status())
+            elif path.startswith('/api/test-swarm/runs/') and '/convergence' in path:
+                run_id = path.split('/api/test-swarm/runs/')[1].split('/convergence')[0]
+                self._json_response(get_test_swarm_run_convergence(run_id))
+            elif path.startswith('/api/test-swarm/runs/') and '/iteration/' in path:
+                parts = path.split('/api/test-swarm/runs/')[1]
+                run_id, _, iter_part = parts.partition('/iteration/')
+                iter_num = int(iter_part) if iter_part.isdigit() else 0
+                result = get_test_swarm_iteration(run_id, iter_num)
+                if result:
+                    self._json_response(result)
+                else:
+                    self._error_response('Iteration not found', 404)
+            elif path.startswith('/api/test-swarm/runs/'):
+                # Get run summary
+                run_id = path.split('/api/test-swarm/runs/')[1].rstrip('/')
+                runs = get_test_swarm_runs()
+                run = next((r for r in runs if r['runId'] == run_id), None)
+                if run:
+                    self._json_response(run)
+                else:
+                    self._error_response('Run not found', 404)
+            # ── MRI (Machine Regression Intelligence) endpoints ──
+            elif path == '/api/mri/runs':
+                self._json_response(get_mri_runs())
+            elif path == '/api/mri/status':
+                self._json_response(get_mri_status())
+            elif path == '/api/mri/baselines':
+                self._json_response(get_mri_baselines())
+            elif path.startswith('/api/mri/artifacts/'):
+                mri_serve_artifact(self, path)
+                return
+            elif path.startswith('/api/mri/runs/') and '/convergence' in path:
+                run_id = path.split('/api/mri/runs/')[1].split('/convergence')[0]
+                self._json_response(get_mri_run_convergence(run_id))
+            elif path.startswith('/api/mri/runs/') and '/iteration/' in path:
+                parts = path.split('/api/mri/runs/')[1]
+                run_id, _, iter_part = parts.partition('/iteration/')
+                iter_num = int(iter_part) if iter_part.isdigit() else 0
+                result = get_mri_iteration(run_id, iter_num)
+                if result:
+                    self._json_response(result)
+                else:
+                    self._error_response('Iteration not found', 404)
+            elif path.startswith('/api/mri/runs/') and '/visual-diffs' in path:
+                run_id = path.split('/api/mri/runs/')[1].split('/visual-diffs')[0]
+                self._json_response(get_mri_run_json(run_id, 'visual-diffs.json'))
+            elif path.startswith('/api/mri/runs/') and '/backend-results' in path:
+                run_id = path.split('/api/mri/runs/')[1].split('/backend-results')[0]
+                self._json_response(get_mri_run_json(run_id, 'backend-results.json'))
+            elif path.startswith('/api/mri/runs/') and '/ai-analyses' in path:
+                run_id = path.split('/api/mri/runs/')[1].split('/ai-analyses')[0]
+                self._json_response(get_mri_run_json(run_id, 'ai-analyses.json'))
+            elif path.startswith('/api/mri/runs/') and '/flake-results' in path:
+                run_id = path.split('/api/mri/runs/')[1].split('/flake-results')[0]
+                self._json_response(get_mri_run_json(run_id, 'flake-results.json'))
+            elif path.startswith('/api/mri/runs/'):
+                run_id = path.split('/api/mri/runs/')[1].rstrip('/')
+                runs = get_mri_runs()
+                run = next((r for r in runs if r['runId'] == run_id), None)
+                if run:
+                    self._json_response(run)
+                else:
+                    self._error_response('Run not found', 404)
+            # ── Labs / DQ Trends ──
+            elif path == '/api/labs/dq-trends':
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                hours = int(qs.get('hours', ['168'])[0])
+                snapshots = metrics_store.get_dq_snapshots(hours)
+                points = [
+                    {
+                        'time': s.get('captured_at', ''),
+                        'coverage': s.get('coverage', 0),
+                        'entityCount': s.get('entity_count', 0),
+                        'withData': s.get('with_data', 0),
+                        'totalRows': s.get('total_rows', 0),
+                    }
+                    for s in snapshots
+                ]
+                self._json_response({'points': points})
+            elif path.startswith('/api/'):
                 self._error_response('Not found', 404)
             else:
                 # Static file serving (production mode)
@@ -7813,9 +10737,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._error_response(str(e))
 
     def do_POST(self):
+        parsed_url = urllib.parse.urlparse(self.path)
+        path = parsed_url.path
         try:
             # ── FMD v3 Engine endpoints (must be before body read) ──
-            if self.path.startswith('/api/engine/'):
+            if path.startswith('/api/engine/'):
                 from engine.api import handle_engine_request
                 handle_engine_request(self, method='POST', path=self.path,
                                       config=CONFIG, query_sql_fn=query_sql)
@@ -7824,7 +10750,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))
             body = json.loads(self.rfile.read(content_length)) if content_length else {}
 
-            if self.path == '/api/source-tables':
+            if path == '/api/source-tables':
                 server = body.get('server', '')
                 database = body.get('database', '')
                 username = body.get('username', '')
@@ -7833,27 +10759,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('server and database are required', 400)
                 else:
                     self._json_response(discover_source_tables(server, database, username, password))
-            elif self.path == '/api/connections':
+            elif path == '/api/connections':
                 self._json_response(register_connection(body), 201)
-            elif self.path == '/api/datasources':
+            elif path == '/api/datasources':
                 self._json_response(register_datasource(body), 201)
-            elif self.path == '/api/entities':
+            elif path == '/api/entities':
                 self._json_response(register_entity(body), 201)
-            elif self.path.startswith('/api/purview/entity/'):
-                guid = self.path.split('/api/purview/entity/')[1].split('?')[0]
+            elif path.startswith('/api/purview/entity/'):
+                guid = path.split('/api/purview/entity/')[1].split('?')[0]
                 self._json_response(purview_update_entity(guid, body))
-            elif self.path == '/api/purview/search':
+            elif path == '/api/purview/search':
                 keyword = body.get('keyword', '')
                 limit = body.get('limit', 25)
                 self._json_response(purview_search(keyword, limit))
-            elif self.path == '/api/blender/query':
+            elif path == '/api/blender/query':
                 lh = body.get('lakehouse', '')
                 sql = body.get('sql', '')
                 if not lh or not sql:
                     self._error_response('lakehouse and sql params required', 400)
                 else:
                     self._json_response(execute_blender_query(lh, sql))
-            elif self.path == '/api/sql-explorer/server-label':
+            elif path == '/api/sql-explorer/server-label':
                 srv = body.get('server', '')
                 label = body.get('label', '').strip()
                 if not srv or not label:
@@ -7861,15 +10787,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 else:
                     _save_server_label(srv, label)
                     self._json_response({'server': srv, 'label': label})
+            elif path == '/api/source-config/label':
+                key = body.get('key', '').strip()
+                label = body.get('label', '').strip()
+                if not key or not label:
+                    self._error_response('key and label are required', 400)
+                else:
+                    _source_display_labels[key] = label
+                    _source_display_labels[key.lower()] = label
+                    _save_source_display_labels()
+                    self._json_response({'key': key, 'label': label})
             # Onboarding endpoints
-            elif self.path == '/api/onboarding':
+            elif path == '/api/onboarding':
                 source_name = body.get('sourceName', '').strip()
                 if not source_name:
                     self._error_response('sourceName is required', 400)
                 else:
                     result = create_onboarding(source_name)
                     self._json_response(result, 201 if 'success' in result else 409)
-            elif self.path == '/api/onboarding/step':
+            elif path == '/api/onboarding/step':
                 source_name = body.get('sourceName', '')
                 step = int(body.get('stepNumber', 0))
                 status = body.get('status', '')
@@ -7880,13 +10816,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 else:
                     result = update_onboarding_step(source_name, step, status, ref_id, notes)
                     self._json_response(result)
-            elif self.path == '/api/onboarding/delete':
+            elif path == '/api/onboarding/delete':
                 source_name = body.get('sourceName', '')
                 if not source_name:
                     self._error_response('sourceName is required', 400)
                 else:
                     self._json_response(delete_onboarding(source_name))
-            elif self.path == '/api/entities/bulk-delete':
+            elif path == '/api/entities/bulk-delete':
                 ids = body.get('ids', [])
                 if not ids or not isinstance(ids, list):
                     self._error_response('ids array is required', 400)
@@ -7896,39 +10832,39 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         self._error_response(result['error'], 500)
                     else:
                         self._json_response(result)
-            elif self.path == '/api/sources/purge':
+            elif path == '/api/sources/purge':
                 source_name = body.get('sourceName', '')
                 if not source_name:
                     self._error_response('sourceName is required', 400)
                 else:
                     self._json_response(purge_source_data(source_name))
             # ── Environment Setup wizard POST routes ──
-            elif self.path == '/api/setup/create-workspace':
+            elif path == '/api/setup/create-workspace':
                 self._json_response(setup_create_workspace(body))
-            elif self.path == '/api/setup/create-lakehouse':
+            elif path == '/api/setup/create-lakehouse':
                 self._json_response(setup_create_lakehouse(body))
-            elif self.path == '/api/setup/create-sql-database':
+            elif path == '/api/setup/create-sql-database':
                 self._json_response(setup_create_sql_database(body))
-            elif self.path == '/api/setup/provision-all':
+            elif path == '/api/setup/provision-all':
                 self._json_response(setup_provision_all(body))
-            elif self.path == '/api/setup/save-config':
+            elif path == '/api/setup/save-config':
                 self._json_response(setup_save_config(body))
-            elif self.path == '/api/config-manager/update':
+            elif path == '/api/config-manager/update':
                 self._json_response(update_config_value(body))
-            elif self.path == '/api/notebook-config/update':
+            elif path == '/api/notebook-config/update':
                 self._json_response(update_notebook_config(body))
-            elif self.path == '/api/deploy-pipelines':
+            elif path == '/api/deploy-pipelines':
                 names = body.get('pipelines')  # None = all
                 workspaces = body.get('workspaces')  # None = both DEV+PROD
                 self._json_response(deploy_pipelines_to_fabric(names, workspaces))
-            elif self.path == '/api/pipeline/trigger':
+            elif path == '/api/pipeline/trigger':
                 pipeline_name = body.get('pipelineName', '').strip()
                 if not pipeline_name:
                     self._error_response('pipelineName is required', 400)
                 else:
                     self._json_response(trigger_pipeline(pipeline_name))
             # ── Pipeline Runner endpoints ──
-            elif self.path == '/api/runner/prepare':
+            elif path == '/api/runner/prepare':
                 ds_ids = body.get('dataSourceIds', [])
                 entity_ids = body.get('entityIds')  # optional
                 layer = body.get('layer', 'full')
@@ -7936,27 +10872,33 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._error_response('dataSourceIds is required', 400)
                 else:
                     self._json_response(runner_prepare_scope(ds_ids, entity_ids, layer))
-            elif self.path == '/api/runner/trigger':
+            elif path == '/api/runner/trigger':
                 pipeline_name = body.get('pipelineName', '').strip()
                 if not pipeline_name:
                     self._error_response('pipelineName is required', 400)
                 else:
                     self._json_response(runner_trigger(pipeline_name))
-            elif self.path == '/api/runner/restore':
+            elif path == '/api/runner/restore':
                 self._json_response(runner_restore())
+            # Entity Digest resync
+            elif path == '/api/entity-digest/resync':
+                self._json_response(resync_entity_digest())
+            # Maintenance Agent — trigger OneLake reconciliation notebook
+            elif path == '/api/maintenance-agent/trigger':
+                self._json_response(trigger_maintenance_agent())
             # Notebook Debug Runner
-            elif self.path == '/api/notebook-debug/run':
+            elif path == '/api/notebook-debug/run':
                 self._json_response(notebook_debug_run(body))
             # One-click notebook deploy
-            elif self.path == '/api/notebook/trigger':
+            elif path == '/api/notebook/trigger':
                 self._json_response(trigger_setup_notebook())
             # Full wipe + deploy
-            elif self.path == '/api/deploy/wipe-and-trigger':
+            elif path == '/api/deploy/wipe-and-trigger':
                 self._json_response(deploy_wipe_and_trigger())
-            elif self.path == '/api/deployment/apply-config':
+            elif path == '/api/deployment/apply-config':
                 self._json_response(apply_new_deployment_config(body))
             # Load Optimization Engine endpoints
-            elif self.path == '/api/register-bronze-silver':
+            elif path == '/api/register-bronze-silver':
                 ds_id = body.get('datasourceId')
                 if not ds_id:
                     self._error_response('datasourceId is required', 400)
@@ -7965,19 +10907,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     username = body.get('username', '')
                     password = body.get('password', '')
                     self._json_response(register_bronze_silver(int(ds_id), entities, username, password))
-            elif self.path == '/api/load-config':
+            elif path == '/api/load-config':
                 updates = body.get('updates', [])
                 if not updates:
                     self._error_response('updates array is required', 400)
                 else:
                     self._json_response(update_load_config(updates))
             # Deployment Manager endpoints
-            elif self.path == '/api/deploy/start':
+            elif path == '/api/deploy/start':
                 self._json_response(start_deployment(body))
-            elif self.path == '/api/deploy/cancel':
+            elif path == '/api/deploy/cancel':
                 self._json_response(cancel_deployment())
             # ── Admin gateway ──
-            elif self.path == '/api/admin/auth':
+            # ── Audit / Test Runner POST endpoint ──
+            elif path == '/api/audit/run':
+                self._json_response(_audit_trigger_run())
+            # ── MRI POST endpoints ──
+            elif path == '/api/mri/run':
+                self._json_response(mri_trigger_run())
+            elif path == '/api/mri/api-tests/run':
+                self._json_response(mri_trigger_api_tests())
+            elif path.startswith('/api/mri/baselines/accept-all'):
+                self._json_response(mri_accept_all_baselines())
+            elif path.startswith('/api/mri/baselines/'):
+                test_name = urllib.parse.unquote(path.split('/api/mri/baselines/')[1].rstrip('/'))
+                self._json_response(mri_accept_baseline(test_name))
+            elif path == '/api/admin/auth':
                 pw = body.get('password', '')
                 expected = os.environ.get('ADMIN_PASSWORD', '')
                 if not expected:
@@ -7986,7 +10941,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self._json_response({"ok": True})
                 else:
                     self._error_response('Invalid password', 401)
-            elif self.path == '/api/admin/config':
+            elif path == '/api/admin/config':
                 pw = body.get('password', '')
                 expected = os.environ.get('ADMIN_PASSWORD', '')
                 if pw != expected:
@@ -8002,9 +10957,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._error_response(str(e))
 
     def do_DELETE(self):
+        parsed_url = urllib.parse.urlparse(self.path)
+        path = parsed_url.path
         try:
-            if self.path.startswith('/api/entities/'):
-                entity_id = self.path.split('/api/entities/')[1].split('?')[0]
+            if path.startswith('/api/entities/'):
+                entity_id = path.split('/api/entities/')[1].split('?')[0]
                 try:
                     eid = int(entity_id)
                 except ValueError:
@@ -8077,6 +11034,8 @@ if __name__ == '__main__':
     log.info('  POST /api/engine/stop')
     log.info('  POST /api/engine/retry')
     log.info('  POST /api/engine/entity/*/reset')
+    log.info('  ── Labs ──')
+    log.info('  GET  /api/labs/dq-trends     (DQ snapshots from metrics store)')
     log.info(f'  Snapshot:   {CONTROL_PLANE_SNAPSHOT}')
     if mode == 'production':
         log.info('')
@@ -8085,6 +11044,54 @@ if __name__ == '__main__':
 
     # Auto-create dashboard-only tables if they don't exist
     ensure_onboarding_table()
+
+    # --- Auto-reload on file change ---
+    def _auto_reload_watcher():
+        """Poll server.py for changes; restart process when modified."""
+        watch_file = Path(__file__).resolve()
+        last_mtime = watch_file.stat().st_mtime
+        while True:
+            time.sleep(1.5)
+            try:
+                current_mtime = watch_file.stat().st_mtime
+                if current_mtime != last_mtime:
+                    log.info(f'[RELOAD] {watch_file.name} changed — restarting server...')
+                    time.sleep(0.3)  # let writes finish
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+            except Exception:
+                pass
+
+    reload_thread = threading.Thread(target=_auto_reload_watcher, daemon=True)
+    reload_thread.start()
+    log.info('  Auto-reload: ON (watching server.py)')
+
+    # --- Periodic digest resync (every 30 min) ---
+    _DIGEST_RESYNC_INTERVAL = 30 * 60  # 30 minutes
+
+    def _digest_resync_loop():
+        """Periodically resync EntityStatusSummary to prevent stale data drift."""
+        time.sleep(60)  # wait 60s after startup before first run
+        while True:
+            try:
+                result = resync_entity_digest()
+                steps = result.get('steps', [])
+                summary = result.get('summary', {})
+                loaded = summary.get('loadedCounts', {})
+                log.info(f'[RESYNC] Entity digest auto-resync: '
+                         f'LZ={loaded.get("lz",0)}, '
+                         f'Bronze={loaded.get("bronze",0)}, '
+                         f'Silver={loaded.get("silver",0)} loaded '
+                         f'({result.get("elapsedMs",0)}ms)')
+                for step in steps:
+                    if 'FAILED' in step:
+                        log.warning(f'[RESYNC] {step}')
+            except Exception as e:
+                log.warning(f'[RESYNC] Auto-resync failed: {e}')
+            time.sleep(_DIGEST_RESYNC_INTERVAL)
+
+    resync_thread = threading.Thread(target=_digest_resync_loop, daemon=True)
+    resync_thread.start()
+    log.info(f'  Digest resync: ON (every {_DIGEST_RESYNC_INTERVAL // 60}min)')
 
     server = ThreadedHTTPServer((HOST, PORT), DashboardHandler)
     try:

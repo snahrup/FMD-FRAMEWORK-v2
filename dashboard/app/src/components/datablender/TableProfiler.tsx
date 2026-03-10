@@ -33,7 +33,7 @@ export function TableProfiler({ tableId }: TableProfilerProps) {
     setIsLive(false);
     setLiveProfile(null);
 
-    let lakehouse = '', schema = 'dbo', tableName = '';
+    let lakehouse = '', schema = '', tableName = '';
 
     if (tableId.startsWith('lh-')) {
       const rest = tableId.replace('lh-', '');
@@ -218,7 +218,7 @@ function LiveProfileView({ profile, purviewEntity }: {
           </thead>
           <tbody>
             {sorted.map((col, i) => (
-              <tr key={col.name} className={`${i % 2 === 0 ? '' : 'bg-muted/20'} ${col.nullPercentage > 50 ? 'bg-destructive/5' : ''}`}>
+              <tr key={col.name} className={`${i % 2 === 0 ? '' : 'bg-muted'} ${col.nullPercentage > 50 ? 'bg-destructive/5' : ''}`}>
                 <td className="px-3 py-1.5 font-mono font-medium">{col.name}</td>
                 <td className="px-3 py-1.5 text-muted-foreground">{col.dataType}</td>
                 <td className="px-3 py-1.5 text-right font-mono">{formatNumber(col.distinctCount)}</td>

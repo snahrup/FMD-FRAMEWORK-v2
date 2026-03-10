@@ -14,8 +14,10 @@ Controlled via REST API from the dashboard — no terminal interaction ever.
 """
 
 import logging
+import threading
 import time
 import uuid
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional
 
@@ -30,6 +32,63 @@ from engine.pipeline_runner import FabricPipelineRunner
 from engine.preflight import PreflightChecker, PreflightReport
 
 log = logging.getLogger("fmd.orchestrator")
+
+# Throttling-specific errors that trigger immediate concurrency reduction
+_THROTTLE_PATTERNS = frozenset({
+    "429", "request limit", "too many connections",
+    "connection pool exhausted", "rate limit exceeded",
+    "resource governor", "server is too busy",
+})
+
+
+class AdaptiveThrottle:
+    """AIMD-style concurrency controller.
+
+    Starts at max_workers, multiplicatively decreases on high failure rates,
+    additively increases during sustained success.  Same principle as TCP
+    congestion control.
+    """
+
+    def __init__(self, max_workers: int, min_workers: int = 2):
+        self._max = max_workers
+        self._min = min_workers
+        self._current = max_workers
+        self._semaphore = threading.Semaphore(max_workers)
+        self._lock = threading.Lock()
+        self._recent: deque[bool] = deque(maxlen=20)
+        self._last_ramp_up = time.time()
+
+    @property
+    def current(self) -> int:
+        return self._current
+
+    def acquire(self) -> None:
+        self._semaphore.acquire()
+
+    def release(self, succeeded: bool) -> None:
+        self._recent.append(succeeded)
+        self._maybe_adjust()
+        self._semaphore.release()
+
+    def _maybe_adjust(self) -> None:
+        if len(self._recent) < 5:
+            return
+        failure_rate = sum(1 for r in self._recent if not r) / len(self._recent)
+
+        with self._lock:
+            if failure_rate > 0.20 and self._current > self._min:
+                new_limit = max(self._min, self._current // 2)
+                if new_limit < self._current:
+                    log.warning(
+                        "Throttling concurrency: %d → %d (%.0f%% failure rate)",
+                        self._current, new_limit, failure_rate * 100,
+                    )
+                    self._current = new_limit
+            elif failure_rate < 0.05 and time.time() - self._last_ramp_up > 30:
+                if self._current < self._max:
+                    self._current += 1
+                    self._last_ramp_up = time.time()
+                    log.info("Ramping up concurrency: %d", self._current)
 
 
 class LoadOrchestrator:
@@ -52,40 +111,56 @@ class LoadOrchestrator:
         self._current_pool: Optional[ThreadPoolExecutor] = None
         self.on_entity_result = None         # callback: (run_id, RunResult) -> None
 
+        # Startup config validation — fail fast on missing critical fields
+        self._validate_config(config)
+
         # Build the dependency graph — one instance of each module
         self._tokens = TokenProvider(config)
         self._metadata_db = MetadataDB(config, self._tokens)
         self._source_conn = SourceConnection(config)
         self._extractor = DataExtractor(config, self._source_conn)
         self._loader = OneLakeLoader(config, self._tokens)
-        self._audit = AuditLogger(self._metadata_db)
+        # Local SQLite control plane for dual-write (primary local, secondary Fabric SQL)
+        _local_db = None
+        try:
+            import importlib
+            _cpdb = importlib.import_module("dashboard.app.api.control_plane_db")
+            _cpdb.init_db()
+            _local_db = _cpdb
+            log.info("Local control plane DB connected for dual-write")
+        except Exception as _exc:
+            log.warning("Local control plane DB unavailable (dashboard-only writes): %s", _exc)
+
+        self._audit = AuditLogger(self._metadata_db, local_db=_local_db)
         self._notebooks = NotebookTrigger(config, self._tokens)
         self._pipeline_runner = FabricPipelineRunner(config, self._tokens)
-        self._load_method = config.load_method          # "local" | "pipeline"
+        self._load_method = config.load_method          # "notebook" | "pipeline" | "local"
         self._pipeline_fallback = config.pipeline_fallback
 
-        # Auto-discover notebook IDs if not hardcoded in config
-        if not config.notebook_bronze_id or not config.notebook_silver_id:
-            self._auto_discover_notebooks()
+        # Notebook IDs are resolved dynamically from the Fabric API by
+        # NotebookTrigger — no hardcoded GUIDs needed in config.
 
-    def _auto_discover_notebooks(self) -> None:
-        """Discover notebook IDs from the Fabric REST API if not in config.
+    @staticmethod
+    def _validate_config(config: EngineConfig) -> None:
+        """Validate all critical config fields are set at startup."""
+        missing = []
+        for field in [
+            "workspace_code_id", "workspace_data_id",
+            "lz_lakehouse_id", "bronze_lakehouse_id", "silver_lakehouse_id",
+            "tenant_id", "client_id", "client_secret",
+        ]:
+            if not getattr(config, field, None):
+                missing.append(field)
+        if hasattr(config, "sql_server") and not config.sql_server:
+            missing.append("sql_server")
+        if hasattr(config, "sql_database") and not config.sql_database:
+            missing.append("sql_database")
 
-        Queries GET /v1/workspaces/{ws}/items?type=Notebook and matches
-        known display names (NB_FMD_LOAD_LANDING_BRONZE, NB_FMD_LOAD_BRONZE_SILVER)
-        to their Fabric item IDs.  Updates config in place.
-        """
-        try:
-            discovered = self._notebooks.discover_notebook_ids()
-            if discovered.get("bronze") and not self.config.notebook_bronze_id:
-                self.config.notebook_bronze_id = discovered["bronze"]
-                log.info("Auto-discovered Bronze notebook ID: %s", discovered["bronze"])
-            if discovered.get("silver") and not self.config.notebook_silver_id:
-                self.config.notebook_silver_id = discovered["silver"]
-                log.info("Auto-discovered Silver notebook ID: %s", discovered["silver"])
-        except Exception as exc:
-            log.warning(
-                "Notebook auto-discovery failed (Bronze/Silver will be skipped): %s", exc
+        if missing:
+            log.error(
+                "CONFIGURATION ERROR: %d critical fields are empty: %s. "
+                "Fix via Admin → Environment → Save & Propagate.",
+                len(missing), ", ".join(missing),
             )
 
     # ------------------------------------------------------------------
@@ -115,7 +190,7 @@ class LoadOrchestrator:
         triggered_by : str
             Who kicked this off — 'dashboard', 'schedule', 'manual'.
         load_method : optional
-            Override config load_method: 'local' or 'pipeline'.
+            Override config load_method: 'notebook', 'pipeline', or 'local'.
         pipeline_fallback : optional
             Override config pipeline_fallback.
 
@@ -124,9 +199,21 @@ class LoadOrchestrator:
         list[RunResult] | LoadPlan
             Results (run mode) or plan (plan mode).
         """
+        run_id = str(uuid.uuid4())
+
+        # Plan mode: DON'T set status to "running" — it's a read-only query
+        # that should not affect the status poll or trigger the Live Run Panel.
+        if mode == "plan":
+            try:
+                entities = self.get_worklist(entity_ids)
+                return self.build_plan(run_id, entities, layers,
+                                       load_method_override=load_method,
+                                       pipeline_fallback_override=pipeline_fallback)
+            except Exception:
+                raise
+
         self.status = "running"
         self._stop_requested = False
-        run_id = str(uuid.uuid4())
         self.current_run_id = run_id
 
         # Per-run overrides for load method
@@ -142,29 +229,66 @@ class LoadOrchestrator:
             entities = self.get_worklist(entity_ids)
             self._audit.log_run_start(run_id, mode, len(entities), layers, triggered_by)
 
-            if mode == "plan":
-                plan = self.build_plan(run_id, entities, layers)
-                self.status = "idle"
-                return plan
-
             results: list[RunResult] = []
 
+            # Inject tracked failures for blank SourceName entities
+            for eid in getattr(self, "_blank_source_ids", []):
+                results.append(RunResult(
+                    entity_id=eid, layer="landing", status="failed",
+                    error="Blank SourceName in metadata",
+                    error_suggestion=(
+                        "This entity has an empty SourceName in integration.LandingzoneEntity. "
+                        "Fix: UPDATE integration.LandingzoneEntity SET SourceName = '<table_name>' "
+                        f"WHERE LandingzoneEntityId = {eid}"
+                    ),
+                ))
+
+            t_start = time.time()
+
             # Landing Zone — extract from source, upload Parquet to OneLake
+            lz_duration = 0.0
             if not layers or "landing" in layers:
+                lz_t = time.time()
                 lz_results = self._run_landing_zone(run_id, entities)
                 results.extend(lz_results)
+                lz_duration = time.time() - lz_t
 
             # Bronze — trigger Fabric notebook
+            bronze_duration = 0.0
             if not layers or "bronze" in layers:
+                bronze_t = time.time()
                 bronze_result = self._notebooks.run_bronze(run_id)
                 results.append(bronze_result)
+                bronze_duration = time.time() - bronze_t
 
             # Silver — trigger Fabric notebook
+            silver_duration = 0.0
             if not layers or "silver" in layers:
+                silver_t = time.time()
                 silver_result = self._notebooks.run_silver(run_id)
                 results.append(silver_result)
+                silver_duration = time.time() - silver_t
 
             self._audit.log_run_end(run_id, results)
+
+            # Run summary log
+            total_duration = time.time() - t_start
+            succeeded = sum(1 for r in results if r.status == "succeeded")
+            failed = sum(1 for r in results if r.status == "failed")
+            skipped = sum(1 for r in results if r.status == "skipped")
+            error_counts = Counter(
+                (r.error or "Unknown")[:60] for r in results if r.status == "failed"
+            )
+            top_errors = ", ".join(f"{msg} ({cnt})" for msg, cnt in error_counts.most_common(5))
+            log.info(
+                "[RUN COMPLETE] %d entities: %d succeeded, %d failed, %d skipped (%.1fs total)\n"
+                "  Landing Zone: %.1fs | Bronze: %.1fs | Silver: %.1fs\n"
+                "  Top errors: %s",
+                len(results), succeeded, failed, skipped, total_duration,
+                lz_duration, bronze_duration, silver_duration,
+                top_errors or "none",
+            )
+
             self.status = "idle"
             return results
 
@@ -258,13 +382,11 @@ class LoadOrchestrator:
         rows = self._metadata_db.query(sql)
 
         entities: list[Entity] = []
+        blank_ids: list[int] = []
         for row in rows:
             source_name = str(row.get("SourceName", "") or "").strip()
             if not source_name:
-                log.warning(
-                    "Skipping entity %s — blank SourceName",
-                    row.get("LandingzoneEntityId"),
-                )
+                blank_ids.append(int(row.get("LandingzoneEntityId", 0)))
                 continue
 
             entities.append(Entity(
@@ -288,7 +410,17 @@ class LoadOrchestrator:
                 connection_guid=str(row.get("ConnectionGuid", "") or ""),
             ))
 
-        log.info("Worklist: %d entities from metadata DB", len(entities))
+        if blank_ids:
+            log.error(
+                "BLANK SourceName: %d entities have empty SourceName and will fail: %s. "
+                "Fix: UPDATE integration.LandingzoneEntity SET SourceName = '<table_name>' WHERE LandingzoneEntityId IN (%s)",
+                len(blank_ids), blank_ids[:10], ",".join(str(i) for i in blank_ids),
+            )
+        # Store blank IDs so run() can inject tracked failures
+        self._blank_source_ids = blank_ids
+
+        log.info("Worklist: %d entities from metadata DB (%d skipped — blank SourceName)",
+                 len(entities), len(blank_ids))
         return entities
 
     # ------------------------------------------------------------------
@@ -300,11 +432,132 @@ class LoadOrchestrator:
         run_id: str,
         entities: List[Entity],
         layers: Optional[List[str]],
+        load_method_override: Optional[str] = None,
+        pipeline_fallback_override: Optional[bool] = None,
     ) -> LoadPlan:
-        """Compute what would happen without executing anything."""
+        """Compute a DETAILED execution plan — mirrors exactly what a live run does."""
+        from collections import Counter
+
+        # Use overrides from UI if provided, else fall back to engine defaults
+        effective_method = load_method_override or self._load_method
+        effective_fallback = pipeline_fallback_override if pipeline_fallback_override is not None else self._pipeline_fallback
+
         active_layers = layers or ["landing", "bronze", "silver"]
         incremental = [e for e in entities if e.is_incremental]
         full_load = [e for e in entities if not e.is_incremental]
+        warnings: list[str] = []
+
+        # ── Per-source breakdown ──
+        source_groups: dict[str, list[Entity]] = {}
+        for e in entities:
+            key = f"{e.source_server}/{e.source_database}" if e.source_server else (e.namespace or "unknown")
+            source_groups.setdefault(key, []).append(e)
+
+        sources = []
+        for src_key, src_entities in sorted(source_groups.items()):
+            incr_count = sum(1 for e in src_entities if e.is_incremental)
+            full_count = len(src_entities) - incr_count
+            sources.append({
+                "name": src_key,
+                "namespace": src_entities[0].namespace or "",
+                "server": src_entities[0].source_server,
+                "database": src_entities[0].source_database,
+                "entity_count": len(src_entities),
+                "incremental": incr_count,
+                "full_load": full_count,
+            })
+
+        # ── Per-layer execution plan ──
+        layer_plan = []
+
+        if "landing" in active_layers:
+            lz_method = effective_method
+            step = {
+                "layer": "landing",
+                "action": "Extract from source SQL servers → upload parquet to OneLake LZ",
+                "method": lz_method,
+                "entity_count": len(entities),
+                "batch_size": self.config.batch_size,
+                "chunk_rows": self.config.chunk_rows,
+                "notebook_id": None,
+                "details": (
+                    f"Round-robin across {len(source_groups)} sources, "
+                    f"batch_size={self.config.batch_size}, "
+                    f"{'local pyodbc+parquet' if lz_method == 'local' else 'Fabric notebook — cloud-native, parallel entity processing'}"
+                ),
+            }
+            if lz_method in ("notebook", "pipeline"):
+                step["notebook_id"] = getattr(self.config, 'notebook_lz_id', '') or None
+                step["action"] = "Trigger NB_FMD_LOAD_LANDINGZONE_MAIN via NB_FMD_PROCESSING_PARALLEL_MAIN"
+                step["method"] = "notebook"
+                step["details"] = f"Notebook {getattr(self.config, 'notebook_lz_id', '') or '(auto-discover)'} handles all LZ entities"
+            layer_plan.append(step)
+
+        if "bronze" in active_layers:
+            nb_id = self.config.notebook_bronze_id
+            layer_plan.append({
+                "layer": "bronze",
+                "action": "Trigger NB_FMD_LOAD_LANDING_BRONZE via NB_FMD_PROCESSING_PARALLEL_MAIN",
+                "method": "notebook",
+                "entity_count": len(entities),
+                "batch_size": self.config.batch_size,
+                "chunk_rows": None,
+                "notebook_id": nb_id or None,
+                "details": (
+                    f"Notebook {nb_id or '(auto-discover)'} processes each entity: "
+                    f"read parquet from LZ → write Delta table to Bronze lakehouse"
+                ),
+            })
+            if not nb_id:
+                warnings.append("Bronze notebook ID not configured — will attempt auto-discovery")
+
+        if "silver" in active_layers:
+            nb_id = self.config.notebook_silver_id
+            layer_plan.append({
+                "layer": "silver",
+                "action": "Trigger NB_FMD_LOAD_BRONZE_SILVER via NB_FMD_PROCESSING_PARALLEL_MAIN",
+                "method": "notebook",
+                "entity_count": len(entities),
+                "batch_size": self.config.batch_size,
+                "chunk_rows": None,
+                "notebook_id": nb_id or None,
+                "details": (
+                    f"Notebook {nb_id or '(auto-discover)'} processes each entity: "
+                    f"SCD Type 2 merge from Bronze → Silver Delta table"
+                ),
+            })
+            if not nb_id:
+                warnings.append("Silver notebook ID not configured — will attempt auto-discovery")
+
+        # ── Detect issues ──
+        blank_source = [e for e in entities if not (e.source_name or "").strip()]
+        if blank_source:
+            warnings.append(f"{len(blank_source)} entities have blank SourceName — these WILL FAIL")
+
+        no_watermark = [e for e in entities if e.is_incremental and not e.watermark_column]
+        if no_watermark:
+            warnings.append(f"{len(no_watermark)} entities marked incremental but have no watermark column")
+
+        no_pks = [e for e in entities if not e.primary_keys]
+        if no_pks:
+            warnings.append(f"{len(no_pks)} entities have no primary keys configured")
+
+        # ── Config snapshot ──
+        config_snapshot = {
+            "load_method": effective_method,
+            "pipeline_fallback": effective_fallback,
+            "batch_size": self.config.batch_size,
+            "chunk_rows": self.config.chunk_rows,
+            "query_timeout": self.config.query_timeout,
+            "lz_lakehouse": self.config.lz_lakehouse_id,
+            "bronze_lakehouse": self.config.bronze_lakehouse_id,
+            "silver_lakehouse": self.config.silver_lakehouse_id,
+            "workspace_data": self.config.workspace_data_id,
+            "workspace_code": self.config.workspace_code_id,
+            "notebook_lz": getattr(self.config, 'notebook_lz_id', ''),
+            "notebook_bronze": self.config.notebook_bronze_id,
+            "notebook_silver": self.config.notebook_silver_id,
+        }
 
         return LoadPlan(
             run_id=run_id,
@@ -312,15 +565,23 @@ class LoadOrchestrator:
             incremental_count=len(incremental),
             full_load_count=len(full_load),
             layers=active_layers,
+            sources=sources,
+            layer_plan=layer_plan,
+            config_snapshot=config_snapshot,
+            warnings=warnings,
             entities=[
                 {
                     "id": e.id,
                     "name": e.qualified_name,
+                    "namespace": e.namespace or "",
                     "server": e.source_server,
                     "database": e.source_database,
                     "incremental": e.is_incremental,
                     "watermark_column": e.watermark_column,
                     "last_value": e.last_load_value,
+                    "load_type": "incremental" if e.is_incremental else "full",
+                    "primary_keys": e.primary_keys,
+                    "connection_guid": e.connection_guid,
                 }
                 for e in entities
             ],
@@ -333,12 +594,22 @@ class LoadOrchestrator:
     def _run_landing_zone(
         self, run_id: str, entities: List[Entity]
     ) -> List[RunResult]:
-        """Extract all entities and upload to OneLake with round-robin source interleaving.
+        """Extract all entities and upload to OneLake.
 
-        Instead of processing all entities from one source before moving to the next
-        (which lets a slow/broken source block everything), this interleaves entities
-        across sources so all sources get fair throughput in the shared thread pool.
+        notebook mode: trigger NB_FMD_PROCESSING_PARALLEL_MAIN which handles
+                       all LZ entities in parallel inside Fabric.
+        pipeline mode: trigger PL_FMD_LDZ_COPY_SQL per entity via REST API.
+        local mode:    pyodbc extract + parquet upload with round-robin interleaving.
         """
+        # Notebook mode — single Fabric notebook handles everything
+        if self._load_method == "notebook":
+            log.info(
+                "[%s] Landing Zone: notebook mode — triggering LZ notebook for %d entities",
+                run_id[:8], len(entities),
+            )
+            lz_result = self._notebooks.run_lz(run_id)
+            return [lz_result]
+
         results: list[RunResult] = []
 
         # Round-robin interleave: take one entity from each source in turn
@@ -355,6 +626,10 @@ class LoadOrchestrator:
             run_id[:8], len(interleaved), len(source_map),
         )
 
+        throttle = AdaptiveThrottle(
+            max_workers=self.config.batch_size,
+            min_workers=max(2, self.config.batch_size // 4),
+        )
         pool = ThreadPoolExecutor(max_workers=self.config.batch_size)
         self._current_pool = pool
         try:
@@ -366,7 +641,7 @@ class LoadOrchestrator:
                     ))
                     continue
                 future = pool.submit(
-                    self._process_single_entity, run_id, entity
+                    self._throttled_process, throttle, run_id, entity
                 )
                 futures[future] = entity
 
@@ -398,11 +673,27 @@ class LoadOrchestrator:
                 if self.on_entity_result:
                     try:
                         self.on_entity_result(run_id, result, entity)
-                    except Exception:
-                        pass  # Never let callback crash the engine
+                    except Exception as exc:
+                        log.debug("SSE callback error (non-fatal): %s", exc)
         finally:
             self._current_pool = None
             pool.shutdown(wait=False)
+
+        # Retry sweep — give transient failures a second chance after main pass
+        retryable = [r for r in results if r.status == "failed" and self._is_transient(r.error or "")]
+        if retryable and not self._stop_requested:
+            log.info("[%s] Retry sweep: %d transient failures", run_id[:8], len(retryable))
+            retry_ids = {r.entity_id for r in retryable}
+            retry_entities = [e for e in entities if e.id in retry_ids]
+            retry_results = []
+            for entity in retry_entities:
+                if self._stop_requested:
+                    break
+                result = self._process_single_entity(run_id, entity, max_retries=1)
+                retry_results.append(result)
+            # Replace original failed results with retry results
+            retry_result_ids = {r.entity_id for r in retry_results}
+            results = [r for r in results if r.entity_id not in retry_result_ids] + retry_results
 
         return results
 
@@ -435,6 +726,23 @@ class LoadOrchestrator:
             if code in error_msg:
                 return True
         return "forcibly closed" in error_msg or "Communication link failure" in error_msg
+
+    def _throttled_process(
+        self, throttle: AdaptiveThrottle, run_id: str, entity: Entity,
+    ) -> RunResult:
+        """Wrap entity processing with adaptive throttle."""
+        throttle.acquire()
+        try:
+            result = self._process_single_entity(run_id, entity)
+            # Detect throttling-specific errors for immediate reduction
+            is_throttle_error = any(
+                p in (result.error or "").lower() for p in _THROTTLE_PATTERNS
+            )
+            throttle.release(succeeded=result.succeeded and not is_throttle_error)
+            return result
+        except Exception:
+            throttle.release(succeeded=False)
+            raise
 
     def _process_single_entity(
         self, run_id: str, entity: Entity, max_retries: int = 3
@@ -478,7 +786,11 @@ class LoadOrchestrator:
         return last_result
 
     def _try_entity(self, run_id: str, entity: Entity) -> RunResult:
-        """Single attempt — dispatches to pipeline or local based on load method."""
+        """Single attempt — dispatches to pipeline or local based on load method.
+
+        Note: notebook mode is handled in _run_landing_zone (single trigger for all entities).
+        This method is only called for pipeline/local per-entity processing.
+        """
         if self._stop_requested:
             return RunResult(entity_id=entity.id, layer="landing", status="skipped")
 

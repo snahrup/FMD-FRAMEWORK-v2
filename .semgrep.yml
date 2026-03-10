@@ -1,0 +1,63 @@
+# Semgrep configuration for FMD Framework
+# Run: semgrep scan --config .semgrep.yml
+# Or use registry rulesets: semgrep scan --config auto
+
+rules:
+  # --- Python Security ---
+  - id: hardcoded-secret-in-python
+    patterns:
+      - pattern: $VAR = "..."
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: (?i)(secret|password|token|api_key|apikey|client_secret)
+    message: "Potential hardcoded secret in variable '$VAR'. Use environment variables."
+    languages: [python]
+    severity: ERROR
+
+  - id: sql-injection-format-string
+    patterns:
+      - pattern: |
+          cursor.execute(f"...")
+    message: "Potential SQL injection via f-string in cursor.execute(). Use parameterized queries."
+    languages: [python]
+    severity: ERROR
+
+  - id: sql-injection-percent-format
+    patterns:
+      - pattern: |
+          cursor.execute("..." % ...)
+    message: "Potential SQL injection via %-formatting in cursor.execute(). Use parameterized queries."
+    languages: [python]
+    severity: ERROR
+
+  # --- TypeScript/React Security ---
+  - id: dangerous-inner-html
+    pattern: dangerouslySetInnerHTML={...}
+    message: "dangerouslySetInnerHTML usage detected. Ensure input is sanitized."
+    languages: [typescript, tsx]
+    severity: WARNING
+
+  # --- FMD-Specific Rules ---
+  - id: fmd-hardcoded-guid
+    patterns:
+      - pattern-regex: "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+      - pattern-not-regex: "\\$\\{|config\\.|item_config|GUID"
+    paths:
+      include:
+        - "engine/*.py"
+        - "src/**/*.py"
+    message: "Hardcoded GUID detected. GUIDs should come from config/item_config.yaml, not hardcoded in source."
+    languages: [python]
+    severity: WARNING
+
+  - id: fmd-no-ipaper-suffix
+    pattern-regex: "\\bipaper\\.com\\b"
+    message: "Do NOT use .ipaper.com suffix for server hostnames. Use short hostname only (e.g., m3-db1, not m3-db1.ipaper.com)."
+    languages: [python, typescript]
+    severity: ERROR
+
+  - id: fmd-wrong-token-scope
+    pattern-regex: "database\\.windows\\.net"
+    message: "Wrong auth scope. Fabric SQL uses 'https://analysis.windows.net/powerbi/api/.default', NOT database.windows.net."
+    languages: [python]
+    severity: ERROR

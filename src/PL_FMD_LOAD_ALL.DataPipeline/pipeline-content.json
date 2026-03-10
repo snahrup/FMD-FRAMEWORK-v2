@@ -525,7 +525,7 @@
         "type": "InvokePipeline",
         "typeProperties": {
           "parameters": {
-            "Data_WorkspaceGuid": "a3a180ff-fbc2-48fd-a65f-27ae7bb6709a"
+            "Data_WorkspaceGuid": "0596d0e7-e036-451d-a967-41a284302e8d"
           },
           "waitOnCompletion": true,
           "workspaceId": "00000000-0000-0000-0000-000000000000",

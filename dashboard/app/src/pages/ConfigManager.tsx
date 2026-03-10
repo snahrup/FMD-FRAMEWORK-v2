@@ -537,10 +537,10 @@ function CascadeModal({
                   key={i}
                   className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${
                     isReadOnly
-                      ? "border-border bg-muted/20 opacity-60 cursor-not-allowed"
+                      ? "border-border bg-muted opacity-60 cursor-not-allowed"
                       : isChecked
                       ? "border-blue-400/50 dark:border-blue-500/40 bg-blue-50 dark:bg-blue-900/10 cursor-pointer"
-                      : "border-border hover:bg-muted/30 cursor-pointer"
+                      : "border-border hover:bg-muted/50 cursor-pointer"
                   }`}
                 >
                   <input
@@ -1106,7 +1106,7 @@ export default function ConfigManager() {
               const lhFabricName = resolveGuid(lh.LakehouseGuid || "");
               const wsFabricName = resolveGuid(lh.WorkspaceGuid || "");
               return (
-                <div key={lh.LakehouseId} className="bg-muted/30 border border-border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+                <div key={lh.LakehouseId} className="bg-muted border border-border rounded-lg p-4 hover:bg-muted/50 transition-colors">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
                       <span className="text-muted-foreground font-mono text-sm">#{lh.LakehouseId}</span>
@@ -1524,7 +1524,7 @@ export default function ConfigManager() {
                 logging: "Log file and level",
               };
               return (
-                <div key={section} className="bg-muted/30 border border-border rounded-lg p-4">
+                <div key={section} className="bg-muted border border-border rounded-lg p-4">
                   <h3 className={`text-sm font-semibold uppercase tracking-wider mb-1 ${colors[section] || "text-muted-foreground"}`}>
                     {biz ? (FRIENDLY_CONFIG_SECTIONS[section] || section) : section}
                   </h3>

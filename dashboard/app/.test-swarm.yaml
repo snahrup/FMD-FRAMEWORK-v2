@@ -1,0 +1,18 @@
+# test-swarm configuration for FMD Dashboard
+test_command: "npx playwright test --reporter=json"
+test_output: "json"
+max_iterations: 5
+scope:
+  - "src/**/*.ts"
+  - "src/**/*.tsx"
+exclude:
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+  - "node_modules/**"
+  - "*.lock"
+  - "tests/**"
+model: "claude-sonnet-4-6"
+max_turns_per_iteration: 25
+timeout_per_iteration_ms: 600000
+convergence_threshold: 0
+conductor_url: "http://localhost:3777"

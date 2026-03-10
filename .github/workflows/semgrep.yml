@@ -1,0 +1,26 @@
+name: "Semgrep Scan"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  semgrep:
+    name: Semgrep Static Analysis
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Semgrep (project rules + auto)
+        run: |
+          semgrep scan --config .semgrep.yml --config auto --error --json > semgrep-results.json || true
+          semgrep scan --config .semgrep.yml --config auto --error
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-results
+          path: semgrep-results.json

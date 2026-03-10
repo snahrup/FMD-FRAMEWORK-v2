@@ -5,8 +5,9 @@ Uses the Azure Data Lake Storage (ADLS) Gen2 API via the
 azure-storage-file-datalake SDK.  OneLake exposes a standard ADLS
 endpoint at https://onelake.dfs.fabric.microsoft.com.
 
-Path convention (must match what the Bronze notebook expects):
-    {workspace_id}/Files/{Namespace}/{Schema}_{Table}/{Schema}_{Table}_{timestamp}.parquet
+Path convention (see ARCHITECTURE.md):
+    {lakehouse_id}/Files/{Namespace}/{Table}.parquet
+    NO schema prefix. NO date partitioning. Flat — no subfolder per table.
 """
 
 import logging
@@ -82,14 +83,14 @@ class OneLakeLoader:
         ts = timestamp or datetime.utcnow()
         ts_str = ts.strftime("%Y%m%d%H%M%S")
 
-        # Build OneLake path — use per-entity workspace/lakehouse from metadata DB
-        # Format: {lakehouse_id}/Files/{Namespace}/{Schema}_{Table}/{Schema}_{Table}_{ts}.parquet
+        # Build OneLake path — see ARCHITECTURE.md
+        # Format: {lakehouse_id}/Files/{Namespace}/{Table}.parquet  (flat, no subfolder)
         lakehouse_id = entity.lakehouse_guid or self._config.lz_lakehouse_id
         workspace_id = entity.workspace_guid or self._config.workspace_data_id
         namespace = entity.namespace or entity.source_database
-        folder_name = f"{entity.source_schema}_{entity.source_name.strip()}"
-        file_name = f"{folder_name}_{ts_str}.parquet"
-        directory_path = f"{lakehouse_id}/Files/{namespace}/{folder_name}"
+        target_name = entity.source_name.strip()
+        file_name = f"{target_name}.parquet"
+        directory_path = f"{lakehouse_id}/Files/{namespace}"
         file_path = f"{directory_path}/{file_name}"
 
         log.info(
@@ -166,11 +167,10 @@ class OneLakeLoader:
         needed to update execution.sp_UpsertPipelineLandingzoneEntity.
         """
         ts = datetime.utcnow()
-        ts_str = ts.strftime("%Y%m%d%H%M%S")
         namespace = entity.namespace or entity.source_database
-        folder_name = f"{entity.source_schema}_{entity.source_name.strip()}"
-        file_name = f"{folder_name}_{ts_str}.parquet"
-        file_path = f"{namespace}/{folder_name}"
+        target_name = entity.source_name.strip()
+        file_name = f"{target_name}.parquet"
+        file_path = namespace  # Just the namespace folder — see ARCHITECTURE.md
 
         result = self.upload(entity, parquet_bytes, run_id, timestamp=ts)
         return result, file_path, file_name

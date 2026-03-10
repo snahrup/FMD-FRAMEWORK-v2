@@ -113,22 +113,6 @@ interface JourneyData {
   schemaDiff: SchemaDiffEntry[];
 }
 
-interface ProfileData {
-  rowCount: number;
-  columnCount: number;
-  columns: Array<{
-    name: string;
-    dataType: string;
-    nullable: boolean;
-    distinctCount: number;
-    nullCount: number;
-    nullPercentage: number;
-    completeness: number;
-    minValue: string | null;
-    maxValue: string | null;
-  }>;
-}
-
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -327,7 +311,7 @@ function DiffBadge({ status }: { status: string }) {
   );
 }
 
-/** On-demand profiling panel */
+/** Profile link — navigates to dedicated Data Profiler page */
 function ProfilePanel({
   lakehouse,
   schema,
@@ -339,107 +323,18 @@ function ProfilePanel({
   table: string;
   layerColor: string;
 }) {
-  const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [profileError, setProfileError] = useState<string | null>(null);
-
-  const loadProfile = useCallback(async () => {
-    if (profile) {
-      setExpanded(!expanded);
-      return;
-    }
-    setLoading(true);
-    setExpanded(true);
-    setProfileError(null);
-    try {
-      const data = await fetchJson<ProfileData>(
-        `/blender/profile?lakehouse=${encodeURIComponent(lakehouse)}&schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}`
-      );
-      if (!data || !data.columns || data.columns.length === 0) {
-        setProfileError("No column data available. Table may not have been loaded yet.");
-        setProfile(null);
-      } else {
-        setProfile(data);
-      }
-    } catch (e) {
-      setProfileError(
-        e instanceof Error ? e.message : "Failed to profile table. Data may not have been loaded to this layer yet."
-      );
-      setProfile(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [lakehouse, schema, table, profile, expanded]);
+  const layer = layerColor === "#f59e0b" ? "bronze" : layerColor === "#8b5cf6" ? "silver" : "landing";
+  const profileUrl = `/profile?lakehouse=${encodeURIComponent(lakehouse)}&schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}&layer=${layer}`;
 
   return (
     <div className="mt-3">
-      <button
-        onClick={loadProfile}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border/50 bg-card/50 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+      <Link
+        to={profileUrl}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border/50 bg-card text-[10px] font-medium text-muted-foreground hover:text-foreground hover:border-border transition-colors"
       >
-        {loading ? (
-          <Loader2 className="w-3 h-3 animate-spin" />
-        ) : (
-          <BarChart3 className="w-3 h-3" />
-        )}
-        {expanded ? "Hide Profile" : "Profile Columns"}
-      </button>
-
-      {expanded && profileError && (
-        <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 flex items-center gap-2">
-          <Info className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-          <span className="text-xs text-amber-400/80">{profileError}</span>
-        </div>
-      )}
-
-      {expanded && profile && (
-        <div className="mt-2 rounded-lg border border-border/30 overflow-hidden">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-muted/30 border-b border-border/20">
-                <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Column</th>
-                <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Type</th>
-                <th className="text-right px-3 py-1.5 font-medium text-muted-foreground">Distinct</th>
-                <th className="text-right px-3 py-1.5 font-medium text-muted-foreground">Nulls</th>
-                <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Completeness</th>
-                <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Min</th>
-                <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Max</th>
-              </tr>
-            </thead>
-            <tbody>
-              {profile.columns.map((col) => (
-                <tr key={col.name} className="border-b border-border/10 hover:bg-muted/10">
-                  <td className="px-3 py-1.5 font-mono text-foreground">{col.name}</td>
-                  <td className="px-3 py-1.5 text-muted-foreground">{col.dataType}</td>
-                  <td className="px-3 py-1.5 text-right text-muted-foreground">{fmt(col.distinctCount)}</td>
-                  <td className="px-3 py-1.5 text-right text-muted-foreground">{fmt(col.nullCount)}</td>
-                  <td className="px-3 py-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-16 h-1.5 rounded-full bg-muted/30 overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${col.completeness}%`,
-                            backgroundColor: col.completeness > 95 ? "#10b981" : col.completeness > 80 ? "#f59e0b" : "#ef4444",
-                          }}
-                        />
-                      </div>
-                      <span className="text-muted-foreground/60 text-[10px]">{col.completeness.toFixed(0)}%</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-1.5 text-muted-foreground/60 font-mono text-[10px] max-w-[100px] truncate" title={col.minValue || ""}>
-                    {col.minValue || "—"}
-                  </td>
-                  <td className="px-3 py-1.5 text-muted-foreground/60 font-mono text-[10px] max-w-[100px] truncate" title={col.maxValue || ""}>
-                    {col.maxValue || "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+        <BarChart3 className="w-3 h-3" />
+        Profile Columns
+      </Link>
     </div>
   );
 }
@@ -568,7 +463,7 @@ export default function DataJourney() {
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
-      <div className="flex-shrink-0 border-b border-border/50 bg-card/30 px-6 py-4" style={{ zIndex: 100, position: "relative" }}>
+      <div className="flex-shrink-0 border-b border-border/50 bg-card px-6 py-4" style={{ zIndex: 100, position: "relative" }}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
             <GitBranch className="w-5 h-5 text-primary" />
@@ -597,7 +492,7 @@ export default function DataJourney() {
             className={`flex items-center border rounded-lg transition-colors cursor-pointer ${
               dropdownOpen
                 ? "border-primary/50 bg-card/80 ring-1 ring-primary/20"
-                : "border-border/50 bg-card/50 hover:border-border"
+                : "border-border/50 bg-card hover:border-border"
             }`}
             onClick={() => !dropdownOpen && setDropdownOpen(true)}
           >
@@ -715,7 +610,7 @@ export default function DataJourney() {
         {journey && !loading && (
           <div className="p-6 space-y-6 max-w-6xl mx-auto">
             {/* Layer Timeline */}
-            <div className="rounded-xl border border-border/30 bg-card/30 backdrop-blur-sm p-4">
+            <div className="rounded-xl border border-border/30 bg-card backdrop-blur-sm p-4">
               <LayerTimeline data={journey} />
             </div>
 
@@ -856,9 +751,9 @@ export default function DataJourney() {
 
             {/* Schema Diff Table */}
             {(journey.bronze || journey.silver) && journey.schemaDiff.length > 0 && (
-              <div className="rounded-xl border border-border/30 bg-card/30 backdrop-blur-sm overflow-hidden">
+              <div className="rounded-xl border border-border/30 bg-card backdrop-blur-sm overflow-hidden">
                 {/* Tabs */}
-                <div className="flex border-b border-border/30 bg-muted/10">
+                <div className="flex border-b border-border/30 bg-muted">
                   {[
                     { key: "diff" as const, label: "Schema Diff", count: journey.schemaDiff.length },
                     ...(journey.bronze ? [{ key: "bronze" as const, label: "Bronze Columns", count: journey.bronze.columnCount }] : []),
@@ -884,7 +779,7 @@ export default function DataJourney() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="bg-muted/20 border-b border-border/20">
+                        <tr className="bg-muted border-b border-border/20">
                           <th className="text-left px-4 py-2 font-medium text-muted-foreground">Column</th>
                           <th className="text-left px-4 py-2 font-medium text-muted-foreground" style={{ color: "#f59e0b" }}>Bronze Type</th>
                           <th className="text-left px-4 py-2 font-medium text-muted-foreground" style={{ color: "#8b5cf6" }}>Silver Type</th>
@@ -895,7 +790,7 @@ export default function DataJourney() {
                       </thead>
                       <tbody>
                         {journey.schemaDiff.map((d) => (
-                          <tr key={d.columnName} className="border-b border-border/10 hover:bg-muted/10">
+                          <tr key={d.columnName} className="border-b border-border/10 hover:bg-muted/50">
                             <td className="px-4 py-2 font-mono text-foreground">{d.columnName}</td>
                             <td className="px-4 py-2 font-mono text-muted-foreground">{d.bronzeType || "—"}</td>
                             <td className="px-4 py-2 font-mono text-muted-foreground">{d.silverType || "—"}</td>
@@ -930,7 +825,7 @@ export default function DataJourney() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="bg-muted/20 border-b border-border/20">
+                        <tr className="bg-muted border-b border-border/20">
                           <th className="text-left px-4 py-2 font-medium text-muted-foreground">#</th>
                           <th className="text-left px-4 py-2 font-medium text-muted-foreground">Column</th>
                           <th className="text-left px-4 py-2 font-medium text-muted-foreground">Type</th>
@@ -941,7 +836,7 @@ export default function DataJourney() {
                       </thead>
                       <tbody>
                         {journey.bronze.columns.map((c) => (
-                          <tr key={c.COLUMN_NAME} className="border-b border-border/10 hover:bg-muted/10">
+                          <tr key={c.COLUMN_NAME} className="border-b border-border/10 hover:bg-muted/50">
                             <td className="px-4 py-2 text-muted-foreground/40">{c.ORDINAL_POSITION}</td>
                             <td className="px-4 py-2 font-mono text-foreground">{c.COLUMN_NAME}</td>
                             <td className="px-4 py-2 font-mono text-muted-foreground">{c.DATA_TYPE}</td>
@@ -968,7 +863,7 @@ export default function DataJourney() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="bg-muted/20 border-b border-border/20">
+                        <tr className="bg-muted border-b border-border/20">
                           <th className="text-left px-4 py-2 font-medium text-muted-foreground">#</th>
                           <th className="text-left px-4 py-2 font-medium text-muted-foreground">Column</th>
                           <th className="text-left px-4 py-2 font-medium text-muted-foreground">Type</th>
@@ -979,7 +874,7 @@ export default function DataJourney() {
                       </thead>
                       <tbody>
                         {journey.silver.columns.map((c) => (
-                          <tr key={c.COLUMN_NAME} className="border-b border-border/10 hover:bg-muted/10">
+                          <tr key={c.COLUMN_NAME} className="border-b border-border/10 hover:bg-muted/50">
                             <td className="px-4 py-2 text-muted-foreground/40">{c.ORDINAL_POSITION}</td>
                             <td className="px-4 py-2 font-mono text-foreground">{c.COLUMN_NAME}</td>
                             <td className="px-4 py-2 font-mono text-muted-foreground">{c.DATA_TYPE}</td>

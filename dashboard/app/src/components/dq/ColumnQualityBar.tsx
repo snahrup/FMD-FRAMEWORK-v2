@@ -18,7 +18,7 @@ export function ColumnQualityBar({
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      <div className="flex-1 h-2 rounded-full overflow-hidden bg-muted/30 flex">
+      <div className="flex-1 h-2 rounded-full overflow-hidden bg-muted flex">
         {valid > 0 && (
           <div
             className="h-full bg-emerald-500 transition-all duration-500"

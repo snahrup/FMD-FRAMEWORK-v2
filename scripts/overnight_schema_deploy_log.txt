@@ -1,0 +1,86 @@
+[20:19:05] ============================================================
+[20:19:05]   DIRECT SCHEMA DEPLOYMENT & OVERNIGHT LOAD
+[20:19:05]   Started: 2026-03-01 20:19:05
+[20:19:05] ============================================================
+[20:19:05] ============================================================
+[20:19:05] STEP 1: Deploy SQL schema via Fabric API (dacpac)
+[20:19:05] ============================================================
+[20:19:05]   Dacpac loaded: 20274 bytes
+[20:19:07]   API response: 202
+[20:19:07]   LRO started, polling... (retry-after: 20s)
+[20:19:28]   LRO status: Running (0s)
+[20:19:34]   LRO status: Running (6s)
+[20:19:40]   LRO completed: Succeeded
+[20:19:40] 
+[20:19:40] ============================================================
+[20:19:40] STEP 2: Running deploy_from_scratch.py phases 11, 13, 16...
+[20:19:40] ============================================================
+[20:19:40]   Command: C:\Users\sasnahrup\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\deploy_from_scratch.py --resume --env dev --skip-phase 7 --skip-phase 8 --skip-phase 9 --skip-phase 10 --skip-phase 12 --skip-phase 14 --skip-phase 15 --skip-phase 17
+Notebooks updated: 0
+Updated C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\guid_map.json
+======================================================================
+  FMD FRAMEWORK — Full From-Scratch Deployment
+  Environment: DEV
+  Dry Run: False
+======================================================================
+  Resuming from Phase 18 (completed: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 17])
+
+======================================================================
+  DEPLOYMENT SUMMARY
+======================================================================
+
+  Elapsed: 0.0s
+  Workspaces: 5
+  Connections: 3
+  Lakehouses: 3
+  Items: 0
+  Mapping entries: 0
+
+  State saved to: C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\.deploy_state.json
+  Summary saved to: deployment_summary.json
+
+  Syncing new deployment state to Centralized ID Registry...
+  ID Registry successfully updated!
+======================================================================
+
+[20:19:40]   Deploy phases complete!
+[20:19:40] 
+[20:19:40] ============================================================
+[20:19:40] STEP 3: Deploying v3 engine SQL schema...
+[20:19:40] ============================================================
+[20:19:40]   Command: C:\Users\sasnahrup\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\engine\sql\deploy_schema.py
+[deploy_schema] Found 3 SQL file(s) to deploy:
+  - 001_engine_tables.sql
+  - 002_engine_views.sql
+  - 003_engine_procs.sql
+
+[deploy_schema] WARNING: PURVIEW_ACCOUNT_NAME not set in environment
+[deploy_schema] Config loaded from C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\dashboard\app\api\config.json
+[deploy_schema] Connecting to Fabric SQL DB...
+[deploy_schema] Token acquired successfully
+[deploy_schema] Connected to SQL_INTEGRATION_FRAMEWORK-ed567507-5ec0-48fd-8b46-0782241219d5
+
+[deploy_schema] Executing 001_engine_tables.sql... OK (2 table(s) created, 5 index(es) created)
+[deploy_schema] Executing 002_engine_views.sql... OK (3 view(s) created)
+[deploy_schema] Executing 003_engine_procs.sql... OK (5 proc(s) created)
+
+[deploy_schema] Schema deployment complete! (2 table(s) created, 3 view(s) created, 5 proc(s) created, 5 index(es) created)
+
+[20:19:49]   Engine schema deployed!
+[20:19:49] 
+[20:19:49] ============================================================
+[20:19:49] STEP 4: Starting v3 engine overnight load...
+[20:19:49] ============================================================
+[20:19:52]   Engine status: unknown
+[20:19:54]   Load started! Run ID: 403e8d9b-4b4f-4e9f-a5af-2ec9345f6dd7
+[20:19:54]   Failed to start engine: 'charmap' codec can't encode character '\u2192' in position 47: character maps to <undefined>
+[20:19:54]   The dashboard server may not be running.
+[20:19:54]   Start it with: cd dashboard/app/api && python server.py
+[20:19:54] 
+[20:19:54] ============================================================
+[20:19:54]   DEPLOYMENT COMPLETE — 0.8 minutes
+[20:19:54]   Schema: OK
+[20:19:54]   Deploy phases: OK
+[20:19:54]   Engine schema: OK
+[20:19:54]   Engine load: FAILED
+[20:19:54] ============================================================

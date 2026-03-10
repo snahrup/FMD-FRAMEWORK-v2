@@ -3,7 +3,6 @@ import { BackgroundTaskProvider } from '@/contexts/BackgroundTaskContext'
 import { AppLayout } from '@/components/layout/AppLayout'
 import ExecutionMatrix from '@/pages/ExecutionMatrix'
 import EngineControl from '@/pages/EngineControl'
-import PipelineMonitor from '@/pages/PipelineMonitor'
 import ErrorIntelligence from '@/pages/ErrorIntelligence'
 import AdminGateway from '@/pages/AdminGateway'
 import FlowExplorer from '@/pages/FlowExplorer'
@@ -26,6 +25,20 @@ import NotebookDebug from '@/pages/NotebookDebug'
 import LiveMonitor from '@/pages/LiveMonitor'
 import EnvironmentSetup from '@/pages/EnvironmentSetup'
 import SqlExplorer from '@/pages/SqlExplorer'
+import LoadProgress from '@/pages/LoadProgress'
+import DataProfiler from '@/pages/DataProfiler'
+import ColumnEvolution from '@/pages/ColumnEvolution'
+import DataMicroscope from '@/pages/DataMicroscope'
+import SankeyFlow from '@/pages/SankeyFlow'
+import TransformationReplay from '@/pages/TransformationReplay'
+import ImpactPulse from '@/pages/ImpactPulse'
+import TestAudit from '@/pages/TestAudit'
+import TestSwarm from '@/pages/TestSwarm'
+import MRI from '@/pages/MRI'
+import DataLineage from '@/pages/DataLineage'
+import DataClassification from '@/pages/DataClassification'
+import DataCatalog from '@/pages/DataCatalog'
+import ImpactAnalysis from '@/pages/ImpactAnalysis'
 
 function App() {
   return (
@@ -52,6 +65,21 @@ function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/setup" element={<EnvironmentSetup />} />
         <Route path="/sql-explorer" element={<SqlExplorer />} />
+        <Route path="/load-progress" element={<LoadProgress />} />
+        <Route path="/profile" element={<DataProfiler />} />
+        <Route path="/columns" element={<ColumnEvolution />} />
+        <Route path="/microscope" element={<DataMicroscope />} />
+        <Route path="/sankey" element={<SankeyFlow />} />
+        <Route path="/replay" element={<TransformationReplay />} />
+        <Route path="/pulse" element={<ImpactPulse />} />
+        <Route path="/test-audit" element={<TestAudit />} />
+        <Route path="/test-swarm" element={<TestSwarm />} />
+        <Route path="/mri" element={<MRI />} />
+        {/* Governance pages */}
+        <Route path="/lineage" element={<DataLineage />} />
+        <Route path="/classification" element={<DataClassification />} />
+        <Route path="/catalog" element={<DataCatalog />} />
+        <Route path="/impact" element={<ImpactAnalysis />} />
         {/* Labs pages — always routed, nav visibility controlled by feature flags */}
         <Route path="/labs/cleansing" element={<CleansingRuleEditor />} />
         <Route path="/labs/scd-audit" element={<ScdAudit />} />

@@ -29,25 +29,17 @@ from urllib.error import HTTPError
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+sys.path.insert(0, SCRIPT_DIR)
+from fmd_config import load_fmd_config
 
-# ── Load secrets ──
-env_path = os.path.join(PROJECT_ROOT, "dashboard", "app", "api", ".env")
-with open(env_path) as f:
-    for line in f:
-        if "=" in line and not line.startswith("#"):
-            k, v = line.strip().split("=", 1)
-            os.environ[k] = v
-
-# ── IDs ──
-TENANT = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
-CLIENT = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
-SECRET = os.environ["FABRIC_CLIENT_SECRET"]
-
-# From .deploy_state.json
-CONFIG_WS = "e1f70591-6780-4d93-84bc-ba4572513e5c"
-SQL_DB_ID = "ed567507-5ec0-48fd-8b46-0782241219d5"
-SQL_SERVER = "7xuydsw5a3hutnnj5z2ed72tam-sec7pymam6ju3bf4xjcxeuj6lq.database.fabric.microsoft.com,1433"
-SQL_DATABASE = "SQL_INTEGRATION_FRAMEWORK-ed567507-5ec0-48fd-8b46-0782241219d5"
+_cfg = load_fmd_config()
+TENANT = _cfg['tenant_id']
+CLIENT = _cfg['client_id']
+SECRET = _cfg['client_secret']
+CONFIG_WS = _cfg['workspaces'].get('workspace_config', '')
+SQL_DB_ID = _cfg['database'].get('id', '')
+SQL_SERVER = _cfg['sql'].get('server', '')
+SQL_DATABASE = _cfg['sql'].get('database', '')
 ENGINE_URL = "http://localhost:8787/api"
 
 DACPAC_PATH = os.path.join(PROJECT_ROOT, "src", "SQL_FMD_FRAMEWORK.SQLDatabase", "SQL_FMD_FRAMEWORK.dacpac")

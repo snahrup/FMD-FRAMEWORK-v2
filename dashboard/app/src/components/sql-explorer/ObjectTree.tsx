@@ -494,10 +494,15 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                   <ChevronRight className="h-2.5 w-2.5 text-muted-foreground" />
                                 )}
                               </span>
-                              <Database className={cn("h-3 w-3 flex-shrink-0", dbEmpty ? "text-muted-foreground/30" : "text-blue-400")} />
-                              <span className={cn("truncate", dbEmpty ? "text-muted-foreground/40" : "text-foreground/80")}>{db.name}</span>
+                              <Database className={cn("h-3 w-3 flex-shrink-0", dbEmpty ? "text-muted-foreground/30" : db.isRegistered ? "text-amber-500" : "text-blue-400")} />
+                              <span className={cn("truncate", dbEmpty ? "text-muted-foreground/40" : db.isRegistered ? "text-amber-400 font-semibold" : "text-foreground/80")}>{db.name}</span>
+                              {db.isRegistered && (
+                                <span className="text-[8px] px-1 py-px rounded bg-amber-500/15 text-amber-500 border border-amber-500/30 font-semibold uppercase tracking-wider flex-shrink-0">
+                                  Registered
+                                </span>
+                              )}
                               {dbTableCount > 0 && (
-                                <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground font-mono">
+                                <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground font-mono flex-shrink-0">
                                   {dbTableCount}
                                 </span>
                               )}
@@ -815,24 +820,40 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                               )}
                                               {nsTables
                                                 .filter(t => matchesSearch(t.name))
-                                                .map(tblFolder => (
-                                                  <div key={tblFolder.name} className="flex items-center gap-2 px-2 py-1 ml-1 rounded-[var(--radius-md)] text-[11px] text-muted-foreground">
-                                                    <FileText className="h-3 w-3 text-amber-400/50 flex-shrink-0" />
-                                                    <span className="truncate text-foreground/70">{tblFolder.name}</span>
-                                                    <div className="ml-auto flex items-center gap-2">
-                                                      {(tblFolder.fileCount ?? 0) > 0 && (
-                                                        <span className="text-[10px] font-mono opacity-50">
-                                                          {tblFolder.fileCount} file{(tblFolder.fileCount ?? 0) !== 1 ? 's' : ''}
-                                                        </span>
+                                                .map(tblFolder => {
+                                                  const fileSel = isSelected(lh.name, lh.name, ns.name, tblFolder.name);
+                                                  return (
+                                                    <button
+                                                      key={tblFolder.name}
+                                                      onClick={() => onSelectTable({
+                                                        server: lh.name, database: lh.name,
+                                                        schema: ns.name, table: tblFolder.name,
+                                                        type: 'lakehouse',
+                                                      })}
+                                                      className={cn(
+                                                        "flex items-center gap-2 w-full px-2 py-1 ml-1 rounded-[var(--radius-md)] text-[11px] transition-colors cursor-pointer",
+                                                        fileSel
+                                                          ? "bg-amber-500/10 text-amber-500 font-medium border-l-2 border-amber-500"
+                                                          : "text-muted-foreground hover:bg-accent hover:text-foreground"
                                                       )}
-                                                      {(tblFolder.totalSize ?? 0) > 0 && (
-                                                        <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-amber-500/10 text-amber-600/70">
-                                                          {formatFileSize(tblFolder.totalSize ?? 0)}
-                                                        </span>
-                                                      )}
-                                                    </div>
-                                                  </div>
-                                                ))}
+                                                    >
+                                                      <FileText className={cn("h-3 w-3 flex-shrink-0", fileSel ? "text-amber-500" : "text-amber-400/50")} />
+                                                      <span className="truncate text-left">{tblFolder.name}</span>
+                                                      <div className="ml-auto flex items-center gap-2">
+                                                        {(tblFolder.fileCount ?? 0) > 0 && (
+                                                          <span className="text-[10px] font-mono opacity-50">
+                                                            {tblFolder.fileCount} file{(tblFolder.fileCount ?? 0) !== 1 ? 's' : ''}
+                                                          </span>
+                                                        )}
+                                                        {(tblFolder.totalSize ?? 0) > 0 && (
+                                                          <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-amber-500/10 text-amber-600/70">
+                                                            {formatFileSize(tblFolder.totalSize ?? 0)}
+                                                          </span>
+                                                        )}
+                                                      </div>
+                                                    </button>
+                                                  );
+                                                })}
                                             </div>
                                           )}
                                         </div>

@@ -1,20 +1,25 @@
 """
-run_load_all.py - REST API orchestrator for the FMD LOAD_ALL pipeline chain.
+run_load_all.py - REST API orchestrator for the FMD pipeline chain.
 
-Replaces InvokePipeline activities which have a known Fabric limitation:
-InvokePipeline does NOT support Service Principal authentication for
-pipeline-to-pipeline execution. Instead, this script triggers each
-child pipeline directly via the Fabric REST API using SP token auth.
+Triggers Fabric notebooks directly via the REST API using SP token auth.
+The old pipeline-based approach is dead — InvokePipeline doesn't work with
+Service Principal auth, and the LOAD_* pipelines were never deployed.
 
-Pipeline chain: LOAD_LANDINGZONE → LOAD_BRONZE → LOAD_SILVER
-Each pipeline is triggered, polled to completion, then the next starts.
-Bronze runs after LZ regardless of LZ result (Completed = Succeeded|Failed).
-Silver runs after Bronze regardless of Bronze result.
+Notebook chain:
+  LZ:     NB_FMD_PROCESSING_LANDINGZONE_MAIN  (copies from source → LZ parquet)
+  Bronze: NB_FMD_LOAD_LANDING_BRONZE           (LZ parquet → Bronze delta)
+  Silver: NB_FMD_LOAD_BRONZE_SILVER            (Bronze delta → Silver SCD2)
+
+Each notebook is triggered, polled to completion, then the next starts.
+Each step runs regardless of the previous step's result so partial loads
+still propagate.
 
 Usage:
-    python scripts/run_load_all.py              # Run full chain
-    python scripts/run_load_all.py --skip-lz    # Skip LZ, run Bronze+Silver
-    python scripts/run_load_all.py --only bronze # Run only Bronze
+    python scripts/run_load_all.py                # Run full chain (LZ → Bronze → Silver)
+    python scripts/run_load_all.py --skip-lz      # Skip LZ, run Bronze + Silver
+    python scripts/run_load_all.py --only bronze   # Run only Bronze
+    python scripts/run_load_all.py --only silver   # Run only Silver
+    python scripts/run_load_all.py --only lz       # Run only LZ
 """
 
 import json
@@ -43,18 +48,25 @@ TOKEN_URL = f'https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/token'
 SCOPE = 'https://api.fabric.microsoft.com/.default'
 API = 'https://api.fabric.microsoft.com/v1'
 
-# Workspace and pipeline IDs
-WS_CODE = '146fe38c-f6c3-4e9d-a18c-5c01cad5941e'
+# Workspace
+WS_CODE = 'c0366b24-e6f8-4994-b4df-b765ecb5bbf8'
 
-PIPELINES = {
-    'LOAD_LANDINGZONE': '3d0b3b2b-a069-40dc-b735-d105f9e66838',
-    'LOAD_BRONZE':      '8b7008ac-b4da-4861-9e1f-6b99d9f2f1e3',
-    'LOAD_SILVER':      '90c0535c-c5dc-43a3-b51e-c44ef1808a60',
+# Notebook IDs (source of truth — from Fabric workspace listing 2026-03-06)
+NOTEBOOKS = {
+    'LZ':     'd6fbceef-adeb-492f-9959-4fd7d07b1348',  # NB_FMD_PROCESSING_LANDINGZONE_MAIN
+    'BRONZE': 'a2712a97-ebde-4036-b704-4892b8c4f7af',  # NB_FMD_LOAD_LANDING_BRONZE
+    'SILVER': '8ce7bc73-35ac-4844-8937-969b7d99ec3e',  # NB_FMD_LOAD_BRONZE_SILVER
+}
+
+NOTEBOOK_NAMES = {
+    'LZ':     'NB_FMD_PROCESSING_LANDINGZONE_MAIN',
+    'BRONZE': 'NB_FMD_LOAD_LANDING_BRONZE',
+    'SILVER': 'NB_FMD_LOAD_BRONZE_SILVER',
 }
 
 # Poll config
-POLL_INTERVAL = 15  # seconds
-MAX_POLL_TIME = 7200  # 2 hours max per pipeline
+POLL_INTERVAL = 20  # seconds
+MAX_POLL_TIME = 14400  # 4 hours max per notebook
 
 
 def log(msg):
@@ -79,10 +91,11 @@ def get_token():
     return json.loads(urllib.request.urlopen(req).read())['access_token']
 
 
-def trigger_pipeline(token, name):
-    """Trigger a pipeline and return the run ID."""
-    pipeline_id = PIPELINES[name]
-    url = f'{API}/workspaces/{WS_CODE}/items/{pipeline_id}/jobs/instances?jobType=Pipeline'
+def trigger_notebook(token, stage):
+    """Trigger a notebook job and return the run ID."""
+    nb_id = NOTEBOOKS[stage]
+    nb_name = NOTEBOOK_NAMES[stage]
+    url = f'{API}/workspaces/{WS_CODE}/items/{nb_id}/jobs/instances?jobType=RunNotebook'
     req = urllib.request.Request(
         url, data=b'{}', method='POST',
         headers={
@@ -94,11 +107,13 @@ def trigger_pipeline(token, name):
         resp = urllib.request.urlopen(req)
         loc = resp.headers.get('Location', '')
         run_id = loc.split('/')[-1] if loc else None
+        log(f'  Triggered {nb_name} (HTTP {resp.status})')
         return run_id
     except urllib.error.HTTPError as e:
         if e.code == 202:
             loc = e.headers.get('Location', '')
             run_id = loc.split('/')[-1] if loc else None
+            log(f'  Triggered {nb_name} (HTTP 202 Accepted)')
             return run_id
         else:
             err = e.read().decode()[:500]
@@ -106,9 +121,9 @@ def trigger_pipeline(token, name):
             return None
 
 
-def poll_pipeline(token, name, run_id):
-    """Poll pipeline until completion. Returns (status, duration_seconds, failure_reason)."""
-    pipeline_id = PIPELINES[name]
+def poll_notebook(token, stage, run_id):
+    """Poll notebook until completion. Returns (status, duration_seconds, failure_reason)."""
+    nb_id = NOTEBOOKS[stage]
     start = time.time()
 
     while True:
@@ -118,7 +133,7 @@ def poll_pipeline(token, name, run_id):
 
         time.sleep(POLL_INTERVAL)
 
-        url = f'{API}/workspaces/{WS_CODE}/items/{pipeline_id}/jobs/instances/{run_id}'
+        url = f'{API}/workspaces/{WS_CODE}/items/{nb_id}/jobs/instances/{run_id}'
         req = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}'})
 
         try:
@@ -131,47 +146,59 @@ def poll_pipeline(token, name, run_id):
             mins = int(elapsed // 60)
             secs = int(elapsed % 60)
 
-            if status in ('Completed', 'Failed', 'Cancelled'):
+            if status in ('Completed', 'Failed', 'Cancelled', 'Deduped'):
                 failure_msg = None
                 if failure:
-                    failure_msg = failure.get('message', str(failure))[:500]
+                    failure_msg = failure.get('message', str(failure))[:500] if isinstance(failure, dict) else str(failure)[:500]
                 return status, elapsed, failure_msg
 
-            log(f'  [{mins}m{secs:02d}s] {name}: {status}')
+            log(f'  [{mins}m{secs:02d}s] {stage}: {status}')
 
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                # Token expired, try to refresh
+                log(f'  Token expired during poll, refreshing...')
+                try:
+                    token = get_token()
+                except Exception:
+                    log(f'  Token refresh failed')
+            else:
+                log(f'  Poll error: HTTP {e.code}')
         except Exception as e:
             log(f'  Poll error: {e}')
 
+    return token  # Return potentially refreshed token
 
-def run_pipeline(token, name):
-    """Trigger and poll a single pipeline to completion."""
-    log(f'>> Triggering PL_FMD_{name}...')
-    run_id = trigger_pipeline(token, name)
+
+def run_stage(token, stage):
+    """Trigger and poll a single notebook to completion."""
+    nb_name = NOTEBOOK_NAMES[stage]
+    log(f'>> Starting {stage}: {nb_name}')
+    run_id = trigger_notebook(token, stage)
 
     if not run_id:
-        return 'Failed', 0, 'Could not trigger pipeline'
+        return token, 'Failed', 0, 'Could not trigger notebook'
 
     log(f'  Run ID: {run_id}')
-    status, duration, failure = poll_pipeline(token, name, run_id)
+    status, duration, failure = poll_notebook(token, stage, run_id)
 
     mins = int(duration // 60)
     secs = int(duration % 60)
 
     if status == 'Completed':
-        log(f'  OK {name} completed in {mins}m{secs:02d}s')
+        log(f'  OK {stage} completed in {mins}m{secs:02d}s')
     elif status == 'Failed':
-        log(f'  FAIL {name} failed after {mins}m{secs:02d}s')
+        log(f'  FAIL {stage} failed after {mins}m{secs:02d}s')
         if failure:
-            # Truncate for readability
             log(f'  Reason: {failure[:300]}')
     else:
-        log(f'  ? {name} ended with status: {status} after {mins}m{secs:02d}s')
+        log(f'  ? {stage} ended with status: {status} after {mins}m{secs:02d}s')
 
-    return status, duration, failure
+    return token, status, duration, failure
 
 
 def main():
-    args = sys.argv[1:]
+    args = [a.lower() for a in sys.argv[1:]]
     skip_lz = '--skip-lz' in args
     only = None
     if '--only' in args:
@@ -179,38 +206,42 @@ def main():
         if idx + 1 < len(args):
             only = args[idx + 1].upper()
 
-    # Determine which pipelines to run
+    # Determine which stages to run
     if only:
         chain = [only]
     elif skip_lz:
-        chain = ['LOAD_BRONZE', 'LOAD_SILVER']
+        chain = ['BRONZE', 'SILVER']
     else:
-        chain = ['LOAD_LANDINGZONE', 'LOAD_BRONZE', 'LOAD_SILVER']
+        chain = ['LZ', 'BRONZE', 'SILVER']
+
+    # Validate
+    for stage in chain:
+        if stage not in NOTEBOOKS:
+            log(f'Unknown stage: {stage}. Valid: LZ, BRONZE, SILVER')
+            return 1
 
     log('=' * 60)
-    log('FMD LOAD_ALL Orchestrator (REST API)')
-    log(f'Chain: {" → ".join(chain)}')
+    log('FMD LOAD_ALL Orchestrator (Notebook-based)')
+    log(f'Chain: {" -> ".join(chain)}')
+    for stage in chain:
+        log(f'  {stage}: {NOTEBOOK_NAMES[stage]}')
     log('=' * 60)
 
     # Authenticate
     log('Authenticating...')
     token = get_token()
-    log('  OK')
+    log('  OK — SP token acquired')
 
-    # Run each pipeline in sequence
+    # Run each notebook in sequence
     results = {}
     total_start = time.time()
 
-    for name in chain:
-        if name not in PIPELINES:
-            log(f'Unknown pipeline: {name}')
-            continue
+    for stage in chain:
+        token, status, duration, failure = run_stage(token, stage)
+        results[stage] = {'status': status, 'duration': duration, 'failure': failure}
 
-        status, duration, failure = run_pipeline(token, name)
-        results[name] = {'status': status, 'duration': duration, 'failure': failure}
-
-        # Refresh token between pipelines (they can be long-running)
-        if name != chain[-1]:
+        # Refresh token between stages (notebooks can be long-running)
+        if stage != chain[-1]:
             try:
                 token = get_token()
             except Exception:
@@ -227,18 +258,18 @@ def main():
     log('=' * 60)
 
     all_ok = True
-    for name, result in results.items():
+    for stage, result in results.items():
         mins = int(result['duration'] // 60)
         secs = int(result['duration'] % 60)
         icon = 'OK' if result['status'] == 'Completed' else 'FAIL'
-        log(f'  {icon} {name}: {result["status"]} ({mins}m{secs:02d}s)')
+        log(f'  {icon} {stage} ({NOTEBOOK_NAMES[stage]}): {result["status"]} ({mins}m{secs:02d}s)')
         if result['status'] != 'Completed':
             all_ok = False
 
     if all_ok:
-        log('\nAll pipelines completed successfully!')
+        log('\nAll notebooks completed successfully!')
     else:
-        log('\nSome pipelines failed. Check Fabric Monitoring Hub for details.')
+        log('\nSome notebooks failed. Check Fabric Monitoring Hub for details.')
 
     return 0 if all_ok else 1
 

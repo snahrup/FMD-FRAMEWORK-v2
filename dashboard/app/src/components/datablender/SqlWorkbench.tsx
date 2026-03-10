@@ -137,7 +137,7 @@ export function SqlWorkbench({ tableId }: SqlWorkbenchProps) {
                   </div>
                   <table className="w-full text-[11px]">
                     <thead>
-                      <tr className="bg-muted/30 border-b border-border">
+                      <tr className="bg-muted border-b border-border">
                         {Object.keys(result.rows[0]).map(col => (
                           <th key={col} className="text-left px-3 py-1 font-mono font-medium whitespace-nowrap">{col}</th>
                         ))}
@@ -145,7 +145,7 @@ export function SqlWorkbench({ tableId }: SqlWorkbenchProps) {
                     </thead>
                     <tbody>
                       {result.rows.map((row, i) => (
-                        <tr key={i} className={i % 2 === 0 ? '' : 'bg-muted/20'}>
+                        <tr key={i} className={i % 2 === 0 ? '' : 'bg-muted'}>
                           {Object.values(row).map((val, j) => (
                             <td key={j} className="px-3 py-0.5 font-mono whitespace-nowrap max-w-[200px] truncate">
                               {val ?? <span className="text-muted-foreground/40 italic">NULL</span>}

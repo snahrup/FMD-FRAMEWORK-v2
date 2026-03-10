@@ -5,25 +5,25 @@
       "name": "fmd_fabric_db_connection",
       "note": "",
       "type": "String",
-      "value": "7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433"
+      "value": "7xuydsw5a3hutnnj5z2ed72tam-sec7pymam6ju3bf4xjcxeuj6lq.database.fabric.microsoft.com,1433"
     },
     {
       "name": "fmd_fabric_db_name",
       "note": "",
       "type": "String",
-      "value": "SQL_INTEGRATION_FRAMEWORK-501d6b17-fcee-47f3-bbb3-54e05f2a3fc0"
+      "value": "SQL_INTEGRATION_FRAMEWORK-ed567507-5ec0-48fd-8b46-0782241219d5"
     },
     {
       "name": "fmd_config_workspace_guid",
       "note": "",
       "type": "String",
-      "value": "f442f66c-eac6-46d7-80c9-c8b025c86fbe"
+      "value": "e1f70591-6780-4d93-84bc-ba4572513e5c"
     },
     {
       "name": "fmd_config_database_guid",
       "note": "",
       "type": "String",
-      "value": "501d6b17-fcee-47f3-bbb3-54e05f2a3fc0"
+      "value": "ed567507-5ec0-48fd-8b46-0782241219d5"
     }
   ]
 }

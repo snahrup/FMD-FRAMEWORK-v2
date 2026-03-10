@@ -1,0 +1,37 @@
+test_command: "cd dashboard/app && npx playwright test"
+test_output: "json"
+max_iterations: 3
+scope:
+  - "dashboard/app/src/**/*.ts"
+  - "dashboard/app/src/**/*.tsx"
+exclude:
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+  - "node_modules/**"
+
+visual:
+  enabled: true
+  threshold: 0.1
+
+ai:
+  enabled: true
+  model: "claude-sonnet-4-6"
+  analyze_visual_diffs: true
+
+api_tests:
+  enabled: true
+  base_url: "http://127.0.0.1:8787"
+  test_dir: ".mri/api-tests"
+
+test_architect:
+  focus_areas:
+    - "Entity digest engine migration (MT-88)"
+    - "Engine control live run monitoring"
+    - "Pipeline execution matrix accuracy"
+    - "Source manager gateway integration"
+    - "Cross-page data consistency"
+  context_sources:
+    - "docs/ARCHITECTURE.md"
+    - "docs/DECISIONS.md"
+    - "docs/CURRENT_STATE.md"
+    - "TRIAGE_RUNBOOK.md"

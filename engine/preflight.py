@@ -133,24 +133,24 @@ class PreflightChecker:
             failures = [k for k, v in results.items() if not v]
             if all_ok:
                 return CheckResult(
-                    name="sp_tokens",
+                    name="Service Principal Tokens",
                     passed=True,
-                    message="All 3 token scopes valid (SQL, API, OneLake)",
+                    message="All 3 token scopes valid",
                     duration_ms=elapsed_ms,
                 )
             else:
                 return CheckResult(
-                    name="sp_tokens",
+                    name="Service Principal Tokens",
                     passed=False,
-                    message=f"Token failures: {', '.join(failures)}. Check tenant/client/secret.",
+                    message=f"Token failures: {', '.join(failures)}",
                     duration_ms=elapsed_ms,
                 )
         except Exception as exc:
             elapsed_ms = (time.perf_counter() - t0) * 1000
             return CheckResult(
-                name="sp_tokens",
+                name="Service Principal Tokens",
                 passed=False,
-                message=f"Token validation error: {exc}",
+                message=f"Validation error: {exc}",
                 duration_ms=elapsed_ms,
             )
 
@@ -161,18 +161,15 @@ class PreflightChecker:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         if ok:
             return CheckResult(
-                name="metadata_db",
+                name="Fabric SQL Database",
                 passed=True,
-                message=f"Connected to Fabric SQL ({self._config.sql_database.split('-')[0]})",
+                message="Connected",
                 duration_ms=elapsed_ms,
             )
         return CheckResult(
-            name="metadata_db",
+            name="Fabric SQL Database",
             passed=False,
-            message=(
-                f"Cannot connect to Fabric SQL ({self._config.sql_database.split('-')[0]}). "
-                "Check SP token and network access."
-            ),
+            message="Cannot connect — check SP token and network",
             duration_ms=elapsed_ms,
         )
 
@@ -183,18 +180,15 @@ class PreflightChecker:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         if ok:
             return CheckResult(
-                name="onelake",
+                name="OneLake Storage",
                 passed=True,
-                message="OneLake ADLS endpoint reachable",
+                message="Reachable",
                 duration_ms=elapsed_ms,
             )
         return CheckResult(
-            name="onelake",
+            name="OneLake Storage",
             passed=False,
-            message=(
-                "Cannot reach OneLake. Check SP has Contributor role on the DATA workspace "
-                "and the workspace_data_id is correct."
-            ),
+            message="Cannot reach OneLake — check SP permissions on DATA workspace",
             duration_ms=elapsed_ms,
         )
 
@@ -205,18 +199,15 @@ class PreflightChecker:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         if ok:
             return CheckResult(
-                name=f"source_{server}_{database}",
+                name=f"Source: {server}/{database}",
                 passed=True,
-                message=f"Connected to {server}/{database}",
+                message="Connected",
                 duration_ms=elapsed_ms,
             )
         return CheckResult(
-            name=f"source_{server}_{database}",
+            name=f"Source: {server}/{database}",
             passed=False,
-            message=(
-                f"Cannot connect to {server}/{database}. "
-                "Check VPN connection and that the server is accessible."
-            ),
+            message="Cannot connect — check VPN",
             duration_ms=elapsed_ms,
         )
 
@@ -228,9 +219,9 @@ class PreflightChecker:
         if not entities:
             elapsed_ms = (time.perf_counter() - t0) * 1000
             return CheckResult(
-                name="entity_sanity",
+                name="Entity Worklist",
                 passed=False,
-                message="Entity worklist is empty — nothing to process.",
+                message="Empty — nothing to process",
                 duration_ms=elapsed_ms,
             )
 
@@ -257,15 +248,15 @@ class PreflightChecker:
 
         if issues:
             return CheckResult(
-                name="entity_sanity",
+                name="Entity Worklist",
                 passed=False,
                 message=f"{len(entities)} entities ({incremental} incremental, {full_load} full). Issues: {'; '.join(issues)}",
                 duration_ms=elapsed_ms,
             )
 
         return CheckResult(
-            name="entity_sanity",
+            name="Entity Worklist",
             passed=True,
-            message=f"{len(entities)} entities ready ({incremental} incremental, {full_load} full load)",
+            message=f"{len(entities)} entities ({incremental} incremental, {full_load} full)",
             duration_ms=elapsed_ms,
         )

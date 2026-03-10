@@ -13,20 +13,28 @@ import {
   Gauge,
   ScrollText,
   Hash,
-  Settings,
   Sparkles,
   ClipboardCheck,
   Layers3,
   Route,
-  Wrench,
-  BookOpen,
   Play,
-  Bug,
   Radio,
   Cog,
   Grid3X3,
-  Server,
   DatabaseZap,
+  BarChart3,
+  Microscope,
+  Workflow,
+  Columns3,
+  Clapperboard,
+  Radar,
+  ScanSearch,
+  TestTube2,
+  BookOpen,
+  Shield,
+  Zap,
+  Bug,
+  BrainCircuit,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,6 +63,7 @@ const CORE_GROUPS: NavGroup[] = [
       { icon: Grid3X3, label: "Execution Matrix", href: "/" },
       { icon: Cog, label: "Engine Control", href: "/engine" },
       { icon: Sparkles, label: "Validation", href: "/validation" },
+      { icon: BarChart3, label: "Load Progress", href: "/load-progress" },
       { icon: Radio, label: "Live Monitor", href: "/live" },
       { icon: Gauge, label: "Control Plane", href: "/control" },
       { icon: Activity, label: "Error Intelligence", href: "/errors" },
@@ -67,20 +76,35 @@ const CORE_GROUPS: NavGroup[] = [
     label: "Data",
     items: [
       { icon: Cable, label: "Source Manager", href: "/sources" },
+      { icon: Workflow, label: "Data Flow", href: "/sankey" },
+      { icon: Radar, label: "Impact Pulse", href: "/pulse" },
       { icon: FlaskConical, label: "Data Blender", href: "/blender" },
-      { icon: GitBranch, label: "Flow Explorer", href: "/flow" },
+      { icon: Layers3, label: "Flow Explorer", href: "/flow" },
       { icon: Route, label: "Data Journey", href: "/journey" },
+      { icon: Columns3, label: "Column Evolution", href: "/columns" },
+      { icon: Microscope, label: "Data Profiler", href: "/profile" },
+      { icon: ScanSearch, label: "Data Microscope", href: "/microscope" },
+      { icon: Clapperboard, label: "Transformation Replay", href: "/replay" },
       { icon: Hash, label: "Record Counts", href: "/counts" },
       { icon: DatabaseZap, label: "SQL Explorer", href: "/sql-explorer" },
+    ],
+  },
+  {
+    label: "Governance",
+    items: [
+      { icon: GitBranch, label: "Data Lineage", href: "/lineage" },
+      { icon: Shield, label: "Data Classification", href: "/classification" },
+      { icon: BookOpen, label: "Data Catalog", href: "/catalog" },
+      { icon: Zap, label: "Impact Analysis", href: "/impact" },
     ],
   },
   {
     label: "Admin",
     items: [
       { icon: ShieldCheck, label: "Admin", href: "/admin" },
-      { icon: Wrench, label: "Config Manager", href: "/config" },
-      { icon: BookOpen, label: "Notebook Config", href: "/notebook-config" },
-      { icon: Server, label: "Environment Setup", href: "/setup" },
+      { icon: BrainCircuit, label: "MRI", href: "/mri" },
+      { icon: Bug, label: "Test Swarm", href: "/test-swarm" },
+      { icon: TestTube2, label: "Test Audit", href: "/test-audit" },
     ],
   },
 ];
@@ -265,7 +289,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex-1 cowork-grid">
           <div className={cn(
             "w-full animate-[fadeIn_0.25s_var(--ease-claude)]",
-            (location.pathname === "/flow" || location.pathname === "/blender" || location.pathname === "/journey")
+            (location.pathname === "/flow" || location.pathname === "/blender" || location.pathname === "/journey" || location.pathname === "/columns" || location.pathname === "/sankey" || location.pathname === "/pulse")
               ? "p-0 h-full"
               : "p-6 md:p-8 max-w-7xl mx-auto"
           )}>

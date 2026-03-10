@@ -64,7 +64,7 @@ export default function EnvironmentSetup() {
         </div>
 
         {/* Mode toggle */}
-        <div className="flex items-center gap-1 rounded-lg border border-border/50 bg-muted/30 p-1">
+        <div className="flex items-center gap-1 rounded-lg border border-border/50 bg-muted p-1">
           {([
             { key: "provision" as const, icon: Rocket, label: "Provision" },
             { key: "wizard" as const, icon: Wand2, label: "Wizard" },
@@ -94,7 +94,7 @@ export default function EnvironmentSetup() {
       )}
 
       {/* Content */}
-      <div className="rounded-xl border border-border/50 bg-card/50 p-6">
+      <div className="rounded-xl border border-border/50 bg-card p-6">
         {mode === "provision" && (
           <ProvisionAll
             onComplete={(newConfig) => {

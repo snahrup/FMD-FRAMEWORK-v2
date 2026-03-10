@@ -82,6 +82,8 @@ export function ReviewStep({ config }: ReviewStepProps) {
 
   const ws = config.workspaces;
   const lh = config.lakehouses;
+  const nb = config.notebooks;
+  const pl = config.pipelines;
   const db = config.database;
 
   return (
@@ -91,7 +93,7 @@ export function ReviewStep({ config }: ReviewStepProps) {
         <h3 className="text-sm font-semibold">Review Configuration</h3>
       </div>
 
-      <div className="rounded-md border border-border/40 bg-card/50 p-4">
+      <div className="rounded-md border border-border/40 bg-card p-4">
         <table className="w-full">
           <thead>
             <tr className="border-b border-border/30">
@@ -111,6 +113,9 @@ export function ReviewStep({ config }: ReviewStepProps) {
             <ReviewRow label="Bronze Layer" value={lh.LH_BRONZE_LAYER?.displayName || null} sub={lh.LH_BRONZE_LAYER?.id} />
             <ReviewRow label="Silver Layer" value={lh.LH_SILVER_LAYER?.displayName || null} sub={lh.LH_SILVER_LAYER?.id} />
             <ReviewRow label="SQL Database" value={db?.displayName || null} sub={db?.id} />
+            <ReviewRow label="NB Landing → Bronze" value={nb.NB_FMD_LOAD_LANDING_BRONZE?.displayName || null} sub={nb.NB_FMD_LOAD_LANDING_BRONZE?.id} />
+            <ReviewRow label="NB Bronze → Silver" value={nb.NB_FMD_LOAD_BRONZE_SILVER?.displayName || null} sub={nb.NB_FMD_LOAD_BRONZE_SILVER?.id} />
+            <ReviewRow label="PL LDZ Copy SQL" value={pl.PL_FMD_LDZ_COPY_SQL?.displayName || null} sub={pl.PL_FMD_LDZ_COPY_SQL?.id} />
             {Object.entries(config.connections).map(([key, conn]) => (
               <ReviewRow key={key} label={key} value={conn?.displayName || null} sub={conn?.id} />
             ))}

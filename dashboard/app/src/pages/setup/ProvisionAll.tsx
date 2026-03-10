@@ -121,6 +121,8 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
             LH_SILVER_LAYER: data.config.lakehouses?.LH_SILVER_LAYER || null,
           },
           database: data.config.database || null,
+          notebooks: data.config.notebooks || {},
+          pipelines: data.config.pipelines || {},
         };
         configRef.current = newConfig;
         // Don't auto-navigate — let user review the results first
@@ -237,7 +239,7 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
             </div>
           </div>
 
-          <div className="rounded-md border border-border/40 bg-card/50 divide-y divide-border/20">
+          <div className="rounded-md border border-border/40 bg-card divide-y divide-border/20">
             {steps.map((step, i) => {
               const style = STATUS_STYLES[step.status];
               const Icon = getStepIcon(step.name);
@@ -304,17 +306,17 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
 
           {/* Resource summary grid */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-md border border-border/30 bg-card/30 p-3">
+            <div className="rounded-md border border-border/30 bg-card p-3">
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Workspaces</div>
               <div className="text-2xl font-bold text-foreground">5</div>
               <div className="text-[10px] text-muted-foreground mt-0.5">2 DEV + 2 PROD + 1 CONFIG</div>
             </div>
-            <div className="rounded-md border border-border/30 bg-card/30 p-3">
+            <div className="rounded-md border border-border/30 bg-card p-3">
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Lakehouses</div>
               <div className="text-2xl font-bold text-foreground">3</div>
               <div className="text-[10px] text-muted-foreground mt-0.5">LZ + Bronze + Silver</div>
             </div>
-            <div className="rounded-md border border-border/30 bg-card/30 p-3">
+            <div className="rounded-md border border-border/30 bg-card p-3">
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">SQL Database</div>
               <div className="text-2xl font-bold text-foreground">1</div>
               <div className="text-[10px] text-muted-foreground mt-0.5">Metadata DB</div>
@@ -322,7 +324,7 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
           </div>
 
           {/* Config targets confirmation */}
-          <div className="rounded-md border border-border/30 bg-card/30 p-3">
+          <div className="rounded-md border border-border/30 bg-card p-3">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-2">
               Config Propagated To
             </div>

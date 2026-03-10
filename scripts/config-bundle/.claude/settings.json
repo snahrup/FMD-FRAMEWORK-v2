@@ -5,16 +5,11 @@
     "pr": "Steve's Automation Engine"
   },
   "permissions": {
-    "allow": [
-      "Read(//c/Users/snahrup/CascadeProjects/open-cowork/src/renderer/styles/**)",
-      "Read(//c/Users/snahrup/CascadeProjects/open-cowork/**)"
-    ],
+    "allow": [],
     "deny": [],
     "ask": [],
-    "defaultMode": "acceptEdits",
-    "additionalDirectories": [
-      "C:\\Users\\snahrup\\CascadeProjects\\open-cowork\\src\\renderer\\styles"
-    ]
+    "defaultMode": "bypassPermissions",
+    "additionalDirectories": []
   },
   "model": "opus",
   "hooks": {
@@ -23,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"C:/Users/snahrup/CascadeProjects/nexus/hooks/session-start.js\"",
+            "command": "node \"C:/Projects/nexus/hooks/session-start.js\"",
             "timeout": 5
           }
         ]
@@ -34,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"C:/Users/snahrup/CascadeProjects/nexus/hooks/post-tool-use.js\"",
+            "command": "node \"C:/Projects/nexus/hooks/post-tool-use.js\"",
             "timeout": 3
           }
         ]
@@ -45,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"C:/Users/snahrup/CascadeProjects/nexus/hooks/user-prompt.js\"",
+            "command": "node \"C:/Projects/nexus/hooks/user-prompt.js\"",
             "timeout": 3
           }
         ]
@@ -56,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"C:/Users/snahrup/CascadeProjects/nexus/hooks/session-end.js\"",
+            "command": "node \"C:/Projects/nexus/hooks/session-end.js\"",
             "timeout": 5
           }
         ]
@@ -67,145 +62,25 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"C:/Users/snahrup/CascadeProjects/nexus/hooks/pre-compact.js\"",
+            "command": "node \"C:/Projects/nexus/hooks/pre-compact.js\"",
             "timeout": 10
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/scripts/ralph_stop_hook.py\"",
-            "timeout": 15
           }
         ]
       }
     ]
   },
   "enabledPlugins": {
-    "claude-mem@thedotmack": false,
-    "claude-code-setup@claude-plugins-official": false,
     "claude-md-management@claude-plugins-official": true
   },
   "alwaysThinkingEnabled": true,
   "skipDangerousModePermissionPrompt": true,
-  "numStartups": 5,
-  "installMethod": "unknown",
   "autoUpdates": true,
-  "tipsHistory": {
-    "new-user-warmup": 4
-  },
-  "cachedStatsigGates": {
-    "tengu_prompt_suggestion": true,
-    "tengu_vscode_review_upsell": false,
-    "tengu_year_end_2025_campaign_promo": false,
-    "tengu_disable_bypass_permissions_mode": false,
-    "tengu_streaming_tool_execution2": false,
-    "tengu_vscode_onboarding": false,
-    "tengu_session_memory": false,
-    "tengu_log_1p_events": true,
-    "code_slack_app_install_banner": false,
-    "tengu_tool_pear": false,
-    "tengu_web_tasks": true,
-    "tengu_c4w_usage_limit_notifications_enabled": true,
-    "tengu_thinkback": false,
-    "tengu_ant_attribution_header_new": true
-  },
-  "cachedDynamicConfigs": {
-    "tengu_1p_event_batch_config": {
-      "scheduledDelayMillis": 5000,
-      "maxExportBatchSize": 200,
-      "maxQueueSize": 8192
-    },
-    "tengu-top-of-feed-tip": {
-      "tip": "",
-      "color": ""
-    }
-  },
-  "cachedGrowthBookFeatures": {
-    "persimmon_marble_flag": "N/A",
-    "tengu_tool_pear": false,
-    "tengu_c4w_usage_limit_notifications_enabled": true,
-    "tengu_thinkback": false,
-    "tengu_mcp_tool_search": true,
-    "tengu_disable_bypass_permissions_mode": false,
-    "strawberry_granite_flag": "N/A",
-    "tengu_ant_attribution_header_new": true,
-    "tengu_tool_result_persistence": true,
-    "tengu_tool_search_unsupported_models": null,
-    "tengu_1p_event_batch_config": {
-      "scheduledDelayMillis": 5000,
-      "maxExportBatchSize": 200,
-      "maxQueueSize": 8192
-    },
-    "tengu_pid_based_version_locking": true,
-    "tengu_event_sampling_config": {},
-    "tengu_scratch": false,
-    "tengu_log_segment_events": false,
-    "tengu_log_datadog_events": true,
-    "tengu_streaming_tool_execution2": false,
-    "tengu_vscode_review_upsell": false,
-    "tengu_vscode_onboarding": false
-  },
-  "userID": "0620b4e738432a10a32de53fb1645ed9c762f7d5ba5528a0c48b2ee0056681f1",
-  "firstStartTime": "2026-01-04T00:55:03.837Z",
+  "hasCompletedOnboarding": true,
   "sonnet45MigrationComplete": true,
   "opus45MigrationComplete": true,
   "thinkingMigrationComplete": true,
-  "githubRepoPaths": {
-    "mediar-ai/screenpipe": [
-      "c:\\Users\\snahrup\\CascadeProjects\\screenpipe"
-    ],
-    "letta-ai/characterai-memory": [
-      "C:\\Users\\snahrup\\CascadeProjects\\characterai-memory\\claude-temp-1768051762172"
-    ],
-    "miurla/morphic": [
-      "C:\\Users\\snahrup\\CascadeProjects\\morphic"
-    ]
-  },
-  "s1mAccessCache": {
-    "97a3b548-a245-4383-a39c-3c383eb6e6d8": {
-      "hasAccess": false,
-      "hasAccessNotAsDefault": false,
-      "timestamp": 1768265774595
-    }
-  },
-  "passesEligibilityCache": {
-    "97a3b548-a245-4383-a39c-3c383eb6e6d8": {
-      "eligible": true,
-      "referral_code_details": {
-        "code": "EkvPWEnldA",
-        "campaign": "claude_code_guest_pass",
-        "referral_link": "https://claude.ai/referral/EkvPWEnldA"
-      },
-      "timestamp": 1768265771771
-    }
-  },
-  "groveConfigCache": {
-    "fe68c18f-d66f-49c3-807c-9b50dbb04c8e": {
-      "grove_enabled": true,
-      "timestamp": 1768245786496
-    }
-  },
-  "changelogLastFetched": 1768265263229,
-  "oauthAccount": {
-    "accountUuid": "fe68c18f-d66f-49c3-807c-9b50dbb04c8e",
-    "emailAddress": "snahrup@gmail.com",
-    "organizationUuid": "97a3b548-a245-4383-a39c-3c383eb6e6d8",
-    "hasExtraUsageEnabled": true,
-    "displayName": "Steve",
-    "organizationRole": "admin",
-    "workspaceRole": null,
-    "organizationName": "snahrup@gmail.com's Organization"
-  },
-  "claudeCodeFirstTokenDate": "2025-06-20T04:19:07.612523Z",
-  "hasCompletedOnboarding": true,
-  "lastOnboardingVersion": "2.0.62",
   "projects": {
-    "C:\\Users\\snahrup\\CascadeProjects\\letta_ui": {
+    "C:\\Projects\\FMD_FRAMEWORK": {
       "allowedTools": [],
       "mcpContextUris": [],
       "mcpServers": {},
@@ -213,58 +88,16 @@
       "disabledMcpjsonServers": [],
       "hasTrustDialogAccepted": true,
       "projectOnboardingSeenCount": 1,
-      "hasClaudeMdExternalIncludesApproved": false,
-      "hasClaudeMdExternalIncludesWarningShown": false,
-      "exampleFiles": []
-    },
-    "C:\\Users\\snahrup\\CascadeProjects\\pbi-model-analyses": {
-      "allowedTools": [],
-      "mcpContextUris": [],
-      "mcpServers": {},
-      "enabledMcpjsonServers": [],
-      "disabledMcpjsonServers": [],
-      "hasTrustDialogAccepted": true,
-      "projectOnboardingSeenCount": 1,
-      "hasClaudeMdExternalIncludesApproved": false,
-      "hasClaudeMdExternalIncludesWarningShown": false,
-      "exampleFiles": []
-    },
-    "C:\\Users\\snahrup\\CascadeProjects\\morphic": {
-      "allowedTools": [],
-      "mcpContextUris": [],
-      "mcpServers": {},
-      "enabledMcpjsonServers": [],
-      "disabledMcpjsonServers": [],
-      "hasTrustDialogAccepted": true,
-      "projectOnboardingSeenCount": 0,
       "hasClaudeMdExternalIncludesApproved": false,
       "hasClaudeMdExternalIncludesWarningShown": false,
       "exampleFiles": []
     }
-  },
-  "hasShownOpus45Notice": {
-    "97a3b548-a245-4383-a39c-3c383eb6e6d8": true
   },
   "mcpServers": {
     "nexus": {
       "command": "node",
       "args": [
-        "C:/Users/snahrup/CascadeProjects/nexus/mcp/server.js"
-      ]
-    },
-    "chrome-devtools": {
-      "type": "stdio",
-      "command": "npx",
-      "args": [
-        "-y",
-        "chrome-devtools-mcp@latest"
-      ],
-      "env": {}
-    },
-    "powerbi-modeling-mcp": {
-      "command": "C:\\MCPServers\\runtime\\PowerBIModelingMCP\\extension\\server\\powerbi-modeling-mcp.exe",
-      "args": [
-        "--start"
+        "C:/Projects/nexus/mcp/server.js"
       ]
     },
     "mssql-powerdata": {
@@ -323,16 +156,6 @@
         "MSSQL_PASSWORD": "Ku7T@hoqFDmDPqG4deMgrrxQ9"
       }
     },
-    "desktop-commander": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@wonderwhy-er/desktop-commander"
-      ],
-      "env": {
-        "FEEDBACKGIVEN": "true"
-      }
-    },
     "github": {
       "command": "npx",
       "args": [
@@ -350,30 +173,6 @@
         "mcp_datetime"
       ]
     },
-    "powerbi-service": {
-      "command": "node",
-      "args": [
-        "C:/Users/snahrup/CascadeProjects/fabric_toolbox/mcp-servers/powerbi-service-mcp/powerbi-azure-mcp/src/server.mjs"
-      ],
-      "env": {
-        "AZURE_CLIENT_ID": "ac937c5d-4bdd-438f-be8b-84a850021d2d",
-        "AZURE_TENANT_ID": "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303",
-        "AZURE_CLIENT_SECRET": "${FABRIC_CLIENT_SECRET}"
-      }
-    },
-    "supabase-pbi-audit": {
-      "type": "http",
-      "url": "https://mcp.supabase.com/mcp?project_ref=lccjprrgdjqgxdjxxgxm&features=storage%2Cbranching%2Cfunctions%2Cdevelopment%2Cdebugging%2Cdatabase%2Caccount"
-    },
-    "notebooklm": {
-      "command": "notebooklm-mcp"
-    },
-    "computer-use": {
-      "command": "node",
-      "args": [
-        "C:/Users/snahrup/CascadeProjects/Prism/src/main/computer-use-mcp/server.js"
-      ]
-    },
     "mcp-atlassian": {
       "command": "uvx",
       "args": [
@@ -388,18 +187,24 @@
         "CONFLUENCE_API_TOKEN": "${CONFLUENCE_API_TOKEN}"
       }
     },
-    "mcp-router": {
+    "desktop-commander": {
       "command": "npx",
       "args": [
         "-y",
-        "@mcp_router/cli@latest",
-        "connect"
+        "@wonderwhy-er/desktop-commander"
       ],
       "env": {
-        "MCPR_TOKEN": "mcpr_jt8LjW7Jm_36XcKsaF85bVL1LPmNyL1t"
+        "FEEDBACKGIVEN": "true"
       }
+    },
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "env": {}
     }
-  },
-  "lastReleaseNotesSeen": "2.0.62",
-  "passesUpsellSeenCount": 2
+  }
 }

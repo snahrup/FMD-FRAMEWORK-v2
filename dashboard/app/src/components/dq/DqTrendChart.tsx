@@ -35,10 +35,10 @@ export function DqTrendChart({ className = "" }: DqTrendChartProps) {
   }, []);
 
   return (
-    <div className={`bg-card/60 backdrop-blur-sm border border-border/50 rounded-xl overflow-hidden ${className}`}>
+    <div className={`bg-card backdrop-blur-sm border border-border/50 rounded-xl overflow-hidden ${className}`}>
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-muted/20 transition-colors"
+        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-muted/50 transition-colors"
       >
         {collapsed ? <ChevronRight className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
         <TrendingUp className="w-4 h-4 text-[var(--cl-accent)]" />

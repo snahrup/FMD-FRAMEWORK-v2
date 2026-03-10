@@ -571,7 +571,7 @@ export default function RecordCounts() {
                     displayed.map((row) => (
                       <tr
                         key={row.id}
-                        className={`border-b border-border/50 transition-colors hover:bg-muted/20 ${
+                        className={`border-b border-border/50 transition-colors hover:bg-muted/50 ${
                           row.status === "mismatch" ? "bg-amber-500/[0.03]" : ""
                         }`}
                       >

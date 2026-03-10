@@ -20,6 +20,7 @@ import {
   Plug,
   HardDrive,
   GitBranch,
+  Wrench,
 } from 'lucide-react';
 
 // ── Types ──
@@ -82,10 +83,12 @@ interface ControlPlaneData {
 
 // ── Helpers ──
 
+function utc(iso: string): Date {
+  return new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+}
+
 function timeAgo(isoDate: string): string {
-  const now = Date.now();
-  const then = new Date(isoDate).getTime();
-  const diff = now - then;
+  const diff = Date.now() - utc(isoDate).getTime();
   if (diff < 60000) return 'just now';
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
@@ -94,7 +97,7 @@ function timeAgo(isoDate: string): string {
 
 function formatTimestamp(iso: string): string {
   try {
-    return new Date(iso).toLocaleString(undefined, {
+    return utc(iso).toLocaleString(undefined, {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     });
   } catch {
@@ -159,6 +162,8 @@ export default function ControlPlane() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>('metadata');
   const [expandedNs, setExpandedNs] = useState<Set<string>>(new Set());
+  const [maintenanceRunning, setMaintenanceRunning] = useState(false);
+  const [maintenanceResult, setMaintenanceResult] = useState<string | null>(null);
 
   const visibleRef = useRef(true);
   useEffect(() => {
@@ -233,6 +238,33 @@ export default function ControlPlane() {
 
   if (!data) return null;
 
+  async function runMaintenanceAgent() {
+    setMaintenanceRunning(true);
+    setMaintenanceResult(null);
+    try {
+      // First: server-side resync (fast, SQL-only)
+      const resyncRes = await fetch('/api/entity-digest/resync', { method: 'POST' });
+      const resyncData = await resyncRes.json();
+
+      // Second: trigger Fabric notebook (OneLake scan)
+      const agentRes = await fetch('/api/maintenance-agent/trigger', { method: 'POST' });
+      const agentData = await agentRes.json();
+
+      if (agentData.error) {
+        // Fabric notebook not deployed yet — just report resync result
+        setMaintenanceResult(`Resync done (${resyncData.steps?.length || 0} steps). Notebook: ${agentData.error}`);
+      } else {
+        setMaintenanceResult('Resync done + Maintenance Agent triggered in Fabric');
+      }
+      // Refresh data after resync
+      setRefreshKey(k => k + 1);
+    } catch (e: unknown) {
+      setMaintenanceResult(`Error: ${e instanceof Error ? e.message : 'unknown'}`);
+    } finally {
+      setMaintenanceRunning(false);
+    }
+  }
+
   const healthCfg = HEALTH_CONFIG[data.health] || HEALTH_CONFIG.setup;
   const s = data.summary;
   const ph = data.pipelineHealth;
@@ -268,6 +300,17 @@ export default function ControlPlane() {
             Auto
           </label>
           <button
+            onClick={runMaintenanceAgent}
+            disabled={maintenanceRunning}
+            className="flex items-center gap-2 px-3 py-1.5 text-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg text-amber-400 transition-colors disabled:opacity-50"
+            title="Run server-side resync + trigger OneLake maintenance agent in Fabric"
+          >
+            {maintenanceRunning
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Wrench className="h-3.5 w-3.5" />}
+            {maintenanceRunning ? 'Running...' : 'Maintenance'}
+          </button>
+          <button
             onClick={() => setRefreshKey(k => k + 1)}
             className="flex items-center gap-2 px-3 py-1.5 text-xs bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
           >
@@ -276,6 +319,19 @@ export default function ControlPlane() {
           </button>
         </div>
       </div>
+
+      {/* ── Maintenance Result Banner ── */}
+      {maintenanceResult && (
+        <div className={`rounded-lg p-3 ${maintenanceResult.startsWith('Error') ? 'bg-red-500/10 border-red-500/20' : 'bg-emerald-500/10 border-emerald-500/20'} border flex items-center justify-between gap-3`}>
+          <div className="flex items-center gap-2">
+            <Wrench className={`h-4 w-4 shrink-0 ${maintenanceResult.startsWith('Error') ? 'text-red-400' : 'text-emerald-400'}`} />
+            <p className={`text-xs ${maintenanceResult.startsWith('Error') ? 'text-red-300' : 'text-emerald-300'}`}>
+              {maintenanceResult}
+            </p>
+          </div>
+          <button onClick={() => setMaintenanceResult(null)} className="text-xs text-muted-foreground hover:text-foreground">&times;</button>
+        </div>
+      )}
 
       {/* ── Snapshot Banner ── */}
       {data._fromSnapshot && (
@@ -307,7 +363,7 @@ export default function ControlPlane() {
         <div className="flex flex-wrap gap-2 text-xs">
           <Pill icon={<Plug className="h-3 w-3" />} label="Connections" value={s.connections.active} />
           <Pill icon={<Database className="h-3 w-3" />} label="Sources" value={s.dataSources.active} />
-          <Pill icon={<Layers className="h-3 w-3" />} label="Entities" value={s.entities.landing.active + s.entities.bronze.active + s.entities.silver.active} sub={`${s.entities.landing.active} LZ / ${s.entities.bronze.active} BR / ${s.entities.silver.active} SV`} />
+          <Pill icon={<Layers className="h-3 w-3" />} label="Entities" value={s.entities.landing.active} sub={`${s.entities.landing.active} LZ / ${s.entities.bronze.active} BR / ${s.entities.silver.active} SV`} />
           <Pill icon={<GitBranch className="h-3 w-3" />} label="Pipelines" value={s.pipelines.active} />
           <Pill icon={<HardDrive className="h-3 w-3" />} label="Lakehouses" value={s.lakehouses} />
           <Pill icon={<Server className="h-3 w-3" />} label="Workspaces" value={s.workspaces} />
@@ -331,7 +387,7 @@ export default function ControlPlane() {
       <div className="flex gap-1 border-b border-border overflow-x-auto">
         <TabBtn active={activeTab === 'metadata'} onClick={() => setActiveTab('metadata')} icon={<Database className="h-3.5 w-3.5" />} label="Entity Metadata" count={entities.length} />
         <TabBtn active={activeTab === 'execution'} onClick={() => setActiveTab('execution')} icon={<Activity className="h-3.5 w-3.5" />} label="Execution Log" count={ph.recentRuns} />
-        <TabBtn active={activeTab === 'connections'} onClick={() => setActiveTab('connections')} icon={<Cable className="h-3.5 w-3.5" />} label="Connections" count={activeSources.length} />
+        <TabBtn active={activeTab === 'connections'} onClick={() => setActiveTab('connections')} icon={<Cable className="h-3.5 w-3.5" />} label="Sources" count={activeSources.length} />
         <TabBtn active={activeTab === 'infrastructure'} onClick={() => setActiveTab('infrastructure')} icon={<Server className="h-3.5 w-3.5" />} label="Infrastructure" />
       </div>
 
@@ -350,7 +406,7 @@ export default function ControlPlane() {
         return (
           <div className="rounded-xl border border-border bg-card overflow-hidden">
             {/* Filters */}
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted/20">
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted">
               <input
                 type="text"
                 placeholder="Search tables..."
@@ -394,7 +450,7 @@ export default function ControlPlane() {
                     const hasBronze = !!e.bronzeEntityId;
                     const hasSilver = !!e.silverEntityId;
                     return (
-                      <tr key={e.entityId} className="hover:bg-muted/10 transition-colors">
+                      <tr key={e.entityId} className="hover:bg-muted/50 transition-colors">
                         <td className="px-3 py-1.5">
                           <span className="font-mono text-foreground/80">{e.dataSource}</span>
                         </td>
@@ -403,7 +459,7 @@ export default function ControlPlane() {
                         <td className="px-3 py-1.5 font-mono text-foreground/70">{e.FileName}</td>
                         <td className="px-3 py-1.5">
                           <span className={`px-1.5 py-0.5 rounded border text-[10px] font-mono ${
-                            isInc ? 'text-blue-400 bg-blue-500/10 border-blue-500/20' : 'text-muted-foreground bg-muted/30 border-border'
+                            isInc ? 'text-blue-400 bg-blue-500/10 border-blue-500/20' : 'text-muted-foreground bg-muted border-border'
                           }`}>
                             {isInc ? 'INCR' : 'FULL'}
                           </span>
@@ -458,7 +514,7 @@ export default function ControlPlane() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {data.recentRuns.map((run, i) => (
-                    <tr key={run.RunGuid || i} className="hover:bg-muted/20 transition-colors">
+                    <tr key={run.RunGuid || i} className="hover:bg-muted/50 transition-colors">
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
                           {statusIcon(run.Status)}
@@ -507,7 +563,7 @@ export default function ControlPlane() {
                 {/* Namespace header */}
                 <button
                   onClick={() => toggleNs(src.namespace)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left"
                 >
                   {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                   <span className="font-semibold text-foreground">{src.namespace}</span>

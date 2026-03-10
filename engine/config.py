@@ -105,19 +105,15 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
         workspace_code_id=fabric.get("workspace_code_id", ""),
 
         # Lakehouses — from engine section in config.json (per-entity GUIDs override these)
-        lz_lakehouse_id=engine_section.get(
-            "lz_lakehouse_id", "3b9a7e79-1615-4ec2-9e93-0bdebe985d5a"
-        ),
-        bronze_lakehouse_id=engine_section.get(
-            "bronze_lakehouse_id", "f06393ca-c024-435f-8d7f-9f5aa3bb4cb3"
-        ),
-        silver_lakehouse_id=engine_section.get(
-            "silver_lakehouse_id", "f85e1ba0-2e40-4de5-be1e-f8ad3ddbc652"
-        ),
+        lz_lakehouse_id=engine_section.get("lz_lakehouse_id", ""),
+        bronze_lakehouse_id=engine_section.get("bronze_lakehouse_id", ""),
+        silver_lakehouse_id=engine_section.get("silver_lakehouse_id", ""),
 
         # Notebook item IDs (for triggering Bronze/Silver)
         notebook_bronze_id=engine_section.get("notebook_bronze_id", ""),
         notebook_silver_id=engine_section.get("notebook_silver_id", ""),
+        notebook_processing_id=engine_section.get("notebook_processing_id", ""),
+        notebook_maintenance_id=engine_section.get("notebook_maintenance_id", ""),
 
         # Tunables
         batch_size=int(engine_section.get("batch_size", 15)),
@@ -127,8 +123,8 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
         query_timeout=int(engine_section.get("query_timeout", 120)),
         source_sql_driver=engine_section.get("source_sql_driver", "ODBC Driver 18 for SQL Server"),
 
-        # Pipeline mode
-        load_method=engine_section.get("load_method", "local"),
+        # Execution mode: "notebook" (Fabric notebooks), "pipeline" (Fabric pipelines), "local" (pyodbc)
+        load_method=engine_section.get("load_method", "notebook"),
         pipeline_fallback=engine_section.get("pipeline_fallback", True),
         pipeline_copy_sql_id=engine_section.get("pipeline_copy_sql_id", ""),
         pipeline_workspace_id=engine_section.get("pipeline_workspace_id", ""),

@@ -984,6 +984,33 @@ def phase7_deploy_notebooks(state, args):
 
             with open(src_path, "rb") as f:
                 content_bytes = f.read()
+
+            # GUID remapping — stamp correct workspace IDs from deploy state
+            data_ws_id = state["workspace_ids"].get(f"data_{env_label}", "")
+            content_text = content_bytes.decode("utf-8")
+            guid_changed = False
+            if data_ws_id:
+                new_text = re.sub(
+                    r'("default_lakehouse_workspace_id"\s*:\s*")[0-9a-f-]+"',
+                    rf'\g<1>{data_ws_id}"',
+                    content_text,
+                )
+                if new_text != content_text:
+                    guid_changed = True
+                    content_text = new_text
+            # Replace hardcoded CodeWorkspaceGuid with current CODE workspace
+            new_text = re.sub(
+                r'(CodeWorkspaceGuid\s*=\s*")[0-9a-f-]+"',
+                rf'\g<1>{ws_id}"',
+                content_text,
+            )
+            if new_text != content_text:
+                guid_changed = True
+                content_text = new_text
+            if guid_changed:
+                print(f"  [REMAP] Workspace GUIDs updated in {short_name}")
+            content_bytes = content_text.encode("utf-8")
+
             content_b64 = base64.b64encode(content_bytes).decode()
 
             # Check if exists
@@ -1008,10 +1035,9 @@ def phase7_deploy_notebooks(state, args):
                     print(f"  [FAIL] Create: HTTP {status}: {data}")
                     continue
 
-            # Upload definition
+            # Upload definition — omit "format" for .py (FabricGitSource mode)
             status, data = fabric_post(f"workspaces/{ws_id}/items/{item_id}/updateDefinition", {
                 "definition": {
-                    "format": "py",
                     "parts": [{
                         "path": "notebook-content.py",
                         "payload": content_b64,
@@ -1976,15 +2002,16 @@ def phase13_register_entities(state, args):
         schema = ds.get("schema", "dbo")
         tables = ds.get("tables", [])
 
-        # Look up DataSourceId
-        cursor.execute(f"SELECT DataSourceId FROM integration.DataSource WHERE Name = ?", (ds_name,))
+        # Look up DataSourceId and Namespace
+        cursor.execute(f"SELECT DataSourceId, Namespace FROM integration.DataSource WHERE Name = ?", (ds_name,))
         row = cursor.fetchone()
         if not row:
             print(f"  [SKIP] DataSource '{ds_name}' not found in metadata DB — register it first (Phase 10)")
             continue
         ds_id = row[0]
+        ds_namespace = row[1] or ds_name  # Namespace from DataSource table (e.g. MES, ETQ, M3)
 
-        print(f"\n  === {ds_name} (DataSourceId={ds_id}, {len(tables)} tables) ===")
+        print(f"\n  === {ds_name} (DataSourceId={ds_id}, namespace={ds_namespace}, {len(tables)} tables) ===")
 
         for table in tables:
             safe_schema = schema.strip().replace("'", "''")
@@ -2000,7 +2027,7 @@ def phase13_register_entities(state, args):
                     f"@LakehouseId = {lz_lh or 1}, "
                     f"@SourceSchema = '{safe_schema}', @SourceName = '{safe_table}', "
                     f"@SourceCustomSelect = '', "
-                    f"@FileName = '{safe_table}', @FilePath = '', "
+                    f"@FileName = '{safe_table}.parquet', @FilePath = '{ds_namespace}', "
                     f"@FileType = 'parquet', @IsIncremental = 0, "
                     f"@IsIncrementalColumn = '', @CustomNotebookName = '', "
                     f"@IsActive = 1"
@@ -2091,6 +2118,87 @@ def phase13_register_entities(state, args):
     except Exception as e:
         print(f"  [WARN] LastLoadValue seeding failed: {e}")
 
+    # Force-activate ALL Bronze and Silver entities where their parent LZ entity is active.
+    # The sp_Upsert procs sometimes default IsActive=0 despite passing @IsActive=1.
+    # Without this, sp_GetBronzelayerEntity / sp_GetSilverlayerEntity return empty results
+    # and notebook runs complete instantly with zero data loaded.
+    try:
+        cursor.execute("""
+            UPDATE BLE SET IsActive = 1
+            FROM integration.BronzeLayerEntity BLE
+            INNER JOIN integration.LandingzoneEntity LZE
+                ON LZE.LandingzoneEntityId = BLE.LandingzoneEntityId
+            WHERE LZE.IsActive = 1 AND BLE.IsActive = 0
+        """)
+        activated_bronze = cursor.rowcount
+        cursor.commit()
+        if activated_bronze > 0:
+            print(f"\n  Activated {activated_bronze} Bronze entities (were IsActive=0)")
+
+        cursor.execute("""
+            UPDATE SLE SET IsActive = 1
+            FROM integration.SilverLayerEntity SLE
+            INNER JOIN integration.BronzeLayerEntity BLE
+                ON BLE.BronzeLayerEntityId = SLE.BronzeLayerEntityId
+            INNER JOIN integration.LandingzoneEntity LZE
+                ON LZE.LandingzoneEntityId = BLE.LandingzoneEntityId
+            WHERE LZE.IsActive = 1 AND BLE.IsActive = 1 AND SLE.IsActive = 0
+        """)
+        activated_silver = cursor.rowcount
+        cursor.commit()
+        if activated_silver > 0:
+            print(f"  Activated {activated_silver} Silver entities (were IsActive=0)")
+    except Exception as e:
+        print(f"  [WARN] Entity activation failed: {e}")
+
+    # Populate pipeline queue tables so notebooks actually receive work items.
+    # These tables are the JOIN targets for vw_LoadToBronzeLayer / vw_LoadToSilverLayer.
+    try:
+        cursor.execute("""
+            INSERT INTO execution.PipelineLandingzoneEntity
+                (LandingzoneEntityId, FilePath, FileName, InsertDateTime, IsProcessed)
+            SELECT
+                LZE.LandingzoneEntityId,
+                COALESCE(DS.Namespace, 'default') + '/' AS FilePath,
+                LZE.SourceName + '.parquet' AS FileName,
+                GETUTCDATE(),
+                0
+            FROM integration.LandingzoneEntity LZE
+            INNER JOIN integration.DataSource DS ON DS.DataSourceId = LZE.DataSourceId
+            WHERE LZE.IsActive = 1
+            AND NOT EXISTS (
+                SELECT 1 FROM execution.PipelineLandingzoneEntity PLZE
+                WHERE PLZE.LandingzoneEntityId = LZE.LandingzoneEntityId
+            )
+        """)
+        lz_queued = cursor.rowcount
+        cursor.commit()
+        if lz_queued > 0:
+            print(f"  Populated LZ pipeline queue: {lz_queued} entries")
+
+        cursor.execute("""
+            INSERT INTO execution.PipelineBronzeLayerEntity
+                (BronzeLayerEntityId, TableName, SchemaName, InsertDateTime, IsProcessed)
+            SELECT
+                BLE.BronzeLayerEntityId,
+                BLE.Name AS TableName,
+                BLE.[Schema] AS SchemaName,
+                GETUTCDATE(),
+                0
+            FROM integration.BronzeLayerEntity BLE
+            WHERE BLE.IsActive = 1
+            AND NOT EXISTS (
+                SELECT 1 FROM execution.PipelineBronzeLayerEntity PBLE
+                WHERE PBLE.BronzeLayerEntityId = BLE.BronzeLayerEntityId
+            )
+        """)
+        bronze_queued = cursor.rowcount
+        cursor.commit()
+        if bronze_queued > 0:
+            print(f"  Populated Bronze pipeline queue: {bronze_queued} entries")
+    except Exception as e:
+        print(f"  [WARN] Pipeline queue population failed: {e}")
+
     cursor.close()
     conn.close()
 
@@ -2172,45 +2280,47 @@ def phase13_5_load_optimization(state, args):
         meta_conn.close()
         return
 
-    # Get gateway connections from Fabric API to resolve server/database
-    status, gw_data = fabric_get("connections")
-    if status != 200 or not gw_data:
-        print("  [SKIP] Could not retrieve Fabric connections")
-        meta_cursor.close()
-        meta_conn.close()
-        return
-
-    gw_by_id = {}
-    for conn in gw_data.get("value", []):
-        details = conn.get("connectionDetails", {})
-        params = {p["name"]: p["value"] for p in details.get("parameters", []) if "name" in p and "value" in p}
-        gw_by_id[conn["id"].lower()] = {
-            "server": params.get("server", params.get("host", "")),
-            "database": params.get("database", ""),
-        }
+    # Direct server/database mapping — no Fabric gateway resolution needed.
+    # These are the on-prem SQL Servers reachable via VPN with Windows Auth.
+    DIRECT_SOURCE_MAP = {
+        "mes":            {"server": "m3-db1",         "database": "mes"},
+        "etqstagingprd":  {"server": "M3-DB3",         "database": "ETQStagingPRD"},
+        "m3fdbprd":       {"server": "sqllogshipprd",   "database": "m3fdbprd"},
+        "di_prd_staging": {"server": "sql2016live",     "database": "DI_PRD_Staging"},
+        "optivalive":     {"server": "sql2016live",     "database": "optivalive", "auth": "sql",
+                           "uid": "SAsnahrup", "pwd": "iloveChipotle5356!"},
+    }
 
     total_pks = 0
     total_incremental = 0
     total_entities = 0
 
     for ds in datasources:
-        conn_guid = ds["connGuid"].lower()
-        gw = gw_by_id.get(conn_guid)
-        if not gw or not gw["server"]:
-            print(f"  [SKIP] DS {ds['id']} ({ds['name']}): gateway not resolved")
+        ds_name_lower = ds["name"].lower().strip()
+        source = DIRECT_SOURCE_MAP.get(ds_name_lower)
+        if not source:
+            print(f"  [SKIP] DS {ds['id']} ({ds['name']}): no direct mapping configured")
             continue
 
-        src_server = gw["server"]
-        src_database = gw["database"]
+        src_server = source["server"]
+        src_database = source["database"]
         print(f"\n  --- DS {ds['id']}: {ds['name']} ({src_server}/{src_database}) ---")
 
         # Connect to source (Windows Auth via VPN)
         try:
-            src_conn_str = (
-                f"DRIVER={{ODBC Driver 18 for SQL Server}};"
-                f"SERVER={src_server};DATABASE={src_database};"
-                f"Trusted_Connection=yes;TrustServerCertificate=yes;"
-            )
+            if source.get("auth") == "sql":
+                src_conn_str = (
+                    f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+                    f"SERVER={src_server};DATABASE={src_database};"
+                    f"UID={source['uid']};PWD={source['pwd']};"
+                    f"TrustServerCertificate=yes;"
+                )
+            else:
+                src_conn_str = (
+                    f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+                    f"SERVER={src_server};DATABASE={src_database};"
+                    f"Trusted_Connection=yes;TrustServerCertificate=yes;"
+                )
             src_conn = pyodbc.connect(src_conn_str, timeout=15)
         except Exception as e:
             print(f"  [FAIL] Source connection failed: {str(e)[:150]}")
@@ -2517,26 +2627,32 @@ def phase15_digest_engine(state, args):
     SELECT @summaryCount = COUNT(*) FROM [execution].[EntityStatusSummary];
     IF @summaryCount > 0
     BEGIN
+        -- Cross-check against live integration tables to exclude stale/orphan rows
         SELECT ess.SourceNamespace AS source, ess.DatabaseName AS dbName,
             ess.ConnectionName AS connectionName, ess.ServerName AS serverName,
             ess.DatabaseName AS databaseName, ess.LandingzoneEntityId AS id,
             ess.SourceSchema AS sourceSchema, ess.SourceName AS tableName,
-            ess.IsIncremental, ess.WatermarkColumn AS watermarkColumn, ess.IsActive,
-            ess.BronzeLayerEntityId AS bronzeId, ess.BronzePKs AS bronzePKs,
-            ess.SilverLayerEntityId AS silverId, ess.LzStatus AS lzStatus, ess.LzLastLoad AS lastLzLoad,
+            ess.IsIncremental, ess.WatermarkColumn AS watermarkColumn, le.IsActive,
+            be.BronzeLayerEntityId AS bronzeId, COALESCE(be.PrimaryKeys, ess.BronzePKs) AS bronzePKs,
+            se.SilverLayerEntityId AS silverId, ess.LzStatus AS lzStatus, ess.LzLastLoad AS lastLzLoad,
             ess.BronzeStatus AS bronzeStatus, ess.BronzeLastLoad AS lastBrzLoad,
             ess.SilverStatus AS silverStatus, ess.SilverLastLoad AS lastSlvLoad,
             ess.LastErrorMessage AS lastErrorMessage, ess.LastErrorLayer AS lastErrorLayer,
             ess.LastErrorTime AS lastErrorTime, ess.OverallStatus AS overall
         FROM [execution].[EntityStatusSummary] ess
-        WHERE ess.IsActive = 1 AND (@SourceFilter IS NULL OR ess.SourceNamespace = @SourceFilter)
+        INNER JOIN integration.LandingzoneEntity le ON ess.LandingzoneEntityId = le.LandingzoneEntityId
+        INNER JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
+        LEFT JOIN integration.BronzeLayerEntity be ON le.LandingzoneEntityId = be.LandingzoneEntityId
+        LEFT JOIN integration.SilverLayerEntity se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
+        WHERE le.IsActive = 1 AND ds.IsActive = 1
+          AND (@SourceFilter IS NULL OR ess.SourceNamespace = @SourceFilter)
         ORDER BY ess.SourceNamespace, ess.SourceName;
     END
     ELSE
     BEGIN
-        CREATE TABLE #SlvProcessed (SilverLayerEntityId INT, lastSlvLoad DATETIME2);
-        IF OBJECT_ID('execution.PipelineSilverLayerEntity', 'U') IS NOT NULL
-            INSERT INTO #SlvProcessed EXEC sp_executesql N'SELECT SilverLayerEntityId, MAX(LoadEndDateTime) AS lastSlvLoad FROM execution.PipelineSilverLayerEntity WHERE IsProcessed = 1 GROUP BY SilverLayerEntityId';
+        -- NOTE: PipelineSilverLayerEntity does NOT exist. Silver status comes from
+        -- sp_UpsertEntityStatus calls (Silver notebook → EntityStatusSummary).
+        -- In fallback mode (empty summary table), silver is always 'not_started'.
         CREATE TABLE #SlvPending (BronzeLayerEntityId INT);
         IF OBJECT_ID('execution.vw_LoadToSilverLayer', 'V') IS NOT NULL
             INSERT INTO #SlvPending EXEC sp_executesql N'SELECT DISTINCT BronzeLayerEntityId FROM execution.vw_LoadToSilverLayer';
@@ -2547,9 +2663,9 @@ def phase15_digest_engine(state, args):
             se.SilverLayerEntityId AS silverId, se.IsActive AS silverActive,
             CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END AS lzStatus, ple.lastLzLoad,
             CASE WHEN pbe.BronzeLayerEntityId IS NOT NULL THEN 'loaded' WHEN bp.BronzeLayerEntityId IS NOT NULL THEN 'pending' ELSE 'not_started' END AS bronzeStatus, pbe.lastBrzLoad,
-            CASE WHEN pse.SilverLayerEntityId IS NOT NULL THEN 'loaded' WHEN spp.BronzeLayerEntityId IS NOT NULL THEN 'pending' ELSE 'not_started' END AS silverStatus, pse.lastSlvLoad,
+            CASE WHEN spp.BronzeLayerEntityId IS NOT NULL THEN 'pending' ELSE 'not_started' END AS silverStatus, NULL AS lastSlvLoad,
             err.LogData AS lastErrorMessage, err.EntityLayer AS lastErrorLayer, err.LogDateTime AS lastErrorTime,
-            CASE WHEN ple.LandingzoneEntityId IS NOT NULL AND pbe.BronzeLayerEntityId IS NOT NULL AND pse.SilverLayerEntityId IS NOT NULL THEN 'complete'
+            CASE WHEN ple.LandingzoneEntityId IS NOT NULL AND pbe.BronzeLayerEntityId IS NOT NULL THEN 'partial'
                  WHEN err.LogData IS NOT NULL THEN 'error'
                  WHEN bp.BronzeLayerEntityId IS NOT NULL OR spp.BronzeLayerEntityId IS NOT NULL THEN 'pending'
                  WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'partial' ELSE 'not_started' END AS overall
@@ -2560,13 +2676,11 @@ def phase15_digest_engine(state, args):
         LEFT JOIN integration.SilverLayerEntity se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
         LEFT JOIN (SELECT LandingzoneEntityId, MAX(LoadEndDateTime) AS lastLzLoad FROM execution.PipelineLandingzoneEntity WHERE IsProcessed = 1 GROUP BY LandingzoneEntityId) ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId
         LEFT JOIN (SELECT BronzeLayerEntityId, MAX(LoadEndDateTime) AS lastBrzLoad FROM execution.PipelineBronzeLayerEntity WHERE IsProcessed = 1 GROUP BY BronzeLayerEntityId) pbe ON be.BronzeLayerEntityId = pbe.BronzeLayerEntityId
-        LEFT JOIN #SlvProcessed pse ON se.SilverLayerEntityId = pse.SilverLayerEntityId
         LEFT JOIN (SELECT DISTINCT EntityId AS BronzeLayerEntityId FROM execution.vw_LoadToBronzeLayer) bp ON be.BronzeLayerEntityId = bp.BronzeLayerEntityId
         LEFT JOIN #SlvPending spp ON be.BronzeLayerEntityId = spp.BronzeLayerEntityId
         OUTER APPLY (SELECT TOP 1 pe.LogData, pe.EntityLayer, pe.LogDateTime FROM logging.PipelineExecution pe WHERE pe.LogType LIKE '%Error%' AND pe.LogDateTime > DATEADD(day, -7, GETUTCDATE()) AND pe.LogData LIKE '%' + le.SourceName + '%' ORDER BY pe.LogDateTime DESC) err
         WHERE ds.IsActive = 1 AND (@SourceFilter IS NULL OR ds.Namespace = @SourceFilter)
         ORDER BY ds.Namespace, le.SourceName;
-        DROP TABLE #SlvProcessed;
         DROP TABLE #SlvPending;
     END
     """)
@@ -2588,8 +2702,8 @@ def phase15_digest_engine(state, args):
         be.BronzeLayerEntityId, be.PrimaryKeys, se.SilverLayerEntityId,
         CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END, ple.lastLzLoad,
         CASE WHEN pbe.BronzeLayerEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END, pbe.lastBrzLoad,
-        CASE WHEN pse.SilverLayerEntityId IS NOT NULL THEN 'loaded' ELSE 'not_started' END, pse.lastSlvLoad,
-        CASE WHEN ple.LandingzoneEntityId IS NOT NULL AND pbe.BronzeLayerEntityId IS NOT NULL AND pse.SilverLayerEntityId IS NOT NULL THEN 'complete'
+        'not_started', NULL,
+        CASE WHEN ple.LandingzoneEntityId IS NOT NULL AND pbe.BronzeLayerEntityId IS NOT NULL THEN 'partial'
              WHEN ple.LandingzoneEntityId IS NOT NULL THEN 'partial' ELSE 'not_started' END,
         GETUTCDATE(), 'deploy'
     FROM integration.LandingzoneEntity le
@@ -2599,7 +2713,6 @@ def phase15_digest_engine(state, args):
     LEFT JOIN integration.SilverLayerEntity se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
     LEFT JOIN (SELECT LandingzoneEntityId, MAX(LoadEndDateTime) AS lastLzLoad FROM execution.PipelineLandingzoneEntity WHERE IsProcessed = 1 GROUP BY LandingzoneEntityId) ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId
     LEFT JOIN (SELECT BronzeLayerEntityId, MAX(LoadEndDateTime) AS lastBrzLoad FROM execution.PipelineBronzeLayerEntity WHERE IsProcessed = 1 GROUP BY BronzeLayerEntityId) pbe ON be.BronzeLayerEntityId = pbe.BronzeLayerEntityId
-    LEFT JOIN (SELECT SilverLayerEntityId, MAX(LoadEndDateTime) AS lastSlvLoad FROM execution.PipelineSilverLayerEntity WHERE IsProcessed = 1 GROUP BY SilverLayerEntityId) pse ON se.SilverLayerEntityId = pse.SilverLayerEntityId
     WHERE ds.IsActive = 1
     AND le.LandingzoneEntityId NOT IN (SELECT LandingzoneEntityId FROM execution.EntityStatusSummary);
     """)

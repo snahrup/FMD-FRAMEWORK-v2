@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEntityDigest } from '@/hooks/useEntityDigest';
+import { resolveSourceLabel } from '@/hooks/useSourceConfig';
 
 // ── Types for API responses ──
 
@@ -451,7 +452,7 @@ export default function AdminGovernance() {
                               : <ChevronRight className="w-3 h-3 shrink-0 text-muted-foreground" />
                             }
                             <div className="min-w-0 flex-1">
-                              <p className="text-xs font-semibold text-foreground truncate">{lane.dataSourceName}</p>
+                              <p className="text-xs font-semibold text-foreground truncate">{resolveSourceLabel(lane.dataSourceName)}</p>
                               <p className="text-[10px] text-muted-foreground truncate">{lane.connectionName}</p>
                             </div>
                             <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">

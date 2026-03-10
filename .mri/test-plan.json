@@ -1,0 +1,148 @@
+{
+  "generated": "2026-03-06",
+  "projectRoot": "C:\\Users\\snahrup\\CascadeProjects\\FMD_FRAMEWORK",
+  "testFile": ".mri/test-plan.spec.ts",
+  "totalTests": 139,
+  "categories": [
+    {
+      "name": "API Health",
+      "priority": "P0",
+      "tests": 8,
+      "rationale": "Backend must respond before UI tests make sense"
+    },
+    {
+      "name": "Execution Matrix (homepage)",
+      "priority": "P0",
+      "tests": 5,
+      "rationale": "Source of truth page — all other pages validate against this",
+      "jiraTickets": ["MT-90", "MT-84"]
+    },
+    {
+      "name": "Engine Control",
+      "priority": "P0",
+      "tests": 4,
+      "rationale": "Engine v3 live run monitoring, recently modified (MT-86)",
+      "jiraTickets": ["MT-86", "MT-90"]
+    },
+    {
+      "name": "Control Plane",
+      "priority": "P0",
+      "tests": 3,
+      "rationale": "Aggregated pipeline status, snapshot endpoint"
+    },
+    {
+      "name": "Data Consistency Gauntlet",
+      "priority": "P0",
+      "tests": 11,
+      "rationale": "THE #1 BUG: 4 independent data sources with 3 different definitions of 'loaded'. Compares /api/entities vs /api/entity-digest vs /api/control-plane vs /api/executive vs /api/pipeline-matrix vs /api/load-progress vs /api/lakehouse-counts. Catches phantom loads, stale digest, medallion flow violations.",
+      "rootCauseAnalysis": {
+        "RecordCounts": "sys.partitions — lakehouse physical truth",
+        "DigestEngine": "sp_BuildEntityDigest — any log record = loaded (includes failures)",
+        "LoadProgress": "execution.PipelineLandingzoneEntity join — write-once, never updated",
+        "ControlPlane": "COUNT(*) on integration.* metadata tables"
+      }
+    },
+    {
+      "name": "UI Number Scraping",
+      "priority": "P0",
+      "tests": 5,
+      "rationale": "Scrapes numbers from DOM on each page and compares to API values. Catches frontend rendering bugs where API is right but page shows wrong numbers."
+    },
+    {
+      "name": "Visual Readability",
+      "priority": "P1",
+      "tests": 25,
+      "rationale": "Checks 8 critical pages for: transparent backgrounds hiding text, low contrast, table cell collisions, overflow clipping. Catches glassmorphism readability issues.",
+      "pagesChecked": ["Execution Matrix", "Engine Control", "Control Plane", "Record Counts", "Execution Log", "Error Intelligence", "Load Progress", "Source Manager"]
+    },
+    {
+      "name": "Record Counts",
+      "priority": "P1",
+      "tests": 3,
+      "rationale": "Being migrated to Entity Digest endpoint (MT-88)",
+      "jiraTickets": ["MT-88"]
+    },
+    {
+      "name": "Source Manager",
+      "priority": "P1",
+      "tests": 2,
+      "rationale": "Live Fabric gateway integration (MT-77)",
+      "jiraTickets": ["MT-77"]
+    },
+    {
+      "name": "Execution Log",
+      "priority": "P1",
+      "tests": 2,
+      "rationale": "Primary debugging page for load failures"
+    },
+    {
+      "name": "Pipeline Monitor + Error Intelligence + Pipeline Matrix",
+      "priority": "P1",
+      "tests": 6,
+      "rationale": "Recently built (MT-75)",
+      "jiraTickets": ["MT-75"]
+    },
+    {
+      "name": "Navigation & Layout",
+      "priority": "P1",
+      "tests": 3,
+      "rationale": "Sidebar rendering, console errors, 404 handling"
+    },
+    {
+      "name": "Data Exploration (P2)",
+      "priority": "P2",
+      "tests": 18,
+      "rationale": "Journey, Flow, Blender, SQL Explorer, Load Progress, Microscope, Profiler, Executive, Sankey",
+      "jiraTickets": ["MT-82", "MT-75"]
+    },
+    {
+      "name": "Governance & Catalog (P2-P3)",
+      "priority": "P2",
+      "tests": 14,
+      "rationale": "Catalog, Lineage, Classification, Impact Analysis, Pulse, Column Evolution, Replay"
+    },
+    {
+      "name": "Admin & Setup (P3)",
+      "priority": "P3",
+      "tests": 14,
+      "rationale": "Config, Setup, Settings, Validation, Admin, Notebook Debug/Config, Pipeline Runner"
+    },
+    {
+      "name": "Testing & Quality (P3)",
+      "priority": "P3",
+      "tests": 6,
+      "rationale": "Test Audit, Test Swarm, MRI Dashboard"
+    },
+    {
+      "name": "Labs (P4)",
+      "priority": "P4",
+      "tests": 8,
+      "rationale": "Experimental: Cleansing, SCD Audit, Gold MLV, DQ Scorecard"
+    }
+  ],
+  "contextSources": [
+    "ARCHITECTURE.md",
+    "docs/ARCHITECTURE.md",
+    "docs/DECISIONS.md",
+    "docs/CURRENT_STATE.md",
+    "docs/CHANGE_RULES.md",
+    "TRIAGE_RUNBOOK.md",
+    "Jira MT project (30 active tickets)",
+    "server.py endpoint analysis (150+ endpoints)",
+    "Prior MRI run failure data (3 runs)"
+  ],
+  "knownIssuesIncorporated": [
+    "3 different 'loaded' definitions across endpoints (THE #1 issue)",
+    "Bronze IsActive=0 bug (MT-90, fixed 3/6)",
+    "Empty pipeline queue tables (MT-90, fixed 3/6)",
+    "Entity Digest migration in progress (MT-88)",
+    "InvokePipeline SP auth limitation (D-004)",
+    "SQL Analytics Endpoint sync lag",
+    "Transparent/glassmorphism backgrounds making numbers unreadable",
+    "Table cell overlap on data-heavy pages"
+  ],
+  "priorMriRuns": {
+    "lastThreeRuns": "All status:error, 26 total tests, 2 passed, 1 failed",
+    "visualSummary": "2 screenshots captured, 0 mismatches, 2 new (no baselines)"
+  }
+}

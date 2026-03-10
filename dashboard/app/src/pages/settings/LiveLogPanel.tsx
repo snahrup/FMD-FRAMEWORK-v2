@@ -35,7 +35,7 @@ export default function LiveLogPanel({ logs, maxLines = 500 }: Props) {
 
   return (
     <div className="rounded-lg border border-border bg-[#0d1117] overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50 bg-card/30">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50 bg-card">
         <Terminal className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-xs font-semibold text-muted-foreground tracking-wide uppercase">
           Live Output

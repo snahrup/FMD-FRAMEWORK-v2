@@ -14,6 +14,7 @@ export interface SourceDatabase {
   create_date: string;
   collation_name: string;
   table_count: string;
+  isRegistered?: boolean;
 }
 
 export interface SourceSchema {

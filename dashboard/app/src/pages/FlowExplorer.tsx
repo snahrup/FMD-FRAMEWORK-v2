@@ -400,7 +400,7 @@ function FrameworkArchView({
                   className={`flex items-center gap-0 px-1 py-1.5 rounded-md border cursor-pointer transition-all duration-300 ${
                     isDimmed ? "opacity-[0.10] border-transparent" :
                     active ? "border-primary/30 bg-primary/[0.03]" :
-                    "border-border/20 hover:border-border/40 hover:bg-muted/20"
+                    "border-border/20 hover:border-border/40 hover:bg-muted/50"
                   }`}
                   onClick={() => setSelectedPath(selectedPath === path.id ? null : path.id)}
                   onMouseEnter={() => !selectedPath && setHoveredPath(path.id)}
@@ -767,7 +767,7 @@ export default function FlowExplorer() {
       `}</style>
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card/50 flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card flex-shrink-0">
         <div className="flex items-center gap-4">
           <div>
             <h1 className="font-display text-base font-semibold tracking-tight">Flow Explorer</h1>
@@ -943,7 +943,7 @@ export default function FlowExplorer() {
                   } ${isSelected && !selectedFlow ? "border-primary/30 bg-primary/[0.02]" : ""}`}>
                     {/* Source Header Row */}
                     <div
-                      className="flex items-center gap-0 px-2 py-2.5 cursor-pointer hover:bg-muted/30 rounded-t-lg"
+                      className="flex items-center gap-0 px-2 py-2.5 cursor-pointer hover:bg-muted/50 rounded-t-lg"
                       onClick={() => toggleSource(group.dataSourceName)}
                       onMouseEnter={() => !selectedFlow && setHoveredSource(group.dataSourceName)}
                       onMouseLeave={() => setHoveredSource(null)}
@@ -984,7 +984,7 @@ export default function FlowExplorer() {
                       </div>
 
                       {/* Bronze node */}
-                      <div className={`flow-node rounded-md border px-3 py-1.5 ${group.bronzeCount > 0 ? "bg-card" : "bg-muted/30"}`}
+                      <div className={`flow-node rounded-md border px-3 py-1.5 ${group.bronzeCount > 0 ? "bg-card" : "bg-muted"}`}
                         style={{ minWidth: 100, borderColor: group.bronzeCount > 0 ? `${LAYERS[2].color}30` : "transparent" }}>
                         <div className="text-[11px] font-semibold tabular-nums" style={{ color: group.bronzeCount > 0 ? LAYERS[2].color : "var(--muted-foreground)" }}>
                           {group.bronzeCount ? fmt(group.bronzeCount) : "—"}
@@ -999,7 +999,7 @@ export default function FlowExplorer() {
                       </div>
 
                       {/* Silver node */}
-                      <div className={`flow-node rounded-md border px-3 py-1.5 ${group.silverCount > 0 ? "bg-card" : "bg-muted/30"}`}
+                      <div className={`flow-node rounded-md border px-3 py-1.5 ${group.silverCount > 0 ? "bg-card" : "bg-muted"}`}
                         style={{ minWidth: 100, borderColor: group.silverCount > 0 ? `${LAYERS[3].color}30` : "transparent" }}>
                         <div className="text-[11px] font-semibold tabular-nums" style={{ color: group.silverCount > 0 ? LAYERS[3].color : "var(--muted-foreground)" }}>
                           {group.silverCount ? fmt(group.silverCount) : "—"}
@@ -1013,7 +1013,7 @@ export default function FlowExplorer() {
                       </div>
 
                       {/* Gold node */}
-                      <div className="flow-node rounded-md border px-3 py-1.5 bg-muted/30" style={{ width: 120, borderColor: "transparent" }}>
+                      <div className="flow-node rounded-md border px-3 py-1.5 bg-muted" style={{ width: 120, borderColor: "transparent" }}>
                         <div className="text-[11px] font-semibold text-muted-foreground">—</div>
                         <div className="text-[9px] text-muted-foreground">coming soon</div>
                       </div>
@@ -1115,7 +1115,7 @@ export default function FlowExplorer() {
                               </div>
                               <div
                                 className={`flow-node rounded border px-2 py-1 ${
-                                  !flow.bronzeName ? "border-dashed border-border/20 bg-muted/20" :
+                                  !flow.bronzeName ? "border-dashed border-border/20 bg-muted" :
                                   isFlowSelected ? "flow-node-active border-[#f59e0b]/50 bg-[#f59e0b]/5" : "border-border/30 bg-card"
                                 }`}
                                 style={{ width: 120 }}
@@ -1140,7 +1140,7 @@ export default function FlowExplorer() {
                               </div>
                               <div
                                 className={`flow-node rounded border px-2 py-1 ${
-                                  !flow.silverName ? "border-dashed border-border/20 bg-muted/20" :
+                                  !flow.silverName ? "border-dashed border-border/20 bg-muted" :
                                   isFlowSelected ? "flow-node-active border-[#8b5cf6]/50 bg-[#8b5cf6]/5" : "border-border/30 bg-card"
                                 }`}
                                 style={{ width: 120 }}
@@ -1162,7 +1162,7 @@ export default function FlowExplorer() {
                               <div className="flex-1 min-w-4 flex items-center px-1">
                                 <div className="w-full flow-connector-dimmed" style={{ "--fc": LAYERS[4].color } as React.CSSProperties} />
                               </div>
-                              <div className="flow-node rounded border border-dashed border-border/20 bg-muted/20 px-2 py-1" style={{ width: 120 }}>
+                              <div className="flow-node rounded border border-dashed border-border/20 bg-muted px-2 py-1" style={{ width: 120 }}>
                                 <div className="text-[9px] text-muted-foreground/50 italic">coming soon</div>
                               </div>
                             </div>
@@ -1172,7 +1172,7 @@ export default function FlowExplorer() {
                         {/* Show more button */}
                         {remaining > 0 && (
                           <div
-                            className="px-2 py-2 text-center cursor-pointer hover:bg-muted/30 border-t border-border/20 transition-colors"
+                            className="px-2 py-2 text-center cursor-pointer hover:bg-muted/50 border-t border-border/20 transition-colors"
                             onClick={(e) => {
                               e.stopPropagation();
                               setVisibleCounts(prev => ({ ...prev, [gsKey]: visCount + PAGE_SIZE }));
@@ -1269,7 +1269,7 @@ export default function FlowExplorer() {
                             className={`w-7 h-7 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
                               step.reached
                                 ? "border-current bg-current/10"
-                                : "border-muted bg-muted/30"
+                                : "border-muted bg-muted"
                             }`}
                             style={step.reached ? { color: layer.color, borderColor: layer.color } : undefined}
                           >
@@ -1318,7 +1318,7 @@ export default function FlowExplorer() {
               </div>
 
               {/* Entity details footer */}
-              <div className="px-4 py-3 border-t border-border flex-shrink-0 bg-muted/30">
+              <div className="px-4 py-3 border-t border-border flex-shrink-0 bg-muted">
                 <div className="grid grid-cols-2 gap-2">
                   <div className="px-2 py-1.5 rounded bg-card border border-border/30">
                     <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Load Type</div>

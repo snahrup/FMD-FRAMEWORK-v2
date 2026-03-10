@@ -10,6 +10,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertTriangle,
+  Server,
 } from "lucide-react";
 import {
   getHiddenPages,
@@ -19,6 +20,9 @@ import {
 import { GeneralTab } from "@/pages/Settings";
 import DeploymentManager from "@/pages/settings/DeploymentManager";
 import AdminGovernance from "@/pages/AdminGovernance";
+import { SetupSettings } from "@/pages/setup/SetupSettings";
+import type { EnvironmentConfig } from "@/pages/setup/types";
+import { EMPTY_CONFIG } from "@/pages/setup/types";
 
 // ── All navigable pages (matches CORE_GROUPS in AppLayout) ──
 
@@ -47,9 +51,10 @@ const ALL_PAGES = [
 
 // ── Tab definitions ──
 
-type AdminTab = "pages" | "general" | "deployment" | "governance";
+type AdminTab = "environment" | "pages" | "general" | "deployment" | "governance";
 
 const TABS: { id: AdminTab; label: string; icon: typeof Cog }[] = [
+  { id: "environment", label: "Environment", icon: Server },
   { id: "pages", label: "Page Visibility", icon: LayoutGrid },
   { id: "general", label: "General", icon: Cog },
   { id: "deployment", label: "Deployment", icon: Rocket },
@@ -129,7 +134,7 @@ function PageVisibilityTab({ password }: { password: string }) {
                   onClick={() => toggle(page.href)}
                   className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
                     isHidden
-                      ? "border-border/50 bg-card/30 text-muted-foreground/50"
+                      ? "border-border/50 bg-card text-muted-foreground/50"
                       : "border-primary/20 bg-primary/5 text-foreground"
                   }`}
                 >
@@ -174,6 +179,61 @@ function PageVisibilityTab({ password }: { password: string }) {
         {hiddenPages.length} page{hiddenPages.length !== 1 ? "s" : ""} hidden.
         Changes apply to all users immediately.
       </p>
+    </div>
+  );
+}
+
+// ============================================================================
+// ENVIRONMENT TAB (SetupSettings with config loading)
+// ============================================================================
+
+const API = "/api";
+
+function EnvironmentTab() {
+  const [config, setConfig] = useState<EnvironmentConfig>(EMPTY_CONFIG);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const resp = await fetch(`${API}/setup/current-config`);
+        if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+        const data = await resp.json();
+        if (data.config) {
+          setConfig({ ...EMPTY_CONFIG, ...data.config });
+        }
+      } catch (ex) {
+        setLoadError(ex instanceof Error ? ex.message : String(ex));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        <span className="text-xs">Loading current configuration...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 max-w-3xl">
+      <div>
+        <h2 className="font-display text-base font-semibold">Environment</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Select Fabric resources from live API. "Save &amp; Propagate" writes to all config targets.
+        </p>
+      </div>
+      {loadError && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-400">
+          Could not load current config: {loadError}. Starting with empty configuration.
+        </div>
+      )}
+      <SetupSettings config={config} onConfigChange={setConfig} />
     </div>
   );
 }
@@ -254,7 +314,7 @@ function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
 
 export default function AdminGateway() {
   const [password, setPassword] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<AdminTab>("pages");
+  const [activeTab, setActiveTab] = useState<AdminTab>("environment");
 
   if (!password) {
     return <PasswordGate onAuth={setPassword} />;
@@ -293,6 +353,7 @@ export default function AdminGateway() {
 
       {/* Tab content */}
       <div className="flex-1 min-w-0 overflow-y-auto">
+        {activeTab === "environment" && <EnvironmentTab />}
         {activeTab === "pages" && <PageVisibilityTab password={password} />}
         {activeTab === "general" && <GeneralTab />}
         {activeTab === "deployment" && <DeploymentManager />}

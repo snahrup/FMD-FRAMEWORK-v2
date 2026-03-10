@@ -22,7 +22,7 @@ export function DatabaseStep({ value, configWorkspaceId, onChange }: DatabaseSte
         execution tracking, and audit logs. It lives in the Config workspace.
       </p>
 
-      <div className="rounded-md border border-border/40 bg-card/50 p-3">
+      <div className="rounded-md border border-border/40 bg-card p-3">
         <FabricDropdown
           label="SQL Database"
           endpoint={hasWorkspace ? `/setup/workspaces/${configWorkspaceId}/sql-databases` : ""}

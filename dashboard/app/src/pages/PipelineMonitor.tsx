@@ -322,7 +322,7 @@ const fabricStatusConfig: Record<FabricStatus, {
     label: 'No runs',
     icon: Clock,
     color: 'text-muted-foreground',
-    bg: 'bg-muted/30',
+    bg: 'bg-muted',
     border: 'border-border',
   },
 };
@@ -938,7 +938,7 @@ function ExecutionLogModal({
       {/* Modal */}
       <div className="relative w-[90vw] max-w-6xl h-[80vh] bg-background border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/30">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted">
           <div className="flex items-center gap-4">
             <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/40">
               <Terminal className="w-5 h-5 text-blue-600 dark:text-blue-400" />
@@ -1029,7 +1029,7 @@ function ExecutionLogModal({
             ) : (
               <div className="p-4 space-y-3">
                 {/* Progress summary */}
-                <div className="flex items-center gap-4 p-3 bg-muted/30 rounded-lg border border-border">
+                <div className="flex items-center gap-4 p-3 bg-muted rounded-lg border border-border">
                   <div className="flex-1">
                     <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
                       <span>{completedActivities + failedActivities} of {totalActivities} activities completed</span>
@@ -1241,7 +1241,7 @@ function ExecutionLogModal({
                       <tr
                         key={rowIdx}
                         className={cn(
-                          "border-b border-border/50 transition-colors hover:bg-muted/30",
+                          "border-b border-border/50 transition-colors hover:bg-muted/50",
                           rowIdx === 0 && "bg-blue-50/50 dark:bg-blue-950/20",
                         )}
                       >
@@ -1279,7 +1279,7 @@ function ExecutionLogModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-3 border-t border-border bg-muted/30 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between px-6 py-3 border-t border-border bg-muted text-xs text-muted-foreground">
           <span>
             {activeTab === 'activities'
               ? `${activityRuns.length} activities`
@@ -1837,7 +1837,7 @@ export default function PipelineMonitor() {
                       <tr
                         key={`${key}-main`}
                         className={cn(
-                          "border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer",
+                          "border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer",
                           isActive && "bg-blue-50/30 dark:bg-blue-950/10",
                           isFailed && !errorInfo && "bg-red-50/20 dark:bg-red-950/10",
                         )}
@@ -1910,7 +1910,7 @@ export default function PipelineMonitor() {
             </table>
           </div>
           {filteredHubJobs.length > 0 && (
-            <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-muted/30 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-muted text-xs text-muted-foreground">
               <span>
                 {filteredHubJobs.length} job{filteredHubJobs.length !== 1 ? 's' : ''}
                 {hubStatusFilter !== 'all' && ` (filtered)`}

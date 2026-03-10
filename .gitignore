@@ -37,7 +37,48 @@ __pycache__/
 .venv/
 venv/
 
+# MCP Servers (cloned locally, not committed)
+.mcp-servers/
+
+# Semgrep cache
+.semgrep/
+
+# RepoMapper cache
+.repomap.tags.cache.v1/
+
 # OpenMemory
 .windsurf/rules/openmemory.md
 openmemory.md
 .windsurf\rules\openmemory.md
+
+# Auto Claude data directory
+.auto-claude/
+
+# Praxis generated files
+.auto-claude-security.json
+.auto-claude-status
+.claude_settings.json
+.worktrees/
+.security-key
+logs/security/
+
+# Runtime databases & caches
+*.db
+dashboard/app/api/lakehouse_counts_cache.json
+scripts/*_results.json
+scripts/*_results.txt
+scripts/jira_comments_dump/
+scripts/all_worklogs.json
+scripts/worklog_moves.json
+scripts/new_lakehouse_ids.json
+scripts/entities_to_analyze.json
+
+# MRI test runs (large, regenerated)
+.mri/runs/
+dashboard/app/.mri/runs/
+
+# Deployment artifacts (session-specific)
+deployment_summary.json
+
+# Pytest cache
+.pytest_cache/

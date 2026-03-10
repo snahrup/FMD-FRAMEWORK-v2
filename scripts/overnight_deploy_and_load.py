@@ -22,21 +22,15 @@ from datetime import datetime, timezone
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+sys.path.insert(0, SCRIPT_DIR)
+from fmd_config import load_fmd_config
 
-# Load secrets
-env_path = os.path.join(PROJECT_ROOT, "dashboard", "app", "api", ".env")
-with open(env_path) as f:
-    for line in f:
-        if "=" in line and not line.startswith("#"):
-            k, v = line.strip().split("=", 1)
-            os.environ[k] = v
-
-# IDs
-TENANT = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
-CLIENT = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
-SECRET = os.environ["FABRIC_CLIENT_SECRET"]
-CONFIG_WS = "e1f70591-6780-4d93-84bc-ba4572513e5c"
-NB_SETUP_ID = "52258262-5448-4c49-a708-2a3d7f470c7e"
+_cfg = load_fmd_config()
+TENANT = _cfg['tenant_id']
+CLIENT = _cfg['client_id']
+SECRET = _cfg['client_secret']
+CONFIG_WS = _cfg['workspaces'].get('workspace_config', '')
+NB_SETUP_ID = "52258262-5448-4c49-a708-2a3d7f470c7e"  # TODO: move to config
 
 ENGINE_URL = "http://localhost:8787/api"
 

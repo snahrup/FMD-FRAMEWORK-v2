@@ -458,7 +458,7 @@ export default function ValidationChecklist() {
                   <div key={dsName}>
                     <button
                       onClick={() => setExpandedSource(isExpanded ? null : dsName)}
-                      className="w-full flex items-center gap-3 py-3 px-1 hover:bg-muted/30 transition-colors text-left"
+                      className="w-full flex items-center gap-3 py-3 px-1 hover:bg-muted/50 transition-colors text-left"
                     >
                       {statusIcon(
                         lzS === "pass" && brS === "pass" && svS === "pass"
@@ -641,7 +641,7 @@ export default function ValidationChecklist() {
                           onClick={() => toggleSelect(id)}
                           className={cn(
                             "cursor-pointer transition-colors",
-                            isSelected ? "bg-primary/5" : "hover:bg-muted/30",
+                            isSelected ? "bg-primary/5" : "hover:bg-muted/50",
                           )}
                         >
                           <td className="px-2 py-1.5">
@@ -675,7 +675,7 @@ export default function ValidationChecklist() {
                 </table>
               </div>
               {filteredEntities.length > 200 && (
-                <div className="text-xs text-muted-foreground text-center py-2 border-t border-border bg-muted/30">
+                <div className="text-xs text-muted-foreground text-center py-2 border-t border-border bg-muted">
                   Showing 200 of {filteredEntities.length} — use filters to narrow results
                 </div>
               )}

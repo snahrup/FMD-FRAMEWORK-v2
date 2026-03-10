@@ -280,11 +280,11 @@ def create_digest_proc():
     LEFT JOIN integration.SilverLayerEntity se
         ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
 
-    -- LZ processed status (most recent load)
+    -- LZ load status (any record = loaded, regardless of IsProcessed)
     LEFT JOIN (
-        SELECT LandingzoneEntityId, MAX(LoadEndDateTime) AS lastLzLoad
+        SELECT LandingzoneEntityId,
+               MAX(COALESCE(LoadEndDateTime, InsertDateTime)) AS lastLzLoad
         FROM execution.PipelineLandingzoneEntity
-        WHERE IsProcessed = 1
         GROUP BY LandingzoneEntityId
     ) ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId
 

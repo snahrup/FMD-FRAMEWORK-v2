@@ -162,7 +162,7 @@ function SourceCard({ source, selected, onToggle }: {
         "w-full text-left p-4 rounded-xl border-2 transition-all duration-200",
         selected
           ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
-          : "border-border hover:border-primary/40 hover:bg-muted/30",
+          : "border-border hover:border-primary/40 hover:bg-muted/50",
       )}
     >
       <div className="flex items-start justify-between">
@@ -259,7 +259,7 @@ function EntityTable({ entities, selectedIds, onToggle, onToggleAll, searchTerm,
                   onClick={() => onToggle(e.lzEntityId)}
                   className={cn(
                     "border-b border-border/50 cursor-pointer transition-colors",
-                    selected ? "bg-primary/5" : "hover:bg-muted/30",
+                    selected ? "bg-primary/5" : "hover:bg-muted/50",
                   )}
                 >
                   <td className="px-3 py-2 text-center">
@@ -646,7 +646,7 @@ export default function PipelineRunner() {
                   "w-full text-left p-5 rounded-xl border-2 transition-all duration-200",
                   selectedLayer === key
                     ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
-                    : "border-border hover:border-primary/40 hover:bg-muted/30",
+                    : "border-border hover:border-primary/40 hover:bg-muted/50",
                 )}
               >
                 <div className="flex items-center gap-3">

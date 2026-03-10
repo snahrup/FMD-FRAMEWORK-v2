@@ -7,4 +7,4 @@ if (-not $secret) { Write-Host "ERROR: Set FABRIC_CLIENT_SECRET env var first" -
 if (-not $ghToken) { Write-Host "ERROR: Set GITHUB_TOKEN env var first" -ForegroundColor Red; exit 1 }
 
 Set-Location $scriptDir
-& $mainScript -FabricClientSecret $secret -GitHubToken $ghToken -InternalHostname "VSC-Fabric"
+& $mainScript -FabricClientSecret $secret -GitHubToken $ghToken -InternalHostname "VSC-Fabric" -SkipClaudeDesktop

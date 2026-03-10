@@ -13,6 +13,8 @@ import {
   Database,
   Server,
   Cpu,
+  FileCode2,
+  Workflow,
 } from "lucide-react";
 
 interface SetupSettingsProps {
@@ -30,7 +32,7 @@ function SettingsSection({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-border/40 bg-card/30">
+    <div className="rounded-lg border border-border/40 bg-card">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border/20">
         {icon}
         <h3 className="text-sm font-semibold">{title}</h3>
@@ -53,7 +55,16 @@ export function SetupSettings({ config, onConfigChange }: SetupSettingsProps) {
     onConfigChange({ ...config, lakehouses: { ...config.lakehouses, [key]: value } });
   };
 
+  const updateNotebook = (key: keyof EnvironmentConfig["notebooks"], value: FabricEntity | null) => {
+    onConfigChange({ ...config, notebooks: { ...config.notebooks, [key]: value } });
+  };
+
+  const updatePipeline = (key: keyof EnvironmentConfig["pipelines"], value: FabricEntity | null) => {
+    onConfigChange({ ...config, pipelines: { ...config.pipelines, [key]: value } });
+  };
+
   const dataWsId = config.workspaces.data_dev?.id || null;
+  const codeWsId = config.workspaces.code_dev?.id || null;
   const configWsId = config.workspaces.config?.id || null;
 
   return (
@@ -159,6 +170,48 @@ export function SetupSettings({ config, onConfigChange }: SetupSettingsProps) {
             />
           ))}
         </div>
+      </SettingsSection>
+
+      {/* Notebooks */}
+      <SettingsSection
+        icon={<FileCode2 className="h-4 w-4 text-orange-400" />}
+        title="Notebooks"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {(
+            [
+              ["NB_FMD_LOAD_LANDING_BRONZE", "Landing → Bronze"],
+              ["NB_FMD_LOAD_BRONZE_SILVER", "Bronze → Silver"],
+            ] as const
+          ).map(([key, label]) => (
+            <FabricDropdown
+              key={key}
+              label={label}
+              endpoint={codeWsId ? `/setup/workspaces/${codeWsId}/notebooks` : ""}
+              responseKey="items"
+              value={config.notebooks[key]}
+              onChange={(e) => updateNotebook(key, e)}
+              disabled={!codeWsId}
+              disabledMessage="Select a Code workspace first"
+            />
+          ))}
+        </div>
+      </SettingsSection>
+
+      {/* Pipelines */}
+      <SettingsSection
+        icon={<Workflow className="h-4 w-4 text-blue-400" />}
+        title="Pipelines"
+      >
+        <FabricDropdown
+          label="LDZ Copy SQL"
+          endpoint={codeWsId ? `/setup/workspaces/${codeWsId}/pipelines` : ""}
+          responseKey="items"
+          value={config.pipelines.PL_FMD_LDZ_COPY_SQL}
+          onChange={(e) => updatePipeline("PL_FMD_LDZ_COPY_SQL", e)}
+          disabled={!codeWsId}
+          disabledMessage="Select a Code workspace first"
+        />
       </SettingsSection>
 
       {/* Save */}

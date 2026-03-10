@@ -119,7 +119,7 @@ export function TableDetail({ table }: TableDetailProps) {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-0 px-5 border-b border-border bg-muted/30">
+      <div className="flex items-center gap-0 px-5 border-b border-border bg-muted">
         {tabs.map(tab => {
           const active = activeTab === tab.id;
           const Icon = tab.icon;
@@ -198,7 +198,7 @@ function ColumnsTab({ info, loading, error }: {
             return (
               <tr
                 key={col.COLUMN_NAME}
-                className="border-b border-border/50 transition-colors hover:bg-muted/20"
+                className="border-b border-border/50 transition-colors hover:bg-muted/50"
               >
                 <td className="px-4 py-2">
                   <div className="flex items-center gap-2">
@@ -286,7 +286,7 @@ function DataTab({ preview, loading, error }: {
           </thead>
           <tbody>
             {preview.rows.map((row, i) => (
-              <tr key={i} className="border-b border-border/50 transition-colors hover:bg-muted/20">
+              <tr key={i} className="border-b border-border/50 transition-colors hover:bg-muted/50">
                 {/* Row number */}
                 <td className="px-3 py-1.5 text-right text-[11px] font-mono text-muted-foreground/30 select-none border-r border-border sticky left-0 z-10 bg-background">
                   {i + 1}
@@ -324,7 +324,7 @@ function DataTab({ preview, loading, error }: {
         </table>
       </div>
       {/* Sticky footer */}
-      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 text-[11px] text-muted-foreground border-t border-border bg-muted/30">
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 text-[11px] text-muted-foreground border-t border-border bg-muted">
         <span>Showing {preview.rows.length} of {preview.rowCount} rows (limit {preview.limit})</span>
         <span className="font-mono">{preview.columns.length} columns</span>
       </div>

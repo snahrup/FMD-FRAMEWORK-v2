@@ -35,7 +35,7 @@ export function WorkspaceStep({ workspaces, capacityId, onChange }: WorkspaceSte
 
       <div className="space-y-3">
         {WORKSPACE_FIELDS.map((field) => (
-          <div key={field.key} className="rounded-md border border-border/40 bg-card/50 p-3">
+          <div key={field.key} className="rounded-md border border-border/40 bg-card p-3">
             <FabricDropdown
               label={field.label}
               endpoint="/fabric/workspaces"

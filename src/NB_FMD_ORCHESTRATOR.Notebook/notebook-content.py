@@ -24,7 +24,7 @@ import time
 from datetime import datetime
 
 # Pipeline IDs in CODE workspace
-WS_CODE = "146fe38c-f6c3-4e9d-a18c-5c01cad5941e"
+WS_CODE = "c0366b24-e6f8-4994-b4df-b765ecb5bbf8"
 API_BASE = "https://api.fabric.microsoft.com/v1"
 
 PIPELINES = {

@@ -1,0 +1,567 @@
+# ============================================================================
+# FMD v3 — "The Simple One"
+# Pure Python data loading engine + enhanced dashboard
+# Replaces 26 Fabric pipelines with a single Python service
+# IP Corp never touches a terminal. Everything through the dashboard.
+# ============================================================================
+#
+# Architecture:
+#   Dashboard (React + Flask API) → Python Load Engine (Windows Service)
+#   Engine reads SQL control table → extracts from source SQL → writes to OneLake
+#   Bronze/Silver: Fabric notebooks triggered via REST API (Spark handles Delta merges)
+#   All logging to same SQL tables → dashboard displays unchanged
+#
+# What stays: Fabric SQL DB, Lakehouses, Bronze/Silver notebooks, Dashboard, Entity metadata
+# What dies: All 26 pipelines, variable libraries, GUID remapping, pipeline deployment scripts
+# ============================================================================
+
+tasks:
+  # ══════════════════════════════════════════════════════════════════════════
+  # GROUP 1: Foundation — Core engine + config (parallel, independent)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - title: "Build core Python load engine module"
+    parallel_group: 1
+    completed: false
+    description: |
+      Create the core Python data loading engine at `engine/` directory in the project root.
+      This is the heart of FMD v3 — a pure Python service that replaces all 26 Fabric pipelines.
+
+      ## Directory Structure
+      ```
+      engine/
+        __init__.py
+        config.py          # Configuration loader (reads from SQL + local config)
+        auth.py             # SP token auth for Fabric SQL + OneLake
+        connections.py      # Source SQL Server connection management
+        extractor.py        # Data extraction from source SQL servers
+        loader.py           # Write Parquet to OneLake Landing Zone
+        orchestrator.py     # Main run loop — coordinates extract→load→transform
+        models.py           # Data classes for Entity, RunResult, LoadMetrics, etc.
+        logging_db.py       # Structured logging to SQL audit tables
+        service.py          # Windows service wrapper (runs as background service)
+        api.py              # REST API endpoints for dashboard integration
+      ```
+
+      ## Key Design Principles
+      - ZERO terminal interaction. Everything operated via REST API from dashboard.
+      - The main loop in orchestrator.py MUST be readable by a junior dev in 5 minutes.
+      - Every operation logs structured JSON to the SQL logging tables.
+      - Uses the SAME SQL tables as the existing framework (logging.*, execution.*, integration.*).
+
+      ## config.py
+      Read configuration from:
+      1. `dashboard/app/api/config.json` — Fabric SQL connection, SP creds (reuse existing)
+      2. `dashboard/app/api/.env` — secrets (FABRIC_CLIENT_SECRET)
+      3. SQL control table `integration.LandingzoneEntity` joined with `integration.DataSource`
+         and `integration.Connection` — entity worklist
+
+      Config dataclass:
+      ```python
+      @dataclass
+      class EngineConfig:
+          # Fabric SQL DB
+          fabric_sql_server: str
+          fabric_sql_database: str
+          fabric_sql_driver: str = "ODBC Driver 18 for SQL Server"
+          # Service Principal
+          tenant_id: str
+          client_id: str
+          client_secret: str
+          # OneLake / Lakehouse
+          workspace_data_id: str  # a3a180ff-fbc2-48fd-a65f-27ae7bb6709a
+          workspace_code_id: str  # 146fe38c-f6c3-4e9d-a18c-5c01cad5941e
+          lz_lakehouse_id: str    # 2aef4ede-2918-4a6b-8ec6-a42108c67806
+          bronze_lakehouse_id: str # cf57e8bf-7b34-471b-adea-ed80d05a4fdb
+          silver_lakehouse_id: str # 44a0993f-9633-4403-8f6a-011903c25792
+          # Engine settings
+          batch_size: int = 15       # entities per batch (matches current ForEach batchCount)
+          max_workers: int = 4       # concurrent extractions
+          copy_timeout_seconds: int = 14400  # 4 hours (matches current pipeline timeout)
+          retry_count: int = 2
+          retry_delay_seconds: int = 30
+      ```
+
+      ## auth.py
+      SP token acquisition for Fabric SQL DB. CRITICAL: Use EXACTLY these patterns:
+      ```python
+      import struct
+      import urllib.request
+      import json
+
+      def get_fabric_token(tenant_id: str, client_id: str, client_secret: str) -> bytes:
+          """Get SP token for Fabric SQL DB access.
+          CRITICAL: scope MUST be 'https://analysis.windows.net/powerbi/api/.default'
+          NOT 'https://database.windows.net/.default' — that one DOES NOT WORK."""
+          url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+          data = urllib.parse.urlencode({
+              'grant_type': 'client_credentials',
+              'client_id': client_id,
+              'client_secret': client_secret,
+              'scope': 'https://analysis.windows.net/powerbi/api/.default'
+          }).encode()
+          req = urllib.request.Request(url, data=data, method='POST')
+          with urllib.request.urlopen(req) as resp:
+              token = json.loads(resp.read())['access_token']
+          token_bytes = token.encode('utf-8')
+          # CRITICAL: struct pack format is '<I{len}s' — NOT '<IH...'
+          return struct.pack(f'<I{len(token_bytes)}s', len(token_bytes), token_bytes)
+
+      def get_fabric_sql_connection(config: EngineConfig):
+          """Get pyodbc connection to Fabric SQL DB with SP token."""
+          import pyodbc
+          token_struct = get_fabric_token(config.tenant_id, config.client_id, config.client_secret)
+          conn_str = (
+              f"DRIVER={{{config.fabric_sql_driver}}};"
+              f"SERVER={config.fabric_sql_server};"
+              f"DATABASE={config.fabric_sql_database};"
+              f"Encrypt=yes;TrustServerCertificate=no;"
+          )
+          return pyodbc.connect(conn_str, attrs_before={1256: token_struct})
+      ```
+
+      For source SQL servers (on-prem, VPN required), use Windows auth:
+      ```python
+      def get_source_connection(server: str, database: str):
+          """Connect to on-prem SQL Server via Windows auth.
+          CRITICAL: Do NOT use .ipaper.com suffix. Just short hostname.
+          CRITICAL: ODBC Driver 18, not 17."""
+          import pyodbc
+          conn_str = (
+              f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+              f"SERVER={server};"
+              f"DATABASE={database};"
+              f"Trusted_Connection=yes;"
+              f"TrustServerCertificate=yes;"
+          )
+          return pyodbc.connect(conn_str)
+      ```
+
+      ## connections.py
+      Source system registry. These are the 5 known sources:
+      ```python
+      SOURCE_SYSTEMS = {
+          "MES":          {"server": "m3-db1",         "database": "mes",             "entities": 445},
+          "ETQ":          {"server": "M3-DB3",         "database": "ETQStagingPRD",   "entities": 29},
+          "M3_ERP":       {"server": "sqllogshipprd",  "database": "m3fdbprd",        "entities": 0},
+          "M3_Cloud":     {"server": "sql2016live",    "database": "DI_PRD_Staging",  "entities": 185},
+          "Optiva":       {"server": "sql2016live",    "database": "Optiva_Staging",  "entities": 0},
+      }
+      ```
+      But the engine should NOT hardcode these — read from `integration.Connection` + `integration.DataSource`
+      in the SQL control table. The above is just for reference/validation.
+
+      ## extractor.py
+      Extract data from source SQL servers using pyodbc + polars (for performance).
+      ```python
+      import polars as pl
+
+      def extract_entity(entity: Entity, source_conn) -> pl.DataFrame:
+          """Extract data from source SQL Server.
+          - Full load: SELECT * FROM [Schema].[Table]
+          - Incremental: SELECT * FROM [Schema].[Table] WHERE [WatermarkCol] > @LastValue
+          Returns a polars DataFrame."""
+
+          if entity.is_incremental and entity.last_load_value:
+              query = f"SELECT * FROM [{entity.source_schema}].[{entity.source_name}] WHERE [{entity.watermark_column}] > ?"
+              params = [entity.last_load_value]
+          else:
+              query = f"SELECT * FROM [{entity.source_schema}].[{entity.source_name}]"
+              params = []
+
+          df = pl.read_database(query, source_conn, execute_options={"parameters": params})
+          return df
+      ```
+
+      IMPORTANT gotchas from our experience:
+      - Exclude rowversion/timestamp columns from watermark comparison (binary types can't compare as varchar)
+      - Strip whitespace from SourceName (was root cause of 55% of LZ failures)
+      - Handle large tables (>1M rows) with chunked reads to avoid OOM
+
+      ## loader.py
+      Write Parquet files to OneLake Landing Zone via ADLS/Azure SDK.
+      OneLake path pattern: `https://onelake.dfs.fabric.microsoft.com/{workspace_id}/{lakehouse_id}/Files/{path}/{filename}`
+
+      Use `azure-storage-file-datalake` or direct REST API to write files.
+      The file path should match what the Bronze notebook expects:
+      - Path: `{DataSourceNamespace}/{SourceSchema}_{SourceName}/`
+      - Filename: `{SourceSchema}_{SourceName}_{timestamp}.parquet`
+
+      After successful write:
+      1. Call `execution.sp_UpsertPipelineLandingzoneEntity` to mark as loaded
+      2. Call `execution.sp_UpdateLastLoadValue` to advance watermark
+      3. Call `execution.sp_UpsertEntityStatus` to update digest
+      4. Call `logging.sp_AuditCopyActivity` with structured JSON log envelope
+
+      ## orchestrator.py
+      The main run loop. THIS MUST BE SIMPLE:
+      ```python
+      class LoadOrchestrator:
+          def run(self, mode: str = "run", entity_ids: list = None, layers: list = None):
+              """Main entry point. Called by REST API from dashboard.
+              mode: 'plan' = compute worklist only, 'run' = execute
+              entity_ids: optional filter (None = all active)
+              layers: optional filter ['landing', 'bronze', 'silver'] (None = all)
+              """
+              run_id = str(uuid.uuid4())
+              self.log_run_start(run_id, mode, entity_ids, layers)
+
+              # 1. Get active entities from SQL control table
+              entities = self.get_worklist(entity_ids)
+              self.log(f"Worklist: {len(entities)} entities")
+
+              if mode == "plan":
+                  return self.build_plan(run_id, entities, layers)
+
+              results = []
+
+              # 2. Landing Zone — extract from source, write Parquet
+              if not layers or 'landing' in layers:
+                  lz_results = self.run_landing_zone(run_id, entities)
+                  results.extend(lz_results)
+
+              # 3. Bronze — trigger Fabric notebook via REST API
+              if not layers or 'bronze' in layers:
+                  bronze_results = self.run_bronze(run_id)
+                  results.extend(bronze_results)
+
+              # 4. Silver — trigger Fabric notebook via REST API
+              if not layers or 'silver' in layers:
+                  silver_results = self.run_silver(run_id)
+                  results.extend(silver_results)
+
+              self.log_run_end(run_id, results)
+              return results
+      ```
+
+      ## models.py
+      Data classes:
+      ```python
+      @dataclass
+      class Entity:
+          id: int
+          source_name: str
+          source_schema: str
+          source_server: str
+          source_database: str
+          datasource_id: int
+          connection_type: str
+          workspace_guid: str
+          lakehouse_guid: str
+          file_path: str
+          file_name: str
+          is_incremental: bool
+          watermark_column: str | None
+          last_load_value: str | None
+          primary_keys: str | None
+          is_active: bool
+
+      @dataclass
+      class RunResult:
+          entity_id: int
+          layer: str  # landing | bronze | silver
+          status: str  # succeeded | failed | skipped
+          rows_read: int
+          rows_written: int
+          bytes_transferred: int
+          duration_seconds: float
+          error: str | None
+          watermark_before: str | None
+          watermark_after: str | None
+
+      @dataclass
+      class LogEnvelope:
+          """Structured JSON log — ALWAYS valid JSON, ALWAYS populated."""
+          v: int = 1
+          run_id: str
+          entity_id: int
+          layer: str
+          action: str  # Start | End | Fail | Skip
+          source: dict  # server, database, table, query
+          target: dict  # lakehouse, path, format
+          watermark: dict  # column, previous, new, load_type
+          metrics: dict  # rows_read, rows_written, bytes, duration, rows_per_sec
+          error: dict | None  # type, message, stack_trace, suggestion
+          timestamps: dict  # started_utc, completed_utc
+      ```
+
+      ## logging_db.py
+      Write structured logs to the SAME SQL tables the dashboard already reads:
+      - `logging.sp_AuditPipeline` — for run-level logs
+      - `logging.sp_AuditCopyActivity` — for entity-level extract/load logs
+      - `logging.sp_AuditNotebook` — for Bronze/Silver notebook trigger logs
+      - `execution.sp_UpsertEntityStatus` — for digest engine
+
+      The LogData parameter MUST be valid JSON (no trailing commas, no null fields).
+      Use the LogEnvelope dataclass -> json.dumps() for guaranteed validity.
+
+      ## Dependencies (pip install)
+      ```
+      pyodbc                  # SQL Server connections (already installed)
+      polars                  # Fast DataFrame operations (Arrow-native)
+      azure-storage-file-datalake  # Write to OneLake via ADLS API
+      azure-identity          # SP auth for OneLake (DefaultAzureCredential)
+      ```
+
+      ## CRITICAL: Read these files first for context
+      - Memory: `C:\Users\sasnahrup\.claude\projects\c--Users-snahrup-CascadeProjects-FMD-FRAMEWORK\memory\MEMORY.md`
+      - Memory: load-optimization-engine.md, dashboard-debugging.md in same dir
+      - Config: `dashboard/app/api/config.json` — reuse this exact config structure
+      - Config: `config/item_config.yaml` — workspace/lakehouse IDs
+      - Config: `config/source_systems.yaml` — source system definitions
+      - Existing server: `dashboard/app/api/server.py` — reuse auth patterns
+
+      SUCCESS CRITERIA:
+      - `engine/` directory exists with all modules
+      - `python -c "from engine.orchestrator import LoadOrchestrator"` succeeds
+      - All data classes serialize to JSON correctly
+      - Auth module can acquire SP token (if VPN connected)
+
+  - title: "Create SQL run manifest view and enhanced logging schema"
+    parallel_group: 1
+    completed: false
+    description: |
+      Create SQL objects that unify the logging/execution tables into a single queryable surface.
+
+      ## Fabric SQL DB Connection
+      - Server: `7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433`
+      - Database: `SQL_INTEGRATION_FRAMEWORK-501d6b17-fcee-47f3-bbb3-54e05f2a3fc0`
+      - Auth: SP token (tenant `ca81e9fd-06dd-49cf-b5a9-ee7441ff5303`, client `ac937c5d-4bdd-438f-be8b-84a850021d2d`)
+      - Scope: `https://analysis.windows.net/powerbi/api/.default`
+      - Token struct: `struct.pack(f'<I{len(token_bytes)}s', len(token_bytes), token_bytes)`
+
+      ## Create SQL file: `engine/sql/001_run_manifest.sql`
+
+      ### Tables
+      1. execution.EngineRun — tracks each engine run
+      2. execution.EngineTaskLog — per-entity, per-layer execution log with rich metrics
+
+      ### View
+      3. logging.vw_RunManifest — single-pane view joining EngineRun + EngineTaskLog + entity metadata
+
+      ### Stored Procs
+      4. execution.sp_UpsertEngineRun — insert/update engine run
+      5. execution.sp_InsertEngineTaskLog — insert task log + auto-update entity digest
+
+      See full SQL definitions in the project memory and docs.
+      The EngineTaskLog must include: RunId, EntityId, Layer, Status, SourceServer, SourceDatabase,
+      SourceTable, SourceQuery, RowsRead, RowsWritten, BytesTransferred, DurationSeconds,
+      WatermarkColumn, WatermarkBefore, WatermarkAfter, LoadType, ErrorType, ErrorMessage,
+      ErrorStackTrace, ErrorSuggestion, LogData (full JSON envelope).
+
+      Also create: `engine/sql/deploy_schema.py` — Python script to execute SQL against Fabric DB.
+
+      SUCCESS CRITERIA:
+      - SQL file parses cleanly
+      - deploy_schema.py can execute against Fabric SQL DB
+      - vw_RunManifest returns results (even if empty)
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # GROUP 2: Integration — OneLake + notebooks + API (depends on Group 1)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - title: "Implement OneLake writer and Fabric notebook trigger"
+    parallel_group: 2
+    completed: false
+    description: |
+      Implement two critical integration points:
+      1. Writing Parquet files to OneLake Landing Zone (ADLS API)
+      2. Triggering Bronze/Silver Fabric notebooks via REST API
+
+      ## OneLake Writer (engine/loader.py)
+      Use azure-storage-file-datalake SDK:
+      - Account URL: https://onelake.dfs.fabric.microsoft.com
+      - File system: workspace_data_id (a3a180ff-fbc2-48fd-a65f-27ae7bb6709a)
+      - Path: {lz_lakehouse_id}/Files/{entity.file_path}/{filename}.parquet
+      - Auth: ClientSecretCredential (tenant ca81e9fd, client ac937c5d)
+      - Write polars DataFrame as Parquet bytes, upload via file_client.upload_data()
+
+      ## Fabric Notebook Trigger (engine/notebook_trigger.py)
+      - API: POST https://api.fabric.microsoft.com/v1/workspaces/{code_ws}/items/{notebook_id}/jobs/instances?jobType=RunNotebook
+      - Auth: Bearer token (scope: https://api.fabric.microsoft.com/.default)
+      - Response: 202 Accepted, Location header has job URL
+      - Poll job URL every 15s until status in (Completed, Failed, Cancelled)
+      - Workspace CODE ID: 146fe38c-f6c3-4e9d-a18c-5c01cad5941e
+
+      Notebook IDs: look up dynamically via GET /v1/workspaces/{ws}/items?type=Notebook
+
+      ## Wire into orchestrator.py
+      - run_landing_zone() calls extractor + loader for each entity
+      - run_bronze() triggers NB_FMD_PROCESSING_PARALLEL_MAIN (it reads worklist from SQL)
+      - run_silver() same pattern for Silver
+
+      SUCCESS CRITERIA:
+      - Can write a test Parquet file to OneLake LZ
+      - Can trigger a notebook via REST API
+      - Orchestrator.run() completes a full landing->bronze->silver cycle
+
+  - title: "Build engine REST API for dashboard integration"
+    parallel_group: 2
+    completed: false
+    description: |
+      Build REST API endpoints in the existing dashboard server (server.py).
+      Import engine module and add /api/engine/* routes.
+
+      ## Endpoints
+      - GET  /api/engine/status — engine state, uptime, last run summary
+      - POST /api/engine/start — trigger load run (mode, layers, entity_ids, triggered_by)
+      - POST /api/engine/stop — cancel current run
+      - GET  /api/engine/plan — compute worklist without executing
+      - GET  /api/engine/logs — query EngineTaskLog (filter: run_id, entity_id, layer, status)
+      - GET  /api/engine/logs/stream — SSE for real-time log streaming
+      - POST /api/engine/retry — retry failed entities from a run
+      - GET  /api/engine/health — preflight check (connections, SQL, OneLake, entities)
+      - GET  /api/engine/metrics — throughput, row counts, duration stats
+      - POST /api/engine/entity/{id}/reset — reset watermark for entity
+
+      ## Architecture
+      Engine runs in background thread. Module-level state variable for current run.
+      SSE pattern: reuse existing /api/deploy/stream pattern from server.py.
+
+      ## CRITICAL: All existing endpoints must continue working. No regressions.
+
+      Read `dashboard/app/api/server.py` first to understand the routing pattern.
+
+      SUCCESS CRITERIA:
+      - curl http://localhost:8787/api/engine/status returns valid JSON
+      - curl http://localhost:8787/api/engine/health validates connections
+      - POST /api/engine/start returns run_id and executes in background
+      - All existing dashboard endpoints still work
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # GROUP 3: Dashboard UI (depends on Group 2 API)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - title: "Build Engine Control dashboard page"
+    parallel_group: 3
+    completed: false
+    description: |
+      Create the main Engine Control page — the command center for IP Corp.
+      They operate the entire data platform from this page. No terminal. Ever.
+
+      ## Tech Stack (match existing exactly)
+      React 19, TypeScript, Tailwind CSS 4, Radix UI, Lucide icons, Recharts
+      Dark theme mandatory. Glassmorphism cards. Pink/red accent (#e94560).
+
+      ## Page: /engine — Engine Control
+
+      ### Section 1: Status Bar (top)
+      - Engine status: Green=idle, Blue=running, Red=error (animated pulse)
+      - Last run summary: "45 min ago | 657/659 succeeded | 2 failed"
+      - Buttons: [Start Load] [Plan Mode] [System Health] [Stop]
+
+      ### Section 2: Start Load Modal
+      - Mode toggle: Run / Plan
+      - Layer checkboxes: Landing / Bronze / Silver
+      - Entity filter (source dropdown, search)
+      - Confirmation before executing
+
+      ### Section 3: Run History Table
+      - Columns: Run ID, Started, Duration, Status, Entities, Triggered By
+      - Click row → expand for per-entity results
+      - [Retry Failed] button on failed runs
+
+      ### Section 4: Live Activity Feed (during runs)
+      - SSE stream showing real-time entity processing
+      - Progress bar per layer
+      - Errors as they happen
+
+      ## Files
+      - pages/EngineControl.tsx
+      - components/engine/EngineStatusBar.tsx
+      - components/engine/StartLoadModal.tsx
+      - components/engine/RunHistoryTable.tsx
+      - components/engine/LiveActivityFeed.tsx
+      - hooks/useEngineStatus.ts
+      - hooks/useEngineSSE.ts
+
+      ## Route: Add to App.tsx, replace Pipeline Monitor in nav
+
+      SUCCESS CRITERIA:
+      - Page renders at /engine
+      - Status bar shows engine state
+      - Start Load modal sends POST /api/engine/start
+      - Live feed connects to SSE stream
+
+  - title: "Build Entity Execution Matrix page"
+    parallel_group: 3
+    completed: false
+    description: |
+      Entity x Layer matrix showing every entity's status across all medallion layers.
+      The operational view where IP Corp sees everything at a glance.
+
+      ## Page: /matrix — Execution Matrix
+
+      ### Main View: Entity x Layer Matrix
+      - Rows: entities grouped by source
+      - Columns: Entity Name | Source | Landing Zone | Bronze | Silver | Actions
+      - Cell states: checkmark=succeeded, spinner=running, X=failed, circle=pending
+      - Click row → detail drawer
+
+      ### Filters
+      - Source dropdown, status filter, layer filter, search, date range
+
+      ### Bulk Actions
+      - Checkbox selection, [Load Selected], [Retry Failed], [Reset Watermark]
+
+      ### Entity Detail Drawer
+      - Metadata, layer timeline, last 10 logs, watermark history, actions
+
+      ## Files
+      - pages/ExecutionMatrix.tsx
+      - components/engine/EntityMatrixRow.tsx
+      - components/engine/EntityDetailDrawer.tsx
+      - components/engine/BulkActionBar.tsx
+      - components/engine/LayerStatusCell.tsx
+
+      ## Route: Add to App.tsx, replace Pipeline Runner in nav
+
+      SUCCESS CRITERIA:
+      - Page renders with entity data from useEntityDigest
+      - Matrix shows correct status per entity per layer
+      - Filters work, bulk actions send correct API calls
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # GROUP 4: Testing + integration + docs (depends on Group 2+3)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - title: "Build test suite, preflight checks, and operator guide"
+    parallel_group: 4
+    completed: false
+    description: |
+      The proof that this works. Tests IP Corp can run. Docs IP Corp can read.
+
+      ## Test Suite (engine/tests/)
+      - test_auth.py — SP token, Fabric SQL connection
+      - test_connections.py — each source system, OneLake
+      - test_extractor.py — full/incremental query generation
+      - test_loader.py — Parquet generation, OneLake write
+      - test_orchestrator.py — run loop, plan mode, error handling, retry
+      - test_logging.py — LogEnvelope always valid JSON
+      - test_e2e.py — full cycle: extract→LZ→Bronze→Silver
+
+      ## Preflight (engine/preflight.py)
+      Called by GET /api/engine/health. Dashboard shows as health panel.
+      Checks: Fabric SQL, each source system, OneLake, stored procs, active entities, watermarks.
+
+      ## Smoke Test (engine/smoke_test.py)
+      Full E2E validation: preflight→plan→load 1 entity→verify LZ→Bronze→Silver→logs→digest.
+
+      ## Operator Guide (docs/OPERATOR_GUIDE.md)
+      Written for business users. NO terminal references. Everything is dashboard actions.
+      - Daily Operations: start load, check status, diagnose failures, retry
+      - Adding New Tables: Source Manager → fill form → click Start Load
+      - Troubleshooting: click red entity → read error → follow suggestion
+      - System Health: click button → see green/red checks
+
+      ## requirements.txt
+      pyodbc, polars, azure-storage-file-datalake, azure-identity
+
+      ## Navigation Update
+      Wire /engine and /matrix into App.tsx. Update sidebar nav.
+
+      SUCCESS CRITERIA:
+      - pytest runs (unit tests pass without VPN, integration tests marked)
+      - Preflight returns valid health report
+      - Operator guide covers all daily operations without terminal references
+      - Dashboard nav updated with Engine Control + Execution Matrix

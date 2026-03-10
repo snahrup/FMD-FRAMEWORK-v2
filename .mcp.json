@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "RepoMapper": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/.mcp-servers/RepoMapper/repomap_server.py"
+      ],
+      "timeout": 120,
+      "description": "Generates intelligent repo maps using Tree-sitter + PageRank. Use tool: repo_map with project_root parameter."
+    },
+    "code-understanding": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "code-understanding-mcp-server"
+      ],
+      "env": {},
+      "timeout": 120,
+      "description": "Deep code analysis: repo maps, critical files, documentation extraction. Tools: get_source_repo_map, get_repo_critical_files, get_repo_documentation, list_cached_repository_branches, refresh_repo."
+    }
+  }
+}

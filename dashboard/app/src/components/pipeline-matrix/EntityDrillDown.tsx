@@ -31,7 +31,7 @@ const STATUS_CONFIG = {
   pending: { icon: Clock, label: "Pending", color: "text-[var(--cl-warning)]", bg: "bg-[var(--warning-soft)]" },
   error: { icon: AlertCircle, label: "Error", color: "text-[var(--cl-error)]", bg: "bg-[var(--error-soft)]" },
   partial: { icon: AlertTriangle, label: "Partial", color: "text-[var(--cl-info)]", bg: "bg-[var(--info-soft)]" },
-  not_started: { icon: Clock, label: "Not Started", color: "text-muted-foreground", bg: "bg-muted/30" },
+  not_started: { icon: Clock, label: "Not Started", color: "text-muted-foreground", bg: "bg-muted" },
 } as const;
 
 const LAYER_STATUS = {
@@ -162,7 +162,7 @@ export function EntityDrillDown({
 
         {/* Summary bar */}
         {summary && (
-          <div className="flex items-center gap-2 px-6 py-3 border-b border-border bg-muted/20">
+          <div className="flex items-center gap-2 px-6 py-3 border-b border-border bg-muted">
             {(["complete", "pending", "error", "partial", "not_started"] as const).map((s) => {
               const count = summary[s];
               if (count === 0) return null;
@@ -195,7 +195,7 @@ export function EntityDrillDown({
               placeholder="Search tables..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 rounded-[var(--radius-md)] bg-muted/30 border border-border text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+              className="w-full pl-9 pr-3 py-2 rounded-[var(--radius-md)] bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
         </div>

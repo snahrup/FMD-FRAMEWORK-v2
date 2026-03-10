@@ -30,9 +30,11 @@ import {
   Layers,
   TrendingUp,
 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SourceOnboardingWizard } from '@/components/sources/SourceOnboardingWizard';
 import { useEntityDigest, invalidateDigestCache } from '@/hooks/useEntityDigest';
 import type { DigestEntity } from '@/hooks/useEntityDigest';
+import { resolveSourceLabel } from '@/hooks/useSourceConfig';
 
 // ── Types matching API responses ──
 
@@ -157,11 +159,12 @@ export default function SourceManager() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [actionStatus, setActionStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [actionStatus, setActionStatus] = useState<{ type: 'success' | 'error' | 'loading'; message: string } | null>(null);
 
   // ── UI state ──
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedConnection, setExpandedConnection] = useState<string | null>(null);
+  const [gatewayExpanded, setGatewayExpanded] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -214,8 +217,8 @@ export default function SourceManager() {
     setExpandedSources(allNames);
   };
 
-  // Friendly label: strip underscores → spaces, trim
-  const friendlyLabel = (name: string) => (name.replace(/_/g, ' ').trim() || name).toUpperCase();
+  // Friendly label: use centralized source config
+  const friendlyLabel = (name: string) => resolveSourceLabel(name);
 
   // Group entities by data source
   const entityGroups = registeredEntities.reduce<Record<string, RegisteredEntity[]>>((acc, e) => {
@@ -397,59 +400,45 @@ export default function SourceManager() {
   }, []);
 
   const handleAnalyzeSource = async (datasourceId: number) => {
+    // Find the datasource name for better status messages
+    const dsName = loadConfigData.find(e => e.dataSourceId === datasourceId)?.dataSource
+      || registeredDataSources.find(ds => ds.DataSourceId === String(datasourceId))?.Name
+      || `DS ${datasourceId}`;
+
     setAnalyzing(true);
     setAnalyzeTarget(String(datasourceId));
-    setActionStatus(null);
+    setActionStatus({ type: 'loading', message: `Analyzing ${dsName} — connecting to source SQL Server and scanning tables for PKs, watermarks, and row counts...` });
     try {
+      // Step 1: Analyze source tables (PKs, watermarks, row counts)
       const res = await fetch(`/api/analyze-source?datasource=${datasourceId}`);
-      if (res.ok) {
-        const result: AnalysisResult = await res.json();
-        setActionStatus({
-          type: 'success',
-          message: `Analyzed ${result.summary.total} tables: ${result.summary.incrementalRecommended} incremental candidates, ${result.summary.hasPrimaryKeys} with PKs`,
-        });
-        // Refresh load config with new data + invalidate digest
-        invalidateDigestCache();
-        refreshDigest();
-        await fetchLoadConfig();
-      } else {
-        const err = await res.json();
-        setActionStatus({ type: 'error', message: err.error || 'Analysis failed' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        setActionStatus({ type: 'error', message: `${dsName}: ${err.error || 'Analysis failed'}` });
+        return;
       }
-    } catch (e) {
-      setActionStatus({ type: 'error', message: e instanceof Error ? e.message : 'Analysis failed' });
-    } finally {
-      setAnalyzing(false);
-      setAnalyzeTarget(null);
-    }
-  };
+      const result: AnalysisResult = await res.json();
 
-  const handleRegisterBronzeSilver = async (datasourceId: number) => {
-    setRegistering(true);
-    setActionStatus(null);
-    try {
-      const res = await fetch('/api/register-bronze-silver', {
+      setActionStatus({ type: 'loading', message: `${dsName}: Analyzed ${result.summary.total} tables — registering Bronze/Silver entities...` });
+
+      // Step 2: Auto-register Bronze/Silver (silent — user doesn't need to know)
+      await fetch('/api/register-bronze-silver', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ datasourceId }),
+      }).catch(() => {}); // swallow — registration is best-effort
+
+      setActionStatus({
+        type: 'success',
+        message: `${dsName}: ${result.summary.total} tables analyzed — ${result.summary.incrementalRecommended} incremental candidates, ${result.summary.hasPrimaryKeys} with PKs`,
       });
-      if (res.ok) {
-        const result = await res.json();
-        setActionStatus({
-          type: 'success',
-          message: `Registered ${result.bronzeCreated || 0} Bronze + ${result.silverCreated || 0} Silver entities`,
-        });
-        invalidateDigestCache();
-        refreshDigest();
-        await fetchLoadConfig();
-      } else {
-        const err = await res.json();
-        setActionStatus({ type: 'error', message: err.error || 'Registration failed' });
-      }
+      invalidateDigestCache();
+      refreshDigest();
+      await fetchLoadConfig();
     } catch (e) {
-      setActionStatus({ type: 'error', message: e instanceof Error ? e.message : 'Registration failed' });
+      setActionStatus({ type: 'error', message: `${dsName}: ${e instanceof Error ? e.message : 'Analysis failed — check VPN connection and server logs'}` });
     } finally {
-      setRegistering(false);
+      setAnalyzing(false);
+      setAnalyzeTarget(null);
     }
   };
 
@@ -646,244 +635,91 @@ export default function SourceManager() {
         <div className={`rounded-lg p-4 flex items-center justify-between ${
           actionStatus.type === 'success'
             ? 'bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800'
+            : actionStatus.type === 'loading'
+            ? 'bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800'
             : 'bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800'
         }`}>
           <div className="flex items-center gap-3">
             {actionStatus.type === 'success' ? (
               <CheckCircle className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            ) : actionStatus.type === 'loading' ? (
+              <Loader2 className="h-5 w-5 text-blue-600 dark:text-blue-400 animate-spin" />
             ) : (
               <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
             )}
             <p className={`text-sm font-medium ${
-              actionStatus.type === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'
+              actionStatus.type === 'success' ? 'text-emerald-700 dark:text-emerald-300'
+              : actionStatus.type === 'loading' ? 'text-blue-700 dark:text-blue-300'
+              : 'text-red-700 dark:text-red-300'
             }`}>{actionStatus.message}</p>
           </div>
-          <button onClick={() => setActionStatus(null)} className="text-muted-foreground hover:text-foreground text-sm">Dismiss</button>
+          {actionStatus.type !== 'loading' && (
+            <button onClick={() => setActionStatus(null)} className="text-muted-foreground hover:text-foreground text-sm">Dismiss</button>
+          )}
         </div>
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/10 rounded-xl border border-blue-200/50 dark:border-blue-800/30 p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-950/30 rounded-lg flex items-center justify-center">
-              <Cable className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2">
+              <Database className="w-4 h-4 text-purple-400" />
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Data Sources</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold tabular-nums text-foreground">{registeredDataSources.length}</div>
+            <div className="text-[10px] text-muted-foreground mt-1">
+              <span className="text-purple-400 font-medium">{externalSources.length}</span> external SQL · {registeredDataSources.length - externalSources.length} internal
             </div>
-          </div>
-          <p className="text-3xl font-bold text-foreground">{gatewayConnections.length}</p>
-          <p className="text-sm text-muted-foreground mt-1">Gateway Connections</p>
-          <p className="text-xs text-muted-foreground mt-2">
-            <span className="text-emerald-600 dark:text-emerald-400 font-medium">{registeredCount} registered</span> · {gatewayConnections.length - registeredCount} available
-          </p>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/10 rounded-xl border border-purple-200/50 dark:border-purple-800/30 p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 bg-purple-100 dark:bg-purple-950/30 rounded-lg flex items-center justify-center">
-              <Database className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2">
+              <TableProperties className="w-4 h-4 text-amber-400" />
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Entities</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold tabular-nums text-foreground">{registeredEntities.length}</div>
+            <div className="text-[10px] text-muted-foreground mt-1">
+              {registeredEntities.filter(e => e.IsActive === 'True').length} active · {registeredEntities.filter(e => e.IsActive !== 'True').length} inactive
             </div>
-          </div>
-          <p className="text-3xl font-bold text-foreground">{registeredDataSources.length}</p>
-          <p className="text-sm text-muted-foreground mt-1">Data Sources</p>
-          <p className="text-xs text-muted-foreground mt-2">
-            <span className="text-purple-600 dark:text-purple-400 font-medium">{externalSources.length} external SQL</span> · {registeredDataSources.length - externalSources.length} internal
-          </p>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/20 dark:to-amber-900/10 rounded-xl border border-amber-200/50 dark:border-amber-800/30 p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 bg-amber-100 dark:bg-amber-950/30 rounded-lg flex items-center justify-center">
-              <TableProperties className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-blue-400" />
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Incremental</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold tabular-nums text-foreground">{incrementalCount}</div>
+            <div className="text-[10px] text-muted-foreground mt-1">
+              {fullCount} full load · {registeredEntities.length > 0 ? Math.round((incrementalCount / (incrementalCount + fullCount || 1)) * 100) : 0}% optimized
             </div>
-          </div>
-          <p className="text-3xl font-bold text-foreground">{registeredEntities.length}</p>
-          <p className="text-sm text-muted-foreground mt-1">Landing Zone Entities</p>
-          <p className="text-xs text-muted-foreground mt-2">Tables configured for ingestion</p>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/20 dark:to-emerald-900/10 rounded-xl border border-emerald-200/50 dark:border-emerald-800/30 p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-950/30 rounded-lg flex items-center justify-center">
-              <FolderInput className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2">
+              <Cable className="w-4 h-4 text-emerald-400" />
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Connections</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold tabular-nums text-foreground">{gatewayConnections.length}</div>
+            <div className="text-[10px] text-muted-foreground mt-1">
+              <span className="text-emerald-400 font-medium">{registeredCount}</span> registered · {gatewayConnections.length - registeredCount} available
             </div>
-          </div>
-          <p className="text-3xl font-bold text-foreground">{sqlConnections.length}</p>
-          <p className="text-sm text-muted-foreground mt-1">SQL Connections</p>
-          <p className="text-xs text-muted-foreground mt-2">On-prem via gateway</p>
-        </div>
-      </div>
-
-      {/* Gateway Connections */}
-      <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 rounded-xl border border-slate-200/50 dark:border-slate-800/30 p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Gateway Connections</h2>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              All on-premises SQL connections via PowerBIGateway — live from Fabric API
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search connections..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 pr-4 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground w-64"
-              />
-            </div>
-            <button
-              onClick={() => loadData(true)}
-              className="flex items-center gap-2 px-3 py-2 text-sm bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
-            >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          {filteredConnections.map((conn) => {
-            const isExpanded = expandedConnection === conn.id;
-            const regConn = isRegistered(conn);
-            const connDataSources = regConn ? getDataSourcesForConnection(regConn.Name) : [];
-            return (
-              <div key={conn.id} className="border border-border rounded-lg overflow-hidden">
-                <button
-                  onClick={() => setExpandedConnection(isExpanded ? null : conn.id)}
-                  className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors text-left"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      {regConn ? (
-                        <CheckCircle className="h-5 w-5 text-emerald-500" />
-                      ) : (
-                        <Circle className="h-5 w-5 text-muted-foreground/40" />
-                      )}
-                    </div>
-                    <div className="w-10 h-10 bg-muted rounded-lg border border-border flex items-center justify-center">
-                      <Server className="w-5 h-5 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground">{conn.displayName}</p>
-                      <p className="text-sm text-muted-foreground font-mono">{conn.server} → {conn.database}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                        regConn
-                          ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400'
-                          : 'bg-muted text-muted-foreground'
-                      }`}>
-                        {regConn ? 'Registered' : 'Available'}
-                      </span>
-                    </div>
-                    <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">{conn.authType}</span>
-                    {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-                  </div>
-                </button>
-
-                {isExpanded && (
-                  <div className="border-t border-border bg-muted/30 p-5">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div>
-                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Connection GUID</p>
-                        <div className="flex items-center gap-2">
-                          <code className="text-xs font-mono text-foreground bg-muted px-2 py-1 rounded border border-border break-all">{conn.id}</code>
-                          <button onClick={() => copyToClipboard(conn.id)} className="text-muted-foreground hover:text-foreground transition-colors shrink-0">
-                            <Copy className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Server</p>
-                        <p className="font-mono text-foreground">{conn.server}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Database</p>
-                        <p className="font-mono text-foreground">{conn.database}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Encryption</p>
-                        <p className="text-foreground">{conn.encryption}</p>
-                      </div>
-                    </div>
-
-                    {regConn && (
-                      <div className="mt-4 pt-4 border-t border-border">
-                        <div className="flex items-center gap-2 mb-2">
-                          <p className="text-muted-foreground text-xs uppercase tracking-wider">FMD Framework Name</p>
-                          <div className="relative group">
-                            <Info className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help" />
-                            <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 p-3 bg-popover text-popover-foreground text-xs rounded-lg border border-border shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50">
-                              <p className="font-medium mb-1">Naming convention: CON_FMD_{'{SERVER}'}_{'{SOURCE}'}</p>
-                              <ul className="space-y-1 text-muted-foreground">
-                                <li><span className="font-mono text-foreground">CON_FMD</span> — prefix for all framework connections</li>
-                                <li><span className="font-mono text-foreground">{'{SERVER}'}</span> — the SQL Server hostname</li>
-                                <li><span className="font-mono text-foreground">{'{SOURCE}'}</span> — the Fabric display name (spaces removed)</li>
-                              </ul>
-                              <p className="mt-2 text-muted-foreground">This is the identifier used in pipeline expressions like <span className="font-mono">@item().ConnectionGuid</span></p>
-                            </div>
-                          </div>
-                        </div>
-                        <code className="text-sm font-mono text-emerald-600 dark:text-emerald-400">{regConn.Name}</code>
-
-                        {connDataSources.length > 0 && (
-                          <div className="mt-3">
-                            <p className="text-muted-foreground text-xs uppercase tracking-wider mb-2">Linked Data Sources</p>
-                            <div className="space-y-2">
-                              {connDataSources.map(ds => (
-                                <div key={ds.DataSourceId} className="flex items-center gap-3 bg-card border border-border rounded-lg p-3">
-                                  <Database className="h-4 w-4 text-purple-500" />
-                                  <div>
-                                    <p className="text-sm font-medium text-foreground">{ds.Name}</p>
-                                    <p className="text-xs text-muted-foreground">Namespace: {ds.Namespace} · Type: {ds.Type} · {ds.Description}</p>
-                                  </div>
-                                  <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${
-                                    ds.IsActive === 'True'
-                                      ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400'
-                                      : 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400'
-                                  }`}>{ds.IsActive === 'True' ? 'Active' : 'Inactive'}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {!regConn && (
-                      <div className="mt-4 pt-4 border-t border-border">
-                        <p className="text-sm text-muted-foreground mb-3">This connection is available in the Fabric gateway but not yet registered in the FMD framework.</p>
-                        <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => registerConnection(conn)}
-                            disabled={submitting}
-                            className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium disabled:opacity-50"
-                          >
-                            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                            Register Connection
-                          </button>
-                          <a
-                            href="https://app.fabric.microsoft.com/connections"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-2 px-4 py-2 text-sm bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            Open in Fabric
-                          </a>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Registered Entities — Grouped by Data Source */}
@@ -974,7 +810,7 @@ export default function SourceManager() {
               return (
                 <div key={sourceName} className="border border-border rounded-lg overflow-hidden">
                   {/* Source group header */}
-                  <div className="flex items-center bg-muted/30 hover:bg-muted/50 transition-colors">
+                  <div className="flex items-center bg-muted hover:bg-muted/50 transition-colors">
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleGroupAll(sourceName); }}
                       className="pl-3 pr-1 py-3 text-muted-foreground hover:text-foreground transition-colors"
@@ -1011,7 +847,7 @@ export default function SourceManager() {
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="border-t border-border bg-muted/20">
+                          <tr className="border-t border-border bg-muted">
                             <th className="w-10 py-2 px-3"></th>
                             <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Schema.Table</th>
                             <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Output File</th>
@@ -1025,7 +861,7 @@ export default function SourceManager() {
                           {entities.map(entity => {
                             const isChecked = selectedIds.has(entity.LandingzoneEntityId);
                             return (
-                              <tr key={entity.LandingzoneEntityId} className={`border-t border-border/50 last:border-0 hover:bg-muted/20 transition-colors group ${isChecked ? 'bg-primary/5' : ''}`}>
+                              <tr key={entity.LandingzoneEntityId} className={`border-t border-border/50 last:border-0 hover:bg-muted/50 transition-colors group ${isChecked ? 'bg-primary/5' : ''}`}>
                                 <td className="py-2.5 px-3">
                                   <button
                                     onClick={() => toggleEntity(entity.LandingzoneEntityId)}
@@ -1097,7 +933,7 @@ export default function SourceManager() {
         {entityViewMode === 'loadConfig' && (
           <div className="space-y-4">
             {/* Summary bar */}
-            <div className="flex items-center justify-between bg-muted/30 rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between bg-muted rounded-lg border border-border p-3">
               <div className="flex items-center gap-4 text-sm">
                 <span className="text-foreground font-medium">{loadConfigData.length} entities</span>
                 <span className="text-blue-500 dark:text-blue-400 flex items-center gap-1">
@@ -1136,7 +972,7 @@ export default function SourceManager() {
             {uniqueDataSources.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 {uniqueDataSources.map(([dsId, dsName]) => (
-                  <div key={dsId} className="flex items-center gap-1 bg-muted/30 rounded-lg border border-border px-3 py-1.5">
+                  <div key={dsId} className="flex items-center gap-1 bg-muted rounded-lg border border-border px-3 py-1.5">
                     <span className="text-xs font-medium text-foreground mr-2">{dsName}</span>
                     <button
                       onClick={() => handleAnalyzeSource(dsId)}
@@ -1150,19 +986,6 @@ export default function SourceManager() {
                         <Search className="w-3 h-3" />
                       )}
                       Analyze
-                    </button>
-                    <button
-                      onClick={() => handleRegisterBronzeSilver(dsId)}
-                      disabled={registering}
-                      className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-purple-600 hover:bg-purple-700 text-white transition-colors disabled:opacity-50"
-                      title="Auto-register Bronze + Silver entities from analyzed data"
-                    >
-                      {registering ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <Layers className="w-3 h-3" />
-                      )}
-                      Register B/S
                     </button>
                   </div>
                 ))}
@@ -1187,7 +1010,7 @@ export default function SourceManager() {
                   const srcBronze = entities.filter(e => e.bronzeEntityId != null).length;
                   return (
                     <div key={sourceName} className="border border-border rounded-lg overflow-hidden">
-                      <div className="flex items-center justify-between bg-muted/30 p-3">
+                      <div className="flex items-center justify-between bg-muted p-3">
                         <div className="flex items-center gap-3">
                           <Database className="w-4 h-4 text-primary" />
                           <span className="font-semibold text-sm text-foreground">{sourceName.toUpperCase()}</span>
@@ -1199,7 +1022,7 @@ export default function SourceManager() {
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
-                            <tr className="border-t border-border bg-muted/20">
+                            <tr className="border-t border-border bg-muted">
                               <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Table</th>
                               <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium w-28">Load Type</th>
                               <th className="text-left py-2 px-3 text-xs uppercase tracking-wider text-muted-foreground font-medium">Watermark Column</th>
@@ -1217,7 +1040,7 @@ export default function SourceManager() {
                               const wmCol = pending?.column ?? entity.watermarkColumn ?? '';
                               const hasPending = pending !== undefined;
                               return (
-                                <tr key={entity.entityId} className={`border-t border-border/50 last:border-0 hover:bg-muted/20 transition-colors ${hasPending ? 'bg-amber-50/5' : ''}`}>
+                                <tr key={entity.entityId} className={`border-t border-border/50 last:border-0 hover:bg-muted/50 transition-colors ${hasPending ? 'bg-amber-50/5' : ''}`}>
                                   <td className="py-2 px-3 font-mono text-foreground text-xs">
                                     {entity.schema}.{entity.table}
                                   </td>
@@ -1314,7 +1137,7 @@ export default function SourceManager() {
                 <p className="text-xs text-muted-foreground">This will remove data across all layers</p>
               </div>
             </div>
-            <div className="p-3 bg-muted/30 rounded-lg border border-border mb-4">
+            <div className="p-3 bg-muted rounded-lg border border-border mb-4">
               <p className="text-sm text-foreground">
                 Are you sure you want to delete <span className="font-bold font-mono">{deleteTarget.SourceSchema}.{deleteTarget.SourceName}</span> from <span className="font-semibold">{friendlyLabel(deleteTarget.DataSourceName)}</span>?
               </p>
@@ -1394,7 +1217,7 @@ export default function SourceManager() {
                 <p className="text-xs text-muted-foreground">This will remove data across all layers</p>
               </div>
             </div>
-            <div className="p-3 bg-muted/30 rounded-lg border border-border mb-3 max-h-48 overflow-y-auto">
+            <div className="p-3 bg-muted rounded-lg border border-border mb-3 max-h-48 overflow-y-auto">
               <p className="text-sm text-foreground mb-2">Are you sure you want to delete these entities?</p>
               <ul className="space-y-1">
                 {selectedEntitiesList.map(e => (
@@ -1463,6 +1286,191 @@ export default function SourceManager() {
           </div>
         </div>
       )}
+
+      {/* Gateway Connections — collapsed by default */}
+      <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 rounded-xl border border-slate-200/50 dark:border-slate-800/30 shadow-sm">
+        <button
+          onClick={() => setGatewayExpanded(!gatewayExpanded)}
+          className="w-full flex items-center justify-between p-5 hover:bg-muted/50 transition-colors text-left rounded-xl"
+        >
+          <div className="flex items-center gap-3">
+            <Cable className="w-5 h-5 text-muted-foreground" />
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Gateway Connections</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {registeredCount} registered · {gatewayConnections.length} total — on-premises SQL via PowerBIGateway
+              </p>
+            </div>
+          </div>
+          {gatewayExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        </button>
+
+        {gatewayExpanded && (
+          <div className="px-5 pb-5 pt-0">
+            <div className="flex items-center justify-end gap-3 mb-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search connections..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 pr-4 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground w-64"
+                />
+              </div>
+              <button
+                onClick={() => loadData(true)}
+                className="flex items-center gap-2 px-3 py-2 text-sm bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
+              >
+                <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {filteredConnections.map((conn) => {
+                const isExpanded = expandedConnection === conn.id;
+                const regConn = isRegistered(conn);
+                const connDataSources = regConn ? getDataSourcesForConnection(regConn.Name) : [];
+                return (
+                  <div key={conn.id} className="border border-border rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => setExpandedConnection(isExpanded ? null : conn.id)}
+                      className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          {regConn ? (
+                            <CheckCircle className="h-5 w-5 text-emerald-500" />
+                          ) : (
+                            <Circle className="h-5 w-5 text-muted-foreground/40" />
+                          )}
+                        </div>
+                        <div className="w-10 h-10 bg-muted rounded-lg border border-border flex items-center justify-center">
+                          <Server className="w-5 h-5 text-muted-foreground" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">{conn.displayName}</p>
+                          <p className="text-sm text-muted-foreground font-mono">{conn.server} → {conn.database}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                            regConn
+                              ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400'
+                              : 'bg-muted text-muted-foreground'
+                          }`}>
+                            {regConn ? 'Registered' : 'Available'}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">{conn.authType}</span>
+                        {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="border-t border-border bg-muted p-5">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Connection GUID</p>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs font-mono text-foreground bg-muted px-2 py-1 rounded border border-border break-all">{conn.id}</code>
+                              <button onClick={() => copyToClipboard(conn.id)} className="text-muted-foreground hover:text-foreground transition-colors shrink-0">
+                                <Copy className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Server</p>
+                            <p className="font-mono text-foreground">{conn.server}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Database</p>
+                            <p className="font-mono text-foreground">{conn.database}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-xs uppercase tracking-wider mb-1">Encryption</p>
+                            <p className="text-foreground">{conn.encryption}</p>
+                          </div>
+                        </div>
+
+                        {regConn && (
+                          <div className="mt-4 pt-4 border-t border-border">
+                            <div className="flex items-center gap-2 mb-2">
+                              <p className="text-muted-foreground text-xs uppercase tracking-wider">FMD Framework Name</p>
+                              <div className="relative group">
+                                <Info className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help" />
+                                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 p-3 bg-popover text-popover-foreground text-xs rounded-lg border border-border shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50">
+                                  <p className="font-medium mb-1">Naming convention: CON_FMD_{'{SERVER}'}_{'{SOURCE}'}</p>
+                                  <ul className="space-y-1 text-muted-foreground">
+                                    <li><span className="font-mono text-foreground">CON_FMD</span> — prefix for all framework connections</li>
+                                    <li><span className="font-mono text-foreground">{'{SERVER}'}</span> — the SQL Server hostname</li>
+                                    <li><span className="font-mono text-foreground">{'{SOURCE}'}</span> — the Fabric display name (spaces removed)</li>
+                                  </ul>
+                                  <p className="mt-2 text-muted-foreground">This is the identifier used in pipeline expressions like <span className="font-mono">@item().ConnectionGuid</span></p>
+                                </div>
+                              </div>
+                            </div>
+                            <code className="text-sm font-mono text-emerald-600 dark:text-emerald-400">{regConn.Name}</code>
+
+                            {connDataSources.length > 0 && (
+                              <div className="mt-3">
+                                <p className="text-muted-foreground text-xs uppercase tracking-wider mb-2">Linked Data Sources</p>
+                                <div className="space-y-2">
+                                  {connDataSources.map(ds => (
+                                    <div key={ds.DataSourceId} className="flex items-center gap-3 bg-card border border-border rounded-lg p-3">
+                                      <Database className="h-4 w-4 text-purple-500" />
+                                      <div>
+                                        <p className="text-sm font-medium text-foreground">{ds.Name}</p>
+                                        <p className="text-xs text-muted-foreground">Namespace: {ds.Namespace} · Type: {ds.Type} · {ds.Description}</p>
+                                      </div>
+                                      <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${
+                                        ds.IsActive === 'True'
+                                          ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400'
+                                          : 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400'
+                                      }`}>{ds.IsActive === 'True' ? 'Active' : 'Inactive'}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {!regConn && (
+                          <div className="mt-4 pt-4 border-t border-border">
+                            <p className="text-sm text-muted-foreground mb-3">This connection is available in the Fabric gateway but not yet registered in the FMD framework.</p>
+                            <div className="flex items-center gap-3">
+                              <button
+                                onClick={() => registerConnection(conn)}
+                                disabled={submitting}
+                                className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium disabled:opacity-50"
+                              >
+                                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                                Register Connection
+                              </button>
+                              <a
+                                href="https://app.fabric.microsoft.com/connections"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex items-center gap-2 px-4 py-2 text-sm bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                Open in Fabric
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Onboarding Modal */}
       {showOnboarding && (

@@ -1,38 +1,52 @@
 {
-  "server": {
-    "host": "0.0.0.0",
-    "port": 8787,
-    "static_dir": "../dist"
-  },
-  "fabric": {
-    "tenant_id": "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303",
-    "client_id": "ac937c5d-4bdd-438f-be8b-84a850021d2d",
-    "client_secret": "${FABRIC_CLIENT_SECRET}",
-    "workspace_data_id": "0596d0e7-e036-451d-a967-41a284302e8d",
-    "workspace_code_id": "c0366b24-e6f8-4994-b4df-b765ecb5bbf8"
-  },
-  "sql": {
-    "server": "7xuydsw5a3hutnnj5z2ed72tam-sec7pymam6ju3bf4xjcxeuj6lq.database.fabric.microsoft.com,1433",
-    "database": "SQL_INTEGRATION_FRAMEWORK-ed567507-5ec0-48fd-8b46-0782241219d5",
-    "driver": "ODBC Driver 18 for SQL Server"
-  },
-  "purview": {
-    "account_name": "${PURVIEW_ACCOUNT_NAME}"
-  },
-  "engine": {
-    "lz_lakehouse_id": "3b9a7e79-1615-4ec2-9e93-0bdebe985d5a",
-    "bronze_lakehouse_id": "f06393ca-c024-435f-8d7f-9f5aa3bb4cb3",
-    "silver_lakehouse_id": "f85e1ba0-2e40-4de5-be1e-f8ad3ddbc652",
-    "batch_size": 15,
-    "chunk_rows": 500000,
-    "query_timeout": 120,
-    "load_method": "local",
-    "pipeline_fallback": true,
-    "pipeline_copy_sql_id": "9a06a21d-d139-4356-81d2-6d6e0630a01b",
-    "pipeline_workspace_id": "c0366b24-e6f8-4994-b4df-b765ecb5bbf8"
-  },
-  "logging": {
-    "file": "fmd-dashboard.log",
-    "level": "INFO"
-  }
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8787,
+        "static_dir": "../dist"
+    },
+    "fabric": {
+        "tenant_id": "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303",
+        "client_id": "ac937c5d-4bdd-438f-be8b-84a850021d2d",
+        "client_secret": "${FABRIC_CLIENT_SECRET}",
+        "workspace_data_id": "0596d0e7-e036-451d-a967-41a284302e8d",
+        "workspace_code_id": "c0366b24-e6f8-4994-b4df-b765ecb5bbf8"
+    },
+    "sql": {
+        "server": "7xuydsw5a3hutnnj5z2ed72tam-sec7pymam6ju3bf4xjcxeuj6lq.database.fabric.microsoft.com,1433",
+        "database": "SQL_INTEGRATION_FRAMEWORK-ed567507-5ec0-48fd-8b46-0782241219d5",
+        "driver": "ODBC Driver 18 for SQL Server"
+    },
+    "purview": {
+        "account_name": "${PURVIEW_ACCOUNT_NAME}"
+    },
+    "paths": {
+        "_comment": "SINGLE SOURCE OF TRUTH for OneLake path formats. See ARCHITECTURE.md.",
+        "lz_folder": "{namespace}",
+        "lz_filename": "{table}.parquet",
+        "lz_full": "Files/{namespace}/{table}.parquet",
+        "bronze_table": "Tables/{namespace}/{table}",
+        "silver_table": "Tables/{namespace}/{table}",
+        "gold_schema": "{namespace}"
+    },
+    "engine": {
+        "lz_lakehouse_id": "99FDC434-53E8-4E36-BDFD-82535BD25F41",
+        "bronze_lakehouse_id": "319E63D9-18DE-4208-B563-F251CBA24C6F",
+        "silver_lakehouse_id": "781CDAAE-4BB5-4BEE-A322-8339D00B9F75",
+        "batch_size": 15,
+        "chunk_rows": 500000,
+        "query_timeout": 120,
+        "load_method": "notebook",
+        "pipeline_fallback": true,
+        "notebook_bronze_id": "f7be6488-6508-4bcd-8c79-296a37f52a25",
+        "notebook_silver_id": "556fd16b-ed49-4f7b-83a8-a79252ee54f9",
+        "notebook_lz_id": "a69cb3e2-52a1-abee-4335-29721d1d5828",
+        "notebook_processing_id": "bf2101e2-a101-b8df-43bf-5f6ba130a279",
+        "notebook_maintenance_id": "",
+        "pipeline_copy_sql_id": "9a06a21d-d139-4356-81d2-6d6e0630a01b",
+        "pipeline_workspace_id": "c0366b24-e6f8-4994-b4df-b765ecb5bbf8"
+    },
+    "logging": {
+        "file": "fmd-dashboard.log",
+        "level": "INFO"
+    }
 }

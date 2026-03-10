@@ -199,9 +199,9 @@ function LogPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="flex flex-col h-full min-h-0 rounded-xl border border-border/50 bg-card/30 overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 rounded-xl border border-border/50 bg-card overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30 bg-card/50 flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30 bg-card flex-shrink-0">
         <div className="flex items-center gap-2">
           <Icon className="w-4 h-4 text-primary" />
           <h2 className="text-sm font-semibold text-foreground">{title}</h2>
@@ -295,7 +295,7 @@ export default function AgentCollaboration() {
             className={`flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-md border transition-colors cursor-pointer ${
               autoRefresh
                 ? "text-primary bg-primary/5 border-primary/20"
-                : "text-muted-foreground bg-card/50 border-border/50"
+                : "text-muted-foreground bg-card border-border/50"
             }`}
           >
             <RefreshCw

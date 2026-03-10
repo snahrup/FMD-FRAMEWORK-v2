@@ -1,0 +1,12 @@
+{
+  "company": "IP Corp",
+  "project": "FMD_FRAMEWORK",
+  "status": "active",
+  "catchUpRequired": false,
+  "lastHeartbeat": null,
+  "resumedAt": null,
+  "gapDuration": null,
+  "activeAgents": [],
+  "blockers": [],
+  "notes": "Initial setup. 8 agents configured, knowledge base initialized."
+}

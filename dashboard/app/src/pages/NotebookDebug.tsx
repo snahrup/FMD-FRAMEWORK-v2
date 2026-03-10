@@ -575,7 +575,7 @@ export default function NotebookDebug() {
                 { label: "Source", value: runResult.dataSourceFilter || "all" },
                 { label: "Job ID", value: runResult.jobInstanceId?.slice(0, 12) + "..." },
               ].map((item) => (
-                <div key={item.label} className="rounded-lg bg-muted/30 border border-border p-3">
+                <div key={item.label} className="rounded-lg bg-muted border border-border p-3">
                   <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{item.label}</div>
                   <div className="text-xs font-mono text-foreground mt-1 truncate">{item.value}</div>
                 </div>
@@ -592,7 +592,7 @@ export default function NotebookDebug() {
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <button
             onClick={() => setShowHistory(!showHistory)}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/10 transition-colors"
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
           >
             <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
               <Clock className="w-4 h-4 text-muted-foreground" />
@@ -611,7 +611,7 @@ export default function NotebookDebug() {
                 return (
                   <div
                     key={job.id || i}
-                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/10 transition-colors"
+                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors"
                   >
                     {job.status === "Completed" && <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />}
                     {job.status === "Failed" && <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />}
@@ -660,7 +660,7 @@ export default function NotebookDebug() {
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <button
           onClick={() => setShowEntityPreview(!showEntityPreview)}
-          className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/10 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
         >
           <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Database className="w-4 h-4 text-muted-foreground" />
@@ -705,7 +705,7 @@ export default function NotebookDebug() {
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {previewEntities.map((e, i) => (
-                      <tr key={i} className="hover:bg-muted/10 transition-colors">
+                      <tr key={i} className="hover:bg-muted/50 transition-colors">
                         <td className="px-3 py-2.5 text-muted-foreground font-mono">{i + 1}</td>
                         <td className="px-3 py-2.5">
                           <span className="text-xs px-2 py-0.5 rounded border text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 border-blue-200/50 dark:border-blue-800/30">

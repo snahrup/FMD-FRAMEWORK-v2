@@ -19,6 +19,7 @@ import {
   Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { resolveSourceLabel } from "@/hooks/useSourceConfig";
 import {
   AreaChart,
   Area,
@@ -117,17 +118,7 @@ interface ExecData {
 
 // ── Display Name Mappings (business-friendly) ──
 
-const FRIENDLY_SOURCE_NAMES: Record<string, string> = {
-  mes: "MES",
-  MES: "MES",
-  ETQStagingPRD: "ETQ",
-  ETQ: "ETQ",
-  m3fdbprd: "M3",
-  M3: "M3",
-  M3C: "M3 Cloud",
-  DI_PRD_Staging: "M3 Cloud",
-  "M3 Cloud": "M3 Cloud",
-};
+// Source labels now resolved dynamically via useSourceConfig hook
 
 const FRIENDLY_LAYER_NAMES: Record<string, string> = {
   landing: "Landing Zone",
@@ -166,7 +157,7 @@ function timeAgo(iso: string | null): string {
 
 function friendlySourceName(raw: string, technical: boolean): string {
   if (technical) return raw;
-  return FRIENDLY_SOURCE_NAMES[raw] || raw;
+  return resolveSourceLabel(raw);
 }
 
 function friendlyLayerName(raw: string, technical: boolean): string {
@@ -230,7 +221,7 @@ function StatCard({
   color: string;
 }) {
   return (
-    <div className="bg-card/60 backdrop-blur-sm border border-border/50 rounded-xl p-5 flex items-start gap-4">
+    <div className="bg-card backdrop-blur-sm border border-border/50 rounded-xl p-5 flex items-start gap-4">
       <div className={cn("p-3 rounded-lg", color)}>
         <Icon className="h-5 w-5 text-white" />
       </div>
@@ -266,7 +257,7 @@ function FlowNode({
     <div className="flex items-center gap-0 flex-1">
       <div className={cn(
         "flex-1 rounded-xl border p-4 text-center relative overflow-hidden",
-        "bg-card/60 backdrop-blur-sm border-border/50"
+        "bg-card backdrop-blur-sm border-border/50"
       )}>
         {/* Top accent bar */}
         <div className={cn("absolute top-0 left-0 right-0 h-1", color)} />
@@ -314,7 +305,7 @@ function SourceCard({ source, technical }: { source: Source; technical: boolean 
   const slvCount = layers.silver.count;
 
   return (
-    <div className="bg-card/60 backdrop-blur-sm border border-border/50 rounded-xl p-5">
+    <div className="bg-card backdrop-blur-sm border border-border/50 rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="font-semibold text-foreground">{name}</h3>
@@ -574,7 +565,7 @@ export default function ExecutiveDashboard() {
       </div>
 
       {/* ── Data Flow Pipeline ── */}
-      <div className="bg-card/40 backdrop-blur-sm border border-border/50 rounded-xl p-6">
+      <div className="bg-card backdrop-blur-sm border border-border/50 rounded-xl p-6">
         <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
           <Zap className="h-4 w-4 text-[#AE5630]" />
           Data Flow
@@ -631,7 +622,7 @@ export default function ExecutiveDashboard() {
             <TrendingUp className="h-4 w-4 text-[var(--cl-success)]" />
             Trend (24h)
           </h2>
-          <div className="bg-card/60 backdrop-blur-sm border border-border/50 rounded-xl p-4">
+          <div className="bg-card backdrop-blur-sm border border-border/50 rounded-xl p-4">
             {trendData.length > 1 ? (
               <ResponsiveContainer width="100%" height={200}>
                 <AreaChart data={trendData}>
@@ -708,7 +699,7 @@ export default function ExecutiveDashboard() {
       {/* ── Recent Activity + Issues ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Activity Timeline */}
-        <div className="bg-card/60 backdrop-blur-sm border border-border/50 rounded-xl p-5">
+        <div className="bg-card backdrop-blur-sm border border-border/50 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
             <Clock className="h-4 w-4 text-[var(--cl-info)]" />
             Recent Activity
@@ -725,7 +716,7 @@ export default function ExecutiveDashboard() {
         </div>
 
         {/* Issues / Attention */}
-        <div className="bg-card/60 backdrop-blur-sm border border-border/50 rounded-xl p-5">
+        <div className="bg-card backdrop-blur-sm border border-border/50 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-[var(--cl-warning)]" />
             Attention Needed

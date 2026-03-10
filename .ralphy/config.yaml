@@ -1,0 +1,34 @@
+project:
+  name: "FMD_FRAMEWORK"
+  language: "Python"
+  framework: "Microsoft Fabric / PySpark"
+
+commands:
+  test: "python check_m3_progress.py"
+  lint: "echo 'no lint configured'"
+  build: "echo 'no build configured'"
+
+rules:
+  - "NEVER use azure.identity — it hangs. Use urllib.request token pattern from memory/bronze-pipeline-debugging.md"
+  - "SQL auth: use SP token via pyodbc attrs_before={1256: token_struct}. Scope MUST be analysis.windows.net/powerbi/api/.default (NOT database.windows.net)"
+  - "Fabric API auth: scope https://api.fabric.microsoft.com/.default"
+  - "Tenant: ca81e9fd-06dd-49cf-b5a9-ee7441ff5303, Client: ac937c5d-4bdd-438f-be8b-84a850021d2d"
+  - "SQL Server: 7xuydsw5a3hutnnj5z2ed72tam-nt3ef5gg5llunagjzcyclsdpxy.database.fabric.microsoft.com,1433"
+  - "SQL DB: SQL_INTEGRATION_FRAMEWORK-501d6b17-fcee-47f3-bbb3-54e05f2a3fc0"
+  - "Workspaces: DATA_DEV=0596d0e7, CODE_DEV=c0366b24, CODE_PROD=f825b6f5, CONFIG=e1f70591, DATA_PROD=5a54d6ec"
+  - "Lakehouses: LZ=3b9a7e79, Bronze=f06393ca, Silver=f85e1ba0"
+  - "Pipelines: LZ=3d0b3b2b, Bronze=8b7008ac, Silver=90c0535c, LoadAll=e45418a4"
+  - "DataSource IDs: MES=4, ETQ=5, M3_ERP=6, M3_Cloud=7"
+  - "Read memory/bronze-pipeline-debugging.md FIRST for context on all root causes, fixes, and patterns"
+  - "Save progress to memory/bronze-pipeline-debugging.md after each task"
+  - "When polling pipelines, use 30-second intervals with timeout of 3 hours"
+  - "Pipeline order MUST be: LZ → Bronze → Silver (each layer feeds the next)"
+  - "Do NOT modify src/**/*.DataPipeline/pipeline-content.json files — they contain anchor GUIDs"
+
+boundaries:
+  never_touch:
+    - "src/**/*.DataPipeline/pipeline-content.json"
+    - "*.lock"
+    - "node_modules/**"
+    - ".git/**"
+    - "config/id_registry.json"

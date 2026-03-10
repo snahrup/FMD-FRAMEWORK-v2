@@ -87,7 +87,7 @@ const STATUS_COLORS: Record<string, { bg: string; ring: string; text: string; gl
   complete: { bg: "bg-[var(--success-soft)]", ring: "stroke-[var(--cl-success)]", text: "text-[var(--cl-success)]", glow: "shadow-[var(--cl-success)]/20" },
   in_progress: { bg: "bg-[var(--warning-soft)]", ring: "stroke-[var(--cl-warning)]", text: "text-[var(--cl-warning)]", glow: "shadow-[var(--cl-warning)]/20" },
   partial: { bg: "bg-[var(--info-soft)]", ring: "stroke-[var(--cl-info)]", text: "text-[var(--cl-info)]", glow: "shadow-[var(--cl-info)]/20" },
-  not_started: { bg: "bg-muted/30", ring: "stroke-muted-foreground/30", text: "text-muted-foreground/50", glow: "" },
+  not_started: { bg: "bg-muted", ring: "stroke-muted-foreground/30", text: "text-muted-foreground/50", glow: "" },
 };
 
 const PIPELINE_STATUS_COLOR: Record<string, string> = {
@@ -734,7 +734,7 @@ export default function PipelineMatrix() {
             {data.pipelines.map((p, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between py-2 px-3 rounded-[var(--radius-md)] bg-muted/30"
+                className="flex items-center justify-between py-2 px-3 rounded-[var(--radius-md)] bg-muted"
               >
                 <div className="flex items-center gap-3">
                   <div className={cn(

@@ -7,11 +7,13 @@ This is the thin copy pipeline that does ONE thing:
 The notebook NB_FMD_LOAD_LANDINGZONE_MAIN invokes this pipeline per-entity.
 """
 import json, base64, urllib.request, urllib.parse, os, sys
+from fmd_config import load_fmd_config
 
-TENANT = 'ca81e9fd-06dd-49cf-b5a9-ee7441ff5303'
-CLIENT = 'ac937c5d-4bdd-438f-be8b-84a850021d2d'
-SECRET = os.environ.get('FABRIC_CLIENT_SECRET', '')
-WS_CODE = 'c0366b24-e6f8-4994-b4df-b765ecb5bbf8'
+_cfg = load_fmd_config()
+TENANT = _cfg['tenant_id']
+CLIENT = _cfg['client_id']
+SECRET = _cfg['client_secret']
+WS_CODE = _cfg['workspaces'].get('workspace_code', '')
 
 PL_NAME = 'PL_FMD_LDZ_COPY_SQL'
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

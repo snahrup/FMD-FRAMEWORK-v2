@@ -1,0 +1,14 @@
+# Semgrep ignore patterns
+node_modules/
+.mcp-servers/
+.claude/
+.git/
+.ralphy/
+.ralphy-worktrees/
+.mri/
+dashboard/app/dist/
+dashboard/app/node_modules/
+*.min.js
+*.min.css
+*.lock
+package-lock.json

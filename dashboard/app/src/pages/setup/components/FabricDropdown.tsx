@@ -122,7 +122,7 @@ export function FabricDropdown({
     return (
       <div className="space-y-1">
         <label className="text-xs font-medium text-muted-foreground">{label}</label>
-        <div className="h-9 rounded-md border border-border/50 bg-muted/20 flex items-center px-3">
+        <div className="h-9 rounded-md border border-border/50 bg-muted flex items-center px-3">
           <span className="text-xs text-muted-foreground/60 italic">
             {disabledMessage || "Complete previous step first"}
           </span>
@@ -196,7 +196,7 @@ export function FabricDropdown({
 
       {/* Inline create form */}
       {showCreate && (
-        <div className="rounded-md border border-dashed border-border/60 bg-muted/10 p-3 space-y-2">
+        <div className="rounded-md border border-dashed border-border/60 bg-muted p-3 space-y-2">
           <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
             New {label}
           </label>

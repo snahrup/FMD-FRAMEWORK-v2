@@ -762,7 +762,7 @@ export function SourceOnboardingWizard({
 
           {/* Step detail panel */}
           {activeVisualStep !== null && (
-            <div className="border-t border-border bg-muted/30 p-6">
+            <div className="border-t border-border bg-muted p-6">
 
               {/* ═══════ Visual Step 0: Configure Source ═══════ */}
               {activeVisualStep === 0 && (
@@ -1253,7 +1253,7 @@ export function SourceOnboardingWizard({
                           </div>
 
                           {/* Summary row */}
-                          <div className="px-4 py-3 border-b border-border bg-muted/30">
+                          <div className="px-4 py-3 border-b border-border bg-muted">
                             <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
                               <span className="text-muted-foreground">Source:</span>
                               <span className="font-mono text-foreground">{selectedSource}</span>
