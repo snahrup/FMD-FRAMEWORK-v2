@@ -27,6 +27,81 @@ interface PipelineRun {
 type ViewMode = 'business' | 'technical';
 type LogTab = 'pipelines' | 'copies' | 'notebooks';
 
+// ── Log Event Aggregation ──
+// The logging.* tables store individual log events (LogType = 'StartPipeline',
+// 'EndPipeline', 'PipelineError', etc.), not run summaries. We aggregate them
+// by PipelineRunGuid into runs with derived Status, StartTime, EndTime.
+
+function aggregateLogEvents(events: PipelineRun[], nameField: string): PipelineRun[] {
+  // If the data already has a Status field, it's pre-aggregated — pass through
+  if (events.length > 0 && events[0].Status != null) {
+    return events;
+  }
+
+  // Group by PipelineRunGuid (or treat each event as its own entry if no guid)
+  const groups = new Map<string, PipelineRun[]>();
+  for (const evt of events) {
+    const key = evt.PipelineRunGuid || evt.id || `evt-${groups.size}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(evt);
+  }
+
+  const runs: PipelineRun[] = [];
+  for (const [guid, evts] of groups) {
+    const logTypes = evts.map(e => (e.LogType || '').toLowerCase());
+    const name = evts[0][nameField] || evts[0].PipelineName || evts[0].NotebookName || evts[0].CopyActivityName || 'Unknown';
+
+    // Derive status from log event types
+    let status: string;
+    if (logTypes.some(t => t.includes('error') || t.includes('fail'))) {
+      status = 'Failed';
+    } else if (logTypes.some(t => t.includes('end') || t.includes('complete') || t.includes('succeed'))) {
+      status = 'Succeeded';
+    } else if (logTypes.some(t => t.includes('start') || t.includes('begin'))) {
+      status = 'InProgress';
+    } else if (logTypes.some(t => t.includes('cancel'))) {
+      status = 'Cancelled';
+    } else if (logTypes.some(t => t.includes('queue'))) {
+      status = 'Queued';
+    } else {
+      status = evts[0].LogType || 'Unknown';
+    }
+
+    // Derive start/end times from log events
+    const startEvt = evts.find(e => (e.LogType || '').toLowerCase().includes('start'));
+    const endEvt = evts.find(e => (e.LogType || '').toLowerCase().includes('end')
+                                || (e.LogType || '').toLowerCase().includes('complete'));
+    const errorEvt = evts.find(e => (e.LogType || '').toLowerCase().includes('error')
+                                 || (e.LogType || '').toLowerCase().includes('fail'));
+
+    // Extract error message from LogData of error events
+    const errorMsg = errorEvt?.LogData || null;
+
+    runs.push({
+      PipelineRunGuid: guid,
+      PipelineName: name,
+      Name: name,
+      Status: status,
+      StartTime: startEvt?.LogDateTime || evts[0].LogDateTime || null,
+      EndTime: endEvt?.LogDateTime || errorEvt?.LogDateTime || null,
+      ErrorMessage: errorMsg,
+      EntityLayer: evts[0].EntityLayer || null,
+      TriggerType: evts[0].TriggerType || null,
+      EntityId: evts[0].EntityId || null,
+      LogCount: String(evts.length),
+    });
+  }
+
+  // Sort by StartTime descending (most recent first)
+  runs.sort((a, b) => {
+    const ta = a.StartTime ? new Date(a.StartTime).getTime() : 0;
+    const tb = b.StartTime ? new Date(b.StartTime).getTime() : 0;
+    return tb - ta;
+  });
+
+  return runs;
+}
+
 // ── Helpers ──
 
 function utc(iso: string): Date {
@@ -128,9 +203,9 @@ export default function ExecutionLog() {
       const pl = plRes.ok ? await plRes.json() : [];
       const cp = cpRes.ok ? await cpRes.json() : [];
       const nb = nbRes.ok ? await nbRes.json() : [];
-      setPipelineRuns(pl);
-      setCopyRuns(cp);
-      setNotebookRuns(nb);
+      setPipelineRuns(aggregateLogEvents(pl, 'PipelineName'));
+      setCopyRuns(aggregateLogEvents(cp, 'CopyActivityName'));
+      setNotebookRuns(aggregateLogEvents(nb, 'NotebookName'));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
@@ -355,7 +430,7 @@ export default function ExecutionLog() {
         /* ━━━ BUSINESS VIEW ━━━ */
         <div className="space-y-3">
           {currentData.map((run, i) => {
-            const key = run.PipelineExecutionId || run.CopyActivityExecutionId || run.NotebookExecutionId || String(i);
+            const key = run.PipelineRunGuid || run.PipelineExecutionId || run.CopyActivityExecutionId || run.NotebookExecutionId || String(i);
             const statusInfo = getStatusInfo(run.Status);
             const StatusIcon = statusInfo.Icon;
             const isExpanded = expandedRow === key;
@@ -419,7 +494,7 @@ export default function ExecutionLog() {
               </thead>
               <tbody>
                 {currentData.map((run, i) => {
-                  const key = run.PipelineExecutionId || run.CopyActivityExecutionId || run.NotebookExecutionId || String(i);
+                  const key = run.PipelineRunGuid || run.PipelineExecutionId || run.CopyActivityExecutionId || run.NotebookExecutionId || String(i);
                   const statusInfo = getStatusInfo(run.Status);
                   const StatusIcon = statusInfo.Icon;
                   const isRunning = (run.Status || '').toLowerCase() === 'inprogress' || (run.Status || '').toLowerCase() === 'running';

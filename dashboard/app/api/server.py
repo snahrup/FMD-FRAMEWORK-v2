@@ -162,7 +162,7 @@ def get_fabric_token(scope: str) -> str:
 def get_sql_connection():
     """Connect to Fabric SQL Database using SP token."""
     import pyodbc
-    token = get_fabric_token('https://database.windows.net/.default')
+    token = get_fabric_token('https://analysis.windows.net/powerbi/api/.default')
     token_bytes = token.encode('UTF-16-LE')
     token_struct = struct.pack(f'<I{len(token_bytes)}s', len(token_bytes), token_bytes)
     conn_str = (
@@ -613,7 +613,7 @@ def get_lakehouse_connection(lakehouse_name: str):
     if not ep:
         raise ValueError(f'Lakehouse "{lakehouse_name}" not found. Available: {list(endpoints.keys())}')
 
-    token = get_fabric_token('https://database.windows.net/.default')
+    token = get_fabric_token('https://analysis.windows.net/powerbi/api/.default')
     token_bytes = token.encode('UTF-16-LE')
     token_struct = struct.pack(f'<I{len(token_bytes)}s', len(token_bytes), token_bytes)
     conn_str = (
@@ -1070,7 +1070,15 @@ def get_registered_entities() -> list[dict]:
     return data
 
 def get_pipeline_view() -> list[dict]:
-    return query_sql('SELECT * FROM [execution].[vw_LoadSourceToLandingzone]')
+    """Pipeline runner view — LZ entities with datasource + connection info.
+    SQLite first, Fabric SQL fallback (vw_LoadSourceToLandingzone is a complex view)."""
+    def _from_sqlite():
+        return cpdb.get_registered_entities_full()
+    data, src = _sqlite_or_fabric(
+        _from_sqlite,
+        lambda: query_sql('SELECT * FROM [execution].[vw_LoadSourceToLandingzone]'),
+        'get_pipeline_view')
+    return data
 
 
 def discover_source_tables(server: str, database: str, username: str = '', password: str = '') -> list[dict]:
@@ -1288,12 +1296,12 @@ def sql_explorer_tables(server: str, database: str, schema: str) -> list[dict]:
         timeout=10
     )
     cursor = conn.cursor()
-    cursor.execute(f"""
+    cursor.execute("""
         SELECT TABLE_NAME, TABLE_TYPE
         FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_SCHEMA = '{s_sch}' AND TABLE_TYPE = 'BASE TABLE'
+        WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
         ORDER BY TABLE_NAME
-    """)
+    """, (s_sch,))
     cols = [c[0] for c in cursor.description]
     rows = cursor.fetchall()
     conn.close()
@@ -1313,7 +1321,7 @@ def sql_explorer_columns(server: str, database: str, schema: str, table: str) ->
     )
     cursor = conn.cursor()
     # Column metadata with PK detection
-    cursor.execute(f"""
+    cursor.execute("""
         SELECT
             c.COLUMN_NAME, c.DATA_TYPE, c.IS_NULLABLE,
             CAST(c.CHARACTER_MAXIMUM_LENGTH AS VARCHAR) AS CHARACTER_MAXIMUM_LENGTH,
@@ -1330,9 +1338,9 @@ def sql_explorer_columns(server: str, database: str, schema: str, table: str) ->
             ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
             AND kcu.TABLE_SCHEMA = tc.TABLE_SCHEMA
             AND kcu.COLUMN_NAME = c.COLUMN_NAME
-        WHERE c.TABLE_SCHEMA = '{s_sch}' AND c.TABLE_NAME = '{s_tbl}'
+        WHERE c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ?
         ORDER BY c.ORDINAL_POSITION
-    """)
+    """, (s_sch, s_tbl))
     cols_meta = [c[0] for c in cursor.description]
     col_rows = cursor.fetchall()
     columns = [{c: (str(v) if v is not None else None) for c, v in zip(cols_meta, row)} for row in col_rows]
@@ -1340,13 +1348,13 @@ def sql_explorer_columns(server: str, database: str, schema: str, table: str) ->
     # Row count (approx from sys.partitions for speed)
     row_count = -1
     try:
-        cursor.execute(f"""
+        cursor.execute("""
             SELECT SUM(p.rows) AS row_count
             FROM sys.partitions p
             JOIN sys.tables t ON p.object_id = t.object_id
             JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = '{s_sch}' AND t.name = '{s_tbl}' AND p.index_id IN (0, 1)
-        """)
+            WHERE s.name = ? AND t.name = ? AND p.index_id IN (0, 1)
+        """, (s_sch, s_tbl))
         r = cursor.fetchone()
         if r and r[0] is not None:
             row_count = int(r[0])
@@ -1373,6 +1381,10 @@ def sql_explorer_preview(server: str, database: str, schema: str, table: str, li
         timeout=30
     )
     cursor = conn.cursor()
+    # Table/schema identifiers can't be parameterized — validate strictly
+    import re as _re
+    if not _re.match(r'^[A-Za-z0-9_ ]+$', s_sch) or not _re.match(r'^[A-Za-z0-9_ ]+$', s_tbl):
+        raise ValueError(f"Invalid identifier characters in schema={s_sch!r} or table={s_tbl!r}")
     cursor.execute(f"SELECT TOP {limit} * FROM [{s_sch}].[{s_tbl}]")
     col_names = [c[0] for c in cursor.description]
     raw_rows = cursor.fetchall()
@@ -1381,12 +1393,12 @@ def sql_explorer_preview(server: str, database: str, schema: str, table: str, li
     # Get total row count
     row_count = len(rows)
     try:
-        cursor.execute(f"""
+        cursor.execute("""
             SELECT SUM(p.rows) FROM sys.partitions p
             JOIN sys.tables t ON p.object_id = t.object_id
             JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = '{s_sch}' AND t.name = '{s_tbl}' AND p.index_id IN (0, 1)
-        """)
+            WHERE s.name = ? AND t.name = ? AND p.index_id IN (0, 1)
+        """, (s_sch, s_tbl))
         r = cursor.fetchone()
         if r and r[0] is not None:
             row_count = int(r[0])
@@ -1493,24 +1505,21 @@ def sql_explorer_lakehouse_preview(lakehouse: str, schema: str, table: str, limi
 
 
 def get_pipeline_executions() -> list[dict]:
-    try:
-        return query_sql(
-            'SELECT * FROM logging.PipelineExecution ORDER BY 1 DESC'
-        )
-    except Exception as e:
-        log.warning(f'PipelineExecution query failed (table may not exist yet): {e}')
-        return []
+    data, src = _sqlite_or_fabric(
+        cpdb.get_pipeline_executions,
+        lambda: query_sql('SELECT * FROM logging.PipelineExecution ORDER BY 1 DESC'),
+        'get_pipeline_executions')
+    return data
 
 def get_copy_executions() -> list[dict]:
-    try:
-        return query_sql(
-            'SELECT * FROM logging.CopyActivityExecution ORDER BY 1 DESC'
-        )
-    except Exception as e:
-        log.warning(f'CopyActivityExecution query failed (table may not exist yet): {e}')
-        return []
+    data, src = _sqlite_or_fabric(
+        cpdb.get_copy_executions,
+        lambda: query_sql('SELECT * FROM logging.CopyActivityExecution ORDER BY 1 DESC'),
+        'get_copy_executions')
+    return data
 
 def get_notebook_executions() -> list[dict]:
+    # No dedicated SQLite mirror for notebook executions — fall back to Fabric SQL
     try:
         return query_sql(
             'SELECT * FROM logging.NotebookExecution ORDER BY 1 DESC'
@@ -1525,20 +1534,39 @@ def get_live_monitor(minutes: int = 240) -> dict:
     result = {}
     time_filter = f"WHERE LogDateTime > DATEADD(MINUTE, -{minutes}, GETUTCDATE())" if minutes > 0 else ""
 
-    # 1. Recent pipeline events
+    # 1. Recent pipeline events — SQLite first
+    result['pipelineEvents'] = []
     try:
-        result['pipelineEvents'] = query_sql(f"""
-            SELECT TOP 50 PipelineName, LogType, LogDateTime, LogData,
-                   CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid,
-                   EntityLayer
-            FROM [logging].[PipelineExecution]
-            {time_filter}
-            ORDER BY LogDateTime DESC
-        """)
+        cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).strftime('%Y-%m-%dT%H:%M:%SZ') if minutes > 0 else None
+        conn_lite = cpdb._get_conn()
+        try:
+            sql = ("SELECT PipelineName, LogType, LogDateTime, LogData, "
+                   "PipelineRunGuid, EntityLayer FROM pipeline_audit")
+            params = []
+            if cutoff:
+                sql += " WHERE LogDateTime > ?"
+                params.append(cutoff)
+            sql += " ORDER BY LogDateTime DESC LIMIT 50"
+            rows = conn_lite.execute(sql, params).fetchall()
+            result['pipelineEvents'] = [dict(r) for r in rows] if rows else []
+        finally:
+            conn_lite.close()
+        if not result['pipelineEvents']:
+            raise ValueError('empty')
     except Exception:
-        result['pipelineEvents'] = []
+        try:
+            result['pipelineEvents'] = query_sql(f"""
+                SELECT TOP 50 PipelineName, LogType, LogDateTime, LogData,
+                       CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid,
+                       EntityLayer
+                FROM [logging].[PipelineExecution]
+                {time_filter}
+                ORDER BY LogDateTime DESC
+            """)
+        except Exception:
+            result['pipelineEvents'] = []
 
-    # 2. Recent notebook executions (entity-level)
+    # 2. Recent notebook executions (entity-level) — Fabric SQL only (no SQLite mirror)
     try:
         result['notebookEvents'] = query_sql(f"""
             SELECT TOP 200 NotebookName, LogType, LogDateTime, LogData,
@@ -1551,18 +1579,38 @@ def get_live_monitor(minutes: int = 240) -> dict:
     except Exception:
         result['notebookEvents'] = []
 
-    # 3. Recent copy activity (LZ loads)
+    # 3. Recent copy activity (LZ loads) — SQLite first
+    result['copyEvents'] = []
     try:
-        result['copyEvents'] = query_sql(f"""
-            SELECT TOP 100 CopyActivityName, CopyActivityParameters AS EntityName,
-                   LogType, LogDateTime, LogData, EntityId, EntityLayer,
-                   CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid
-            FROM [logging].[CopyActivityExecution]
-            {time_filter}
-            ORDER BY LogDateTime DESC
-        """)
+        cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).strftime('%Y-%m-%dT%H:%M:%SZ') if minutes > 0 else None
+        conn_lite = cpdb._get_conn()
+        try:
+            sql = ("SELECT CopyActivityName, CopyActivityParameters AS EntityName, "
+                   "LogType, LogDateTime, LogData, EntityId, EntityLayer, "
+                   "PipelineRunGuid FROM copy_activity_audit")
+            params = []
+            if cutoff:
+                sql += " WHERE LogDateTime > ?"
+                params.append(cutoff)
+            sql += " ORDER BY LogDateTime DESC LIMIT 100"
+            rows = conn_lite.execute(sql, params).fetchall()
+            result['copyEvents'] = [dict(r) for r in rows] if rows else []
+        finally:
+            conn_lite.close()
+        if not result['copyEvents']:
+            raise ValueError('empty')
     except Exception:
-        result['copyEvents'] = []
+        try:
+            result['copyEvents'] = query_sql(f"""
+                SELECT TOP 100 CopyActivityName, CopyActivityParameters AS EntityName,
+                       LogType, LogDateTime, LogData, EntityId, EntityLayer,
+                       CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid
+                FROM [logging].[CopyActivityExecution]
+                {time_filter}
+                ORDER BY LogDateTime DESC
+            """)
+        except Exception:
+            result['copyEvents'] = []
 
     # 4. Processing counts — SQLite first for registration counts, Fabric SQL for execution views
     try:
@@ -1669,10 +1717,18 @@ def get_live_monitor(minutes: int = 240) -> dict:
 
 
 def get_bronze_view() -> list[dict]:
-    return query_sql('SELECT * FROM [execution].[vw_LoadToBronzeLayer]')
+    data, src = _sqlite_or_fabric(
+        cpdb.get_bronze_view,
+        lambda: query_sql('SELECT * FROM [execution].[vw_LoadToBronzeLayer]'),
+        'get_bronze_view')
+    return data
 
 def get_silver_view() -> list[dict]:
-    return query_sql('SELECT * FROM [execution].[vw_LoadToSilverLayer]')
+    data, src = _sqlite_or_fabric(
+        cpdb.get_silver_view,
+        lambda: query_sql('SELECT * FROM [execution].[vw_LoadToSilverLayer]'),
+        'get_silver_view')
+    return data
 
 def get_pipelines() -> list[dict]:
     data, src = _sqlite_or_fabric(
@@ -5883,13 +5939,26 @@ def setup_get_current_config() -> dict:
         else:
             workspace_map[key] = None
 
-    # Read lakehouse records from SQL metadata
+    # Read lakehouse records — SQLite first, Fabric SQL fallback
     lakehouses = {}
     try:
-        rows = query_sql('SELECT LakehouseId, LakehouseGuid, WorkspaceGuid, Name, IsActive '
-                         'FROM integration.Lakehouse ORDER BY LakehouseId')
-        for r in rows:
-            lakehouses[r.get('Name', f"LH_{r['LakehouseId']}")] = {
+        lh_rows = None
+        try:
+            conn_lite = cpdb._get_conn()
+            try:
+                lh_rows = [dict(r) for r in conn_lite.execute(
+                    'SELECT LakehouseId, LakehouseGuid, WorkspaceGuid, Name '
+                    'FROM lakehouses ORDER BY LakehouseId'
+                ).fetchall()]
+            finally:
+                conn_lite.close()
+        except Exception:
+            pass
+        if not lh_rows:
+            lh_rows = query_sql('SELECT LakehouseId, LakehouseGuid, WorkspaceGuid, Name, IsActive '
+                                'FROM integration.Lakehouse ORDER BY LakehouseId')
+        for r in lh_rows:
+            lakehouses[r.get('Name', f"LH_{r.get('LakehouseId', '')}")] = {
                 'id': r.get('LakehouseGuid', ''),
                 'displayName': r.get('Name', ''),
                 'workspaceGuid': r.get('WorkspaceGuid', ''),
@@ -5898,13 +5967,26 @@ def setup_get_current_config() -> dict:
     except Exception as ex:
         log.warning('setup_get_current_config: failed to read lakehouses: %s', ex)
 
-    # Read connection records from SQL metadata
+    # Read connection records — SQLite first, Fabric SQL fallback
     connections_db = {}
     try:
-        rows = query_sql('SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName '
-                         'FROM integration.Connection ORDER BY ConnectionId')
-        for r in rows:
-            connections_db[r.get('Name', f"CON_{r['ConnectionId']}")] = {
+        conn_rows = None
+        try:
+            conn_lite = cpdb._get_conn()
+            try:
+                conn_rows = [dict(r) for r in conn_lite.execute(
+                    'SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName '
+                    'FROM connections ORDER BY ConnectionId'
+                ).fetchall()]
+            finally:
+                conn_lite.close()
+        except Exception:
+            pass
+        if not conn_rows:
+            conn_rows = query_sql('SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName '
+                                  'FROM integration.Connection ORDER BY ConnectionId')
+        for r in conn_rows:
+            connections_db[r.get('Name', f"CON_{r.get('ConnectionId', '')}")] = {
                 'id': r.get('ConnectionGuid', ''),
                 'displayName': r.get('Name', ''),
                 'type': r.get('Type', ''),

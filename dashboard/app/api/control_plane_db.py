@@ -679,6 +679,52 @@ def get_silver_entities() -> list[dict]:
         conn.close()
 
 
+def get_bronze_view() -> list[dict]:
+    """Bronze queue view — active bronze entities with queue/processing state.
+    Mirrors execution.vw_LoadToBronzeLayer."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT b.BronzeLayerEntityId, b.LandingzoneEntityId, b.Schema_ AS [Schema], "
+            "       b.Name, b.PrimaryKeys, b.FileType, b.IsActive, "
+            "       e.SourceSchema, e.SourceName, e.FileName, e.FilePath, "
+            "       d.Name AS DataSourceName, d.Namespace, "
+            "       pb.IsProcessed, pb.InsertDateTime "
+            "FROM bronze_entities b "
+            "LEFT JOIN lz_entities e ON e.LandingzoneEntityId = b.LandingzoneEntityId "
+            "LEFT JOIN datasources d ON d.DataSourceId = e.DataSourceId "
+            "LEFT JOIN pipeline_bronze_entity pb ON pb.BronzeLayerEntityId = b.BronzeLayerEntityId "
+            "WHERE b.IsActive = 1 "
+            "ORDER BY d.Namespace, b.Name"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_silver_view() -> list[dict]:
+    """Silver queue view — active silver entities with queue/processing state.
+    Mirrors execution.vw_LoadToSilverLayer."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT s.SilverLayerEntityId, s.BronzeLayerEntityId, s.Schema_ AS [Schema], "
+            "       s.Name, s.FileType, s.IsActive, "
+            "       b.PrimaryKeys, b.LandingzoneEntityId, "
+            "       e.SourceSchema, e.SourceName, "
+            "       d.Name AS DataSourceName, d.Namespace "
+            "FROM silver_entities s "
+            "LEFT JOIN bronze_entities b ON b.BronzeLayerEntityId = s.BronzeLayerEntityId "
+            "LEFT JOIN lz_entities e ON e.LandingzoneEntityId = b.LandingzoneEntityId "
+            "LEFT JOIN datasources d ON d.DataSourceId = e.DataSourceId "
+            "WHERE s.IsActive = 1 "
+            "ORDER BY d.Namespace, s.Name"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def get_lakehouses() -> list[dict]:
     conn = _get_conn()
     try:
@@ -706,6 +752,38 @@ def get_pipelines() -> list[dict]:
     try:
         rows = conn.execute(
             "SELECT PipelineId, Name, IsActive FROM pipelines ORDER BY Name"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_pipeline_executions(limit: int = 500) -> list[dict]:
+    """Return raw pipeline execution events (individual log rows), most recent first.
+    Mirrors logging.PipelineExecution shape for the Execution Log page."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT PipelineRunGuid, PipelineName, EntityLayer, TriggerType, "
+            "LogType, LogDateTime, LogData, EntityId "
+            "FROM pipeline_audit ORDER BY LogDateTime DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_copy_executions(limit: int = 500) -> list[dict]:
+    """Return raw copy activity execution events, most recent first.
+    Mirrors logging.CopyActivityExecution shape."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT PipelineRunGuid, CopyActivityName, EntityLayer, TriggerType, "
+            "LogType, LogDateTime, LogData, EntityId, CopyActivityParameters "
+            "FROM copy_activity_audit ORDER BY LogDateTime DESC LIMIT ?",
+            (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
     finally:

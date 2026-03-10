@@ -34,18 +34,18 @@ rules:
   - id: dangerous-inner-html
     pattern: dangerouslySetInnerHTML={...}
     message: "dangerouslySetInnerHTML usage detected. Ensure input is sanitized."
-    languages: [typescript, tsx]
+    languages: [typescript]
     severity: WARNING
 
   # --- FMD-Specific Rules ---
   - id: fmd-hardcoded-guid
     patterns:
       - pattern-regex: "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-      - pattern-not-regex: "\\$\\{|config\\.|item_config|GUID"
+      - pattern-not-regex: "\\$\\{|config\\.|item_config|GUID|00000000-0000-0000-0000-000000000000"
     paths:
       include:
-        - "engine/*.py"
-        - "src/**/*.py"
+        - "/engine/*.py"
+        - "/src/**/*.py"
     message: "Hardcoded GUID detected. GUIDs should come from config/item_config.yaml, not hardcoded in source."
     languages: [python]
     severity: WARNING

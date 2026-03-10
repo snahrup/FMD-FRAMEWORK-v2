@@ -24,17 +24,13 @@ import {
   DatabaseZap,
   BarChart3,
   Microscope,
-  Workflow,
   Columns3,
   Clapperboard,
   Radar,
   ScanSearch,
-  TestTube2,
   BookOpen,
   Shield,
   Zap,
-  Bug,
-  BrainCircuit,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -76,7 +72,6 @@ const CORE_GROUPS: NavGroup[] = [
     label: "Data",
     items: [
       { icon: Cable, label: "Source Manager", href: "/sources" },
-      { icon: Workflow, label: "Data Flow", href: "/sankey" },
       { icon: Radar, label: "Impact Pulse", href: "/pulse" },
       { icon: FlaskConical, label: "Data Blender", href: "/blender" },
       { icon: Layers3, label: "Flow Explorer", href: "/flow" },
@@ -102,9 +97,7 @@ const CORE_GROUPS: NavGroup[] = [
     label: "Admin",
     items: [
       { icon: ShieldCheck, label: "Admin", href: "/admin" },
-      { icon: BrainCircuit, label: "MRI", href: "/mri" },
-      { icon: Bug, label: "Test Swarm", href: "/test-swarm" },
-      { icon: TestTube2, label: "Test Audit", href: "/test-audit" },
+      { icon: LayoutDashboard, label: "Environment Setup", href: "/setup" },
     ],
   },
 ];
