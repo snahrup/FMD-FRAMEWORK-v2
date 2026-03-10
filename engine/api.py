@@ -31,8 +31,6 @@ import logging
 import threading
 import time
 import urllib.parse
-import urllib.request
-import urllib.error
 from dataclasses import asdict
 from typing import Optional
 
@@ -88,9 +86,6 @@ def _get_or_create_engine(dashboard_config: dict):
 _sse_events: list[dict] = []          # append-only list of SSE event dicts
 _sse_cond = threading.Condition()     # notifies waiting SSE listeners
 _sse_max_events = 10_000              # cap memory; older events silently drop
-
-# Active Fabric notebook jobs — keyed by job_id, stores info needed for cancel
-_active_fabric_jobs: dict[str, dict] = {}   # {job_id: {notebook_id, workspace_id, layer, ...}}
 
 
 class _SSEHook:
@@ -229,84 +224,6 @@ def _exec_proc(proc: str, params: dict) -> list[dict]:
     return _query_sql(sql)
 
 
-def _pipeline_preflight_check(target_layers: list[str]) -> list[str]:
-    """Check that queue tables and entity activation are healthy before pipeline run.
-
-    Returns a list of error strings. Empty list = all checks passed.
-    """
-    errors = []
-    if _query_sql is None:
-        errors.append("SQL connection not available — cannot verify queue tables")
-        return errors
-
-    try:
-        if "bronze" in target_layers:
-            # Check PipelineLandingzoneEntity has unprocessed rows
-            rows = _query_sql(
-                "SELECT COUNT(*) AS cnt FROM execution.PipelineLandingzoneEntity WHERE IsProcessed = 0"
-            )
-            lz_queue = rows[0]["cnt"] if rows else 0
-            if lz_queue == 0:
-                errors.append(
-                    "Bronze queue empty: execution.PipelineLandingzoneEntity has 0 rows with IsProcessed=0. "
-                    "The bronze notebook will find nothing to process."
-                )
-
-            # Check BronzeLayerEntity has active rows
-            rows = _query_sql(
-                "SELECT COUNT(*) AS cnt FROM integration.BronzeLayerEntity WHERE IsActive = 1"
-            )
-            active_bronze = rows[0]["cnt"] if rows else 0
-            if active_bronze == 0:
-                errors.append(
-                    "No active Bronze entities: integration.BronzeLayerEntity has 0 rows with IsActive=1."
-                )
-
-        if "silver" in target_layers:
-            # Check PipelineBronzeLayerEntity has unprocessed rows
-            rows = _query_sql(
-                "SELECT COUNT(*) AS cnt FROM execution.PipelineBronzeLayerEntity WHERE IsProcessed = 0"
-            )
-            bronze_queue = rows[0]["cnt"] if rows else 0
-            if bronze_queue == 0:
-                errors.append(
-                    "Silver queue empty: execution.PipelineBronzeLayerEntity has 0 rows with IsProcessed=0. "
-                    "The silver notebook will find nothing to process."
-                )
-
-            # Check SilverLayerEntity has active rows
-            rows = _query_sql(
-                "SELECT COUNT(*) AS cnt FROM integration.SilverLayerEntity WHERE IsActive = 1"
-            )
-            active_silver = rows[0]["cnt"] if rows else 0
-            if active_silver == 0:
-                errors.append(
-                    "No active Silver entities: integration.SilverLayerEntity has 0 rows with IsActive=1."
-                )
-
-    except Exception as exc:
-        log.warning("Preflight check SQL error: %s", exc)
-        # Don't block the run on preflight query failures — just warn
-        _publish_log("warn", f"Preflight check query failed (non-blocking): {exc}")
-
-    return errors
-
-
-def _publish_run_summary(run_id: str, succeeded: int, failed: int,
-                         skipped: int, total_rows: int,
-                         duration_seconds: float) -> None:
-    """Publish a run_complete SSE event so the dashboard updates live."""
-    _SSEHook.publish("run_complete", {
-        "run_id": run_id,
-        "succeeded": succeeded,
-        "failed": failed,
-        "skipped": skipped,
-        "total_rows": total_rows,
-        "duration_seconds": round(duration_seconds, 1),
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    })
-
-
 def _cleanup_orphaned_runs() -> None:
     """Mark any InProgress runs as Aborted on engine startup.
 
@@ -386,8 +303,6 @@ def handle_engine_request(handler, method: str, path: str,
                 _handle_settings_get(handler, config)
             elif sub_path == "/entities":
                 _handle_entities(handler, config)
-            elif sub_path == "/jobs":
-                _handle_jobs(handler, config)
             else:
                 handler._error_response(f"Unknown engine GET endpoint: {sub_path}", 404)
 
@@ -404,7 +319,7 @@ def handle_engine_request(handler, method: str, path: str,
             elif sub_path == "/retry":
                 _handle_retry(handler, config, body)
             elif sub_path == "/abort-run":
-                _handle_abort_run(handler, config, body)
+                _handle_abort_run(handler, body)
             elif sub_path == "/settings":
                 _handle_settings_post(handler, config, body)
             elif sub_path.startswith("/entity/") and sub_path.endswith("/reset"):
@@ -446,246 +361,44 @@ def _handle_status(handler, config: dict) -> None:
         "last_run": None,
     }
 
-    # Query last run from SQL
+    # Query last run — SQLite first, Fabric SQL fallback
+    rows = None
     try:
-        rows = _exec_proc("[execution].[sp_GetEngineRuns]", {"Limit": 1})
-        if rows:
-            row = rows[0]
-            response["last_run"] = {
-                "run_id": str(row.get("RunId", "")),
-                "status": str(row.get("Status", "")),
-                "mode": str(row.get("Mode", "")),
-                "started": str(row.get("StartedAtUtc", "")),
-                "completed": str(row.get("CompletedAtUtc", "")),
-                "total": _to_int(row.get("TotalEntities")),
-                "succeeded": _to_int(row.get("SucceededEntities")),
-                "failed": _to_int(row.get("FailedEntities")),
-                "skipped": _to_int(row.get("SkippedEntities")),
-                "total_rows": _to_int(row.get("TotalRowsRead")),
-                "duration_seconds": _to_float(row.get("TotalDurationSeconds")),
-                "layers": str(row.get("Layers", "")),
-                "triggered_by": str(row.get("TriggeredBy", "")),
-                "elapsed_seconds": _to_int(row.get("ElapsedSeconds")),
-            }
-    except Exception as exc:
-        log.warning("Failed to query last run: %s", exc)
+        import control_plane_db as cpdb
+        sqlite_runs = cpdb.get_engine_runs(limit=1)
+        if sqlite_runs:
+            rows = sqlite_runs
+    except Exception:
+        pass
 
-    # Fallback: derive last_run from notebook copy-activity data
-    if response["last_run"] is None:
+    if rows is None:
         try:
-            copy_runs = _query_sql(
-                "SELECT TOP 1 "
-                "CONVERT(NVARCHAR(36), PipelineRunGuid) AS RunGuid, "
-                "CopyActivityName, "
-                "MIN(LogDateTime) AS StartTime, "
-                "MAX(LogDateTime) AS EndTime, "
-                "SUM(CASE WHEN LogType LIKE 'End%' THEN 1 ELSE 0 END) AS Ended, "
-                "SUM(CASE WHEN LogType LIKE 'Fail%' THEN 1 ELSE 0 END) AS Failed, "
-                "SUM(CASE WHEN LogType LIKE 'Start%' THEN 1 ELSE 0 END) AS Started, "
-                "COUNT(DISTINCT EntityId) AS EntityCount "
-                "FROM logging.CopyActivityExecution "
-                "GROUP BY PipelineRunGuid, CopyActivityName "
-                "ORDER BY MIN(LogDateTime) DESC"
-            )
-            if copy_runs:
-                cr = _safe_row(copy_runs[0])
-                ended = int(cr.get("Ended", 0) or 0)
-                failed = int(cr.get("Failed", 0) or 0)
-                started = int(cr.get("Started", 0) or 0)
-                total_ent = int(cr.get("EntityCount", 0) or 0)
-                if started > ended + failed:
-                    run_status = "running"
-                elif failed > 0 and ended == 0:
-                    run_status = "failed"
-                elif failed > 0:
-                    run_status = "completed_with_errors"
-                else:
-                    run_status = "completed"
-                dur = None
-                st = cr.get("StartTime", "")
-                et = cr.get("EndTime", "")
-                if st and et:
-                    try:
-                        from datetime import datetime as dt2
-                        t0 = dt2.fromisoformat(str(st).replace('Z', ''))
-                        t1 = dt2.fromisoformat(str(et).replace('Z', ''))
-                        dur = (t1 - t0).total_seconds()
-                    except Exception:
-                        pass
-                response["last_run"] = {
-                    "run_id": cr.get("RunGuid", ""),
-                    "status": run_status,
-                    "mode": "notebook",
-                    "started": str(st) if st else "",
-                    "completed": str(et) if et else "",
-                    "total": total_ent,
-                    "succeeded": ended - failed,
-                    "failed": failed,
-                    "skipped": 0,
-                    "total_rows": 0,
-                    "duration_seconds": dur,
-                    "layers": "Landingzone",
-                    "triggered_by": cr.get("CopyActivityName", "Fabric Notebook"),
-                    "elapsed_seconds": int(dur) if dur else 0,
-                }
-        except Exception as e2:
-            log.warning("Fallback copy-activity status query failed: %s", e2)
+            rows = _exec_proc("[execution].[sp_GetEngineRuns]", {"Limit": 1})
+        except Exception as exc:
+            log.warning("Failed to query last run: %s", exc)
+            response["last_run"] = {"error": str(exc)}
+            rows = None
+
+    if rows:
+        row = rows[0]
+        response["last_run"] = {
+            "run_id": str(row.get("RunId", "")),
+            "status": str(row.get("Status", "")),
+            "mode": str(row.get("Mode", "")),
+            "started": str(row.get("StartedAtUtc") or row.get("StartedAt", "")),
+            "completed": str(row.get("CompletedAtUtc") or row.get("EndedAt", "")),
+            "total": _to_int(row.get("TotalEntities")),
+            "succeeded": _to_int(row.get("SucceededEntities")),
+            "failed": _to_int(row.get("FailedEntities")),
+            "skipped": _to_int(row.get("SkippedEntities")),
+            "total_rows": _to_int(row.get("TotalRowsRead")),
+            "duration_seconds": _to_float(row.get("TotalDurationSeconds")),
+            "layers": str(row.get("Layers", "")),
+            "triggered_by": str(row.get("TriggeredBy", "")),
+            "elapsed_seconds": _to_int(row.get("ElapsedSeconds")),
+        }
 
     handler._json_response(response)
-
-
-# ---------------------------------------------------------------------------
-# Fabric notebook trigger (for Pipeline mode)
-# ---------------------------------------------------------------------------
-
-_fabric_token_cache: dict = {}
-
-def _get_fabric_token(config: dict) -> str:
-    """Get a Fabric API token using SP credentials from the dashboard config."""
-    cached = _fabric_token_cache.get("fabric")
-    if cached and cached["expires"] > time.time():
-        return cached["token"]
-
-    tenant_id = config["fabric"]["tenant_id"]
-    client_id = config["fabric"]["client_id"]
-    client_secret = config["fabric"]["client_secret"]
-    scope = "https://api.fabric.microsoft.com/.default"
-
-    data = urllib.parse.urlencode({
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "scope": scope,
-        "grant_type": "client_credentials",
-    }).encode()
-    req = urllib.request.Request(
-        f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",
-        data=data, method="POST",
-    )
-    resp = json.loads(urllib.request.urlopen(req).read())
-    _fabric_token_cache["fabric"] = {
-        "token": resp["access_token"],
-        "expires": time.time() + resp.get("expires_in", 3600) - 60,
-    }
-    return resp["access_token"]
-
-
-def _trigger_fabric_notebook(config: dict, notebook_id: str,
-                             lakehouse_name: str, lakehouse_id: str,
-                             parameters: dict | None = None) -> dict:
-    """Trigger a Fabric notebook via REST API.
-
-    Parameters
-    ----------
-    parameters : dict or None
-        Fabric executionData.parameters format for the RunNotebook API:
-        {"ParamName": {"value": "...", "type": "string"}}
-        If provided, these are passed to the notebook. If None, only the
-        lakehouse configuration is sent.
-
-    Returns dict with job_id on success, or raises on failure.
-    """
-    code_ws = config["fabric"]["workspace_code_id"]
-    data_ws = config["fabric"]["workspace_data_id"]
-
-    if not notebook_id:
-        raise ValueError(f"Notebook ID not configured for {lakehouse_name}")
-
-    token = _get_fabric_token(config)
-    url = (
-        f"https://api.fabric.microsoft.com/v1/workspaces/{code_ws}"
-        f"/items/{notebook_id}/jobs/instances?jobType=RunNotebook"
-    )
-
-    execution_data: dict = {
-        "configuration": {
-            "defaultLakehouse": {
-                "name": lakehouse_name,
-                "id": lakehouse_id,
-                "workspaceId": data_ws,
-            }
-        }
-    }
-    if parameters:
-        execution_data["parameters"] = parameters
-
-    payload = json.dumps({"executionData": execution_data}).encode()
-
-    req = urllib.request.Request(url, method="POST", data=payload,
-                                headers={"Authorization": f"Bearer {token}",
-                                         "Content-Type": "application/json"})
-    try:
-        resp = urllib.request.urlopen(req, timeout=30)
-        location = resp.headers.get("Location", "")
-        job_id = location.rstrip("/").split("/")[-1] if location else ""
-        log.info("Notebook triggered: %s notebook=%s job=%s",
-                 lakehouse_name, notebook_id[:8], job_id[:8])
-        return {"job_id": job_id, "notebook_id": notebook_id, "location": location}
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        log.error("Notebook trigger failed (%s): %s — %s",
-                  lakehouse_name, e.code, body[:300])
-        raise ValueError(f"Fabric API error {e.code}: {body[:300]}")
-
-
-# Layer → lakehouse config key, lakehouse name
-_LAYER_LAKEHOUSE_MAP = {
-    "landing": ("lz_lakehouse_id",     "LH_DATA_LANDINGZONE"),
-    "bronze":  ("bronze_lakehouse_id", "LH_DATA_BRONZE"),
-    "silver":  ("silver_lakehouse_id", "LH_DATA_SILVER"),
-}
-
-# Display names for dynamic resolution from Fabric API (no hardcoded GUIDs)
-_LAYER_NOTEBOOK_DISPLAY_NAME = {
-    "landing": "NB_FMD_LOAD_LANDINGZONE_MAIN",
-    "bronze":  "NB_FMD_PROCESSING_PARALLEL_MAIN",
-    "silver":  "NB_FMD_PROCESSING_PARALLEL_MAIN",
-}
-
-# Stored procs for FETCH_FROM_SQL signal (bronze/silver use the processing notebook)
-_LAYER_ENTITY_PROC = {
-    "bronze": "[execution].[sp_GetBronzelayerEntity]",
-    "silver": "[execution].[sp_GetSilverlayerEntity]",
-}
-
-# Cache for dynamically resolved notebook IDs: {display_name: fabric_item_id}
-_notebook_id_cache: dict[str, str] = {}
-
-def _resolve_notebook_id(config: dict, display_name: str) -> str:
-    """Resolve a notebook display name to its Fabric item ID dynamically.
-
-    Uses a module-level cache so we only hit the Fabric API once per name.
-    """
-    if display_name in _notebook_id_cache:
-        return _notebook_id_cache[display_name]
-
-    code_ws = config.get("fabric", {}).get("workspace_code_id", "")
-    if not code_ws:
-        log.error("Cannot resolve notebook '%s': workspace_code_id not set", display_name)
-        return ""
-
-    try:
-        token = _get_fabric_token(config)
-        url = f"https://api.fabric.microsoft.com/v1/workspaces/{code_ws}/items?type=Notebook"
-        req = urllib.request.Request(url, headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        })
-        resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
-
-        # Cache ALL notebooks from the response (one API call resolves everything)
-        for item in resp.get("value", []):
-            _notebook_id_cache[item["displayName"]] = item["id"]
-
-        nb_id = _notebook_id_cache.get(display_name, "")
-        if nb_id:
-            log.info("Resolved notebook '%s' → %s", display_name, nb_id)
-        else:
-            log.warning("Notebook '%s' not found in CODE workspace %s", display_name, code_ws[:8])
-        return nb_id
-
-    except Exception as exc:
-        log.error("Failed to resolve notebook '%s': %s", display_name, exc)
-        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -720,233 +433,6 @@ def _handle_start(handler, config: dict, body: dict) -> None:
                  f"entity_ids={'all' if not entity_ids else len(entity_ids)}, "
                  f"load_method={effective_method}, "
                  f"triggered_by={triggered_by}")
-
-    # ── Pipeline mode: trigger Fabric notebook(s) based on selected layers ──
-    if effective_method == "pipeline" and mode == "run":
-        import uuid as _uuid
-        run_id = str(_uuid.uuid4())
-        target_layers = layers or ["landing", "bronze", "silver"]
-        layer_str = ",".join(target_layers)
-        triggered = []
-        errors = []
-
-        # Pre-flight: check queue tables aren't empty for requested layers
-        _preflight_errors = _pipeline_preflight_check(target_layers)
-        if _preflight_errors:
-            for pfe in _preflight_errors:
-                _publish_log("error", pfe)
-            handler._json_response({
-                "error": "Pre-flight check failed",
-                "details": _preflight_errors,
-                "suggestion": "Run scripts/fix_bronze_silver_queue.py to populate queue tables and activate entities.",
-            }, status=400)
-            return
-
-        for layer in target_layers:
-            lh_cfg = _LAYER_LAKEHOUSE_MAP.get(layer)
-            if not lh_cfg:
-                errors.append(f"Unknown layer: {layer}")
-                continue
-            lh_key, lh_name = lh_cfg
-            lakehouse_id = config["engine"].get(lh_key, "")
-
-            # Resolve notebook ID dynamically from Fabric API by display name
-            display_name = _LAYER_NOTEBOOK_DISPLAY_NAME.get(layer, "")
-            notebook_id = _resolve_notebook_id(config, display_name)
-            if not notebook_id:
-                _publish_log("warn", f"Skipping {layer}: {display_name} not found in CODE workspace")
-                continue
-
-            # Bronze/Silver: pass FETCH_FROM_SQL parameters to the processing notebook
-            nb_params = None
-            entity_proc = _LAYER_ENTITY_PROC.get(layer)
-            if entity_proc:
-                fetch_signal = json.dumps([{
-                    "path": "FETCH_FROM_SQL",
-                    "params": {
-                        "proc": entity_proc,
-                        "layer": layer,
-                        "count": "?",
-                    },
-                }])
-                nb_params = {"Path": {"value": fetch_signal, "type": "string"}}
-                _publish_log("info", f"{layer.capitalize()}: FETCH_FROM_SQL -> {entity_proc}")
-
-            try:
-                result = _trigger_fabric_notebook(config, notebook_id, lh_name, lakehouse_id, nb_params)
-                _publish_log("info", f"{layer.capitalize()} notebook triggered -- "
-                             f"job_id={result['job_id'][:12]}...")
-                triggered.append({"layer": layer, **result})
-                # Track active job so abort can cancel it via Fabric API
-                if result.get("job_id"):
-                    _active_fabric_jobs[result["job_id"]] = {
-                        "notebook_id": notebook_id,
-                        "workspace_id": config["fabric"]["workspace_code_id"],
-                        "layer": layer,
-                        "location": result.get("location", ""),
-                    }
-            except Exception as exc:
-                log.exception("Failed to trigger %s notebook", layer)
-                _publish_log("error", f"{layer.capitalize()} notebook trigger failed: {exc}")
-                errors.append(f"{layer}: {exc}")
-
-        if not triggered and errors:
-            handler._json_response({"error": "; ".join(errors)}, status=500)
-            return
-
-        # ── Write SQL run record + set engine status ──
-        total_entities = 0
-        try:
-            for layer in target_layers:
-                entity_proc = _LAYER_ENTITY_PROC.get(layer)
-                if entity_proc:
-                    rows = _query_sql(f"EXEC {entity_proc}")
-                    if rows and rows[0].get("NotebookParams"):
-                        nb_json = rows[0]["NotebookParams"]
-                        if nb_json and nb_json != "[]":
-                            total_entities += len(json.loads(nb_json))
-        except Exception:
-            total_entities = 0
-
-        _exec_proc("[execution].[sp_UpsertEngineRun]", {
-            "RunId": run_id,
-            "Mode": "run",
-            "Status": "InProgress",
-            "TotalEntities": total_entities or len(triggered),
-            "Layers": layer_str,
-            "TriggeredBy": triggered_by,
-        })
-        _publish_log("info", f"Run record {run_id[:8]} created (InProgress, {total_entities} entities)")
-
-        # Set engine status so dashboard shows 'running'
-        engine.status = "running"
-        engine.current_run_id = run_id
-
-        # ── Background poller: monitor Fabric jobs and update run record when done ──
-        _run_start_time = time.time()
-
-        def _poll_fabric_jobs():
-            """Poll Fabric job status until all triggered notebooks complete."""
-            poll_interval = 30  # seconds
-            max_polls = 720     # 6 hours max
-            polls = 0
-            job_statuses = {}
-            job_start_times = {t.get("job_id", ""): time.time() for t in triggered}
-
-            while polls < max_polls:
-                time.sleep(poll_interval)
-                polls += 1
-                all_done = True
-
-                for t in triggered:
-                    job_id = t.get("job_id", "")
-                    if not job_id or job_statuses.get(job_id) in ("Completed", "Failed", "Cancelled"):
-                        continue
-
-                    location = t.get("location", "")
-                    if not location:
-                        job_statuses[job_id] = "Unknown"
-                        continue
-
-                    try:
-                        token = _get_fabric_token(config)
-                        req = urllib.request.Request(
-                            location, headers={"Authorization": f"Bearer {token}"}
-                        )
-                        resp = urllib.request.urlopen(req, timeout=30)
-                        body = json.loads(resp.read())
-                        status = body.get("status", "Unknown")
-                        job_statuses[job_id] = status
-
-                        if status in ("Completed", "Failed", "Cancelled"):
-                            layer = t.get("layer", "?")
-                            elapsed = int(time.time() - job_start_times.get(job_id, _run_start_time))
-                            _publish_log(
-                                "info" if status == "Completed" else "error",
-                                f"{layer.capitalize()} notebook {status.lower()} "
-                                f"(job {job_id[:12]}, {elapsed}s)"
-                            )
-                        else:
-                            all_done = False
-                    except urllib.error.HTTPError as exc:
-                        if exc.code == 202:
-                            all_done = False  # still running
-                        else:
-                            log.warning("Job poll error (HTTP %d) for %s", exc.code, job_id[:8])
-                            all_done = False
-                    except Exception as exc:
-                        log.warning("Job poll error for %s: %s", job_id[:8], exc)
-                        all_done = False
-
-                # Publish live job status every poll cycle so dashboard has visibility
-                elapsed_total = int(time.time() - _run_start_time)
-                job_summary = []
-                for t in triggered:
-                    jid = t.get("job_id", "")
-                    layer = t.get("layer", "?")
-                    st = job_statuses.get(jid, "InProgress")
-                    elapsed_job = int(time.time() - job_start_times.get(jid, _run_start_time))
-                    job_summary.append({
-                        "job_id": jid,
-                        "layer": layer,
-                        "status": st,
-                        "elapsed_seconds": elapsed_job,
-                    })
-                _SSEHook.publish("job_status", {
-                    "run_id": run_id,
-                    "elapsed_seconds": elapsed_total,
-                    "jobs": job_summary,
-                    "poll_number": polls,
-                })
-
-                if all_done:
-                    break
-
-            # ── Update run record with final status ──
-            completed = sum(1 for s in job_statuses.values() if s == "Completed")
-            failed = sum(1 for s in job_statuses.values() if s in ("Failed", "Cancelled"))
-            final_status = "Succeeded" if failed == 0 and completed > 0 else "Failed"
-
-            _exec_proc("[execution].[sp_UpsertEngineRun]", {
-                "RunId": run_id,
-                "Mode": "",
-                "Status": final_status,
-                "TotalEntities": total_entities,
-                "SucceededEntities": completed,
-                "FailedEntities": failed,
-                "SkippedEntities": 0,
-            })
-
-            _publish_log("info", f"Pipeline run {run_id[:8]} {final_status} "
-                         f"({completed} completed, {failed} failed)")
-
-            # Clean up engine status
-            engine.status = "idle"
-            engine.current_run_id = None
-            _active_fabric_jobs.clear()
-
-            # Publish SSE completion event
-            _publish_run_summary(
-                run_id=run_id,
-                succeeded=completed,
-                failed=failed,
-                skipped=0,
-                total_rows=0,
-                duration_seconds=polls * poll_interval,
-            )
-
-        poll_thread = threading.Thread(target=_poll_fabric_jobs, daemon=True,
-                                       name=f"fabric-poll-{run_id[:8]}")
-        poll_thread.start()
-
-        handler._json_response({
-            "run_id": run_id,
-            "status": "started",
-            "mode": "notebook",
-            "notebooks_triggered": [t["layer"] for t in triggered],
-            "errors": errors if errors else None,
-        })
-        return
 
     # Wire up live entity result callback BEFORE starting the run
     def _on_entity_result(run_id_str: str, result, entity=None) -> None:
@@ -1064,55 +550,12 @@ def _handle_stop(handler, config: dict) -> None:
 # POST /api/engine/abort-run
 # ---------------------------------------------------------------------------
 
-def _cancel_fabric_jobs(config: dict) -> int:
-    """Cancel all tracked active Fabric notebook jobs. Returns count cancelled."""
-    if not _active_fabric_jobs:
-        return 0
-
-    cancelled = 0
-    to_remove = []
-    for job_id, info in _active_fabric_jobs.items():
-        ws_id = info["workspace_id"]
-        nb_id = info["notebook_id"]
-        layer = info.get("layer", "?")
-        try:
-            token = _get_fabric_token(config)
-            cancel_url = (
-                f"https://api.fabric.microsoft.com/v1/workspaces/{ws_id}"
-                f"/items/{nb_id}/jobs/instances/{job_id}/cancel"
-            )
-            req = urllib.request.Request(
-                cancel_url, method="POST",
-                headers={"Authorization": f"Bearer {token}"},
-                data=b"",
-            )
-            urllib.request.urlopen(req, timeout=15)
-            log.info("Cancelled Fabric %s notebook job %s", layer, job_id[:12])
-            _publish_log("info", f"Cancelled {layer} notebook job in Fabric ({job_id[:12]}...)")
-            cancelled += 1
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")[:200]
-            if e.code == 404:
-                log.info("Fabric job %s already completed (404)", job_id[:12])
-            else:
-                log.warning("Failed to cancel Fabric job %s: %s %s", job_id[:12], e.code, body)
-                _publish_log("warn", f"Could not cancel {layer} notebook job: HTTP {e.code}")
-        except Exception as exc:
-            log.warning("Failed to cancel Fabric job %s: %s", job_id[:12], exc)
-        to_remove.append(job_id)
-
-    for jid in to_remove:
-        _active_fabric_jobs.pop(jid, None)
-    return cancelled
-
-
-def _handle_abort_run(handler, config: dict, body: dict) -> None:
+def _handle_abort_run(handler, body: dict) -> None:
     """Abort a specific run by ID (or all InProgress runs).
 
     Body: {"run_id": "..."} or {"all": true}
     Updates the DB status to 'Aborted' and sets CompletedAtUtc.
     If the run is currently active, also sends a stop signal to the engine.
-    Also cancels any active Fabric notebook jobs via the Fabric REST API.
     """
     run_id = body.get("run_id")
     abort_all = body.get("all", False)
@@ -1153,16 +596,10 @@ def _handle_abort_run(handler, config: dict, body: dict) -> None:
                 _engine.stop()
                 _publish_log("warning", "Active run aborted by user")
 
-        # Cancel any active Fabric notebook jobs
-        fabric_cancelled = _cancel_fabric_jobs(config)
-
-        _publish_log("info", f"Aborted {count} run(s)"
-                     + (f", cancelled {fabric_cancelled} Fabric job(s)" if fabric_cancelled else ""))
+        _publish_log("info", f"Aborted {count} run(s)")
         handler._json_response({
             "aborted": count,
-            "fabric_cancelled": fabric_cancelled,
-            "message": f"Aborted {count} run(s)"
-                       + (f", cancelled {fabric_cancelled} Fabric notebook(s)" if fabric_cancelled else ""),
+            "message": f"Aborted {count} run(s)",
         })
     except Exception as exc:
         log.exception("Failed to abort run(s)")
@@ -1188,18 +625,8 @@ def _handle_plan(handler, config: dict, qs: dict) -> None:
     if entity_ids_str:
         entity_ids = [int(x) for x in entity_ids_str.split(",") if x.strip().isdigit()]
 
-    layers_str = qs.get("layers", [""])[0]
-    layers = [l.strip() for l in layers_str.split(",") if l.strip()] or None
-
-    load_method = qs.get("load_method", [None])[0]
-    pipeline_fallback_str = qs.get("pipeline_fallback", [None])[0]
-    pipeline_fallback = None
-    if pipeline_fallback_str is not None:
-        pipeline_fallback = pipeline_fallback_str.lower() == "true"
-
     try:
-        plan = engine.run(mode="plan", entity_ids=entity_ids, layers=layers,
-                          load_method=load_method, pipeline_fallback=pipeline_fallback)
+        plan = engine.run(mode="plan", entity_ids=entity_ids)
         handler._json_response(plan.to_dict() if hasattr(plan, "to_dict") else asdict(plan))
     except Exception as exc:
         log.exception("Plan failed")
@@ -1238,57 +665,12 @@ def _handle_logs(handler, qs: dict) -> None:
 
     try:
         rows = _exec_proc("[execution].[sp_GetEngineTaskLogs]", params)
+        # Convert all values to JSON-safe types
         safe_rows = [_safe_row(r) for r in rows]
-    except Exception:
-        safe_rows = []
-
-    # Fallback: derive task logs from CopyActivityExecution
-    if not safe_rows:
-        try:
-            lim = int(params.get("Limit", 100))
-            conditions = ["1=1"]
-            if entity_id and str(entity_id).isdigit():
-                conditions.append(f"ca.EntityId = {int(entity_id)}")
-            if run_id:
-                conditions.append(
-                    f"CONVERT(NVARCHAR(36), ca.PipelineRunGuid) = '{run_id}'"
-                )
-            if layer:
-                conditions.append(f"ca.CopyActivityName LIKE '%{layer}%'")
-            if status == "failed":
-                conditions.append("ca.LogType LIKE 'Fail%'")
-            elif status == "succeeded":
-                conditions.append("ca.LogType LIKE 'End%'")
-            where = " AND ".join(conditions)
-            fb_rows = _query_sql(
-                f"SELECT TOP {lim} "
-                f"ca.EntityId, "
-                f"le.SourceName, "
-                f"ds.Name AS DataSourceName, "
-                f"'Landingzone' AS Layer, "
-                f"CASE WHEN ca.LogType LIKE 'End%' THEN 'succeeded' "
-                f"     WHEN ca.LogType LIKE 'Fail%' THEN 'failed' "
-                f"     ELSE 'running' END AS Status, "
-                f"ca.LogDateTime AS StartedAtUtc, "
-                f"0 AS DurationSeconds, "
-                f"0 AS RowsRead, "
-                f"0 AS RowsPerSecond, "
-                f"CASE WHEN ca.LogType LIKE 'Fail%' THEN 'CopyFailed' ELSE NULL END AS ErrorType, "
-                f"CASE WHEN ca.LogType LIKE 'Fail%' "
-                f"     THEN COALESCE(JSON_VALUE(ca.LogData, '$.error'), 'Copy activity failed') "
-                f"     ELSE NULL END AS ErrorMessage, "
-                f"CONVERT(NVARCHAR(36), ca.PipelineRunGuid) AS RunId "
-                f"FROM logging.CopyActivityExecution ca "
-                f"LEFT JOIN integration.LandingzoneEntity le ON ca.EntityId = le.LandingzoneEntityId "
-                f"LEFT JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId "
-                f"WHERE {where} "
-                f"ORDER BY ca.LogDateTime DESC"
-            )
-            safe_rows = [_safe_row(r) for r in fb_rows]
-        except Exception as e2:
-            log.warning("Fallback copy-activity logs query failed: %s", e2)
-
-    handler._json_response({"logs": safe_rows, "count": len(safe_rows)})
+        handler._json_response({"logs": safe_rows, "count": len(safe_rows)})
+    except Exception as exc:
+        log.exception("Failed to query task logs")
+        handler._error_response(str(exc), 500)
 
 
 # ---------------------------------------------------------------------------
@@ -1456,63 +838,13 @@ def _handle_retry(handler, config: dict, body: dict) -> None:
 # GET /api/engine/health
 # ---------------------------------------------------------------------------
 
-def _handle_jobs(handler, config: dict) -> None:
-    """GET /api/engine/jobs — Live Fabric notebook job status.
-
-    Returns the current state of any active Fabric jobs plus recent history,
-    so the dashboard can show real-time progress without waiting for SSE.
-    """
-    engine = _get_or_create_engine(config)
-    active_jobs = []
-    run_start = getattr(engine, '_pipeline_run_start', None)
-
-    for job_id, info in _active_fabric_jobs.items():
-        elapsed = int(time.time() - run_start) if run_start else 0
-        active_jobs.append({
-            "job_id": job_id,
-            "layer": info.get("layer", "?"),
-            "notebook_id": info.get("notebook_id", ""),
-            "status": "InProgress",
-            "elapsed_seconds": elapsed,
-        })
-
-    # Query recent Fabric job history from SQL if available
-    recent_runs = []
-    try:
-        recent_runs = _query_sql("""
-            SELECT TOP 5 RunId, Mode, Status, TotalEntities,
-                   SucceededEntities, FailedEntities, StartedAtUtc, CompletedAtUtc,
-                   Layers, TriggeredBy
-            FROM [execution].[EngineRun]
-            ORDER BY StartedAtUtc DESC
-        """) or []
-    except Exception:
-        pass
-
-    handler._json_response({
-        "engine_status": engine.status,
-        "current_run_id": engine.current_run_id,
-        "active_fabric_jobs": active_jobs,
-        "recent_runs": recent_runs,
-    })
-
-
 def _handle_health(handler, config: dict) -> None:
     """Run preflight health checks and return the report."""
     engine = _get_or_create_engine(config)
 
     try:
         report = engine.preflight()
-        result = report.to_dict()
-
-        # Add pipeline queue health checks
-        queue_warnings = _pipeline_preflight_check(["bronze", "silver"])
-        if queue_warnings:
-            existing = result.get("warnings", [])
-            existing.extend(queue_warnings)
-            result["warnings"] = existing
-
-        handler._json_response(result)
+        handler._json_response(report.to_dict())
     except Exception as exc:
         log.exception("Preflight failed")
         handler._error_response(str(exc), 500)
@@ -1532,19 +864,14 @@ def _handle_metrics(handler, qs: dict) -> None:
     hours = qs.get("hours", ["24"])[0]
     hours_int = int(hours) if str(hours).isdigit() else 24
 
-    since_sql = f"DATEADD(HOUR, -{hours_int}, SYSUTCDATETIME())"
-
-    # Try v3 engine metrics first
-    run_metrics = []
     try:
+        # sp_GetEngineMetrics returns 4 result sets but query_sql gets the first
+        # So we call it and also do follow-up queries for the other data
         run_metrics = _exec_proc("[execution].[sp_GetEngineMetrics]", {"HoursBack": hours_int})
-    except Exception:
-        pass
 
-    # Layer breakdown — try EngineTaskLog, fallback to notebook execution tables
-    layer_metrics = []
-    try:
-        layer_metrics = _query_sql(f"""
+        # Layer breakdown
+        since_sql = f"DATEADD(HOUR, -{hours_int}, SYSUTCDATETIME())"
+        layer_sql = f"""
             SELECT Layer,
                    COUNT(*) AS TotalTasks,
                    SUM(CASE WHEN Status = 'succeeded' THEN 1 ELSE 0 END) AS Succeeded,
@@ -1555,37 +882,11 @@ def _handle_metrics(handler, qs: dict) -> None:
             FROM [execution].[EngineTaskLog]
             WHERE StartedAtUtc >= {since_sql}
             GROUP BY Layer
-        """)
-    except Exception:
-        pass
-    if not layer_metrics:
-        try:
-            layer_metrics = _query_sql("""
-                SELECT 'Landingzone' AS Layer,
-                       COUNT(DISTINCT ple.LandingzoneEntityId) AS TotalTasks,
-                       COUNT(DISTINCT ple.LandingzoneEntityId) AS Succeeded,
-                       0 AS Failed,
-                       0 AS TotalRowsRead,
-                       0 AS AvgDurationSeconds,
-                       0 AS AvgRowsPerSecond
-                FROM execution.PipelineLandingzoneEntity ple
-                UNION ALL
-                SELECT 'Bronze' AS Layer,
-                       COUNT(DISTINCT pbe.BronzeLayerEntityId) AS TotalTasks,
-                       COUNT(DISTINCT pbe.BronzeLayerEntityId) AS Succeeded,
-                       0 AS Failed,
-                       0 AS TotalRowsRead,
-                       0 AS AvgDurationSeconds,
-                       0 AS AvgRowsPerSecond
-                FROM execution.PipelineBronzeLayerEntity pbe
-            """)
-        except Exception:
-            pass
+        """
+        layer_metrics = _query_sql(layer_sql)
 
-    # Top 10 slowest — try EngineTaskLog, fallback to CopyActivityExecution
-    slowest = []
-    try:
-        slowest = _query_sql(f"""
+        # Top 10 slowest
+        slow_sql = f"""
             SELECT TOP 10
                 t.EntityId, le.SourceName, ds.Name AS DataSourceName,
                 t.Layer, t.DurationSeconds, t.RowsRead, t.Status
@@ -1594,76 +895,30 @@ def _handle_metrics(handler, qs: dict) -> None:
             LEFT JOIN [integration].[DataSource] ds ON le.DataSourceId = ds.DataSourceId
             WHERE t.StartedAtUtc >= {since_sql} AND t.Status = 'succeeded'
             ORDER BY t.DurationSeconds DESC
-        """)
-    except Exception:
-        pass
-    if not slowest:
-        try:
-            slowest = _query_sql(f"""
-                SELECT TOP 10
-                    ca.EntityId,
-                    le.SourceName,
-                    ds.Name AS DataSourceName,
-                    'Landingzone' AS Layer,
-                    DATEDIFF(SECOND,
-                        MIN(CASE WHEN ca.LogType LIKE 'Start%' THEN ca.LogDateTime END),
-                        MAX(ca.LogDateTime)
-                    ) AS DurationSeconds,
-                    0 AS RowsRead,
-                    'succeeded' AS Status
-                FROM logging.CopyActivityExecution ca
-                LEFT JOIN integration.LandingzoneEntity le ON ca.EntityId = le.LandingzoneEntityId
-                LEFT JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-                WHERE ca.LogDateTime >= {since_sql}
-                  AND ca.LogType LIKE 'End%'
-                GROUP BY ca.EntityId, le.SourceName, ds.Name
-                ORDER BY DurationSeconds DESC
-            """)
-        except Exception:
-            pass
+        """
+        slowest = _query_sql(slow_sql)
 
-    # Top 5 errors — try EngineTaskLog, fallback to CopyActivityExecution
-    top_errors = []
-    try:
-        top_errors = _query_sql(f"""
+        # Top 5 errors
+        errors_sql = f"""
             SELECT TOP 5
                 ErrorType, ErrorMessage, COUNT(*) AS Occurrences
             FROM [execution].[EngineTaskLog]
             WHERE StartedAtUtc >= {since_sql} AND Status = 'failed'
             GROUP BY ErrorType, ErrorMessage
             ORDER BY COUNT(*) DESC
-        """)
-    except Exception:
-        pass
-    if not top_errors:
-        try:
-            top_errors = _query_sql(f"""
-                SELECT TOP 5
-                    'CopyFailed' AS ErrorType,
-                    COALESCE(
-                        JSON_VALUE(ca.LogData, '$.error'),
-                        ca.CopyActivityName + ' failed'
-                    ) AS ErrorMessage,
-                    COUNT(*) AS Occurrences
-                FROM logging.CopyActivityExecution ca
-                WHERE ca.LogDateTime >= {since_sql}
-                  AND ca.LogType LIKE 'Fail%'
-                GROUP BY COALESCE(
-                    JSON_VALUE(ca.LogData, '$.error'),
-                    ca.CopyActivityName + ' failed'
-                )
-                ORDER BY COUNT(*) DESC
-            """)
-        except Exception:
-            pass
+        """
+        top_errors = _query_sql(errors_sql)
 
-    handler._json_response({
-        "hours": hours_int,
-        "runs": [_safe_row(r) for r in run_metrics] if run_metrics else [],
-        "layers": [_safe_row(r) for r in layer_metrics] if layer_metrics else [],
-        "slowest_entities": [_safe_row(r) for r in slowest] if slowest else [],
-        "top_errors": [_safe_row(r) for r in top_errors] if top_errors else [],
-    })
+        handler._json_response({
+            "hours": hours_int,
+            "runs": [_safe_row(r) for r in run_metrics] if run_metrics else [],
+            "layers": [_safe_row(r) for r in layer_metrics] if layer_metrics else [],
+            "slowest_entities": [_safe_row(r) for r in slowest] if slowest else [],
+            "top_errors": [_safe_row(r) for r in top_errors] if top_errors else [],
+        })
+    except Exception as exc:
+        log.exception("Failed to query engine metrics")
+        handler._error_response(str(exc), 500)
 
 
 # ---------------------------------------------------------------------------
@@ -1695,102 +950,58 @@ def _handle_entity_reset(handler, entity_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 def _handle_runs(handler, qs: dict) -> None:
-    """Query run history from execution.sp_GetEngineRuns."""
+    """Query run history. SQLite first, falls back to execution.sp_GetEngineRuns."""
     params = {}
 
     limit = qs.get("limit", ["20"])[0]
-    params["Limit"] = int(limit) if str(limit).isdigit() else 20
+    limit_val = int(limit) if str(limit).isdigit() else 20
+    params["Limit"] = limit_val
 
     status = qs.get("status", [None])[0]
     if status:
         params["Status"] = status
 
+    rows = None
+
+    # Try local SQLite first
     try:
-        rows = _exec_proc("[execution].[sp_GetEngineRuns]", params)
-        # Map PascalCase DB columns to snake_case frontend expects
-        mapped = []
-        for r in rows:
-            sr = _safe_row(r)
-            mapped.append({
-                "run_id": sr.get("RunId", ""),
-                "status": sr.get("Status", "unknown"),
-                "mode": sr.get("Mode", "run"),
-                "started_at": sr.get("StartedAtUtc", ""),
-                "finished_at": sr.get("CompletedAtUtc"),
-                "duration_seconds": sr.get("ElapsedSeconds") or sr.get("TotalDurationSeconds"),
-                "entities_succeeded": sr.get("SucceededEntities", 0),
-                "entities_failed": sr.get("FailedEntities", 0),
-                "entities_skipped": sr.get("SkippedEntities", 0),
-                "triggered_by": sr.get("TriggeredBy", ""),
-                "total_rows": sr.get("TotalRowsRead", 0),
-                "error_summary": sr.get("ErrorSummary"),
-            })
+        import control_plane_db as cpdb
+        sqlite_runs = cpdb.get_engine_runs(limit=limit_val)
+        if sqlite_runs:
+            if status:
+                sqlite_runs = [r for r in sqlite_runs if r.get('Status', '').lower() == status.lower()]
+            rows = sqlite_runs
+            log.debug("Engine runs served from SQLite (%d rows)", len(rows))
+    except Exception:
+        pass
 
-        # Fallback: if no engine runs, derive runs from copy activity
-        # (notebook runs directly, not via local engine)
-        if not mapped:
-            try:
-                copy_runs = _query_sql(
-                    "SELECT CONVERT(NVARCHAR(36), PipelineRunGuid) AS RunGuid, "
-                    "CopyActivityName, "
-                    "MIN(LogDateTime) AS StartTime, "
-                    "MAX(LogDateTime) AS EndTime, "
-                    "SUM(CASE WHEN LogType LIKE 'End%' THEN 1 ELSE 0 END) AS Ended, "
-                    "SUM(CASE WHEN LogType LIKE 'Fail%' THEN 1 ELSE 0 END) AS Failed, "
-                    "SUM(CASE WHEN LogType LIKE 'Start%' THEN 1 ELSE 0 END) AS Started, "
-                    "COUNT(DISTINCT EntityId) AS EntityCount "
-                    "FROM logging.CopyActivityExecution "
-                    "GROUP BY PipelineRunGuid, CopyActivityName "
-                    "ORDER BY MIN(LogDateTime) DESC"
-                )
-                for cr in copy_runs:
-                    sr = _safe_row(cr)
-                    ended = int(sr.get("Ended", 0) or 0)
-                    failed = int(sr.get("Failed", 0) or 0)
-                    started = int(sr.get("Started", 0) or 0)
-                    total_ent = int(sr.get("EntityCount", 0) or 0)
-                    # Determine status
-                    if started > ended + failed:
-                        run_status = "running"
-                    elif failed > 0 and ended == 0:
-                        run_status = "failed"
-                    elif failed > 0:
-                        run_status = "completed_with_errors"
-                    else:
-                        run_status = "completed"
-                    # Duration
-                    dur = None
-                    st = sr.get("StartTime", "")
-                    et = sr.get("EndTime", "")
-                    if st and et:
-                        try:
-                            from datetime import datetime as dt2
-                            t0 = dt2.fromisoformat(str(st).replace('Z', ''))
-                            t1 = dt2.fromisoformat(str(et).replace('Z', ''))
-                            dur = (t1 - t0).total_seconds()
-                        except Exception:
-                            pass
-                    mapped.append({
-                        "run_id": sr.get("RunGuid", ""),
-                        "status": run_status,
-                        "mode": "notebook",
-                        "started_at": str(st) if st else "",
-                        "finished_at": str(et) if et else None,
-                        "duration_seconds": dur,
-                        "entities_succeeded": ended - failed,
-                        "entities_failed": failed,
-                        "entities_skipped": 0,
-                        "triggered_by": sr.get("CopyActivityName", "Fabric Notebook"),
-                        "total_rows": 0,
-                        "error_summary": None,
-                    })
-            except Exception as e2:
-                log.warning(f"Fallback copy-activity run query failed: {e2}")
+    if rows is None:
+        try:
+            rows = _exec_proc("[execution].[sp_GetEngineRuns]", params)
+        except Exception as exc:
+            log.exception("Failed to query engine runs")
+            handler._error_response(str(exc), 500)
+            return
 
-        handler._json_response({"runs": mapped, "count": len(mapped)})
-    except Exception as exc:
-        log.exception("Failed to query engine runs")
-        handler._error_response(str(exc), 500)
+    # Map columns to frontend format
+    mapped = []
+    for r in rows:
+        sr = _safe_row(r)
+        mapped.append({
+            "run_id": sr.get("RunId", ""),
+            "status": sr.get("Status", "unknown"),
+            "mode": sr.get("Mode", "run"),
+            "started_at": sr.get("StartedAtUtc") or sr.get("StartedAt", ""),
+            "finished_at": sr.get("CompletedAtUtc") or sr.get("EndedAt"),
+            "duration_seconds": sr.get("ElapsedSeconds") or sr.get("TotalDurationSeconds"),
+            "entities_succeeded": sr.get("SucceededEntities", 0),
+            "entities_failed": sr.get("FailedEntities", 0),
+            "entities_skipped": sr.get("SkippedEntities", 0),
+            "triggered_by": sr.get("TriggeredBy", ""),
+            "total_rows": sr.get("TotalRowsRead", 0),
+            "error_summary": sr.get("ErrorSummary"),
+        })
+    handler._json_response({"runs": mapped, "count": len(mapped)})
 
 
 # ---------------------------------------------------------------------------
@@ -1818,20 +1029,16 @@ def _handle_validation(handler) -> None:
         """)
 
         # Layer status per source (LZ)
-        # Use existence of a row (not IsProcessed flag) to determine "loaded"
-        # — matches logic in execution.vw_LZ_LoadStatus
         lz_status = _query_sql("""
             SELECT
                 ds.Name AS DataSource,
-                SUM(CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 1 ELSE 0 END) AS LzLoaded,
-                0 AS LzFailed,
+                SUM(CASE WHEN ple.IsProcessed = 1 THEN 1 ELSE 0 END) AS LzLoaded,
+                SUM(CASE WHEN ple.IsProcessed = 0 THEN 1 ELSE 0 END) AS LzFailed,
                 SUM(CASE WHEN ple.LandingzoneEntityId IS NULL THEN 1 ELSE 0 END) AS LzNeverAttempted
             FROM integration.LandingzoneEntity le
             JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-            LEFT JOIN (
-                SELECT DISTINCT LandingzoneEntityId
-                FROM execution.PipelineLandingzoneEntity
-            ) ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId
+            LEFT JOIN execution.PipelineLandingzoneEntity ple
+                ON le.LandingzoneEntityId = ple.LandingzoneEntityId
             WHERE le.IsActive = 1
             GROUP BY ds.Name
             ORDER BY ds.Name
@@ -1841,16 +1048,14 @@ def _handle_validation(handler) -> None:
         bronze_status = _query_sql("""
             SELECT
                 ds.Name AS DataSource,
-                SUM(CASE WHEN pbe.BronzeLayerEntityId IS NOT NULL THEN 1 ELSE 0 END) AS BronzeLoaded,
-                0 AS BronzeFailed,
+                SUM(CASE WHEN pbe.IsProcessed = 1 THEN 1 ELSE 0 END) AS BronzeLoaded,
+                SUM(CASE WHEN pbe.IsProcessed = 0 THEN 1 ELSE 0 END) AS BronzeFailed,
                 SUM(CASE WHEN pbe.BronzeLayerEntityId IS NULL THEN 1 ELSE 0 END) AS BronzeNeverAttempted
             FROM integration.LandingzoneEntity le
             JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
             JOIN integration.BronzeLayerEntity ble ON le.LandingzoneEntityId = ble.LandingzoneEntityId
-            LEFT JOIN (
-                SELECT DISTINCT BronzeLayerEntityId
-                FROM execution.PipelineBronzeLayerEntity
-            ) pbe ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+            LEFT JOIN execution.PipelineBronzeLayerEntity pbe
+                ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
             WHERE le.IsActive = 1
             GROUP BY ds.Name
             ORDER BY ds.Name
@@ -1861,17 +1066,15 @@ def _handle_validation(handler) -> None:
             silver_status = _query_sql("""
                 SELECT
                     ds.Name AS DataSource,
-                    SUM(CASE WHEN pse.SilverLayerEntityId IS NOT NULL THEN 1 ELSE 0 END) AS SilverLoaded,
-                    0 AS SilverFailed,
+                    SUM(CASE WHEN pse.IsProcessed = 1 THEN 1 ELSE 0 END) AS SilverLoaded,
+                    SUM(CASE WHEN pse.IsProcessed = 0 THEN 1 ELSE 0 END) AS SilverFailed,
                     SUM(CASE WHEN pse.SilverLayerEntityId IS NULL THEN 1 ELSE 0 END) AS SilverNeverAttempted
                 FROM integration.LandingzoneEntity le
                 JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
                 JOIN integration.BronzeLayerEntity ble ON le.LandingzoneEntityId = ble.LandingzoneEntityId
                 LEFT JOIN integration.SilverLayerEntity sle ON ble.BronzeLayerEntityId = sle.BronzeLayerEntityId
-                LEFT JOIN (
-                    SELECT DISTINCT SilverLayerEntityId
-                    FROM execution.PipelineSilverLayerEntity
-                ) pse ON sle.SilverLayerEntityId = pse.SilverLayerEntityId
+                LEFT JOIN execution.PipelineSilverLayerEntity pse
+                    ON sle.SilverLayerEntityId = pse.SilverLayerEntityId
                 WHERE le.IsActive = 1
                 GROUP BY ds.Name
                 ORDER BY ds.Name
@@ -1879,7 +1082,7 @@ def _handle_validation(handler) -> None:
         except Exception:
             silver_status = []
 
-        # Digest summary — try EntityStatusSummary first, fall back to computed
+        # Digest summary
         try:
             digest = _query_sql("""
                 SELECT OverallStatus, COUNT(*) AS EntityCount
@@ -1889,42 +1092,6 @@ def _handle_validation(handler) -> None:
             """)
         except Exception:
             digest = []
-        # If EntityStatusSummary is empty, compute from LZ + Bronze layer data
-        # (Silver execution table may not exist yet)
-        if not digest:
-            try:
-                digest = _query_sql("""
-                    SELECT
-                        CASE
-                            WHEN lz.LandingzoneEntityId IS NOT NULL
-                                 AND br.BronzeLayerEntityId IS NOT NULL THEN 'complete'
-                            WHEN lz.LandingzoneEntityId IS NOT NULL THEN 'partial'
-                            ELSE 'not_started'
-                        END AS OverallStatus,
-                        COUNT(*) AS EntityCount
-                    FROM integration.LandingzoneEntity le
-                    LEFT JOIN (
-                        SELECT DISTINCT LandingzoneEntityId
-                        FROM execution.PipelineLandingzoneEntity
-                    ) lz ON le.LandingzoneEntityId = lz.LandingzoneEntityId
-                    LEFT JOIN integration.BronzeLayerEntity ble
-                        ON le.LandingzoneEntityId = ble.LandingzoneEntityId
-                    LEFT JOIN (
-                        SELECT DISTINCT BronzeLayerEntityId
-                        FROM execution.PipelineBronzeLayerEntity
-                    ) br ON ble.BronzeLayerEntityId = br.BronzeLayerEntityId
-                    WHERE le.IsActive = 1
-                    GROUP BY
-                        CASE
-                            WHEN lz.LandingzoneEntityId IS NOT NULL
-                                 AND br.BronzeLayerEntityId IS NOT NULL THEN 'complete'
-                            WHEN lz.LandingzoneEntityId IS NOT NULL THEN 'partial'
-                            ELSE 'not_started'
-                        END
-                    ORDER BY EntityCount DESC
-                """)
-            except Exception:
-                digest = []
 
         # Never-attempted entities (limited list for display)
         never_attempted = _query_sql("""
@@ -1941,31 +1108,28 @@ def _handle_validation(handler) -> None:
             ORDER BY ds.Name, le.SourceSchema, le.SourceName
         """)
 
-        # Stuck at LZ — entities loaded to LZ but not yet processed through Bronze
+        # Stuck at LZ (distinct entities only, not per-run duplicates)
         stuck_at_lz = _query_sql("""
             SELECT
                 ds.Name AS DataSource,
                 COUNT(DISTINCT le.LandingzoneEntityId) AS StuckCount
             FROM integration.LandingzoneEntity le
             JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-            JOIN (
-                SELECT DISTINCT LandingzoneEntityId
-                FROM execution.PipelineLandingzoneEntity
-            ) ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId
+            JOIN execution.PipelineLandingzoneEntity ple
+                ON le.LandingzoneEntityId = ple.LandingzoneEntityId
             JOIN integration.BronzeLayerEntity ble
                 ON le.LandingzoneEntityId = ble.LandingzoneEntityId
-            LEFT JOIN (
-                SELECT DISTINCT BronzeLayerEntityId
-                FROM execution.PipelineBronzeLayerEntity
-            ) pbe ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+            LEFT JOIN execution.PipelineBronzeLayerEntity pbe
+                ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
             WHERE le.IsActive = 1
-              AND pbe.BronzeLayerEntityId IS NULL
+              AND ple.IsProcessed = 1
+              AND (pbe.BronzeLayerEntityId IS NULL OR pbe.IsProcessed = 0)
             GROUP BY ds.Name
             ORDER BY ds.Name
         """)
 
         # Per-entity layer status (the selectable table)
-        # Use row existence (not IsProcessed) to determine loaded status
+        # Try with PipelineSilverLayerEntity; fall back without if table doesn't exist yet
         try:
             entities = _query_sql("""
                 SELECT
@@ -1974,30 +1138,27 @@ def _handle_validation(handler) -> None:
                     le.SourceSchema,
                     le.SourceName,
                     le.IsIncremental,
-                    CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 1
+                    CASE WHEN ple.IsProcessed = 1 THEN 1
+                         WHEN ple.IsProcessed = 0 THEN 0
                          ELSE -1 END AS LzStatus,
-                    CASE WHEN pbe.BronzeLayerEntityId IS NOT NULL THEN 1
+                    CASE WHEN pbe.IsProcessed = 1 THEN 1
+                         WHEN pbe.IsProcessed = 0 THEN 0
                          ELSE -1 END AS BronzeStatus,
-                    CASE WHEN pse.SilverLayerEntityId IS NOT NULL THEN 1
+                    CASE WHEN pse.IsProcessed = 1 THEN 1
+                         WHEN pse.IsProcessed = 0 THEN 0
                          ELSE -1 END AS SilverStatus
                 FROM integration.LandingzoneEntity le
                 JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-                LEFT JOIN (
-                    SELECT DISTINCT LandingzoneEntityId
-                    FROM execution.PipelineLandingzoneEntity
-                ) ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId
+                LEFT JOIN execution.PipelineLandingzoneEntity ple
+                    ON le.LandingzoneEntityId = ple.LandingzoneEntityId
                 LEFT JOIN integration.BronzeLayerEntity ble
                     ON le.LandingzoneEntityId = ble.LandingzoneEntityId
-                LEFT JOIN (
-                    SELECT DISTINCT BronzeLayerEntityId
-                    FROM execution.PipelineBronzeLayerEntity
-                ) pbe ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+                LEFT JOIN execution.PipelineBronzeLayerEntity pbe
+                    ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
                 LEFT JOIN integration.SilverLayerEntity sle
                     ON ble.BronzeLayerEntityId = sle.BronzeLayerEntityId
-                LEFT JOIN (
-                    SELECT DISTINCT SilverLayerEntityId
-                    FROM execution.PipelineSilverLayerEntity
-                ) pse ON sle.SilverLayerEntityId = pse.SilverLayerEntityId
+                LEFT JOIN execution.PipelineSilverLayerEntity pse
+                    ON sle.SilverLayerEntityId = pse.SilverLayerEntityId
                 WHERE le.IsActive = 1
                 ORDER BY ds.Name, le.SourceSchema, le.SourceName
             """)
@@ -2010,29 +1171,26 @@ def _handle_validation(handler) -> None:
                     le.SourceSchema,
                     le.SourceName,
                     le.IsIncremental,
-                    CASE WHEN ple.LandingzoneEntityId IS NOT NULL THEN 1
+                    CASE WHEN ple.IsProcessed = 1 THEN 1
+                         WHEN ple.IsProcessed = 0 THEN 0
                          ELSE -1 END AS LzStatus,
-                    CASE WHEN pbe.BronzeLayerEntityId IS NOT NULL THEN 1
+                    CASE WHEN pbe.IsProcessed = 1 THEN 1
+                         WHEN pbe.IsProcessed = 0 THEN 0
                          ELSE -1 END AS BronzeStatus,
                     -1 AS SilverStatus
                 FROM integration.LandingzoneEntity le
                 JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-                LEFT JOIN (
-                    SELECT DISTINCT LandingzoneEntityId
-                    FROM execution.PipelineLandingzoneEntity
-                ) ple ON le.LandingzoneEntityId = ple.LandingzoneEntityId
+                LEFT JOIN execution.PipelineLandingzoneEntity ple
+                    ON le.LandingzoneEntityId = ple.LandingzoneEntityId
                 LEFT JOIN integration.BronzeLayerEntity ble
                     ON le.LandingzoneEntityId = ble.LandingzoneEntityId
-                LEFT JOIN (
-                    SELECT DISTINCT BronzeLayerEntityId
-                    FROM execution.PipelineBronzeLayerEntity
-                ) pbe ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+                LEFT JOIN execution.PipelineBronzeLayerEntity pbe
+                    ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
                 WHERE le.IsActive = 1
                 ORDER BY ds.Name, le.SourceSchema, le.SourceName
             """)
 
         handler._json_response({
-            "_version": "v2",
             "overview": [_safe_row(r) for r in overview],
             "lz_status": [_safe_row(r) for r in lz_status],
             "bronze_status": [_safe_row(r) for r in bronze_status],
@@ -2137,17 +1295,15 @@ def _handle_entities(handler, config: dict) -> None:
                 ds.Name AS datasource,
                 c.DatabaseName AS source_database,
                 le.IsIncremental AS is_incremental,
-                lv.LastLoadDatetime AS last_loaded,
+                ple.ProcessedDatetime AS last_loaded,
                 CASE WHEN ple.IsProcessed = 1 THEN 'loaded'
-                     WHEN ple.IsProcessed = 0 THEN 'pending'
+                     WHEN ple.IsProcessed = 0 THEN 'failed'
                      ELSE 'never' END AS lz_status
             FROM integration.LandingzoneEntity le
             INNER JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
             INNER JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId
             LEFT JOIN execution.PipelineLandingzoneEntity ple
                 ON le.LandingzoneEntityId = ple.LandingzoneEntityId
-            LEFT JOIN execution.LandingzoneEntityLastLoadValue lv
-                ON le.LandingzoneEntityId = lv.LandingzoneEntityId
             WHERE le.IsActive = 1
             ORDER BY ds.Name, le.SourceSchema, le.SourceName
         """)

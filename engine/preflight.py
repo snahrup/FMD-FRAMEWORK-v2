@@ -106,7 +106,7 @@ class PreflightChecker:
         report.add(self._check_metadata_db())
         report.add(self._check_onelake())
 
-        if entities:
+        if entities is not None:
             report.add(self._check_entity_sanity(entities))
 
             # Check each unique source server
