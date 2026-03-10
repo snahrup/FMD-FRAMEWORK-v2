@@ -78,7 +78,7 @@ const DATA_SOURCE_TYPES = [
 ];
 
 // 3 visual steps mapping to 4 internal DB steps
-const VISUAL_STEPS = ['Configure Source', 'Select Tables', 'Pipeline Ready'];
+const VISUAL_STEPS = ['Configure Source', 'Select Tables', 'Import Data'];
 
 // ── InfoTip component ──
 
@@ -150,9 +150,19 @@ export function SourceOnboardingWizard({
   const [sourceCredentials, setSourceCredentials] = useState({ username: 'UsrSQLRead', password: 'Ku7T@hoqFDmDPqG4deMgrrxQ9' });
   const [filePath, setFilePath] = useState('');
 
-  // Pipeline trigger state
+  // Pipeline trigger state (legacy — kept for backward compat)
   const [triggeringPipeline, setTriggeringPipeline] = useState(false);
   const [pipelineResult, setPipelineResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // ── Orchestrated Import state ──
+  const [importJobId, setImportJobId] = useState<string | null>(null);
+  const [importPhase, setImportPhase] = useState<string>('');
+  const [importLabel, setImportLabel] = useState<string>('');
+  const [importProgress, setImportProgress] = useState(0);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importComplete, setImportComplete] = useState(false);
+  const [importStarting, setImportStarting] = useState(false);
+  const importEventSourceRef = useRef<EventSource | null>(null);
 
   // Background task context — registration survives page navigation
   const bgTasks = useBackgroundTasks();
@@ -569,6 +579,97 @@ export function SourceOnboardingWizard({
     }
   };
 
+  // ── Orchestrated Import: start full pipeline with SSE progress ──
+  const startImport = async () => {
+    setImportStarting(true);
+    setImportError(null);
+    setImportComplete(false);
+    setImportProgress(0);
+    setImportPhase('');
+    setImportLabel('Starting...');
+
+    try {
+      // Get datasource info from steps
+      const dsStep = steps.find(s => s.stepNumber === 2);
+      const dsId = dsStep?.referenceId || '';
+      const dsName = selectedSource || 'Unknown';
+
+      // Collect registered tables as import payload
+      const tables = registeredEntities.map(e => ({
+        schema: e.SourceSchema,
+        table: e.SourceName,
+      }));
+
+      const res = await fetch('/api/sources/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          datasourceId: dsId ? parseInt(dsId) : 0,
+          datasourceName: dsName,
+          tables,
+          username: sourceCredentials.username,
+          password: sourceCredentials.password,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to start import');
+
+      const jobId = data.jobId;
+      setImportJobId(jobId);
+      setImportStarting(false);
+
+      // Connect SSE for live progress
+      const es = new EventSource(`/api/sources/import/${jobId}/stream`);
+      importEventSourceRef.current = es;
+
+      es.onmessage = (event) => {
+        try {
+          const evt = JSON.parse(event.data);
+          setImportPhase(evt.phase || '');
+          setImportLabel(evt.label || '');
+          setImportProgress(evt.progress || 0);
+
+          if (evt.phase === 'complete') {
+            setImportComplete(true);
+            es.close();
+          } else if (evt.phase === 'failed') {
+            setImportError(evt.error || 'Import failed');
+            es.close();
+          }
+        } catch {
+          // ignore parse errors on keepalive
+        }
+      };
+
+      es.onerror = () => {
+        // SSE connection lost — poll for final status
+        es.close();
+        if (!importComplete) {
+          fetch(`/api/sources/import/${jobId}`)
+            .then(r => r.json())
+            .then(status => {
+              setImportPhase(status.phase);
+              setImportLabel(status.label);
+              setImportProgress(status.progress);
+              if (status.phase === 'complete') setImportComplete(true);
+              if (status.error) setImportError(status.error);
+            })
+            .catch(() => {});
+        }
+      };
+    } catch (err: any) {
+      setImportError(err.message || 'Failed to start import');
+      setImportStarting(false);
+    }
+  };
+
+  // Cleanup SSE on unmount
+  useEffect(() => {
+    return () => {
+      importEventSourceRef.current?.close();
+    };
+  }, []);
+
   if (!onboardingAvailable) {
     return (
       <div className="bg-card rounded-xl border border-border p-6">
@@ -762,7 +863,7 @@ export function SourceOnboardingWizard({
 
           {/* Step detail panel */}
           {activeVisualStep !== null && (
-            <div className="border-t border-border bg-muted p-6">
+            <div className="border-t border-border bg-muted/30 p-6">
 
               {/* ═══════ Visual Step 0: Configure Source ═══════ */}
               {activeVisualStep === 0 && (
@@ -1253,7 +1354,7 @@ export function SourceOnboardingWizard({
                           </div>
 
                           {/* Summary row */}
-                          <div className="px-4 py-3 border-b border-border bg-muted">
+                          <div className="px-4 py-3 border-b border-border bg-muted/30">
                             <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
                               <span className="text-muted-foreground">Source:</span>
                               <span className="font-mono text-foreground">{selectedSource}</span>
@@ -1337,129 +1438,168 @@ export function SourceOnboardingWizard({
                 </div>
               )}
 
-              {/* ═══════ Visual Step 2: Pipeline Ready ═══════ */}
+              {/* ═══════ Visual Step 2: Import Data ═══════ */}
               {activeVisualStep === 2 && (
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-xs font-bold text-primary bg-primary/10 rounded-full w-5 h-5 flex items-center justify-center">3</span>
-                    <h3 className="text-sm font-semibold text-foreground">Pipeline Ready</h3>
+                    <h3 className="text-sm font-semibold text-foreground">Import Data</h3>
                   </div>
 
                   {isVisualStepComplete(2) ? (
                     <div className="ml-7">
+                      {/* Ready to import — source configured */}
                       <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4 mb-4">
                         <div className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300 mb-2">
                           <CheckCircle2 className="h-5 w-5" />
-                          <span className="font-semibold">Source fully configured</span>
+                          <span className="font-semibold">Source ready to import</span>
                         </div>
                         <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
-                          All steps complete for <strong>{selectedSource}</strong>. The pipeline can now process this source.
+                          <strong>{selectedSource}</strong> is configured with {registeredEntities.length} table{registeredEntities.length !== 1 ? 's' : ''}. Click Import to start loading data.
                         </p>
                       </div>
 
-                      <div className="bg-muted rounded-lg p-4 border border-border">
-                        <p className="text-xs font-medium text-foreground mb-2">Configuration Summary</p>
-                        <div className="space-y-2 text-xs">
-                          {steps.map(s => (
-                            <div key={s.stepNumber} className="flex items-start gap-2">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                              <div>
-                                <span className="font-medium text-foreground">{s.stepName}</span>
-                                {s.referenceId && (
-                                  <span className="text-muted-foreground ml-2 font-mono">{s.referenceId}</span>
-                                )}
-                                {s.notes && (
-                                  <p className="text-muted-foreground/70 text-[10px] mt-0.5">{s.notes}</p>
-                                )}
+                      {/* Import progress (visible during/after import) */}
+                      {(importJobId || importStarting) && (
+                        <div className="mb-4">
+                          {/* Progress bar */}
+                          <div className="bg-muted rounded-lg p-4 border border-border">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-medium text-foreground">
+                                {importLabel || 'Starting...'}
+                              </span>
+                              <span className="text-xs text-muted-foreground font-mono">
+                                {importProgress}%
+                              </span>
+                            </div>
+                            <div className="w-full bg-muted-foreground/10 rounded-full h-2.5 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${
+                                  importError
+                                    ? 'bg-red-500'
+                                    : importComplete
+                                    ? 'bg-emerald-500'
+                                    : 'bg-primary'
+                                }`}
+                                style={{ width: `${importProgress}%` }}
+                              />
+                            </div>
+
+                            {/* Phase steps visualization */}
+                            <div className="mt-3 space-y-1.5">
+                              {[
+                                { phase: 'registering', label: 'Registering tables' },
+                                { phase: 'optimizing', label: 'Analyzing tables' },
+                                { phase: 'loading_lz', label: 'Importing data' },
+                                { phase: 'loading_bronze', label: 'Processing data' },
+                                { phase: 'loading_silver', label: 'Finalizing data' },
+                              ].map((step) => {
+                                const phases = ['registering', 'optimizing', 'loading_lz', 'loading_bronze', 'loading_silver', 'complete'];
+                                const currentIdx = phases.indexOf(importPhase);
+                                const stepIdx = phases.indexOf(step.phase);
+                                const isDone = currentIdx > stepIdx;
+                                const isActive = currentIdx === stepIdx;
+
+                                return (
+                                  <div key={step.phase} className="flex items-center gap-2 text-xs">
+                                    {isDone ? (
+                                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                                    ) : isActive ? (
+                                      <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" />
+                                    ) : (
+                                      <div className="h-3.5 w-3.5 rounded-full border border-muted-foreground/30 shrink-0" />
+                                    )}
+                                    <span className={
+                                      isDone ? 'text-emerald-600 dark:text-emerald-400' :
+                                      isActive ? 'text-foreground font-medium' :
+                                      'text-muted-foreground'
+                                    }>
+                                      {step.label}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Error message */}
+                          {importError && (
+                            <div className="mt-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                              <div className="flex items-center gap-2 text-xs text-red-700 dark:text-red-300">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                <span>{importError}</span>
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      </div>
+                          )}
 
-                      {/* Pipeline trigger result */}
-                      {pipelineResult && (
-                        <div className={`mt-4 rounded-lg p-3 border ${
-                          pipelineResult.type === 'success'
-                            ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800'
-                            : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'
-                        }`}>
-                          <p className={`text-xs ${
-                            pipelineResult.type === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'
-                          }`}>
-                            {pipelineResult.message}
-                          </p>
+                          {/* Complete message */}
+                          {importComplete && (
+                            <div className="mt-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3">
+                              <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
+                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                                <span className="font-medium">
+                                  Import started for all {registeredEntities.length} tables. Data will be available once processing completes.
+                                </span>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
                       {/* Action buttons */}
-                      <div className="mt-4 flex flex-col gap-2">
-                        {!pipelineResult?.type || pipelineResult.type === 'error' ? (
+                      <div className="flex flex-col gap-2">
+                        {!importJobId && !importStarting ? (
                           <button
-                            onClick={triggerLandingZonePipeline}
-                            disabled={triggeringPipeline}
+                            onClick={startImport}
+                            disabled={importStarting}
                             className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm disabled:opacity-50 transition-colors"
                           >
-                            {triggeringPipeline ? (
-                              <>
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Triggering Pipeline...
-                              </>
-                            ) : (
-                              <>
-                                <Rocket className="h-4 w-4" />
-                                Run Landing Zone Pipeline
-                              </>
-                            )}
+                            <Rocket className="h-4 w-4" />
+                            Import {registeredEntities.length} Table{registeredEntities.length !== 1 ? 's' : ''}
                           </button>
-                        ) : (
+                        ) : importComplete ? (
                           <a
                             href="/"
                             className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm transition-colors"
                           >
                             <ExternalLink className="h-4 w-4" />
-                            Go to Pipeline Monitor
+                            View Import Progress
                           </a>
-                        )}
+                        ) : importError ? (
+                          <button
+                            onClick={startImport}
+                            className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm transition-colors"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                            Retry Import
+                          </button>
+                        ) : null}
 
                         <button
-                          onClick={() => { setShowNewSource(true); setSelectedSource(''); setActiveVisualStep(null); }}
+                          onClick={() => { setShowNewSource(true); setSelectedSource(''); setActiveVisualStep(null); setImportJobId(null); setImportComplete(false); setImportError(null); }}
                           className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 text-xs transition-colors"
                         >
                           <Plus className="h-3.5 w-3.5" />
-                          Onboard Another Source
+                          Import Another Source
                         </button>
                       </div>
 
-                      <div className="mt-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                        <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300 mb-1.5">
-                          <Zap className="h-3.5 w-3.5" />
-                          <span className="font-semibold">Load Optimization Available</span>
+                      {/* Info box — what happens (user-facing, no internal vocabulary) */}
+                      {!importJobId && !importStarting && (
+                        <div className="mt-4 bg-muted/50 rounded-lg p-3 border border-border">
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">What happens when you import</p>
+                          <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                            <li>Your tables are registered and analyzed for optimal loading</li>
+                            <li>Data is copied from the source database</li>
+                            <li>Tables are standardized and deduplicated</li>
+                            <li>Business logic and data quality rules are applied</li>
+                            <li>Data is ready for reporting and analysis</li>
+                          </ol>
+                          <p className="text-[10px] text-muted-foreground/70 mt-2">
+                            First import does a full analysis. All future imports are incremental (only new/changed rows).
+                          </p>
                         </div>
-                        <p className="text-[11px] text-blue-600/80 dark:text-blue-400/70 mb-2">
-                          Before running the pipeline, analyze your tables for incremental load opportunities and register Bronze/Silver entities.
-                          This reduces subsequent pipeline runs from hours to minutes.
-                        </p>
-                        <a
-                          href="/sources"
-                          onClick={(e) => { e.preventDefault(); /* Switch to Load Config tab */ window.location.hash = '#load-config'; }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors"
-                        >
-                          <Zap className="h-3 w-3" />
-                          Open Load Optimization
-                        </a>
-                      </div>
-
-                      <div className="mt-4 bg-muted/50 rounded-lg p-3 border border-border">
-                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">What the pipeline does</p>
-                        <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-                          <li>Reads your registered tables from the metadata DB</li>
-                          <li>Copies source data into LH_DATA_LANDINGZONE as parquet files</li>
-                          <li>Bronze layer normalizes to delta tables</li>
-                          <li>Silver layer applies data quality rules and transformations</li>
-                          <li>Gold layer creates materialized views for reporting</li>
-                        </ol>
-                      </div>
+                      )}
                     </div>
                   ) : (
                     <div className="ml-7 text-center py-4 text-muted-foreground">

@@ -82,3 +82,4 @@ deployment_summary.json
 
 # Pytest cache
 .pytest_cache/
+.windsurf\rules\openmemory.md

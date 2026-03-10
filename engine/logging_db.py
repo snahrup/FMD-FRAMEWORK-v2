@@ -27,6 +27,29 @@ from engine.models import Entity, RunResult, LogEnvelope
 
 log = logging.getLogger("fmd.logging_db")
 
+# ---------------------------------------------------------------------------
+# Local SQLite dual-write support
+# ---------------------------------------------------------------------------
+# Import control_plane_db lazily to avoid circular imports and allow the
+# engine to run even if the dashboard package isn't available.
+_cpdb = None
+_cpdb_loaded = False
+
+
+def _get_cpdb():
+    """Lazily import control_plane_db. Returns the module or None."""
+    global _cpdb, _cpdb_loaded
+    if _cpdb_loaded:
+        return _cpdb
+    try:
+        from dashboard.app.api import control_plane_db
+        _cpdb = control_plane_db
+    except Exception as exc:
+        log.debug("control_plane_db not available (SQLite dual-write disabled): %s", exc)
+        _cpdb = None
+    _cpdb_loaded = True
+    return _cpdb
+
 
 class AuditLogger:
     """Writes structured audit records to both Python logger and SQL.
@@ -39,9 +62,8 @@ class AuditLogger:
         audit.log_run_end(run_id, results)
     """
 
-    def __init__(self, db: MetadataDB, local_db=None):
+    def __init__(self, db: MetadataDB):
         self._db = db
-        self._local = local_db  # control_plane_db module (SQLite dual-write)
 
     # ------------------------------------------------------------------
     # Run-level logging
@@ -242,34 +264,47 @@ class AuditLogger:
     ) -> None:
         """Mark an entity as loaded in the execution tracking tables.
 
+        Dual-write: SQLite (primary) then Fabric SQL (secondary/best-effort).
+
         Calls:
           - execution.sp_UpsertPipelineLandingzoneEntity (marks as loaded, IsProcessed=False)
           - execution.sp_UpsertEntityStatus (updates digest for dashboard)
         """
-        now_utc = datetime.utcnow().isoformat() + "Z"
+        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # Local SQLite (primary — instant, never fails)
-        if self._local:
+        # --- SQLite (PRIMARY) ---
+        cpdb = _get_cpdb()
+        if cpdb:
             try:
-                self._local.upsert_pipeline_lz_entity({
+                cpdb.upsert_pipeline_lz_entity({
                     "LandingzoneEntityId": entity.id,
                     "FileName": file_name,
                     "FilePath": file_path,
-                    "InsertDateTime": now_utc,
+                    "InsertDateTime": now_str,
                     "IsProcessed": 0,
                 })
-                self._local.upsert_entity_status({
+            except Exception as exc:
+                log.warning(
+                    "SQLite: Failed to upsert pipeline_lz_entity for entity %d: %s",
+                    entity.id, exc,
+                )
+
+            try:
+                cpdb.upsert_entity_status({
                     "LandingzoneEntityId": entity.id,
                     "Layer": "LandingZone",
                     "Status": "Succeeded",
-                    "LoadEndDateTime": now_utc,
+                    "LoadEndDateTime": now_str,
                     "ErrorMessage": "",
                     "UpdatedBy": "FMD_ENGINE_V3",
                 })
             except Exception as exc:
-                log.warning("Local DB mark_entity_loaded failed for entity %d: %s", entity.id, exc)
+                log.warning(
+                    "SQLite: Failed to upsert entity_status for entity %d: %s",
+                    entity.id, exc,
+                )
 
-        # Fabric SQL (secondary — best-effort)
+        # --- Fabric SQL (SECONDARY — best-effort) ---
         try:
             self._db.execute_proc(
                 "[execution].[sp_UpsertPipelineLandingzoneEntity]",
@@ -282,7 +317,7 @@ class AuditLogger:
             )
         except Exception as exc:
             log.warning(
-                "Failed to mark entity %d as loaded (sp_UpsertPipelineLandingzoneEntity): %s",
+                "Fabric SQL: Failed to mark entity %d as loaded (sp_UpsertPipelineLandingzoneEntity): %s",
                 entity.id, exc,
             )
 
@@ -300,7 +335,8 @@ class AuditLogger:
             )
         except Exception as exc:
             log.warning(
-                "Failed to update entity digest for entity %d: %s", entity.id, exc,
+                "Fabric SQL: Failed to update entity digest for entity %d: %s",
+                entity.id, exc,
             )
 
     def update_watermark(
@@ -310,20 +346,26 @@ class AuditLogger:
     ) -> None:
         """Update the watermark tracking table for incremental loads.
 
+        Dual-write: SQLite (primary) then Fabric SQL (secondary).
         Writes to execution.LandingzoneEntityLastLoadValue.
         """
         if not new_value or new_value == entity.last_load_value:
             return
 
-        # Local SQLite (primary)
-        if self._local:
-            try:
-                self._local.upsert_watermark(entity.id, new_value)
-            except Exception as exc:
-                log.warning("Local DB watermark update failed for entity %d: %s", entity.id, exc)
+        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
+        # --- SQLite (PRIMARY) ---
+        cpdb = _get_cpdb()
+        if cpdb:
+            try:
+                cpdb.upsert_watermark(entity.id, new_value, now_str)
+            except Exception as exc:
+                log.warning(
+                    "SQLite: Failed to update watermark for entity %d: %s", entity.id, exc,
+                )
+
+        # --- Fabric SQL (SECONDARY — best-effort) ---
         try:
-            # Use MERGE pattern — insert or update
             sql = """
                 MERGE [execution].[LandingzoneEntityLastLoadValue] AS target
                 USING (SELECT ? AS LandingzoneEntityId, ? AS LoadValue) AS source
@@ -341,7 +383,7 @@ class AuditLogger:
             )
         except Exception as exc:
             log.warning(
-                "Failed to update watermark for entity %d: %s", entity.id, exc,
+                "Fabric SQL: Failed to update watermark for entity %d: %s", entity.id, exc,
             )
 
     # ------------------------------------------------------------------
@@ -355,24 +397,27 @@ class AuditLogger:
         status: str,
         message: str,
     ) -> None:
-        """Write to logging.sp_AuditPipeline."""
-        # Local SQLite (primary)
-        if self._local:
+        """Dual-write to SQLite (primary) + logging.sp_AuditPipeline (secondary)."""
+        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # --- SQLite (PRIMARY) ---
+        cpdb = _get_cpdb()
+        if cpdb:
             try:
-                self._local.insert_pipeline_audit({
+                cpdb.insert_pipeline_audit({
                     "PipelineRunGuid": run_id,
                     "PipelineName": pipeline_name,
                     "EntityLayer": "all",
                     "TriggerType": "Engine",
                     "LogType": status,
-                    "LogDateTime": datetime.utcnow().isoformat() + "Z",
+                    "LogDateTime": now_str,
                     "LogData": message[:8000],
                     "EntityId": 0,
                 })
             except Exception as exc:
-                log.warning("Local DB pipeline audit write failed: %s", exc)
+                log.warning("SQLite: Failed to write pipeline audit: %s", exc)
 
-        # Fabric SQL (secondary)
+        # --- Fabric SQL (SECONDARY — best-effort) ---
         try:
             self._db.execute_proc(
                 "[logging].[sp_AuditPipeline]",
@@ -393,8 +438,7 @@ class AuditLogger:
                 },
             )
         except Exception as exc:
-            # Audit logging should never crash the engine
-            log.warning("Failed to write pipeline audit: %s", exc)
+            log.warning("Fabric SQL: Failed to write pipeline audit: %s", exc)
 
     def _write_copy_audit(
         self,
@@ -407,25 +451,29 @@ class AuditLogger:
         duration_seconds: float,
         message: str,
     ) -> None:
-        """Write to logging.sp_AuditCopyActivity."""
-        # Local SQLite (primary)
-        if self._local:
+        """Dual-write to SQLite (primary) + logging.sp_AuditCopyActivity (secondary)."""
+        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        params_str = f"rows={rows_read},bytes={bytes_transferred},dur={duration_seconds}s"
+
+        # --- SQLite (PRIMARY) ---
+        cpdb = _get_cpdb()
+        if cpdb:
             try:
-                self._local.insert_copy_activity_audit({
+                cpdb.insert_copy_activity_audit({
                     "PipelineRunGuid": run_id,
                     "CopyActivityName": f"Engine_Entity_{entity_id}",
                     "EntityLayer": "LandingZone",
                     "TriggerType": "Engine",
                     "LogType": status,
-                    "LogDateTime": datetime.utcnow().isoformat() + "Z",
+                    "LogDateTime": now_str,
                     "LogData": message[:8000],
                     "EntityId": entity_id,
-                    "CopyActivityParameters": f"rows={rows_read},bytes={bytes_transferred},dur={duration_seconds}s",
+                    "CopyActivityParameters": params_str,
                 })
             except Exception as exc:
-                log.warning("Local DB copy audit write failed for entity %d: %s", entity_id, exc)
+                log.warning("SQLite: Failed to write copy audit for entity %d: %s", entity_id, exc)
 
-        # Fabric SQL (secondary)
+        # --- Fabric SQL (SECONDARY — best-effort) ---
         try:
             self._db.execute_proc(
                 "[logging].[sp_AuditCopyActivity]",
@@ -434,7 +482,7 @@ class AuditLogger:
                     "CopyActivityName": f"Engine_Entity_{entity_id}",
                     "PipelineRunGuid": run_id,
                     "PipelineParentRunGuid": run_id,
-                    "CopyActivityParameters": f"rows={rows_read},bytes={bytes_transferred},dur={duration_seconds}s",
+                    "CopyActivityParameters": params_str,
                     "TriggerType": "Engine",
                     "TriggerGuid": "00000000-0000-0000-0000-000000000000",
                     "TriggerTime": datetime.utcnow(),
@@ -446,7 +494,7 @@ class AuditLogger:
                 },
             )
         except Exception as exc:
-            log.warning("Failed to write copy audit for entity %d: %s", entity_id, exc)
+            log.warning("Fabric SQL: Failed to write copy audit for entity %d: %s", entity_id, exc)
 
     def _write_engine_run(
         self,
@@ -466,13 +514,14 @@ class AuditLogger:
         triggered_by: str = "",
         error_summary: Optional[str] = None,
     ) -> None:
-        """Write to execution.sp_UpsertEngineRun — engine-specific run tracking."""
-        now_utc = datetime.utcnow().isoformat() + "Z"
+        """Dual-write to SQLite (primary) + execution.sp_UpsertEngineRun (secondary)."""
+        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # Local SQLite (primary)
-        if self._local:
+        # --- SQLite (PRIMARY) ---
+        cpdb = _get_cpdb()
+        if cpdb:
             try:
-                self._local.upsert_engine_run({
+                row = {
                     "RunId": run_id,
                     "Mode": mode or "",
                     "Status": status,
@@ -488,13 +537,17 @@ class AuditLogger:
                     "EntityFilter": entity_filter or "",
                     "TriggeredBy": triggered_by or "",
                     "ErrorSummary": error_summary or "",
-                    "StartedAt": now_utc if status == "InProgress" else None,
-                    "EndedAt": now_utc if status != "InProgress" else None,
-                })
+                }
+                # Set timestamp fields based on status
+                if status == "InProgress":
+                    row["StartedAt"] = now_str
+                elif status in ("Succeeded", "Failed"):
+                    row["EndedAt"] = now_str
+                cpdb.upsert_engine_run(row)
             except Exception as exc:
-                log.warning("Local DB engine run write failed: %s", exc)
+                log.warning("SQLite: Failed to write engine run: %s", exc)
 
-        # Fabric SQL (secondary)
+        # --- Fabric SQL (SECONDARY — best-effort) ---
         try:
             self._db.execute_proc(
                 "[execution].[sp_UpsertEngineRun]",
@@ -517,7 +570,25 @@ class AuditLogger:
                 },
             )
         except Exception as exc:
-            log.warning("Failed to write engine run: %s", exc)
+            log.warning("Fabric SQL: Failed to write engine run: %s", exc)
+
+    @staticmethod
+    def _classify_error(error: Optional[str]) -> str:
+        """Classify an error message into a category."""
+        if not error:
+            return ""
+        err_lower = error.lower()
+        if "timeout" in err_lower:
+            return "timeout"
+        if "connection" in err_lower or "network" in err_lower:
+            return "connection"
+        if "memory" in err_lower or "oom" in err_lower:
+            return "memory"
+        if "permission" in err_lower or "denied" in err_lower:
+            return "permission"
+        if "not found" in err_lower or "404" in err_lower:
+            return "not_found"
+        return "other"
 
     def _write_engine_task_log(
         self,
@@ -526,105 +597,49 @@ class AuditLogger:
         result: RunResult,
         log_data: str = "",
     ) -> None:
-        """Write to execution.sp_InsertEngineTaskLog — rich entity-level tracking."""
-        # Local SQLite (primary)
-        if self._local:
+        """Dual-write to SQLite (primary) + execution.sp_InsertEngineTaskLog (secondary)."""
+        load_type = "incremental" if entity.is_incremental and entity.last_load_value else "full"
+        error_type = self._classify_error(result.error)
+
+        task_row = {
+            "RunId": run_id,
+            "EntityId": entity.id,
+            "Layer": result.layer,
+            "Status": result.status,
+            "SourceServer": entity.source_server or "",
+            "SourceDatabase": entity.source_database or "",
+            "SourceTable": f"{entity.source_schema}.{entity.source_name}",
+            "SourceQuery": entity.build_source_query()[:4000],
+            "RowsRead": result.rows_read,
+            "RowsWritten": result.rows_written,
+            "BytesTransferred": result.bytes_transferred,
+            "DurationSeconds": round(result.duration_seconds, 2),
+            "TargetLakehouse": entity.lakehouse_guid or "",
+            "TargetPath": entity.file_path or "",
+            "WatermarkColumn": entity.watermark_column or "",
+            "WatermarkBefore": result.watermark_before or entity.last_load_value or "",
+            "WatermarkAfter": result.watermark_after or "",
+            "LoadType": load_type,
+            "ErrorType": error_type,
+            "ErrorMessage": (result.error or "")[:4000],
+            "ErrorStackTrace": "",
+            "ErrorSuggestion": (result.error_suggestion or "")[:2000],
+            "LogData": log_data[:8000],
+        }
+
+        # --- SQLite (PRIMARY) ---
+        cpdb = _get_cpdb()
+        if cpdb:
             try:
-                load_type_local = "incremental" if entity.is_incremental and entity.last_load_value else "full"
-                error_type_local = ""
-                if result.error:
-                    err_lower = result.error.lower()
-                    for pat, etype in [("timeout", "timeout"), ("connection", "connection"),
-                                       ("network", "connection"), ("memory", "memory"),
-                                       ("oom", "memory"), ("permission", "permission"),
-                                       ("denied", "permission"), ("not found", "not_found"),
-                                       ("404", "not_found")]:
-                        if pat in err_lower:
-                            error_type_local = etype
-                            break
-                    else:
-                        error_type_local = "other"
-
-                self._local.insert_engine_task_log({
-                    "RunId": run_id,
-                    "EntityId": entity.id,
-                    "Layer": result.layer,
-                    "Status": result.status,
-                    "SourceServer": entity.source_server or "",
-                    "SourceDatabase": entity.source_database or "",
-                    "SourceTable": f"{entity.source_schema}.{entity.source_name}",
-                    "SourceQuery": entity.build_source_query()[:4000],
-                    "RowsRead": result.rows_read,
-                    "RowsWritten": result.rows_written,
-                    "BytesTransferred": result.bytes_transferred,
-                    "DurationSeconds": round(result.duration_seconds, 2),
-                    "TargetLakehouse": entity.lakehouse_guid or "",
-                    "TargetPath": entity.file_path or "",
-                    "WatermarkColumn": entity.watermark_column or "",
-                    "WatermarkBefore": result.watermark_before or entity.last_load_value or "",
-                    "WatermarkAfter": result.watermark_after or "",
-                    "LoadType": load_type_local,
-                    "ErrorType": error_type_local,
-                    "ErrorMessage": (result.error or "")[:4000],
-                    "ErrorStackTrace": "",
-                    "ErrorSuggestion": (result.error_suggestion or "")[:2000],
-                    "LogData": log_data[:8000],
-                })
+                cpdb.insert_engine_task_log(task_row)
             except Exception as exc:
-                log.warning("Local DB task log write failed for entity %d: %s", entity.id, exc)
+                log.warning("SQLite: Failed to write engine task log for entity %d: %s", entity.id, exc)
 
-        # Fabric SQL (secondary)
+        # --- Fabric SQL (SECONDARY — best-effort) ---
         try:
-            load_type = "incremental" if entity.is_incremental and entity.last_load_value else "full"
-            error_type = ""
-            if result.error:
-                # Classify common error types
-                err_lower = result.error.lower()
-                if "timeout" in err_lower:
-                    error_type = "timeout"
-                elif "connection" in err_lower or "network" in err_lower:
-                    error_type = "connection"
-                elif "memory" in err_lower or "oom" in err_lower:
-                    error_type = "memory"
-                elif "permission" in err_lower or "denied" in err_lower:
-                    error_type = "permission"
-                elif "not found" in err_lower or "404" in err_lower:
-                    error_type = "not_found"
-                else:
-                    error_type = "other"
-
-            rows_per_sec = (
-                round(result.rows_read / result.duration_seconds, 1)
-                if result.duration_seconds > 0 else 0.0
-            )
-
             self._db.execute_proc(
                 "[execution].[sp_InsertEngineTaskLog]",
-                {
-                    "RunId": run_id,
-                    "EntityId": entity.id,
-                    "Layer": result.layer,
-                    "Status": result.status,
-                    "SourceServer": entity.source_server or "",
-                    "SourceDatabase": entity.source_database or "",
-                    "SourceTable": f"{entity.source_schema}.{entity.source_name}",
-                    "SourceQuery": entity.build_source_query()[:4000],
-                    "RowsRead": result.rows_read,
-                    "RowsWritten": result.rows_written,
-                    "BytesTransferred": result.bytes_transferred,
-                    "DurationSeconds": round(result.duration_seconds, 2),
-                    "TargetLakehouse": entity.lakehouse_guid or "",
-                    "TargetPath": entity.file_path or "",
-                    "WatermarkColumn": entity.watermark_column or "",
-                    "WatermarkBefore": result.watermark_before or entity.last_load_value or "",
-                    "WatermarkAfter": result.watermark_after or "",
-                    "LoadType": load_type,
-                    "ErrorType": error_type,
-                    "ErrorMessage": (result.error or "")[:4000],
-                    "ErrorStackTrace": "",
-                    "ErrorSuggestion": (result.error_suggestion or "")[:2000],
-                    "LogData": log_data[:8000],
-                },
+                task_row,
             )
         except Exception as exc:
-            log.warning("Failed to write engine task log for entity %d: %s", entity.id, exc)
+            log.warning("Fabric SQL: Failed to write engine task log for entity %d: %s", entity.id, exc)

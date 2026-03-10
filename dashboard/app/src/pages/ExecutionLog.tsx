@@ -27,91 +27,47 @@ interface PipelineRun {
 type ViewMode = 'business' | 'technical';
 type LogTab = 'pipelines' | 'copies' | 'notebooks';
 
-// ── Log Event Aggregation ──
-// The logging.* tables store individual log events (LogType = 'StartPipeline',
-// 'EndPipeline', 'PipelineError', etc.), not run summaries. We aggregate them
-// by PipelineRunGuid into runs with derived Status, StartTime, EndTime.
+// ── Data normalization ──
+// The logging tables use LogType (not Status) and LogDateTime (not StartTime).
+// Normalize rows so the rest of the component can use consistent field names.
 
-function aggregateLogEvents(events: PipelineRun[], nameField: string): PipelineRun[] {
-  // If the data already has a Status field, it's pre-aggregated — pass through
-  if (events.length > 0 && events[0].Status != null) {
-    return events;
+function normalizeLogType(logType: string | null): string {
+  const lt = (logType || '').toLowerCase();
+  if (lt === 'succeeded' || lt === 'endpipeline' || lt === 'endcopyactivity' || lt === 'endnotebookexecution') return 'Succeeded';
+  if (lt === 'failed') return 'Failed';
+  if (lt === 'inprogress' || lt === 'startpipeline' || lt === 'startcopyactivity' || lt === 'startnotebookexecution' || lt === 'running') return 'InProgress';
+  if (lt === 'cancelled' || lt === 'canceled') return 'Cancelled';
+  if (lt === 'queued') return 'Queued';
+  return logType || 'Unknown';
+}
+
+function normalizeRun(run: PipelineRun): PipelineRun {
+  const out = { ...run };
+  // Map LogType -> Status if Status is missing
+  if (!out.Status && out.LogType) {
+    out.Status = normalizeLogType(out.LogType);
   }
-
-  // Group by PipelineRunGuid (or treat each event as its own entry if no guid)
-  const groups = new Map<string, PipelineRun[]>();
-  for (const evt of events) {
-    const key = evt.PipelineRunGuid || evt.id || `evt-${groups.size}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(evt);
+  // Map LogDateTime -> StartTime if StartTime is missing
+  if (!out.StartTime && out.LogDateTime) {
+    out.StartTime = out.LogDateTime;
   }
-
-  const runs: PipelineRun[] = [];
-  for (const [guid, evts] of groups) {
-    const logTypes = evts.map(e => (e.LogType || '').toLowerCase());
-    const name = evts[0][nameField] || evts[0].PipelineName || evts[0].NotebookName || evts[0].CopyActivityName || 'Unknown';
-
-    // Derive status from log event types
-    let status: string;
-    if (logTypes.some(t => t.includes('error') || t.includes('fail'))) {
-      status = 'Failed';
-    } else if (logTypes.some(t => t.includes('end') || t.includes('complete') || t.includes('succeed'))) {
-      status = 'Succeeded';
-    } else if (logTypes.some(t => t.includes('start') || t.includes('begin'))) {
-      status = 'InProgress';
-    } else if (logTypes.some(t => t.includes('cancel'))) {
-      status = 'Cancelled';
-    } else if (logTypes.some(t => t.includes('queue'))) {
-      status = 'Queued';
-    } else {
-      status = evts[0].LogType || 'Unknown';
-    }
-
-    // Derive start/end times from log events
-    const startEvt = evts.find(e => (e.LogType || '').toLowerCase().includes('start'));
-    const endEvt = evts.find(e => (e.LogType || '').toLowerCase().includes('end')
-                                || (e.LogType || '').toLowerCase().includes('complete'));
-    const errorEvt = evts.find(e => (e.LogType || '').toLowerCase().includes('error')
-                                 || (e.LogType || '').toLowerCase().includes('fail'));
-
-    // Extract error message from LogData of error events
-    const errorMsg = errorEvt?.LogData || null;
-
-    runs.push({
-      PipelineRunGuid: guid,
-      PipelineName: name,
-      Name: name,
-      Status: status,
-      StartTime: startEvt?.LogDateTime || evts[0].LogDateTime || null,
-      EndTime: endEvt?.LogDateTime || errorEvt?.LogDateTime || null,
-      ErrorMessage: errorMsg,
-      EntityLayer: evts[0].EntityLayer || null,
-      TriggerType: evts[0].TriggerType || null,
-      EntityId: evts[0].EntityId || null,
-      LogCount: String(evts.length),
-    });
+  // Map TriggerTime -> StartTime as fallback
+  if (!out.StartTime && out.TriggerTime) {
+    out.StartTime = out.TriggerTime;
   }
-
-  // Sort by StartTime descending (most recent first)
-  runs.sort((a, b) => {
-    const ta = a.StartTime ? new Date(a.StartTime).getTime() : 0;
-    const tb = b.StartTime ? new Date(b.StartTime).getTime() : 0;
-    return tb - ta;
-  });
-
-  return runs;
+  // Unify Name field
+  if (!out.Name) {
+    out.Name = out.PipelineName || out.CopyActivityName || out.NotebookName || null;
+  }
+  return out;
 }
 
 // ── Helpers ──
 
-function utc(iso: string): Date {
-  return new Date(iso.endsWith('Z') ? iso : iso + 'Z');
-}
-
 function humanDuration(startStr: string | null, endStr: string | null): string {
   if (!startStr || !endStr) return '—';
-  const start = utc(startStr).getTime();
-  const end = utc(endStr).getTime();
+  const start = new Date(startStr).getTime();
+  const end = new Date(endStr).getTime();
   const diff = end - start;
   if (isNaN(diff) || diff < 0) return '—';
   if (diff < 1000) return '<1s';
@@ -122,20 +78,21 @@ function humanDuration(startStr: string | null, endStr: string | null): string {
 
 function timeAgo(isoDate: string | null): string {
   if (!isoDate) return '—';
-  const then = utc(isoDate).getTime();
+  const now = Date.now();
+  const then = new Date(isoDate).getTime();
   if (isNaN(then)) return '—';
-  const diff = Date.now() - then;
+  const diff = now - then;
   if (diff < 60000) return 'just now';
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
   if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
-  return utc(isoDate).toLocaleDateString();
+  return new Date(isoDate).toLocaleDateString();
 }
 
 function formatTimestamp(iso: string | null): string {
   if (!iso) return '—';
   try {
-    return utc(iso).toLocaleString(undefined, {
+    return new Date(iso).toLocaleString(undefined, {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
     });
   } catch {
@@ -155,24 +112,24 @@ function getStatusInfo(status: string | null) {
 
 /** Turn a raw pipeline run into a plain-English sentence for business users */
 function businessSummary(run: PipelineRun): string {
-  const name = run.PipelineName || run.Name || 'Pipeline';
+  const name = run.Name || run.PipelineName || run.CopyActivityName || run.NotebookName || 'Pipeline';
   const status = (run.Status || '').toLowerCase();
-  const duration = humanDuration(run.StartTime || null, run.EndTime || null);
+  const duration = humanDuration(run.StartTime || run.LogDateTime || null, run.EndTime || null);
 
   if (status === 'succeeded') {
-    return `${name} completed successfully in ${duration}`;
+    return `${name} completed successfully${duration !== '\u2014' ? ` in ${duration}` : ''}`;
   }
   if (status === 'failed') {
     const error = run.ErrorMessage || run.Error || '';
-    return `${name} failed after ${duration}${error ? ` — ${error.substring(0, 120)}` : ''}`;
+    return `${name} failed${duration !== '\u2014' ? ` after ${duration}` : ''}${error ? ` \u2014 ${error.substring(0, 120)}` : ''}`;
   }
   if (status === 'inprogress' || status === 'running') {
-    return `${name} is currently running (started ${timeAgo(run.StartTime || null)})`;
+    return `${name} is currently running (started ${timeAgo(run.StartTime || run.LogDateTime || null)})`;
   }
   if (status === 'cancelled' || status === 'canceled') {
     return `${name} was cancelled`;
   }
-  return `${name} — ${status || 'status unknown'}`;
+  return `${name} \u2014 ${status || 'status unknown'}`;
 }
 
 // ── Component ──
@@ -200,12 +157,12 @@ export default function ExecutionLog() {
         fetch('/api/notebook-executions'),
       ]);
       if (!plRes.ok && !cpRes.ok && !nbRes.ok) throw new Error('API server not responding');
-      const pl = plRes.ok ? await plRes.json() : [];
-      const cp = cpRes.ok ? await cpRes.json() : [];
-      const nb = nbRes.ok ? await nbRes.json() : [];
-      setPipelineRuns(aggregateLogEvents(pl, 'PipelineName'));
-      setCopyRuns(aggregateLogEvents(cp, 'CopyActivityName'));
-      setNotebookRuns(aggregateLogEvents(nb, 'NotebookName'));
+      const pl: PipelineRun[] = plRes.ok ? await plRes.json() : [];
+      const cp: PipelineRun[] = cpRes.ok ? await cpRes.json() : [];
+      const nb: PipelineRun[] = nbRes.ok ? await nbRes.json() : [];
+      setPipelineRuns(pl.map(normalizeRun));
+      setCopyRuns(cp.map(normalizeRun));
+      setNotebookRuns(nb.map(normalizeRun));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
@@ -430,7 +387,7 @@ export default function ExecutionLog() {
         /* ━━━ BUSINESS VIEW ━━━ */
         <div className="space-y-3">
           {currentData.map((run, i) => {
-            const key = run.PipelineRunGuid || run.PipelineExecutionId || run.CopyActivityExecutionId || run.NotebookExecutionId || String(i);
+            const key = run.PipelineExecutionId || run.CopyActivityExecutionId || run.NotebookExecutionId || String(i);
             const statusInfo = getStatusInfo(run.Status);
             const StatusIcon = statusInfo.Icon;
             const isExpanded = expandedRow === key;
@@ -494,7 +451,7 @@ export default function ExecutionLog() {
               </thead>
               <tbody>
                 {currentData.map((run, i) => {
-                  const key = run.PipelineRunGuid || run.PipelineExecutionId || run.CopyActivityExecutionId || run.NotebookExecutionId || String(i);
+                  const key = run.PipelineExecutionId || run.CopyActivityExecutionId || run.NotebookExecutionId || String(i);
                   const statusInfo = getStatusInfo(run.Status);
                   const StatusIcon = statusInfo.Icon;
                   const isRunning = (run.Status || '').toLowerCase() === 'inprogress' || (run.Status || '').toLowerCase() === 'running';
@@ -504,14 +461,14 @@ export default function ExecutionLog() {
                     <tr
                       key={key}
                       onClick={() => setExpandedRow(isExpanded ? null : key)}
-                      className="border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer transition-colors"
+                      className="border-b border-border last:border-0 hover:bg-muted/30 cursor-pointer transition-colors"
                     >
                       <td className="py-2.5 px-3">
                         <StatusIcon className={`h-4 w-4 ${statusInfo.color} ${isRunning ? 'animate-spin' : ''}`} />
                       </td>
                       {columns.map(col => (
                         <td key={col} className="py-2.5 px-3 font-mono text-xs text-foreground whitespace-nowrap max-w-[200px] truncate">
-                          {col === 'Status' ? (
+                          {(col === 'Status' || col === 'LogType') ? (
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusInfo.bg} ${statusInfo.color}`}>
                               {run[col] || '—'}
                             </span>
@@ -528,7 +485,7 @@ export default function ExecutionLog() {
           </div>
 
           {/* Row count footer */}
-          <div className="border-t border-border bg-muted px-4 py-2 text-xs text-muted-foreground">
+          <div className="border-t border-border bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
             Showing {currentData.length} of {stats.total} records
             {searchTerm && <span> (filtered by "{searchTerm}")</span>}
           </div>

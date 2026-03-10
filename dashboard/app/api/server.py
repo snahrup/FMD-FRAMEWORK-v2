@@ -25,15 +25,27 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import threading
 import time
+import uuid
 
 # Ensure project root is importable (for engine.* package)
 _project_root = str(Path(__file__).resolve().parent.parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-# ── Local SQLite Control Plane DB (primary read source) ──
-# Replaces unreliable Fabric SQL Analytics Endpoint with 2-30 min sync lag.
-import control_plane_db as cpdb
+# ── Local SQLite Control Plane ──
+# Primary read source for dashboard; replaces Fabric SQL Analytics Endpoint
+# which has 2-30 minute sync lag.  Fabric SQL remains as write target and
+# best-effort fallback.
+try:
+    from dashboard.app.api import control_plane_db as cpdb
+    _CPDB_AVAILABLE = True
+except ImportError:
+    try:
+        import control_plane_db as cpdb
+        _CPDB_AVAILABLE = True
+    except ImportError:
+        cpdb = None
+        _CPDB_AVAILABLE = False
 
 # ── Configuration ──
 
@@ -162,7 +174,7 @@ def get_fabric_token(scope: str) -> str:
 def get_sql_connection():
     """Connect to Fabric SQL Database using SP token."""
     import pyodbc
-    token = get_fabric_token('https://analysis.windows.net/powerbi/api/.default')
+    token = get_fabric_token('https://database.windows.net/.default')
     token_bytes = token.encode('UTF-16-LE')
     token_struct = struct.pack(f'<I{len(token_bytes)}s', len(token_bytes), token_bytes)
     conn_str = (
@@ -191,197 +203,758 @@ def query_sql(sql: str) -> list[dict]:
         conn.close()
 
 
-# ── SQLite-first read helper ──
+# ── SQLite Control Plane — Primary Read Functions ──
+# These functions read from local SQLite first, falling back to Fabric SQL.
+# This eliminates the 2-30 minute sync lag of the Fabric SQL Analytics Endpoint.
 
-def _sqlite_or_fabric(sqlite_fn, fabric_fn, label: str = ''):
-    """Try local SQLite first; fall back to Fabric SQL if SQLite is empty or fails.
-    Returns (data, source_tag) where source_tag is 'sqlite' or 'fabric'."""
-    try:
-        data = sqlite_fn()
-        if data is not None and (isinstance(data, list) and len(data) > 0 or isinstance(data, dict) and data):
-            return data, 'sqlite'
-        # SQLite returned empty — might not be seeded yet, try Fabric
-        log.debug(f'SQLite empty for {label}, falling back to Fabric SQL')
-    except Exception as e:
-        log.warning(f'SQLite read failed for {label}: {e}')
-    # Fallback to Fabric SQL
-    try:
-        data = fabric_fn()
-        return data, 'fabric'
-    except Exception as e2:
-        log.error(f'Both SQLite and Fabric SQL failed for {label}: {e2}')
-        raise
+def _cpdb_available() -> bool:
+    """Check whether local SQLite control plane DB is usable."""
+    return _CPDB_AVAILABLE and cpdb is not None and cpdb.DB_PATH.exists()
 
 
-def _fire_and_forget_fabric(fn, label: str = ''):
-    """Run a Fabric SQL write in a background thread (best-effort)."""
-    def _run():
+def _init_control_plane_db():
+    """Initialize the local SQLite control plane DB if the module is available."""
+    if _CPDB_AVAILABLE and cpdb is not None:
         try:
-            fn()
+            cpdb.init_db()
+            log.info(f'SQLite control plane DB initialized at {cpdb.DB_PATH}')
         except Exception as e:
-            log.debug(f'Fabric SQL fire-and-forget failed for {label}: {e}')
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
+            log.warning(f'Failed to initialize SQLite control plane DB: {e}')
 
 
-# ── Background Sync: Fabric SQL → Local SQLite ──
+def _sync_fabric_to_sqlite():
+    """Pull latest data from Fabric SQL DB into local SQLite.
+    Called by background sync thread every 30 minutes to catch
+    notebook-initiated runs that bypass the local engine."""
+    if not _CPDB_AVAILABLE or cpdb is None:
+        return
+
+    sync_start = time.time()
+    log.info('Background sync: Fabric SQL → SQLite starting...')
+    synced = {}
+
+    try:
+        # Connections
+        rows = query_sql('SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName, IsActive FROM integration.Connection')
+        for r in rows:
+            cpdb.upsert_connection(r)
+        synced['connections'] = len(rows)
+    except Exception as e:
+        log.warning(f'Sync connections failed: {e}')
+
+    try:
+        # DataSources
+        rows = query_sql(
+            'SELECT ds.DataSourceId, ds.ConnectionId, ds.Name, ds.Namespace, ds.Type, ds.Description, ds.IsActive '
+            'FROM integration.DataSource ds'
+        )
+        for r in rows:
+            cpdb.upsert_datasource(r)
+        synced['datasources'] = len(rows)
+    except Exception as e:
+        log.warning(f'Sync datasources failed: {e}')
+
+    try:
+        # Lakehouses
+        rows = query_sql('SELECT LakehouseId, Name, WorkspaceGuid, LakehouseGuid FROM integration.Lakehouse')
+        for r in rows:
+            cpdb.upsert_lakehouse(r)
+        synced['lakehouses'] = len(rows)
+    except Exception as e:
+        log.warning(f'Sync lakehouses failed: {e}')
+
+    try:
+        # Workspaces
+        rows = query_sql('SELECT WorkspaceId, WorkspaceGuid, Name FROM integration.Workspace')
+        for r in rows:
+            cpdb.upsert_workspace(r)
+        synced['workspaces'] = len(rows)
+    except Exception as e:
+        log.warning(f'Sync workspaces failed: {e}')
+
+    try:
+        # Pipelines
+        rows = query_sql('SELECT PipelineId, Name, IsActive FROM integration.Pipeline')
+        for r in rows:
+            cpdb.upsert_pipeline(r)
+        synced['pipelines'] = len(rows)
+    except Exception as e:
+        log.warning(f'Sync pipelines failed: {e}')
+
+    try:
+        # LZ Entities
+        rows = query_sql(
+            'SELECT LandingzoneEntityId, DataSourceId, LakehouseId, SourceSchema, '
+            'SourceName, SourceCustomSelect, FileName, FilePath, FileType, '
+            'IsIncremental, IsIncrementalColumn, CustomNotebookName, IsActive '
+            'FROM integration.LandingzoneEntity'
+        )
+        for r in rows:
+            cpdb.upsert_lz_entity(r)
+        synced['lz_entities'] = len(rows)
+    except Exception as e:
+        log.warning(f'Sync LZ entities failed: {e}')
+
+    try:
+        # Bronze Entities
+        rows = query_sql(
+            'SELECT BronzeLayerEntityId, LandingzoneEntityId, LakehouseId, '
+            '[Schema] AS Schema_, Name, PrimaryKeys, FileType, IsActive '
+            'FROM integration.BronzeLayerEntity'
+        )
+        for r in rows:
+            cpdb.upsert_bronze_entity(r)
+        synced['bronze_entities'] = len(rows)
+    except Exception as e:
+        log.warning(f'Sync Bronze entities failed: {e}')
+
+    try:
+        # Silver Entities
+        rows = query_sql(
+            'SELECT SilverLayerEntityId, BronzeLayerEntityId, LakehouseId, '
+            '[Schema] AS Schema_, Name, FileType, IsActive '
+            'FROM integration.SilverLayerEntity'
+        )
+        for r in rows:
+            cpdb.upsert_silver_entity(r)
+        synced['silver_entities'] = len(rows)
+    except Exception as e:
+        log.warning(f'Sync Silver entities failed: {e}')
+
+    try:
+        # Engine Runs
+        rows = query_sql(
+            'SELECT RunId, Mode, Status, TotalEntities, SucceededEntities, FailedEntities, '
+            'SkippedEntities, TotalRowsRead, TotalRowsWritten, TotalBytesTransferred, '
+            'TotalDurationSeconds, Layers, EntityFilter, TriggeredBy, ErrorSummary, '
+            'StartedAt, EndedAt '
+            'FROM execution.EngineRun ORDER BY StartedAt DESC'
+        )
+        for r in rows:
+            cpdb.upsert_engine_run(r)
+        synced['engine_runs'] = len(rows)
+    except Exception as e:
+        log.warning(f'Sync engine runs failed: {e}')
+
+    try:
+        # Entity Status (execution.EntityStatusSummary)
+        rows = query_sql(
+            'SELECT LandingzoneEntityId, Layer, Status, LoadEndDateTime, ErrorMessage, UpdatedBy '
+            'FROM execution.EntityStatusSummary'
+        )
+        for r in rows:
+            cpdb.upsert_entity_status(r)
+        synced['entity_status'] = len(rows)
+    except Exception as e:
+        log.warning(f'Sync entity status failed: {e}')
+
+    try:
+        # Pipeline Audit (logging.PipelineExecution)
+        rows = query_sql(
+            'SELECT TOP 2000 '
+            'CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid, '
+            'PipelineName, EntityLayer, TriggerType, LogType, LogDateTime, LogData, EntityId '
+            'FROM logging.PipelineExecution ORDER BY LogDateTime DESC'
+        )
+        for r in rows:
+            cpdb.insert_pipeline_audit(r)
+        synced['pipeline_audit'] = len(rows)
+    except Exception as e:
+        log.warning(f'Sync pipeline audit failed: {e}')
+
+    # Record sync watermark
+    try:
+        cpdb.set_sync_watermark(datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'))
+    except Exception:
+        pass
+
+    elapsed = time.time() - sync_start
+    log.info(f'Background sync complete in {elapsed:.1f}s: {synced}')
+
 
 _sync_thread: threading.Thread | None = None
 _SYNC_INTERVAL_SEC = 1800  # 30 minutes
 
 
-def _sync_fabric_to_sqlite():
-    """Periodically pull data from Fabric SQL into local SQLite.
-    Runs in a daemon thread, never crashes the server.
-    First sync fires immediately on startup; subsequent runs wait _SYNC_INTERVAL_SEC."""
-    _first_run = True
-    while True:
-        try:
-            if _first_run:
-                # Small delay to let the HTTP server bind before we hammer Fabric SQL
-                time.sleep(5)
-                _first_run = False
-            else:
-                time.sleep(_SYNC_INTERVAL_SEC)
-            log.info('Background sync: Fabric SQL → SQLite starting...')
-            t0 = time.time()
-            synced = {}
-
-            # Sync connections
-            try:
-                rows = query_sql('SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName, IsActive FROM integration.Connection')
-                for r in rows:
-                    cpdb.upsert_connection(r)
-                synced['connections'] = len(rows)
-            except Exception as e:
-                log.warning(f'Sync connections failed: {e}')
-
-            # Sync datasources
-            try:
-                rows = query_sql('SELECT DataSourceId, ConnectionId, Name, Namespace, Type, Description, IsActive FROM integration.DataSource')
-                for r in rows:
-                    cpdb.upsert_datasource(r)
-                synced['datasources'] = len(rows)
-            except Exception as e:
-                log.warning(f'Sync datasources failed: {e}')
-
-            # Sync lakehouses
-            try:
-                rows = query_sql('SELECT LakehouseId, Name, WorkspaceGuid, LakehouseGuid FROM integration.Lakehouse')
-                for r in rows:
-                    cpdb.upsert_lakehouse(r)
-                synced['lakehouses'] = len(rows)
-            except Exception as e:
-                log.warning(f'Sync lakehouses failed: {e}')
-
-            # Sync workspaces
-            try:
-                rows = query_sql('SELECT WorkspaceId, WorkspaceGuid, Name FROM integration.Workspace')
-                for r in rows:
-                    cpdb.upsert_workspace(r)
-                synced['workspaces'] = len(rows)
-            except Exception as e:
-                log.warning(f'Sync workspaces failed: {e}')
-
-            # Sync pipelines
-            try:
-                rows = query_sql('SELECT PipelineId, Name, IsActive FROM integration.Pipeline')
-                for r in rows:
-                    cpdb.upsert_pipeline(r)
-                synced['pipelines'] = len(rows)
-            except Exception as e:
-                log.warning(f'Sync pipelines failed: {e}')
-
-            # Sync LZ entities
-            try:
-                rows = query_sql(
-                    'SELECT LandingzoneEntityId, DataSourceId, LakehouseId, SourceSchema, SourceName, '
-                    'SourceCustomSelect, FileName, FilePath, FileType, IsIncremental, IsIncrementalColumn, '
-                    'CustomNotebookName, IsActive FROM integration.LandingzoneEntity')
-                for r in rows:
-                    cpdb.upsert_lz_entity(r)
-                synced['lz_entities'] = len(rows)
-            except Exception as e:
-                log.warning(f'Sync LZ entities failed: {e}')
-
-            # Sync Bronze entities
-            try:
-                rows = query_sql(
-                    'SELECT BronzeLayerEntityId, LandingzoneEntityId, LakehouseId, '
-                    '[Schema] AS Schema_, Name, PrimaryKeys, FileType, IsActive '
-                    'FROM integration.BronzeLayerEntity')
-                for r in rows:
-                    cpdb.upsert_bronze_entity(r)
-                synced['bronze_entities'] = len(rows)
-            except Exception as e:
-                log.warning(f'Sync Bronze entities failed: {e}')
-
-            # Sync Silver entities
-            try:
-                rows = query_sql(
-                    'SELECT SilverLayerEntityId, BronzeLayerEntityId, LakehouseId, '
-                    '[Schema] AS Schema_, Name, FileType, IsActive '
-                    'FROM integration.SilverLayerEntity')
-                for r in rows:
-                    cpdb.upsert_silver_entity(r)
-                synced['silver_entities'] = len(rows)
-            except Exception as e:
-                log.warning(f'Sync Silver entities failed: {e}')
-
-            # Sync engine runs
-            try:
-                rows = query_sql(
-                    'SELECT RunId, Mode, Status, TotalEntities, SucceededEntities, FailedEntities, '
-                    'SkippedEntities, TotalRowsRead, TotalRowsWritten, TotalBytesTransferred, '
-                    'TotalDurationSeconds, Layers, EntityFilter, TriggeredBy, ErrorSummary, '
-                    'StartedAtUtc AS StartedAt, CompletedAtUtc AS EndedAt '
-                    'FROM execution.EngineRun ORDER BY StartedAtUtc DESC')
-                for r in rows:
-                    cpdb.upsert_engine_run(r)
-                synced['engine_runs'] = len(rows)
-            except Exception as e:
-                log.warning(f'Sync engine runs failed: {e}')
-
-            # Sync pipeline audit (recent only — last 7 days)
-            try:
-                rows = query_sql(
-                    "SELECT PipelineRunGuid, PipelineName, EntityLayer, TriggerType, "
-                    "LogType, LogDateTime, LogData, EntityId "
-                    "FROM logging.PipelineExecution "
-                    "WHERE LogDateTime > DATEADD(DAY, -7, GETUTCDATE())")
-                for r in rows:
-                    cpdb.insert_pipeline_audit(r)
-                synced['pipeline_audit'] = len(rows)
-            except Exception as e:
-                log.warning(f'Sync pipeline audit failed: {e}')
-
-            # Sync entity status
-            try:
-                rows = query_sql(
-                    "SELECT LandingzoneEntityId, Layer, Status, LoadEndDateTime, ErrorMessage, UpdatedBy "
-                    "FROM execution.EntityStatusSummary")
-                for r in rows:
-                    cpdb.upsert_entity_status(r)
-                synced['entity_status'] = len(rows)
-            except Exception as e:
-                log.warning(f'Sync entity status failed: {e}')
-
-            elapsed = round(time.time() - t0, 1)
-            cpdb.set_sync_watermark(datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'))
-            log.info(f'Background sync complete in {elapsed}s: {synced}')
-
-        except Exception as e:
-            log.error(f'Background sync crashed (will retry in {_SYNC_INTERVAL_SEC}s): {e}')
-
-
-def _start_sync_thread():
-    """Launch the background Fabric→SQLite sync thread (daemon, called once on startup)."""
+def _start_background_sync():
+    """Start the background thread that syncs Fabric SQL → SQLite every 30 min."""
     global _sync_thread
-    if _sync_thread and _sync_thread.is_alive():
+    if not _CPDB_AVAILABLE:
+        log.info('SQLite control plane not available — background sync disabled')
         return
-    _sync_thread = threading.Thread(target=_sync_fabric_to_sqlite, daemon=True, name='fabric-sqlite-sync')
+
+    def _sync_loop():
+        # Initial sync on startup (after a short delay to let server boot)
+        time.sleep(5)
+        try:
+            _sync_fabric_to_sqlite()
+        except Exception as e:
+            log.warning(f'Initial Fabric→SQLite sync failed: {e}')
+
+        while True:
+            time.sleep(_SYNC_INTERVAL_SEC)
+            try:
+                _sync_fabric_to_sqlite()
+            except Exception as e:
+                log.warning(f'Background Fabric→SQLite sync failed: {e}')
+
+    _sync_thread = threading.Thread(target=_sync_loop, daemon=True, name='fabric-sqlite-sync')
     _sync_thread.start()
-    log.info('Background sync thread started (interval=%ds)', _SYNC_INTERVAL_SEC)
+    log.info(f'Background sync thread started (interval={_SYNC_INTERVAL_SEC}s)')
+
+
+# ── SQLite-backed endpoint data functions ──
+# Primary source: SQLite.  Fallback: Fabric SQL.  Response shapes unchanged.
+
+def _sqlite_control_plane() -> dict:
+    """Build the /api/control-plane response from local SQLite.
+    Returns the same JSON shape as _get_control_plane_live()."""
+    now_utc = datetime.utcnow().isoformat() + 'Z'
+    t_start = time.time()
+
+    connections = cpdb.get_connections()
+    datasources = cpdb.get_datasources()
+    lz_entities = cpdb.get_lz_entities()
+    bronze_entities = cpdb.get_bronze_entities()
+    silver_entities = cpdb.get_silver_entities()
+    lakehouses = cpdb.get_lakehouses()
+    workspaces = cpdb.get_workspaces()
+    pipelines = cpdb.get_pipelines()
+    pipeline_runs_raw = cpdb.get_pipeline_runs_grouped()
+
+    log.info(f'Control plane (SQLite): 9 reads in {time.time() - t_start:.2f}s')
+
+    # Derive pipeline run statuses from log events (same logic as _get_control_plane_live)
+    pipeline_runs = []
+    for run in pipeline_runs_raw:
+        start_time = run.get('StartTime')
+        end_time = run.get('EndTime')
+        error_data = run.get('ErrorData') or ''
+        end_data = run.get('EndLogData') or ''
+        if error_data:
+            status = 'Failed'
+        elif end_time and ('Error' in str(end_data) or 'Fail' in str(end_data)):
+            status = 'Failed'
+        elif end_time:
+            status = 'Succeeded'
+        elif start_time:
+            status = 'InProgress'
+        else:
+            status = 'Unknown'
+        duration = None
+        duration_sec = None
+        if start_time and end_time:
+            try:
+                t0 = datetime.fromisoformat(str(start_time).replace('Z', ''))
+                t1 = datetime.fromisoformat(str(end_time).replace('Z', ''))
+                dur_sec = (t1 - t0).total_seconds()
+                if dur_sec < 60:
+                    duration = f'{int(dur_sec)}s'
+                elif dur_sec < 3600:
+                    duration = f'{int(dur_sec // 60)}m {int(dur_sec % 60)}s'
+                else:
+                    duration = f'{int(dur_sec // 3600)}h {int((dur_sec % 3600) // 60)}m'
+                duration_sec = dur_sec
+            except Exception:
+                pass
+        pipeline_runs.append({
+            'RunGuid': run.get('PipelineRunGuid', ''),
+            'PipelineName': run.get('PipelineName', ''),
+            'EntityLayer': run.get('EntityLayer', ''),
+            'TriggerType': run.get('TriggerType', ''),
+            'StartTime': str(start_time) if start_time else None,
+            'EndTime': str(end_time) if end_time else None,
+            'Status': status,
+            'Duration': duration,
+            'DurationSec': duration_sec,
+        })
+
+    # Aggregate by namespace (source system)
+    source_systems = {}
+    for ds in datasources:
+        ns = ds.get('Namespace', 'Unknown') or 'Unknown'
+        if ns not in source_systems:
+            source_systems[ns] = {
+                'namespace': ns,
+                'connections': [],
+                'dataSources': [],
+                'entities': {'landing': 0, 'bronze': 0, 'silver': 0},
+                'activeEntities': {'landing': 0, 'bronze': 0, 'silver': 0},
+            }
+        source_systems[ns]['dataSources'].append({
+            'name': ds.get('Name', ''),
+            'type': ds.get('Type', ''),
+            'isActive': ds.get('IsActive', 0),
+            'connectionName': ds.get('ConnectionName', ''),
+        })
+
+    # Link connections to source systems
+    conn_to_ns = {}
+    for ds in datasources:
+        conn_to_ns[ds.get('ConnectionName', '')] = ds.get('Namespace', 'Unknown') or 'Unknown'
+    for conn in connections:
+        ns = conn_to_ns.get(conn.get('Name', ''), 'Unlinked')
+        if ns not in source_systems:
+            source_systems[ns] = {
+                'namespace': ns, 'connections': [], 'dataSources': [],
+                'entities': {'landing': 0, 'bronze': 0, 'silver': 0},
+                'activeEntities': {'landing': 0, 'bronze': 0, 'silver': 0},
+            }
+        source_systems[ns]['connections'].append({
+            'name': conn.get('Name', ''),
+            'type': conn.get('Type', ''),
+            'isActive': conn.get('IsActive', 0),
+        })
+
+    def _is_active(val):
+        return str(val).lower() in ('true', '1')
+
+    for ent in lz_entities:
+        ns = ent.get('Namespace', 'Unknown') or 'Unknown'
+        if ns in source_systems:
+            source_systems[ns]['entities']['landing'] += 1
+            if _is_active(ent.get('IsActive', '')):
+                source_systems[ns]['activeEntities']['landing'] += 1
+    for ent in bronze_entities:
+        ns = ent.get('Namespace', 'Unknown') or 'Unknown'
+        if ns in source_systems:
+            source_systems[ns]['entities']['bronze'] += 1
+            if _is_active(ent.get('IsActive', '')):
+                source_systems[ns]['activeEntities']['bronze'] += 1
+    for ent in silver_entities:
+        ns = ent.get('Namespace', 'Unknown') or 'Unknown'
+        if ns in source_systems:
+            source_systems[ns]['entities']['silver'] += 1
+            if _is_active(ent.get('IsActive', '')):
+                source_systems[ns]['activeEntities']['silver'] += 1
+
+    active_conn = sum(1 for c in connections if _is_active(c.get('IsActive', '')))
+    active_ds = sum(1 for d in datasources if _is_active(d.get('IsActive', '')))
+    active_lz = sum(1 for e in lz_entities if _is_active(e.get('IsActive', '')))
+    active_br = sum(1 for e in bronze_entities if _is_active(e.get('IsActive', '')))
+    active_sv = sum(1 for e in silver_entities if _is_active(e.get('IsActive', '')))
+    active_pl = sum(1 for p in pipelines if _is_active(p.get('IsActive', '')))
+
+    succeeded_runs = sum(1 for r in pipeline_runs if r['Status'] == 'Succeeded')
+    failed_runs = sum(1 for r in pipeline_runs if r['Status'] == 'Failed')
+    running_now = sum(1 for r in pipeline_runs if r['Status'] == 'InProgress')
+    total_distinct_runs = len(pipeline_runs)
+
+    if failed_runs > 0 and succeeded_runs == 0:
+        health = 'critical'
+    elif failed_runs > 0:
+        health = 'warning'
+    elif total_distinct_runs == 0 and active_conn > 0:
+        health = 'healthy'
+    elif active_conn == 0:
+        health = 'setup'
+    else:
+        health = 'healthy'
+
+    lh_deduped = []
+    lh_seen = set()
+    for lh in lakehouses:
+        lh_id = int(lh.get('LakehouseId', 0))
+        env = 'DEV' if lh_id <= 3 else 'PROD'
+        name = lh.get('Name', '')
+        entry_key = f"{name}_{env}"
+        if entry_key not in lh_seen:
+            lh_seen.add(entry_key)
+            lh_deduped.append({
+                'LakehouseId': str(lh_id),
+                'Name': name,
+                'Environment': env,
+            })
+
+    return {
+        'health': health,
+        'lastRefreshed': now_utc,
+        '_fromSnapshot': False,
+        '_source': 'sqlite',
+        'summary': {
+            'connections': {'total': len(connections), 'active': active_conn},
+            'dataSources': {'total': len(datasources), 'active': active_ds},
+            'entities': {
+                'landing': {'total': len(lz_entities), 'active': active_lz},
+                'bronze': {'total': len(bronze_entities), 'active': active_br},
+                'silver': {'total': len(silver_entities), 'active': active_sv},
+            },
+            'pipelines': {'total': len(pipelines), 'active': active_pl},
+            'lakehouses': len(set(lh.get('Name', '') for lh in lakehouses)),
+            'workspaces': len(workspaces),
+        },
+        'pipelineHealth': {
+            'recentRuns': total_distinct_runs,
+            'succeeded': succeeded_runs,
+            'failed': failed_runs,
+            'running': running_now,
+        },
+        'sourceSystems': list(source_systems.values()),
+        'lakehouses': lh_deduped,
+        'workspaces': [{'WorkspaceId': w.get('WorkspaceId', ''), 'Name': w.get('Name', '')} for w in workspaces],
+        'recentRuns': pipeline_runs[:15],
+    }
+
+
+def _sqlite_execution_matrix() -> list[dict]:
+    """Build the /api/execution-matrix response from local SQLite.
+    Returns per-entity load status across LZ/Bronze/Silver layers."""
+    lz = cpdb.get_lz_entities()
+    bronze = cpdb.get_bronze_entities()
+    silver = cpdb.get_silver_entities()
+    statuses = cpdb.get_entity_status_all()
+
+    # Index bronze/silver by their parent IDs
+    bronze_by_lz = {}
+    for b in bronze:
+        # Need to look up via bronze_entities table
+        pass
+
+    # Build status lookup: (LandingzoneEntityId, Layer) → status row
+    status_map = {}
+    for s in statuses:
+        key = (s.get('LandingzoneEntityId'), s.get('Layer'))
+        status_map[key] = s
+
+    # Build bronze lookup by LZ ID — need to query bronze_entities with LZ join
+    bronze_view = cpdb.get_bronze_view()
+    silver_view = cpdb.get_silver_view()
+
+    bronze_by_lz = {}
+    for b in bronze_view:
+        lz_id = b.get('LandingzoneEntityId')
+        if lz_id is not None:
+            bronze_by_lz[int(lz_id)] = b
+
+    silver_by_bronze = {}
+    for s in silver_view:
+        br_id = s.get('BronzeLayerEntityId')
+        if br_id is not None:
+            silver_by_bronze[int(br_id)] = s
+
+    results = []
+    for entity in lz:
+        lz_id = entity.get('LandingzoneEntityId')
+        if lz_id is None:
+            continue
+        lz_id = int(lz_id)
+
+        lz_status = status_map.get((lz_id, 'LandingZone'), {})
+        bronze_status = status_map.get((lz_id, 'Bronze'), {})
+        silver_status = status_map.get((lz_id, 'Silver'), {})
+
+        br = bronze_by_lz.get(lz_id, {})
+        br_id = br.get('BronzeLayerEntityId')
+        sv = silver_by_bronze.get(int(br_id), {}) if br_id is not None else {}
+
+        results.append({
+            'LandingzoneEntityId': str(lz_id),
+            'SourceSchema': entity.get('SourceSchema', ''),
+            'SourceName': entity.get('SourceName', ''),
+            'DataSourceName': entity.get('DataSourceName', ''),
+            'Namespace': entity.get('Namespace', ''),
+            'IsActive': entity.get('IsActive', 0),
+            'IsIncremental': entity.get('IsIncremental', 0),
+            'LZ_Status': lz_status.get('Status', 'not_started'),
+            'LZ_LastLoad': lz_status.get('LoadEndDateTime', ''),
+            'Bronze_Status': bronze_status.get('Status', 'not_started'),
+            'Bronze_LastLoad': bronze_status.get('LoadEndDateTime', ''),
+            'Silver_Status': silver_status.get('Status', 'not_started'),
+            'Silver_LastLoad': silver_status.get('LoadEndDateTime', ''),
+            'BronzeLayerEntityId': str(br_id) if br_id else None,
+            'SilverLayerEntityId': str(sv.get('SilverLayerEntityId', '')) if sv else None,
+        })
+    return results
+
+
+def _sqlite_engine_runs(limit: int = 50) -> list[dict]:
+    """Build the /api/engine/runs response from local SQLite."""
+    return cpdb.get_engine_runs(limit=limit)
+
+
+def _sqlite_engine_status() -> dict:
+    """Build the /api/engine/status response from local SQLite.
+    Returns same shape as engine/api.py's _handle_status."""
+    runs = cpdb.get_engine_runs(limit=1)
+    last_run = runs[0] if runs else None
+
+    if last_run and str(last_run.get('Status', '')).lower() in ('inprogress', 'running'):
+        status = 'running'
+    else:
+        status = 'idle'
+
+    return {
+        'status': status,
+        'lastRun': last_run,
+        '_source': 'sqlite',
+    }
+
+
+def _sqlite_record_counts() -> dict:
+    """Build the /api/record-counts response from local SQLite.
+    Returns entity counts grouped by source system (namespace)."""
+    lz = cpdb.get_lz_entities()
+    bronze = cpdb.get_bronze_entities()
+    silver = cpdb.get_silver_entities()
+
+    # Group by namespace
+    by_source = {}
+    for e in lz:
+        ns = e.get('Namespace', 'Unknown') or 'Unknown'
+        if ns not in by_source:
+            by_source[ns] = {'source': ns, 'landing': 0, 'bronze': 0, 'silver': 0,
+                             'activeLanding': 0, 'activeBronze': 0, 'activeSilver': 0}
+        by_source[ns]['landing'] += 1
+        if str(e.get('IsActive', '')).lower() in ('true', '1'):
+            by_source[ns]['activeLanding'] += 1
+
+    for e in bronze:
+        ns = e.get('Namespace', 'Unknown') or 'Unknown'
+        if ns not in by_source:
+            by_source[ns] = {'source': ns, 'landing': 0, 'bronze': 0, 'silver': 0,
+                             'activeLanding': 0, 'activeBronze': 0, 'activeSilver': 0}
+        by_source[ns]['bronze'] += 1
+        if str(e.get('IsActive', '')).lower() in ('true', '1'):
+            by_source[ns]['activeBronze'] += 1
+
+    for e in silver:
+        ns = e.get('Namespace', 'Unknown') or 'Unknown'
+        if ns not in by_source:
+            by_source[ns] = {'source': ns, 'landing': 0, 'bronze': 0, 'silver': 0,
+                             'activeLanding': 0, 'activeBronze': 0, 'activeSilver': 0}
+        by_source[ns]['silver'] += 1
+        if str(e.get('IsActive', '')).lower() in ('true', '1'):
+            by_source[ns]['activeSilver'] += 1
+
+    sources_list = sorted(by_source.values(), key=lambda x: x['source'])
+    total = {
+        'landing': sum(s['landing'] for s in sources_list),
+        'bronze': sum(s['bronze'] for s in sources_list),
+        'silver': sum(s['silver'] for s in sources_list),
+    }
+
+    return {
+        'sources': sources_list,
+        'total': total,
+        '_source': 'sqlite',
+    }
+
+
+def _sqlite_sources() -> list[dict]:
+    """Build the /api/sources response from local SQLite.
+    Returns source system list with entity counts per layer."""
+    datasources = cpdb.get_datasources()
+    lz = cpdb.get_lz_entities()
+    bronze = cpdb.get_bronze_entities()
+    silver = cpdb.get_silver_entities()
+
+    # Count entities by namespace
+    lz_by_ns = {}
+    for e in lz:
+        ns = e.get('Namespace', 'Unknown') or 'Unknown'
+        lz_by_ns[ns] = lz_by_ns.get(ns, 0) + 1
+
+    br_by_ns = {}
+    for e in bronze:
+        ns = e.get('Namespace', 'Unknown') or 'Unknown'
+        br_by_ns[ns] = br_by_ns.get(ns, 0) + 1
+
+    sv_by_ns = {}
+    for e in silver:
+        ns = e.get('Namespace', 'Unknown') or 'Unknown'
+        sv_by_ns[ns] = sv_by_ns.get(ns, 0) + 1
+
+    # Deduplicate by namespace
+    seen = set()
+    results = []
+    for ds in datasources:
+        ns = ds.get('Namespace', 'Unknown') or 'Unknown'
+        if ns in seen:
+            continue
+        seen.add(ns)
+        results.append({
+            'namespace': ns,
+            'name': ds.get('Name', ''),
+            'connectionName': ds.get('ConnectionName', ''),
+            'isActive': ds.get('IsActive', 0),
+            'entityCounts': {
+                'landing': lz_by_ns.get(ns, 0),
+                'bronze': br_by_ns.get(ns, 0),
+                'silver': sv_by_ns.get(ns, 0),
+            },
+        })
+    return results
+
+
+def _sqlite_entity_digest(source_filter: str = None, layer_filter: str = None,
+                          status_filter: str = None) -> dict:
+    """Build the /api/entity-digest response from local SQLite.
+    Uses entity status table + entity metadata to construct the digest."""
+    lz = cpdb.get_registered_entities_full()
+    statuses = cpdb.get_entity_status_all()
+    bronze_ents = cpdb.get_bronze_entities()
+    silver_ents = cpdb.get_silver_entities()
+
+    # Build lookups
+    status_map = {}
+    for s in statuses:
+        key = (s.get('LandingzoneEntityId'), s.get('Layer'))
+        status_map[key] = s
+
+    bronze_by_lz = {}
+    for b in bronze_ents:
+        # Need to join through lz; bronze_entities has LandingzoneEntityId from the table
+        pass
+
+    # Build bronze lookup via get_bronze_view which includes LandingzoneEntityId
+    bronze_view = cpdb.get_bronze_view()
+    silver_view = cpdb.get_silver_view()
+
+    bronze_by_lz = {}
+    for b in bronze_view:
+        lz_id = b.get('LandingzoneEntityId')
+        if lz_id is not None:
+            bronze_by_lz[int(lz_id)] = b
+
+    silver_by_bronze = {}
+    for s in silver_view:
+        br_id = s.get('BronzeLayerEntityId')
+        if br_id is not None:
+            silver_by_bronze[int(br_id)] = s
+
+    sources = {}
+    status_counts = {'complete': 0, 'partial': 0, 'error': 0, 'pending': 0, 'not_started': 0}
+
+    for entity in lz:
+        lz_id = entity.get('LandingzoneEntityId')
+        if lz_id is None:
+            continue
+        lz_id = int(lz_id)
+        ns = entity.get('Namespace', 'Unknown') or 'Unknown'
+
+        # Apply source filter
+        if source_filter and ns != source_filter:
+            continue
+
+        lz_s = status_map.get((lz_id, 'LandingZone'), {})
+        bronze_s = status_map.get((lz_id, 'Bronze'), {})
+        silver_s = status_map.get((lz_id, 'Silver'), {})
+
+        lz_status = lz_s.get('Status', 'not_started') or 'not_started'
+        bronze_status = bronze_s.get('Status', 'not_started') or 'not_started'
+        silver_status = silver_s.get('Status', 'not_started') or 'not_started'
+
+        # Determine overall status
+        statuses_list = [lz_status, bronze_status, silver_status]
+        if all(s in ('loaded', 'complete', 'Succeeded') for s in statuses_list):
+            overall = 'complete'
+        elif any(s in ('error', 'Failed', 'failed') for s in statuses_list):
+            overall = 'error'
+        elif any(s in ('loaded', 'complete', 'Succeeded') for s in statuses_list):
+            overall = 'partial'
+        elif any(s in ('pending', 'InProgress', 'running') for s in statuses_list):
+            overall = 'pending'
+        else:
+            overall = 'not_started'
+
+        # Apply layer/status filters
+        if layer_filter:
+            if layer_filter == 'landing' and lz_status == 'not_started':
+                continue
+            elif layer_filter == 'bronze' and bronze_status == 'not_started':
+                continue
+            elif layer_filter == 'silver' and silver_status == 'not_started':
+                continue
+        if status_filter and overall != status_filter:
+            continue
+
+        status_counts[overall] = status_counts.get(overall, 0) + 1
+
+        br = bronze_by_lz.get(lz_id, {})
+        br_id = br.get('BronzeLayerEntityId')
+        sv = silver_by_bronze.get(int(br_id), {}) if br_id is not None else {}
+
+        # Build error info
+        last_error = None
+        for layer_key, layer_name in [('Silver', 'silver'), ('Bronze', 'bronze'), ('LandingZone', 'landing')]:
+            st = status_map.get((lz_id, layer_key), {})
+            if st.get('ErrorMessage'):
+                last_error = {
+                    'message': st['ErrorMessage'],
+                    'layer': layer_name,
+                    'time': st.get('LoadEndDateTime', ''),
+                }
+                break
+
+        # Diagnosis
+        if overall == 'complete':
+            diagnosis = 'All layers loaded'
+        elif overall == 'error':
+            err_layer = last_error.get('layer', 'unknown') if last_error else 'unknown'
+            diagnosis = f'Error in {err_layer} layer'
+        elif overall == 'pending':
+            diagnosis = 'Pending processing'
+        elif overall == 'partial':
+            loaded = []
+            if lz_status in ('loaded', 'complete', 'Succeeded'):
+                loaded.append('LZ')
+            if bronze_status in ('loaded', 'complete', 'Succeeded'):
+                loaded.append('Bronze')
+            if silver_status in ('loaded', 'complete', 'Succeeded'):
+                loaded.append('Silver')
+            diagnosis = f'Partial: {", ".join(loaded)} loaded'
+        else:
+            diagnosis = 'Not started'
+
+        is_active = str(entity.get('IsActive', '')).lower() in ('true', '1')
+        is_incremental = str(entity.get('IsIncremental', '')).lower() in ('true', '1')
+
+        ent_data = {
+            'id': lz_id,
+            'tableName': entity.get('SourceName', ''),
+            'sourceSchema': entity.get('SourceSchema', ''),
+            'source': ns,
+            'targetSchema': ns,
+            'dataSourceName': entity.get('DataSourceName', ns),
+            'isActive': is_active,
+            'isIncremental': is_incremental,
+            'watermarkColumn': entity.get('IsIncrementalColumn', '') or '',
+            'bronzeId': int(br_id) if br_id else None,
+            'bronzePKs': br.get('PrimaryKeys', '') or '',
+            'silverId': int(sv.get('SilverLayerEntityId', 0)) if sv.get('SilverLayerEntityId') else None,
+            'lzStatus': lz_status,
+            'lzLastLoad': lz_s.get('LoadEndDateTime', ''),
+            'bronzeStatus': bronze_status,
+            'bronzeLastLoad': bronze_s.get('LoadEndDateTime', ''),
+            'silverStatus': silver_status,
+            'silverLastLoad': silver_s.get('LoadEndDateTime', ''),
+            'lastError': last_error,
+            'diagnosis': diagnosis,
+            'overall': overall,
+            'connection': {
+                'server': entity.get('ServerName', ''),
+                'database': entity.get('DatabaseName', ''),
+                'connectionName': entity.get('ConnectionName', ''),
+            },
+        }
+
+        if ns not in sources:
+            sources[ns] = {
+                'name': ns,
+                'displayName': _ds_display_name(entity.get('DataSourceName', ns)),
+                'entities': [],
+                'statusCounts': {'complete': 0, 'partial': 0, 'error': 0, 'pending': 0, 'not_started': 0},
+            }
+        sources[ns]['entities'].append(ent_data)
+        sources[ns]['statusCounts'][overall] = sources[ns]['statusCounts'].get(overall, 0) + 1
+
+    return {
+        'sources': list(sources.values()),
+        'statusCounts': status_counts,
+        'totalEntities': sum(status_counts.values()),
+        '_source': 'sqlite',
+        'lastSync': cpdb.get_sync_watermark() if _cpdb_available() else None,
+    }
 
 
 # ── Fabric REST API ──
@@ -613,7 +1186,7 @@ def get_lakehouse_connection(lakehouse_name: str):
     if not ep:
         raise ValueError(f'Lakehouse "{lakehouse_name}" not found. Available: {list(endpoints.keys())}')
 
-    token = get_fabric_token('https://analysis.windows.net/powerbi/api/.default')
+    token = get_fabric_token('https://database.windows.net/.default')
     token_bytes = token.encode('UTF-16-LE')
     token_struct = struct.pack(f'<I{len(token_bytes)}s', len(token_bytes), token_bytes)
     conn_str = (
@@ -884,123 +1457,80 @@ def get_blender_tables() -> list[dict]:
     tables = []
     seen = set()  # Track table names to avoid duplicates
 
-    # Layer 1: Try SQLite for registered entities, fall back to Fabric SQL
-    _blender_sqlite_ok = False
+    # Layer 1: Try metadata DB for registered entities
     try:
-        conn_lite = cpdb._get_conn()
-        try:
-            lz_rows = conn_lite.execute(
-                "SELECT e.LandingzoneEntityId AS Id, e.SourceSchema, e.SourceName, "
-                "e.FileName, e.IsActive, d.Name AS DataSourceName, l.Name AS LakehouseName "
-                "FROM lz_entities e "
-                "LEFT JOIN datasources d ON d.DataSourceId = e.DataSourceId "
-                "LEFT JOIN lakehouses l ON l.LakehouseId = e.LakehouseId "
-                "WHERE e.IsActive = 1 ORDER BY e.SourceName"
-            ).fetchall()
-            br_rows = conn_lite.execute(
-                "SELECT b.BronzeLayerEntityId AS Id, b.Schema_ AS SourceSchema, b.Name AS SourceName, "
-                "b.IsActive, l.Name AS LakehouseName, e.SourceName AS OriginalName "
-                "FROM bronze_entities b "
-                "LEFT JOIN lakehouses l ON l.LakehouseId = b.LakehouseId "
-                "LEFT JOIN lz_entities e ON e.LandingzoneEntityId = b.LandingzoneEntityId "
-                "WHERE b.IsActive = 1 ORDER BY e.SourceName"
-            ).fetchall()
-            sv_rows = conn_lite.execute(
-                "SELECT s.SilverLayerEntityId AS Id, s.Schema_ AS SourceSchema, s.Name AS SourceName, "
-                "s.IsActive, l.Name AS LakehouseName, e.SourceName AS OriginalName "
-                "FROM silver_entities s "
-                "LEFT JOIN lakehouses l ON l.LakehouseId = s.LakehouseId "
-                "LEFT JOIN bronze_entities b ON b.BronzeLayerEntityId = s.BronzeLayerEntityId "
-                "LEFT JOIN lz_entities e ON e.LandingzoneEntityId = b.LandingzoneEntityId "
-                "WHERE s.IsActive = 1 ORDER BY e.SourceName"
-            ).fetchall()
-        finally:
-            conn_lite.close()
+        lz = query_sql(
+            'SELECT le.LandingzoneEntityId AS Id, le.SourceSchema, le.SourceName, '
+            'le.FileName, le.IsActive, ds.Name AS DataSourceName, '
+            'lh.Name AS LakehouseName '
+            'FROM integration.LandingzoneEntity le '
+            'JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId '
+            'JOIN integration.Lakehouse lh ON le.LakehouseId = lh.LakehouseId '
+            'WHERE le.IsActive = 1 '
+            'ORDER BY le.SourceName'
+        )
+        for row in lz:
+            display_name = row.get('FileName') or row['SourceName']
+            key = f"{row.get('LakehouseName', 'LH_DATA_LANDINGZONE')}.{row.get('SourceSchema', 'dbo')}.{display_name}"
+            seen.add(key)
+            tables.append({
+                'id': f"lz-{row['Id']}",
+                'name': display_name,
+                'layer': 'landing',
+                'lakehouse': row.get('LakehouseName', 'LH_DATA_LANDINGZONE'),
+                'schema': row.get('SourceSchema', 'dbo'),
+                'source': 'metadata',
+                'dataSource': row.get('DataSourceName', ''),
+            })
 
-        if lz_rows:
-            _blender_sqlite_ok = True
-            for row in [dict(r) for r in lz_rows]:
-                display_name = row.get('FileName') or row['SourceName']
-                key = f"{row.get('LakehouseName', 'LH_DATA_LANDINGZONE')}.{row.get('SourceSchema', 'dbo')}.{display_name}"
-                seen.add(key)
-                tables.append({
-                    'id': f"lz-{row['Id']}", 'name': display_name, 'layer': 'landing',
-                    'lakehouse': row.get('LakehouseName', 'LH_DATA_LANDINGZONE'),
-                    'schema': row.get('SourceSchema', 'dbo'), 'source': 'metadata',
-                    'dataSource': row.get('DataSourceName', ''),
-                })
-            for row in [dict(r) for r in br_rows]:
-                name = row['SourceName']
-                lh = row.get('LakehouseName', 'LH_BRONZE_LAYER')
-                key = f"{lh}.{row.get('SourceSchema', 'dbo')}.{name}"
-                seen.add(key)
-                tables.append({
-                    'id': f"br-{row['Id']}", 'name': name, 'layer': 'bronze',
-                    'lakehouse': lh, 'schema': row.get('SourceSchema', 'dbo'), 'source': 'metadata',
-                })
-            for row in [dict(r) for r in sv_rows]:
-                name = row['SourceName']
-                lh = row.get('LakehouseName', 'LH_SILVER_LAYER')
-                key = f"{lh}.{row.get('SourceSchema', 'dbo')}.{name}"
-                seen.add(key)
-                tables.append({
-                    'id': f"sv-{row['Id']}", 'name': name, 'layer': 'silver',
-                    'lakehouse': lh, 'schema': row.get('SourceSchema', 'dbo'), 'source': 'metadata',
-                })
+        br = query_sql(
+            'SELECT be.BronzeLayerEntityId AS Id, be.[Schema] AS SourceSchema, be.Name AS SourceName, '
+            'be.IsActive, lh.Name AS LakehouseName, le.SourceName AS OriginalName '
+            'FROM integration.BronzeLayerEntity be '
+            'JOIN integration.Lakehouse lh ON be.LakehouseId = lh.LakehouseId '
+            'JOIN integration.LandingzoneEntity le ON be.LandingzoneEntityId = le.LandingzoneEntityId '
+            'WHERE be.IsActive = 1 '
+            'ORDER BY le.SourceName'
+        )
+        for row in br:
+            name = row['SourceName']
+            lh = row.get('LakehouseName', 'LH_BRONZE_LAYER')
+            key = f"{lh}.{row.get('SourceSchema', 'dbo')}.{name}"
+            seen.add(key)
+            tables.append({
+                'id': f"br-{row['Id']}",
+                'name': name,
+                'layer': 'bronze',
+                'lakehouse': lh,
+                'schema': row.get('SourceSchema', 'dbo'),
+                'source': 'metadata',
+            })
+
+        sv = query_sql(
+            'SELECT se.SilverLayerEntityId AS Id, se.[Schema] AS SourceSchema, se.Name AS SourceName, '
+            'se.IsActive, lh.Name AS LakehouseName, le.SourceName AS OriginalName '
+            'FROM integration.SilverLayerEntity se '
+            'JOIN integration.Lakehouse lh ON se.LakehouseId = lh.LakehouseId '
+            'JOIN integration.BronzeLayerEntity be ON se.BronzeLayerEntityId = be.BronzeLayerEntityId '
+            'JOIN integration.LandingzoneEntity le ON be.LandingzoneEntityId = le.LandingzoneEntityId '
+            'WHERE se.IsActive = 1 '
+            'ORDER BY le.SourceName'
+        )
+        for row in sv:
+            name = row['SourceName']
+            lh = row.get('LakehouseName', 'LH_SILVER_LAYER')
+            key = f"{lh}.{row.get('SourceSchema', 'dbo')}.{name}"
+            seen.add(key)
+            tables.append({
+                'id': f"sv-{row['Id']}",
+                'name': name,
+                'layer': 'silver',
+                'lakehouse': lh,
+                'schema': row.get('SourceSchema', 'dbo'),
+                'source': 'metadata',
+            })
     except Exception as e:
-        log.debug(f'Blender SQLite fallback: {e}')
-
-    if not _blender_sqlite_ok:
-        try:
-            lz = query_sql(
-                'SELECT le.LandingzoneEntityId AS Id, le.SourceSchema, le.SourceName, '
-                'le.FileName, le.IsActive, ds.Name AS DataSourceName, '
-                'lh.Name AS LakehouseName '
-                'FROM integration.LandingzoneEntity le '
-                'JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId '
-                'JOIN integration.Lakehouse lh ON le.LakehouseId = lh.LakehouseId '
-                'WHERE le.IsActive = 1 '
-                'ORDER BY le.SourceName'
-            )
-            for row in lz:
-                display_name = row.get('FileName') or row['SourceName']
-                key = f"{row.get('LakehouseName', 'LH_DATA_LANDINGZONE')}.{row.get('SourceSchema', 'dbo')}.{display_name}"
-                seen.add(key)
-                tables.append({
-                    'id': f"lz-{row['Id']}", 'name': display_name, 'layer': 'landing',
-                    'lakehouse': row.get('LakehouseName', 'LH_DATA_LANDINGZONE'),
-                    'schema': row.get('SourceSchema', 'dbo'), 'source': 'metadata',
-                    'dataSource': row.get('DataSourceName', ''),
-                })
-            br = query_sql(
-                'SELECT be.BronzeLayerEntityId AS Id, be.[Schema] AS SourceSchema, be.Name AS SourceName, '
-                'be.IsActive, lh.Name AS LakehouseName, le.SourceName AS OriginalName '
-                'FROM integration.BronzeLayerEntity be '
-                'JOIN integration.Lakehouse lh ON be.LakehouseId = lh.LakehouseId '
-                'JOIN integration.LandingzoneEntity le ON be.LandingzoneEntityId = le.LandingzoneEntityId '
-                'WHERE be.IsActive = 1 ORDER BY le.SourceName'
-            )
-            for row in br:
-                name = row['SourceName']; lh = row.get('LakehouseName', 'LH_BRONZE_LAYER')
-                key = f"{lh}.{row.get('SourceSchema', 'dbo')}.{name}"; seen.add(key)
-                tables.append({'id': f"br-{row['Id']}", 'name': name, 'layer': 'bronze',
-                               'lakehouse': lh, 'schema': row.get('SourceSchema', 'dbo'), 'source': 'metadata'})
-            sv = query_sql(
-                'SELECT se.SilverLayerEntityId AS Id, se.[Schema] AS SourceSchema, se.Name AS SourceName, '
-                'se.IsActive, lh.Name AS LakehouseName, le.SourceName AS OriginalName '
-                'FROM integration.SilverLayerEntity se '
-                'JOIN integration.Lakehouse lh ON se.LakehouseId = lh.LakehouseId '
-                'JOIN integration.BronzeLayerEntity be ON se.BronzeLayerEntityId = be.BronzeLayerEntityId '
-                'JOIN integration.LandingzoneEntity le ON be.LandingzoneEntityId = le.LandingzoneEntityId '
-                'WHERE se.IsActive = 1 ORDER BY le.SourceName'
-            )
-            for row in sv:
-                name = row['SourceName']; lh = row.get('LakehouseName', 'LH_SILVER_LAYER')
-                key = f"{lh}.{row.get('SourceSchema', 'dbo')}.{name}"; seen.add(key)
-                tables.append({'id': f"sv-{row['Id']}", 'name': name, 'layer': 'silver',
-                               'lakehouse': lh, 'schema': row.get('SourceSchema', 'dbo'), 'source': 'metadata'})
-        except Exception as e:
-            log.warning(f'Metadata DB unavailable for blender tables: {e}')
+        log.warning(f'Metadata DB unavailable for blender tables: {e}')
 
     # Layer 2: Discover tables directly from lakehouse SQL endpoints
     # This catches tables that exist in lakehouses but aren't registered in metadata DB
@@ -1035,50 +1565,33 @@ def get_blender_tables() -> list[dict]:
 # ── Data Queries ──
 
 def get_registered_connections() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_connections,
-        lambda: query_sql(
-            'SELECT ConnectionId, ConnectionGuid, Name, Type, IsActive '
-            'FROM integration.Connection ORDER BY ConnectionId'),
-        'get_registered_connections')
-    return data
+    return query_sql(
+        'SELECT ConnectionId, ConnectionGuid, Name, Type, IsActive '
+        'FROM integration.Connection ORDER BY ConnectionId'
+    )
 
 def get_registered_datasources() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_datasources,
-        lambda: query_sql(
-            'SELECT ds.DataSourceId, ds.Name, ds.Namespace, ds.Type, ds.Description, '
-            'ds.IsActive, c.Name AS ConnectionName '
-            'FROM integration.DataSource ds '
-            'JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId '
-            'ORDER BY ds.DataSourceId'),
-        'get_registered_datasources')
-    return data
+    return query_sql(
+        'SELECT ds.DataSourceId, ds.Name, ds.Namespace, ds.Type, ds.Description, '
+        'ds.IsActive, c.Name AS ConnectionName '
+        'FROM integration.DataSource ds '
+        'JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId '
+        'ORDER BY ds.DataSourceId'
+    )
 
 def get_registered_entities() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_registered_entities_full,
-        lambda: query_sql(
-            'SELECT le.LandingzoneEntityId, le.SourceSchema, le.SourceName, '
-            'le.FileName, le.FilePath, le.FileType, le.IsIncremental, le.IsActive, '
-            'le.SourceCustomSelect, le.IsIncrementalColumn, le.CustomNotebookName, '
-            'ds.Name AS DataSourceName, ds.Namespace AS DataSourceNamespace '
-            'FROM integration.LandingzoneEntity le '
-            'JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId '
-            'ORDER BY le.LandingzoneEntityId'),
-        'get_registered_entities')
-    return data
+    return query_sql(
+        'SELECT le.LandingzoneEntityId, le.SourceSchema, le.SourceName, '
+        'le.FileName, le.FilePath, le.FileType, le.IsIncremental, le.IsActive, '
+        'le.SourceCustomSelect, le.IsIncrementalColumn, le.CustomNotebookName, '
+        'ds.Name AS DataSourceName, ds.Namespace AS DataSourceNamespace '
+        'FROM integration.LandingzoneEntity le '
+        'JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId '
+        'ORDER BY le.LandingzoneEntityId'
+    )
 
 def get_pipeline_view() -> list[dict]:
-    """Pipeline runner view — LZ entities with datasource + connection info.
-    SQLite first, Fabric SQL fallback (vw_LoadSourceToLandingzone is a complex view)."""
-    def _from_sqlite():
-        return cpdb.get_registered_entities_full()
-    data, src = _sqlite_or_fabric(
-        _from_sqlite,
-        lambda: query_sql('SELECT * FROM [execution].[vw_LoadSourceToLandingzone]'),
-        'get_pipeline_view')
-    return data
+    return query_sql('SELECT * FROM [execution].[vw_LoadSourceToLandingzone]')
 
 
 def discover_source_tables(server: str, database: str, username: str = '', password: str = '') -> list[dict]:
@@ -1128,31 +1641,14 @@ def sql_explorer_servers() -> list[dict]:
     Joins Connection → DataSource to show friendly datasource labels
     instead of raw connection names (CON_FMD_...).
     """
-    # Try SQLite first for connection metadata
-    try:
-        conn_lite = cpdb._get_conn()
-        try:
-            rows = [dict(r) for r in conn_lite.execute(
-                "SELECT c.ConnectionId, c.Name AS ConnName, c.ServerName, c.DatabaseName, c.Type, "
-                "       d.Name AS DataSourceName, d.Namespace, d.Description "
-                "FROM connections c "
-                "LEFT JOIN datasources d ON d.ConnectionId = c.ConnectionId "
-                "WHERE c.ServerName IS NOT NULL AND c.ServerName <> '' "
-                "ORDER BY d.Name, c.Name"
-            ).fetchall()]
-        finally:
-            conn_lite.close()
-        if not rows:
-            raise ValueError('empty sqlite')
-    except Exception:
-        rows = query_sql(
-            "SELECT c.ConnectionId, c.Name AS ConnName, c.ServerName, c.DatabaseName, c.Type, "
-            "       ds.Name AS DataSourceName, ds.Namespace, ds.Description "
-            "FROM integration.Connection c "
-            "LEFT JOIN integration.DataSource ds ON ds.ConnectionId = c.ConnectionId "
-            "WHERE c.ServerName IS NOT NULL AND c.ServerName <> '' "
-            "ORDER BY ds.Name, c.Name"
-        )
+    rows = query_sql(
+        "SELECT c.ConnectionId, c.Name AS ConnName, c.ServerName, c.DatabaseName, c.Type, "
+        "       ds.Name AS DataSourceName, ds.Namespace, ds.Description "
+        "FROM integration.Connection c "
+        "LEFT JOIN integration.DataSource ds ON ds.ConnectionId = c.ConnectionId "
+        "WHERE c.ServerName IS NOT NULL AND c.ServerName <> '' "
+        "ORDER BY ds.Name, c.Name"
+    )
     import pyodbc
     servers = []
     seen = set()
@@ -1296,12 +1792,12 @@ def sql_explorer_tables(server: str, database: str, schema: str) -> list[dict]:
         timeout=10
     )
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(f"""
         SELECT TABLE_NAME, TABLE_TYPE
         FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
+        WHERE TABLE_SCHEMA = '{s_sch}' AND TABLE_TYPE = 'BASE TABLE'
         ORDER BY TABLE_NAME
-    """, (s_sch,))
+    """)
     cols = [c[0] for c in cursor.description]
     rows = cursor.fetchall()
     conn.close()
@@ -1321,7 +1817,7 @@ def sql_explorer_columns(server: str, database: str, schema: str, table: str) ->
     )
     cursor = conn.cursor()
     # Column metadata with PK detection
-    cursor.execute("""
+    cursor.execute(f"""
         SELECT
             c.COLUMN_NAME, c.DATA_TYPE, c.IS_NULLABLE,
             CAST(c.CHARACTER_MAXIMUM_LENGTH AS VARCHAR) AS CHARACTER_MAXIMUM_LENGTH,
@@ -1338,9 +1834,9 @@ def sql_explorer_columns(server: str, database: str, schema: str, table: str) ->
             ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
             AND kcu.TABLE_SCHEMA = tc.TABLE_SCHEMA
             AND kcu.COLUMN_NAME = c.COLUMN_NAME
-        WHERE c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ?
+        WHERE c.TABLE_SCHEMA = '{s_sch}' AND c.TABLE_NAME = '{s_tbl}'
         ORDER BY c.ORDINAL_POSITION
-    """, (s_sch, s_tbl))
+    """)
     cols_meta = [c[0] for c in cursor.description]
     col_rows = cursor.fetchall()
     columns = [{c: (str(v) if v is not None else None) for c, v in zip(cols_meta, row)} for row in col_rows]
@@ -1348,13 +1844,13 @@ def sql_explorer_columns(server: str, database: str, schema: str, table: str) ->
     # Row count (approx from sys.partitions for speed)
     row_count = -1
     try:
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT SUM(p.rows) AS row_count
             FROM sys.partitions p
             JOIN sys.tables t ON p.object_id = t.object_id
             JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = ? AND t.name = ? AND p.index_id IN (0, 1)
-        """, (s_sch, s_tbl))
+            WHERE s.name = '{s_sch}' AND t.name = '{s_tbl}' AND p.index_id IN (0, 1)
+        """)
         r = cursor.fetchone()
         if r and r[0] is not None:
             row_count = int(r[0])
@@ -1381,10 +1877,6 @@ def sql_explorer_preview(server: str, database: str, schema: str, table: str, li
         timeout=30
     )
     cursor = conn.cursor()
-    # Table/schema identifiers can't be parameterized — validate strictly
-    import re as _re
-    if not _re.match(r'^[A-Za-z0-9_ ]+$', s_sch) or not _re.match(r'^[A-Za-z0-9_ ]+$', s_tbl):
-        raise ValueError(f"Invalid identifier characters in schema={s_sch!r} or table={s_tbl!r}")
     cursor.execute(f"SELECT TOP {limit} * FROM [{s_sch}].[{s_tbl}]")
     col_names = [c[0] for c in cursor.description]
     raw_rows = cursor.fetchall()
@@ -1393,12 +1885,12 @@ def sql_explorer_preview(server: str, database: str, schema: str, table: str, li
     # Get total row count
     row_count = len(rows)
     try:
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT SUM(p.rows) FROM sys.partitions p
             JOIN sys.tables t ON p.object_id = t.object_id
             JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = ? AND t.name = ? AND p.index_id IN (0, 1)
-        """, (s_sch, s_tbl))
+            WHERE s.name = '{s_sch}' AND t.name = '{s_tbl}' AND p.index_id IN (0, 1)
+        """)
         r = cursor.fetchone()
         if r and r[0] is not None:
             row_count = int(r[0])
@@ -1505,21 +1997,24 @@ def sql_explorer_lakehouse_preview(lakehouse: str, schema: str, table: str, limi
 
 
 def get_pipeline_executions() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_pipeline_executions,
-        lambda: query_sql('SELECT * FROM logging.PipelineExecution ORDER BY 1 DESC'),
-        'get_pipeline_executions')
-    return data
+    try:
+        return query_sql(
+            'SELECT * FROM logging.PipelineExecution ORDER BY 1 DESC'
+        )
+    except Exception as e:
+        log.warning(f'PipelineExecution query failed (table may not exist yet): {e}')
+        return []
 
 def get_copy_executions() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_copy_executions,
-        lambda: query_sql('SELECT * FROM logging.CopyActivityExecution ORDER BY 1 DESC'),
-        'get_copy_executions')
-    return data
+    try:
+        return query_sql(
+            'SELECT * FROM logging.CopyActivityExecution ORDER BY 1 DESC'
+        )
+    except Exception as e:
+        log.warning(f'CopyActivityExecution query failed (table may not exist yet): {e}')
+        return []
 
 def get_notebook_executions() -> list[dict]:
-    # No dedicated SQLite mirror for notebook executions — fall back to Fabric SQL
     try:
         return query_sql(
             'SELECT * FROM logging.NotebookExecution ORDER BY 1 DESC'
@@ -1534,39 +2029,20 @@ def get_live_monitor(minutes: int = 240) -> dict:
     result = {}
     time_filter = f"WHERE LogDateTime > DATEADD(MINUTE, -{minutes}, GETUTCDATE())" if minutes > 0 else ""
 
-    # 1. Recent pipeline events — SQLite first
-    result['pipelineEvents'] = []
+    # 1. Recent pipeline events
     try:
-        cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).strftime('%Y-%m-%dT%H:%M:%SZ') if minutes > 0 else None
-        conn_lite = cpdb._get_conn()
-        try:
-            sql = ("SELECT PipelineName, LogType, LogDateTime, LogData, "
-                   "PipelineRunGuid, EntityLayer FROM pipeline_audit")
-            params = []
-            if cutoff:
-                sql += " WHERE LogDateTime > ?"
-                params.append(cutoff)
-            sql += " ORDER BY LogDateTime DESC LIMIT 50"
-            rows = conn_lite.execute(sql, params).fetchall()
-            result['pipelineEvents'] = [dict(r) for r in rows] if rows else []
-        finally:
-            conn_lite.close()
-        if not result['pipelineEvents']:
-            raise ValueError('empty')
+        result['pipelineEvents'] = query_sql(f"""
+            SELECT TOP 50 PipelineName, LogType, LogDateTime, LogData,
+                   CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid,
+                   EntityLayer
+            FROM [logging].[PipelineExecution]
+            {time_filter}
+            ORDER BY LogDateTime DESC
+        """)
     except Exception:
-        try:
-            result['pipelineEvents'] = query_sql(f"""
-                SELECT TOP 50 PipelineName, LogType, LogDateTime, LogData,
-                       CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid,
-                       EntityLayer
-                FROM [logging].[PipelineExecution]
-                {time_filter}
-                ORDER BY LogDateTime DESC
-            """)
-        except Exception:
-            result['pipelineEvents'] = []
+        result['pipelineEvents'] = []
 
-    # 2. Recent notebook executions (entity-level) — Fabric SQL only (no SQLite mirror)
+    # 2. Recent notebook executions (entity-level)
     try:
         result['notebookEvents'] = query_sql(f"""
             SELECT TOP 200 NotebookName, LogType, LogDateTime, LogData,
@@ -1579,163 +2055,71 @@ def get_live_monitor(minutes: int = 240) -> dict:
     except Exception:
         result['notebookEvents'] = []
 
-    # 3. Recent copy activity (LZ loads) — SQLite first
-    result['copyEvents'] = []
+    # 3. Recent copy activity (LZ loads)
     try:
-        cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).strftime('%Y-%m-%dT%H:%M:%SZ') if minutes > 0 else None
-        conn_lite = cpdb._get_conn()
-        try:
-            sql = ("SELECT CopyActivityName, CopyActivityParameters AS EntityName, "
-                   "LogType, LogDateTime, LogData, EntityId, EntityLayer, "
-                   "PipelineRunGuid FROM copy_activity_audit")
-            params = []
-            if cutoff:
-                sql += " WHERE LogDateTime > ?"
-                params.append(cutoff)
-            sql += " ORDER BY LogDateTime DESC LIMIT 100"
-            rows = conn_lite.execute(sql, params).fetchall()
-            result['copyEvents'] = [dict(r) for r in rows] if rows else []
-        finally:
-            conn_lite.close()
-        if not result['copyEvents']:
-            raise ValueError('empty')
+        result['copyEvents'] = query_sql(f"""
+            SELECT TOP 100 CopyActivityName, CopyActivityParameters AS EntityName,
+                   LogType, LogDateTime, LogData, EntityId, EntityLayer,
+                   CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid
+            FROM [logging].[CopyActivityExecution]
+            {time_filter}
+            ORDER BY LogDateTime DESC
+        """)
     except Exception:
-        try:
-            result['copyEvents'] = query_sql(f"""
-                SELECT TOP 100 CopyActivityName, CopyActivityParameters AS EntityName,
-                       LogType, LogDateTime, LogData, EntityId, EntityLayer,
-                       CONVERT(NVARCHAR(36), PipelineRunGuid) AS PipelineRunGuid
-                FROM [logging].[CopyActivityExecution]
-                {time_filter}
-                ORDER BY LogDateTime DESC
-            """)
-        except Exception:
-            result['copyEvents'] = []
+        result['copyEvents'] = []
 
-    # 4. Processing counts — SQLite first for registration counts, Fabric SQL for execution views
+    # 4. Processing counts
     try:
-        conn_lite = cpdb._get_conn()
-        try:
-            lz_reg = conn_lite.execute("SELECT COUNT(*) FROM lz_entities").fetchone()[0]
-            brz_reg = conn_lite.execute("SELECT COUNT(*) FROM bronze_entities").fetchone()[0]
-            slv_reg = conn_lite.execute("SELECT COUNT(*) FROM silver_entities").fetchone()[0]
-            lz_pipe_total = conn_lite.execute("SELECT COUNT(*) FROM pipeline_lz_entity").fetchone()[0]
-            lz_processed = conn_lite.execute("SELECT COUNT(*) FROM pipeline_lz_entity WHERE IsProcessed = 1").fetchone()[0]
-            brz_pipe_total = conn_lite.execute("SELECT COUNT(*) FROM pipeline_bronze_entity").fetchone()[0]
-            brz_processed = conn_lite.execute("SELECT COUNT(*) FROM pipeline_bronze_entity WHERE IsProcessed = 1").fetchone()[0]
-        finally:
-            conn_lite.close()
-
-        # Views (vw_LoadToBronzeLayer, vw_LoadToSilverLayer) only exist in Fabric SQL
-        brz_pending = '0'
-        slv_pending = '0'
-        try:
-            vr = query_sql("SELECT (SELECT COUNT(*) FROM [execution].[vw_LoadToBronzeLayer]) AS bp, "
-                           "(SELECT COUNT(*) FROM [execution].[vw_LoadToSilverLayer]) AS sp")
-            if vr:
-                brz_pending = vr[0].get('bp', '0')
-                slv_pending = vr[0].get('sp', '0')
-        except Exception:
-            pass
-
-        result['counts'] = {
-            'lzRegistered': str(lz_reg), 'lzPipelineTotal': str(lz_pipe_total),
-            'lzProcessed': str(lz_processed), 'brzRegistered': str(brz_reg),
-            'brzPipelineTotal': str(brz_pipe_total), 'brzProcessed': str(brz_processed),
-            'slvRegistered': str(slv_reg), 'brzViewPending': str(brz_pending),
-            'slvViewPending': str(slv_pending),
-        }
+        counts_rows = query_sql("""
+            SELECT
+                (SELECT COUNT(*) FROM [integration].[LandingzoneEntity]) AS lzRegistered,
+                (SELECT COUNT(*) FROM [execution].[PipelineLandingzoneEntity]) AS lzPipelineTotal,
+                (SELECT COUNT(*) FROM [execution].[PipelineLandingzoneEntity] WHERE IsProcessed = 1) AS lzProcessed,
+                (SELECT COUNT(*) FROM [integration].[BronzeLayerEntity]) AS brzRegistered,
+                (SELECT COUNT(*) FROM [execution].[PipelineBronzeLayerEntity]) AS brzPipelineTotal,
+                (SELECT COUNT(*) FROM [execution].[PipelineBronzeLayerEntity] WHERE IsProcessed = 1) AS brzProcessed,
+                (SELECT COUNT(*) FROM [integration].[SilverLayerEntity]) AS slvRegistered,
+                (SELECT COUNT(*) FROM [execution].[vw_LoadToBronzeLayer]) AS brzViewPending,
+                (SELECT COUNT(*) FROM [execution].[vw_LoadToSilverLayer]) AS slvViewPending
+        """)
+        result['counts'] = counts_rows[0] if counts_rows else {}
     except Exception:
-        # Full fallback to Fabric SQL
-        try:
-            counts_rows = query_sql("""
-                SELECT
-                    (SELECT COUNT(*) FROM [integration].[LandingzoneEntity]) AS lzRegistered,
-                    (SELECT COUNT(*) FROM [execution].[PipelineLandingzoneEntity]) AS lzPipelineTotal,
-                    (SELECT COUNT(*) FROM [execution].[PipelineLandingzoneEntity] WHERE IsProcessed = 1) AS lzProcessed,
-                    (SELECT COUNT(*) FROM [integration].[BronzeLayerEntity]) AS brzRegistered,
-                    (SELECT COUNT(*) FROM [execution].[PipelineBronzeLayerEntity]) AS brzPipelineTotal,
-                    (SELECT COUNT(*) FROM [execution].[PipelineBronzeLayerEntity] WHERE IsProcessed = 1) AS brzProcessed,
-                    (SELECT COUNT(*) FROM [integration].[SilverLayerEntity]) AS slvRegistered,
-                    (SELECT COUNT(*) FROM [execution].[vw_LoadToBronzeLayer]) AS brzViewPending,
-                    (SELECT COUNT(*) FROM [execution].[vw_LoadToSilverLayer]) AS slvViewPending
-            """)
-            result['counts'] = counts_rows[0] if counts_rows else {}
-        except Exception:
-            result['counts'] = {}
+        result['counts'] = {}
 
-    # 5. Recently processed Bronze entities — SQLite first
+    # 5. Recently processed Bronze entities
     try:
-        conn_lite = cpdb._get_conn()
-        try:
-            rows = conn_lite.execute(
-                "SELECT BronzeLayerEntityId, SchemaName, TableName, InsertDateTime, IsProcessed "
-                "FROM pipeline_bronze_entity ORDER BY InsertDateTime DESC LIMIT 20"
-            ).fetchall()
-            result['bronzeEntities'] = [dict(r) for r in rows] if rows else []
-        finally:
-            conn_lite.close()
-        if not result['bronzeEntities']:
-            raise ValueError('empty')
+        result['bronzeEntities'] = query_sql("""
+            SELECT TOP 20 pbe.BronzeLayerEntityId, pbe.SchemaName, pbe.TableName,
+                   pbe.InsertDateTime, pbe.IsProcessed, pbe.LoadEndDateTime
+            FROM [execution].[PipelineBronzeLayerEntity] pbe
+            ORDER BY pbe.InsertDateTime DESC
+        """)
     except Exception:
-        try:
-            result['bronzeEntities'] = query_sql("""
-                SELECT TOP 20 pbe.BronzeLayerEntityId, pbe.SchemaName, pbe.TableName,
-                       pbe.InsertDateTime, pbe.IsProcessed, pbe.LoadEndDateTime
-                FROM [execution].[PipelineBronzeLayerEntity] pbe
-                ORDER BY pbe.InsertDateTime DESC
-            """)
-        except Exception:
-            result['bronzeEntities'] = []
+        result['bronzeEntities'] = []
 
-    # 6. Recently processed LZ entities — SQLite first
+    # 6. Recently processed LZ entities
     try:
-        conn_lite = cpdb._get_conn()
-        try:
-            rows = conn_lite.execute(
-                "SELECT LandingzoneEntityId, FilePath, FileName, InsertDateTime, IsProcessed "
-                "FROM pipeline_lz_entity ORDER BY InsertDateTime DESC LIMIT 20"
-            ).fetchall()
-            result['lzEntities'] = [dict(r) for r in rows] if rows else []
-        finally:
-            conn_lite.close()
-        if not result['lzEntities']:
-            raise ValueError('empty')
+        result['lzEntities'] = query_sql("""
+            SELECT TOP 20 ple.LandingzoneEntityId, ple.FilePath, ple.FileName,
+                   ple.InsertDateTime, ple.IsProcessed, ple.LoadEndDateTime
+            FROM [execution].[PipelineLandingzoneEntity] ple
+            ORDER BY ple.InsertDateTime DESC
+        """)
     except Exception:
-        try:
-            result['lzEntities'] = query_sql("""
-                SELECT TOP 20 ple.LandingzoneEntityId, ple.FilePath, ple.FileName,
-                       ple.InsertDateTime, ple.IsProcessed, ple.LoadEndDateTime
-                FROM [execution].[PipelineLandingzoneEntity] ple
-                ORDER BY ple.InsertDateTime DESC
-            """)
-        except Exception:
-            result['lzEntities'] = []
+        result['lzEntities'] = []
 
     result['serverTime'] = datetime.utcnow().isoformat() + 'Z'
     return result
 
 
 def get_bronze_view() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_bronze_view,
-        lambda: query_sql('SELECT * FROM [execution].[vw_LoadToBronzeLayer]'),
-        'get_bronze_view')
-    return data
+    return query_sql('SELECT * FROM [execution].[vw_LoadToBronzeLayer]')
 
 def get_silver_view() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_silver_view,
-        lambda: query_sql('SELECT * FROM [execution].[vw_LoadToSilverLayer]'),
-        'get_silver_view')
-    return data
+    return query_sql('SELECT * FROM [execution].[vw_LoadToSilverLayer]')
 
 def get_pipelines() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_pipelines,
-        lambda: query_sql('SELECT * FROM integration.Pipeline ORDER BY PipelineId'),
-        'get_pipelines')
-    return data
+    return query_sql('SELECT * FROM integration.Pipeline ORDER BY PipelineId')
 
 
 def trigger_pipeline(pipeline_name: str) -> dict:
@@ -1850,83 +2234,8 @@ def _save_runner_state():
 _load_runner_state()
 
 
-def _runner_get_sources_sqlite() -> list[dict] | None:
-    """Get runner sources from SQLite. Returns None if empty."""
-    try:
-        conn = cpdb._get_conn()
-        try:
-            # Check if seeded
-            cnt = conn.execute("SELECT COUNT(*) FROM datasources").fetchone()[0]
-            if cnt == 0:
-                return None
-
-            datasources = [dict(r) for r in conn.execute(
-                "SELECT DataSourceId, Name, ConnectionId, IsActive FROM datasources ORDER BY DataSourceId"
-            ).fetchall()]
-            connections = [dict(r) for r in conn.execute(
-                "SELECT ConnectionId, Name FROM connections"
-            ).fetchall()]
-            conn_map = {str(c['ConnectionId']): c['Name'] for c in connections}
-
-            lz_counts = [dict(r) for r in conn.execute(
-                "SELECT DataSourceId, COUNT(*) as total, "
-                "SUM(CASE WHEN IsActive=1 THEN 1 ELSE 0 END) as active "
-                "FROM lz_entities GROUP BY DataSourceId"
-            ).fetchall()]
-            bronze_counts = [dict(r) for r in conn.execute(
-                "SELECT e.DataSourceId, COUNT(*) as total, "
-                "SUM(CASE WHEN b.IsActive=1 THEN 1 ELSE 0 END) as active "
-                "FROM bronze_entities b "
-                "JOIN lz_entities e ON b.LandingzoneEntityId = e.LandingzoneEntityId "
-                "GROUP BY e.DataSourceId"
-            ).fetchall()]
-            silver_counts = [dict(r) for r in conn.execute(
-                "SELECT e.DataSourceId, COUNT(*) as total, "
-                "SUM(CASE WHEN s.IsActive=1 THEN 1 ELSE 0 END) as active "
-                "FROM silver_entities s "
-                "JOIN bronze_entities b ON s.BronzeLayerEntityId = b.BronzeLayerEntityId "
-                "JOIN lz_entities e ON b.LandingzoneEntityId = e.LandingzoneEntityId "
-                "GROUP BY e.DataSourceId"
-            ).fetchall()]
-        finally:
-            conn.close()
-
-        lz_map = {str(r['DataSourceId']): r for r in lz_counts}
-        br_map = {str(r['DataSourceId']): r for r in bronze_counts}
-        sv_map = {str(r['DataSourceId']): r for r in silver_counts}
-
-        results = []
-        for ds in datasources:
-            dsid = str(ds['DataSourceId'])
-            lz = lz_map.get(dsid)
-            if not lz:
-                continue
-            results.append({
-                'dataSourceId': dsid,
-                'name': ds['Name'],
-                'displayName': _ds_display_name(ds['Name']),
-                'connectionName': conn_map.get(str(ds['ConnectionId']), 'Unknown'),
-                'isActive': ds['IsActive'],
-                'entities': {
-                    'landing': {'total': lz['total'], 'active': lz['active']},
-                    'bronze': {'total': br_map.get(dsid, {}).get('total', 0), 'active': br_map.get(dsid, {}).get('active', 0)},
-                    'silver': {'total': sv_map.get(dsid, {}).get('total', 0), 'active': sv_map.get(dsid, {}).get('active', 0)},
-                },
-            })
-        return results
-    except Exception as e:
-        log.warning(f'runner_get_sources from SQLite failed: {e}')
-        return None
-
-
 def runner_get_sources() -> list[dict]:
-    """Get all data sources with entity counts per layer and connection health info.
-    SQLite first, Fabric SQL fallback."""
-    result = _runner_get_sources_sqlite()
-    if result is not None:
-        return result
-
-    # Fallback to Fabric SQL
+    """Get all data sources with entity counts per layer and connection health info."""
     datasources = query_sql(
         "SELECT ds.DataSourceId, ds.Name, ds.ConnectionId, ds.IsActive "
         "FROM integration.DataSource ds ORDER BY ds.DataSourceId"
@@ -1936,6 +2245,7 @@ def runner_get_sources() -> list[dict]:
     )
     conn_map = {c['ConnectionId']: c['Name'] for c in connections}
 
+    # Entity counts per layer per source
     lz_counts = query_sql(
         "SELECT DataSourceId, COUNT(*) as total, "
         "SUM(CASE WHEN IsActive=1 THEN 1 ELSE 0 END) as active "
@@ -1961,12 +2271,13 @@ def runner_get_sources() -> list[dict]:
     br_map = {r['DataSourceId']: r for r in bronze_counts}
     sv_map = {r['DataSourceId']: r for r in silver_counts}
 
+    # Filter to only sources that have LZ entities (i.e., real data sources)
     results = []
     for ds in datasources:
         dsid = ds['DataSourceId']
         lz = lz_map.get(dsid)
         if not lz:
-            continue
+            continue  # Skip non-data sources (lakehouse refs, notebook sources)
         results.append({
             'dataSourceId': dsid,
             'name': ds['Name'],
@@ -2298,40 +2609,17 @@ def get_fabric_job_instances(force_refresh: bool = False) -> list[dict]:
 
     t0 = _time.time()
     token = get_fabric_token('https://api.fabric.microsoft.com/.default')
-
-    # Get pipeline + workspace metadata — SQLite first, Fabric SQL fallback
-    try:
-        conn_lite = cpdb._get_conn()
-        try:
-            pipelines = [dict(r) for r in conn_lite.execute(
-                "SELECT p.PipelineId, p.Name, w.WorkspaceGuid, w.Name as WorkspaceName "
-                "FROM pipelines p "
-                "LEFT JOIN workspaces w ON 1=1 "  # simplified — pipelines table doesn't have WorkspaceGuid
-                "WHERE p.IsActive = 1 ORDER BY p.PipelineId"
-            ).fetchall()]
-            # pipelines table in SQLite doesn't have PipelineGuid/WorkspaceGuid — fall through
-            if not pipelines or not pipelines[0].get('WorkspaceGuid'):
-                raise ValueError('SQLite pipelines missing GUIDs')
-        finally:
-            conn_lite.close()
-    except Exception:
-        pipelines = query_sql(
-            "SELECT p.PipelineGuid, p.Name, w.WorkspaceGuid, w.Name as WorkspaceName "
-            "FROM integration.Pipeline p "
-            "JOIN integration.Workspace w ON p.WorkspaceGuid = w.WorkspaceGuid "
-            "WHERE p.IsActive = 1 "
-            "ORDER BY p.PipelineId"
-        )
+    pipelines = query_sql(
+        "SELECT p.PipelineGuid, p.Name, w.WorkspaceGuid, w.Name as WorkspaceName "
+        "FROM integration.Pipeline p "
+        "JOIN integration.Workspace w ON p.WorkspaceGuid = w.WorkspaceGuid "
+        "WHERE p.IsActive = 1 "
+        "ORDER BY p.PipelineId"
+    )
 
     # Build a map of CODE workspace per environment tag
-    try:
-        workspaces_raw = cpdb.get_workspaces()
-        if not workspaces_raw or not workspaces_raw[0].get('WorkspaceGuid'):
-            raise ValueError('no GUIDs')
-        ws_map = {w['WorkspaceGuid'].upper(): w['Name'] for w in workspaces_raw if w.get('WorkspaceGuid')}
-    except Exception:
-        workspaces_sql = query_sql("SELECT WorkspaceGuid, Name FROM integration.Workspace")
-        ws_map = {w['WorkspaceGuid'].upper(): w['Name'] for w in workspaces_sql}
+    workspaces = query_sql("SELECT WorkspaceGuid, Name FROM integration.Workspace")
+    ws_map = {w['WorkspaceGuid'].upper(): w['Name'] for w in workspaces}
     code_ws = {}
     for guid, name in ws_map.items():
         if 'CODE' in name:
@@ -3110,121 +3398,51 @@ def get_entity_journey(lz_entity_id: int) -> dict:
     """Build the complete data journey for a single entity across all layers.
     Traces Source → Landing Zone → Bronze → Silver with column schemas & row counts."""
 
-    # Step 1: Get LZ entity + DataSource + Connection + Lakehouse — SQLite first
-    lz_rows = None
-    try:
-        conn_lite = cpdb._get_conn()
-        try:
-            rows = conn_lite.execute(
-                "SELECT e.LandingzoneEntityId, e.SourceSchema, e.SourceName, "
-                "e.FileName, e.FilePath, e.FileType, e.IsIncremental, "
-                "e.IsIncrementalColumn, e.SourceCustomSelect, e.CustomNotebookName, "
-                "e.IsActive, "
-                "d.Name AS DataSourceName, d.Namespace, d.Type AS DataSourceType, "
-                "d.Description AS DataSourceDescription, "
-                "c.Name AS ConnectionName, c.Type AS ConnectionType, "
-                "l.Name AS LakehouseName "
-                "FROM lz_entities e "
-                "LEFT JOIN datasources d ON d.DataSourceId = e.DataSourceId "
-                "LEFT JOIN connections c ON c.ConnectionId = d.ConnectionId "
-                "LEFT JOIN lakehouses l ON l.LakehouseId = e.LakehouseId "
-                "WHERE e.LandingzoneEntityId = ?",
-                (lz_entity_id,)
-            ).fetchall()
-            if rows:
-                lz_rows = [dict(r) for r in rows]
-        finally:
-            conn_lite.close()
-    except Exception:
-        pass
-
-    if not lz_rows:
-        lz_rows = _execute_parameterized(
-            "SELECT le.LandingzoneEntityId, le.SourceSchema, le.SourceName, "
-            "le.FileName, le.FilePath, le.FileType, le.IsIncremental, "
-            "le.IsIncrementalColumn, le.SourceCustomSelect, le.CustomNotebookName, "
-            "le.IsActive, "
-            "ds.Name AS DataSourceName, ds.Namespace, ds.Type AS DataSourceType, "
-            "ds.Description AS DataSourceDescription, "
-            "c.Name AS ConnectionName, c.Type AS ConnectionType, "
-            "lh.Name AS LakehouseName "
-            "FROM integration.LandingzoneEntity le "
-            "JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId "
-            "JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId "
-            "JOIN integration.Lakehouse lh ON le.LakehouseId = lh.LakehouseId "
-            "WHERE le.LandingzoneEntityId = ?",
-            (lz_entity_id,)
-        )
+    # Step 1: Get LZ entity + DataSource + Connection + Lakehouse
+    lz_rows = _execute_parameterized(
+        "SELECT le.LandingzoneEntityId, le.SourceSchema, le.SourceName, "
+        "le.FileName, le.FilePath, le.FileType, le.IsIncremental, "
+        "le.IsIncrementalColumn, le.SourceCustomSelect, le.CustomNotebookName, "
+        "le.IsActive, "
+        "ds.Name AS DataSourceName, ds.Namespace, ds.Type AS DataSourceType, "
+        "ds.Description AS DataSourceDescription, "
+        "c.Name AS ConnectionName, c.Type AS ConnectionType, "
+        "lh.Name AS LakehouseName "
+        "FROM integration.LandingzoneEntity le "
+        "JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId "
+        "JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId "
+        "JOIN integration.Lakehouse lh ON le.LakehouseId = lh.LakehouseId "
+        "WHERE le.LandingzoneEntityId = ?",
+        (lz_entity_id,)
+    )
     if not lz_rows:
         return {'error': f'Entity {lz_entity_id} not found'}
     lz = lz_rows[0]
 
-    # Step 2: Find Bronze entity via FK — SQLite first
-    bronze_rows = None
-    try:
-        conn_lite = cpdb._get_conn()
-        try:
-            rows = conn_lite.execute(
-                "SELECT b.BronzeLayerEntityId, b.Schema_ AS 'Schema', b.Name, "
-                "b.PrimaryKeys, b.FileType, b.IsActive, "
-                "l.Name AS LakehouseName "
-                "FROM bronze_entities b "
-                "LEFT JOIN lakehouses l ON l.LakehouseId = b.LakehouseId "
-                "WHERE b.LandingzoneEntityId = ?",
-                (lz_entity_id,)
-            ).fetchall()
-            if rows:
-                bronze_rows = [dict(r) for r in rows]
-        finally:
-            conn_lite.close()
-    except Exception:
-        pass
-
-    if not bronze_rows:
-        bronze_rows = _execute_parameterized(
-            "SELECT be.BronzeLayerEntityId, be.[Schema], be.Name, "
-            "be.PrimaryKeys, be.FileType, be.IsActive, "
-            "lh.Name AS LakehouseName "
-            "FROM integration.BronzeLayerEntity be "
-            "JOIN integration.Lakehouse lh ON be.LakehouseId = lh.LakehouseId "
-            "WHERE be.LandingzoneEntityId = ?",
-            (lz_entity_id,)
-        )
+    # Step 2: Find Bronze entity via FK
+    bronze_rows = _execute_parameterized(
+        "SELECT be.BronzeLayerEntityId, be.[Schema], be.Name, "
+        "be.PrimaryKeys, be.FileType, be.IsActive, "
+        "lh.Name AS LakehouseName "
+        "FROM integration.BronzeLayerEntity be "
+        "JOIN integration.Lakehouse lh ON be.LakehouseId = lh.LakehouseId "
+        "WHERE be.LandingzoneEntityId = ?",
+        (lz_entity_id,)
+    )
     bronze = bronze_rows[0] if bronze_rows else None
 
-    # Step 3: Find Silver entity via FK from Bronze — SQLite first
+    # Step 3: Find Silver entity via FK from Bronze
     silver = None
     if bronze:
-        silver_rows = None
-        try:
-            conn_lite = cpdb._get_conn()
-            try:
-                rows = conn_lite.execute(
-                    "SELECT s.SilverLayerEntityId, s.Schema_ AS 'Schema', s.Name, "
-                    "s.FileType, s.IsActive, "
-                    "l.Name AS LakehouseName "
-                    "FROM silver_entities s "
-                    "LEFT JOIN lakehouses l ON l.LakehouseId = s.LakehouseId "
-                    "WHERE s.BronzeLayerEntityId = ?",
-                    (int(bronze['BronzeLayerEntityId']),)
-                ).fetchall()
-                if rows:
-                    silver_rows = [dict(r) for r in rows]
-            finally:
-                conn_lite.close()
-        except Exception:
-            pass
-
-        if not silver_rows:
-            silver_rows = _execute_parameterized(
-                "SELECT se.SilverLayerEntityId, se.[Schema], se.Name, "
-                "se.FileType, se.IsActive, "
-                "lh.Name AS LakehouseName "
-                "FROM integration.SilverLayerEntity se "
-                "JOIN integration.Lakehouse lh ON se.LakehouseId = lh.LakehouseId "
-                "WHERE se.BronzeLayerEntityId = ?",
-                (int(bronze['BronzeLayerEntityId']),)
-            )
+        silver_rows = _execute_parameterized(
+            "SELECT se.SilverLayerEntityId, se.[Schema], se.Name, "
+            "se.FileType, se.IsActive, "
+            "lh.Name AS LakehouseName "
+            "FROM integration.SilverLayerEntity se "
+            "JOIN integration.Lakehouse lh ON se.LakehouseId = lh.LakehouseId "
+            "WHERE se.BronzeLayerEntityId = ?",
+            (int(bronze['BronzeLayerEntityId']),)
+        )
         silver = silver_rows[0] if silver_rows else None
 
     # Step 4: Get column schemas + row counts from lakehouses (parallel)
@@ -3616,32 +3834,16 @@ def bulk_delete_entities(entity_ids: list[int]) -> dict:
 
 
 def get_workspaces() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_workspaces,
-        lambda: query_sql('SELECT * FROM integration.Workspace ORDER BY WorkspaceId'),
-        'get_workspaces')
-    return data
+    return query_sql('SELECT * FROM integration.Workspace ORDER BY WorkspaceId')
 
 def get_lakehouses() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_lakehouses,
-        lambda: query_sql('SELECT * FROM integration.Lakehouse ORDER BY LakehouseId'),
-        'get_lakehouses')
-    return data
+    return query_sql('SELECT * FROM integration.Lakehouse ORDER BY LakehouseId')
 
 def get_bronze_entities() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_bronze_entities,
-        lambda: query_sql('SELECT * FROM integration.BronzeLayerEntity ORDER BY BronzeLayerEntityId'),
-        'get_bronze_entities')
-    return data
+    return query_sql('SELECT * FROM integration.BronzeLayerEntity ORDER BY BronzeLayerEntityId')
 
 def get_silver_entities() -> list[dict]:
-    data, src = _sqlite_or_fabric(
-        cpdb.get_silver_entities,
-        lambda: query_sql('SELECT * FROM integration.SilverLayerEntity ORDER BY SilverLayerEntityId'),
-        'get_silver_entities')
-    return data
+    return query_sql('SELECT * FROM integration.SilverLayerEntity ORDER BY SilverLayerEntityId')
 
 def get_schema_info() -> list[dict]:
     """Discover all tables and views in the database."""
@@ -3911,190 +4113,10 @@ _control_plane_lock = threading.Lock()
 CONTROL_PLANE_CACHE_TTL = 60  # seconds
 
 
-def _get_control_plane_sqlite() -> dict:
-    """Build control plane data from local SQLite. Same output shape as _get_control_plane_live."""
-    now_utc = datetime.utcnow().isoformat() + 'Z'
-    t_start = time.time()
-
-    connections = cpdb.get_connections()
-    datasources = cpdb.get_datasources()
-    lz_entities = cpdb.get_lz_entities()
-    bronze_entities = cpdb.get_bronze_entities()
-    silver_entities = cpdb.get_silver_entities()
-    lakehouses_raw = cpdb.get_lakehouses()
-    workspaces_raw = cpdb.get_workspaces()
-    pipelines_raw = cpdb.get_pipelines()
-    pipeline_runs_raw = cpdb.get_pipeline_runs_grouped()
-
-    # Check if we have any data at all
-    if not connections and not datasources and not lz_entities:
-        return None  # Signal that SQLite is empty; caller should fall back
-
-    log.info(f'Control plane: SQLite read in {time.time() - t_start:.1f}s')
-
-    # Derive pipeline run statuses
-    pipeline_runs = []
-    for run in pipeline_runs_raw:
-        start_time = run.get('StartTime')
-        end_time = run.get('EndTime')
-        error_data = run.get('ErrorData') or ''
-        end_data = run.get('EndLogData') or ''
-        if error_data:
-            status = 'Failed'
-        elif end_time and ('Error' in str(end_data) or 'Fail' in str(end_data)):
-            status = 'Failed'
-        elif end_time:
-            status = 'Succeeded'
-        elif start_time:
-            status = 'InProgress'
-        else:
-            status = 'Unknown'
-        duration = None
-        duration_sec = None
-        if start_time and end_time:
-            try:
-                t0 = datetime.fromisoformat(str(start_time).replace('Z', ''))
-                t1 = datetime.fromisoformat(str(end_time).replace('Z', ''))
-                dur_sec = (t1 - t0).total_seconds()
-                if dur_sec < 60:
-                    duration = f'{int(dur_sec)}s'
-                elif dur_sec < 3600:
-                    duration = f'{int(dur_sec // 60)}m {int(dur_sec % 60)}s'
-                else:
-                    duration = f'{int(dur_sec // 3600)}h {int((dur_sec % 3600) // 60)}m'
-                duration_sec = dur_sec
-            except Exception:
-                pass
-        pipeline_runs.append({
-            'RunGuid': run.get('PipelineRunGuid', ''),
-            'PipelineName': run.get('PipelineName', ''),
-            'EntityLayer': run.get('EntityLayer', ''),
-            'TriggerType': run.get('TriggerType', ''),
-            'StartTime': str(start_time) if start_time else None,
-            'EndTime': str(end_time) if end_time else None,
-            'Status': status,
-            'Duration': duration,
-            'DurationSec': duration_sec,
-        })
-
-    # Aggregate by namespace
-    source_systems = {}
-    for ds in datasources:
-        ns = ds.get('Namespace') or ds.get('ConnectionName') or 'Unknown'
-        if ns not in source_systems:
-            source_systems[ns] = {
-                'namespace': ns, 'connections': [], 'dataSources': [],
-                'entities': {'landing': 0, 'bronze': 0, 'silver': 0},
-                'activeEntities': {'landing': 0, 'bronze': 0, 'silver': 0},
-            }
-        source_systems[ns]['dataSources'].append({
-            'name': ds.get('Name', ''), 'type': ds.get('Type', ''),
-            'isActive': ds.get('IsActive', 1), 'connectionName': ds.get('ConnectionName', ''),
-        })
-
-    conn_to_ns = {}
-    for ds in datasources:
-        conn_to_ns[ds.get('ConnectionName', '')] = ds.get('Namespace') or 'Unknown'
-    for conn in connections:
-        ns = conn_to_ns.get(conn.get('Name', ''), 'Unlinked')
-        if ns not in source_systems:
-            source_systems[ns] = {
-                'namespace': ns, 'connections': [], 'dataSources': [],
-                'entities': {'landing': 0, 'bronze': 0, 'silver': 0},
-                'activeEntities': {'landing': 0, 'bronze': 0, 'silver': 0},
-            }
-        source_systems[ns]['connections'].append({
-            'name': conn.get('Name', ''), 'type': conn.get('Type', ''),
-            'isActive': conn.get('IsActive', 1),
-        })
-
-    def _is_active(val):
-        return str(val).lower() in ('true', '1')
-
-    for ent in lz_entities:
-        ns = ent.get('Namespace', 'Unknown')
-        if ns in source_systems:
-            source_systems[ns]['entities']['landing'] += 1
-            if _is_active(ent.get('IsActive', '')):
-                source_systems[ns]['activeEntities']['landing'] += 1
-    for ent in bronze_entities:
-        ns = ent.get('Namespace', 'Unknown')
-        if ns in source_systems:
-            source_systems[ns]['entities']['bronze'] += 1
-            if _is_active(ent.get('IsActive', '')):
-                source_systems[ns]['activeEntities']['bronze'] += 1
-    for ent in silver_entities:
-        ns = ent.get('Namespace', 'Unknown')
-        if ns in source_systems:
-            source_systems[ns]['entities']['silver'] += 1
-            if _is_active(ent.get('IsActive', '')):
-                source_systems[ns]['activeEntities']['silver'] += 1
-
-    active_conn = sum(1 for c in connections if _is_active(c.get('IsActive', '')))
-    active_ds = sum(1 for d in datasources if _is_active(d.get('IsActive', '')))
-    active_lz = sum(1 for e in lz_entities if _is_active(e.get('IsActive', '')))
-    active_br = sum(1 for e in bronze_entities if _is_active(e.get('IsActive', '')))
-    active_sv = sum(1 for e in silver_entities if _is_active(e.get('IsActive', '')))
-    active_pl = sum(1 for p in pipelines_raw if _is_active(p.get('IsActive', '')))
-
-    succeeded_runs = sum(1 for r in pipeline_runs if r['Status'] == 'Succeeded')
-    failed_runs = sum(1 for r in pipeline_runs if r['Status'] == 'Failed')
-    running_now = sum(1 for r in pipeline_runs if r['Status'] == 'InProgress')
-    total_distinct_runs = len(pipeline_runs)
-
-    if failed_runs > 0 and succeeded_runs == 0:
-        health = 'critical'
-    elif failed_runs > 0:
-        health = 'warning'
-    elif total_distinct_runs == 0 and active_conn > 0:
-        health = 'healthy'
-    elif active_conn == 0:
-        health = 'setup'
-    else:
-        health = 'healthy'
-
-    lh_deduped = []
-    lh_seen = set()
-    for lh in lakehouses_raw:
-        lh_id = int(lh.get('LakehouseId', 0))
-        env = 'DEV' if lh_id <= 3 else 'PROD'
-        name = lh.get('Name', '')
-        entry_key = f"{name}_{env}"
-        if entry_key not in lh_seen:
-            lh_seen.add(entry_key)
-            lh_deduped.append({'LakehouseId': str(lh_id), 'Name': name, 'Environment': env})
-
-    return {
-        'health': health,
-        'lastRefreshed': now_utc,
-        '_fromSnapshot': False,
-        '_source': 'sqlite',
-        'summary': {
-            'connections': {'total': len(connections), 'active': active_conn},
-            'dataSources': {'total': len(datasources), 'active': active_ds},
-            'entities': {
-                'landing': {'total': len(lz_entities), 'active': active_lz},
-                'bronze': {'total': len(bronze_entities), 'active': active_br},
-                'silver': {'total': len(silver_entities), 'active': active_sv},
-            },
-            'pipelines': {'total': len(pipelines_raw), 'active': active_pl},
-            'lakehouses': len(set(lh.get('Name', '') for lh in lakehouses_raw)),
-            'workspaces': len(workspaces_raw),
-        },
-        'pipelineHealth': {
-            'recentRuns': total_distinct_runs, 'succeeded': succeeded_runs,
-            'failed': failed_runs, 'running': running_now,
-        },
-        'sourceSystems': list(source_systems.values()),
-        'lakehouses': lh_deduped,
-        'workspaces': workspaces_raw,
-        'recentRuns': pipeline_runs[:15],
-    }
-
-
 def get_control_plane() -> dict:
     """Aggregate read-only view of the entire data platform for business users.
-    Reads from local SQLite first, falls back to Fabric SQL, then disk snapshot."""
+    PRIMARY: local SQLite (instant, no sync lag).
+    FALLBACK: in-memory cache → Fabric SQL → disk snapshot."""
     global _control_plane_cache, _control_plane_cache_ts
 
     # 1. In-memory cache hit (thread-safe read)
@@ -4102,19 +4124,19 @@ def get_control_plane() -> dict:
         if _control_plane_cache and (time.time() - _control_plane_cache_ts) < CONTROL_PLANE_CACHE_TTL:
             return _control_plane_cache
 
-    # 2. Try SQLite first (instant, no network)
-    try:
-        result = _get_control_plane_sqlite()
-        if result:
+    # 2. PRIMARY: local SQLite (no sync lag)
+    if _cpdb_available():
+        try:
+            result = _sqlite_control_plane()
             with _control_plane_lock:
                 _control_plane_cache = result
                 _control_plane_cache_ts = time.time()
             _save_control_plane_snapshot(result)
             return result
-    except Exception as e:
-        log.warning(f'Control plane SQLite read failed: {e}')
+        except Exception as e:
+            log.warning(f'SQLite control plane read failed, falling back to Fabric SQL: {e}')
 
-    # 3. Fall back to Fabric SQL
+    # 3. FALLBACK: Fabric SQL (may have sync lag)
     try:
         result = _get_control_plane_live()
         with _control_plane_lock:
@@ -4406,58 +4428,14 @@ def _get_control_plane_live() -> dict:
     return result
 
 
-def _get_dashboard_stats_sqlite() -> dict | None:
-    """Build dashboard stats from local SQLite. Returns None if empty."""
-    try:
-        stats = cpdb.get_stats()
-        if stats.get('connections', 0) == 0 and stats.get('lz_entities', 0) == 0:
-            return None  # Not seeded yet
-
-        # Get active counts from SQLite
-        conn = cpdb._get_conn()
-        try:
-            active_conn = conn.execute("SELECT COUNT(*) AS cnt FROM connections WHERE IsActive = 1").fetchone()['cnt']
-            active_ds = conn.execute("SELECT COUNT(*) AS cnt FROM datasources WHERE IsActive = 1").fetchone()['cnt']
-            active_ent = conn.execute("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive = 1").fetchone()['cnt']
-            lh_count = conn.execute("SELECT COUNT(*) AS cnt FROM lakehouses").fetchone()['cnt']
-            breakdown_rows = conn.execute(
-                "SELECT d.Name AS DataSourceName, d.Type AS DataSourceType, "
-                "CAST(COUNT(*) AS TEXT) AS EntityCount "
-                "FROM lz_entities e "
-                "LEFT JOIN datasources d ON d.DataSourceId = e.DataSourceId "
-                "WHERE e.IsActive = 1 "
-                "GROUP BY d.Name, d.Type "
-                "ORDER BY COUNT(*) DESC"
-            ).fetchall()
-            entity_breakdown = [dict(r) for r in breakdown_rows]
-        finally:
-            conn.close()
-
-        return {
-            'activeConnections': active_conn,
-            'activeDataSources': active_ds,
-            'activeEntities': active_ent,
-            'lakehouses': lh_count,
-            'entityBreakdown': entity_breakdown,
-        }
-    except Exception as e:
-        log.warning(f'Dashboard stats from SQLite failed: {e}')
-        return None
-
-
 def get_dashboard_stats() -> dict:
-    """Aggregate stats for the dashboard. SQLite first, Fabric SQL fallback."""
-    # Try SQLite first
-    result = _get_dashboard_stats_sqlite()
-    if result:
-        return result
-
-    # Fallback to Fabric SQL
+    """Aggregate stats for the dashboard from live metadata tables."""
     connections = query_sql('SELECT COUNT(*) AS cnt FROM integration.Connection WHERE IsActive = 1')
     datasources = query_sql('SELECT COUNT(*) AS cnt FROM integration.DataSource WHERE IsActive = 1')
     entities = query_sql('SELECT COUNT(*) AS cnt FROM integration.LandingzoneEntity WHERE IsActive = 1')
     lakehouses = query_sql('SELECT COUNT(*) AS cnt FROM integration.Lakehouse')
 
+    # Entity counts by datasource (proxy for "by layer" until we have layer metadata)
     entity_breakdown = query_sql(
         'SELECT ds.Name AS DataSourceName, ds.Type AS DataSourceType, COUNT(*) AS EntityCount '
         'FROM integration.LandingzoneEntity le '
@@ -4482,118 +4460,11 @@ _digest_cache: dict = {}  # {key: {'data': ..., 'expires': float}}
 _DIGEST_TTL = 120  # 2 minutes server-side cache
 
 
-def _build_entity_digest_sqlite(source_filter: str = None) -> list[dict] | None:
-    """Build entity digest rows from SQLite, mimicking sp_BuildEntityDigest output.
-    Returns None if SQLite is empty (triggers Fabric SQL fallback)."""
-    try:
-        conn = cpdb._get_conn()
-        try:
-            # Check if seeded
-            cnt = conn.execute("SELECT COUNT(*) FROM lz_entities").fetchone()[0]
-            if cnt == 0:
-                return None
-
-            sql = """
-                SELECT
-                    e.LandingzoneEntityId AS id,
-                    e.SourceName AS tableName,
-                    e.SourceSchema AS sourceSchema,
-                    d.Namespace AS source,
-                    d.Name AS dbName,
-                    e.IsActive,
-                    e.IsIncremental,
-                    e.IsIncrementalColumn AS watermarkColumn,
-                    b.BronzeLayerEntityId AS bronzeId,
-                    b.PrimaryKeys AS bronzePKs,
-                    s.SilverLayerEntityId AS silverId,
-                    c.Name AS connectionName,
-                    c.ServerName AS serverName,
-                    c.DatabaseName AS databaseName,
-                    -- Entity status per layer
-                    es_lz.Status AS lzStatus,
-                    es_lz.LoadEndDateTime AS lastLzLoad,
-                    es_lz.ErrorMessage AS lzError,
-                    es_brz.Status AS bronzeStatus,
-                    es_brz.LoadEndDateTime AS lastBrzLoad,
-                    es_brz.ErrorMessage AS brzError,
-                    es_slv.Status AS silverStatus,
-                    es_slv.LoadEndDateTime AS lastSlvLoad,
-                    es_slv.ErrorMessage AS slvError
-                FROM lz_entities e
-                LEFT JOIN datasources d ON d.DataSourceId = e.DataSourceId
-                LEFT JOIN connections c ON c.ConnectionId = d.ConnectionId
-                LEFT JOIN bronze_entities b ON b.LandingzoneEntityId = e.LandingzoneEntityId
-                LEFT JOIN silver_entities s ON s.BronzeLayerEntityId = b.BronzeLayerEntityId
-                LEFT JOIN entity_status es_lz ON es_lz.LandingzoneEntityId = e.LandingzoneEntityId AND es_lz.Layer = 'LandingZone'
-                LEFT JOIN entity_status es_brz ON es_brz.LandingzoneEntityId = e.LandingzoneEntityId AND es_brz.Layer = 'Bronze'
-                LEFT JOIN entity_status es_slv ON es_slv.LandingzoneEntityId = e.LandingzoneEntityId AND es_slv.Layer = 'Silver'
-            """
-            params = []
-            if source_filter:
-                sql += " WHERE d.Namespace = ?"
-                params.append(source_filter)
-            sql += " ORDER BY d.Namespace, e.SourceName"
-
-            raw_rows = conn.execute(sql, params).fetchall()
-            results = []
-            for r in raw_rows:
-                row = dict(r)
-                # Compute overall status
-                lz = row.get('lzStatus') or 'not_started'
-                brz = row.get('bronzeStatus') or 'not_started'
-                slv = row.get('silverStatus') or 'not_started'
-
-                # Normalize status values from entity_status table
-                status_map = {'Succeeded': 'loaded', 'loaded': 'loaded', 'Failed': 'error',
-                              'error': 'error', 'InProgress': 'pending', 'pending': 'pending'}
-                lz = status_map.get(lz, lz)
-                brz = status_map.get(brz, brz)
-                slv = status_map.get(slv, slv)
-
-                row['lzStatus'] = lz
-                row['bronzeStatus'] = brz
-                row['silverStatus'] = slv
-
-                # Derive overall
-                all_statuses = [lz, brz, slv]
-                if all(s == 'loaded' for s in all_statuses):
-                    overall = 'complete'
-                elif any(s == 'error' for s in all_statuses):
-                    overall = 'error'
-                elif any(s == 'loaded' for s in all_statuses) and any(s == 'not_started' for s in all_statuses):
-                    overall = 'partial'
-                elif any(s == 'pending' for s in all_statuses):
-                    overall = 'pending'
-                elif all(s == 'not_started' for s in all_statuses):
-                    overall = 'not_started'
-                else:
-                    overall = 'partial'
-                row['overall'] = overall
-
-                # Error info
-                for layer_key, err_key in [('lzError', 'LandingZone'), ('brzError', 'Bronze'), ('slvError', 'Silver')]:
-                    if row.get(layer_key):
-                        row['lastErrorMessage'] = row[layer_key]
-                        row['lastErrorLayer'] = err_key
-                        row['lastErrorTime'] = ''
-                        break
-                else:
-                    row['lastErrorMessage'] = None
-                    row['lastErrorLayer'] = None
-                    row['lastErrorTime'] = None
-
-                results.append(row)
-            return results
-        finally:
-            conn.close()
-    except Exception as e:
-        log.warning(f'Entity digest from SQLite failed: {e}')
-        return None
-
-
 def build_entity_digest(source_filter: str = None, layer_filter: str = None,
                         status_filter: str = None) -> dict:
-    """Build the entity digest. SQLite first, falls back to Fabric SQL stored proc.
+    """Build the entity digest.
+    PRIMARY: local SQLite (instant, no sync lag).
+    FALLBACK: Fabric SQL stored proc (sp_BuildEntityDigest).
 
     Returns a single JSON structure with all entities grouped by source,
     including per-layer status, connection info, and summary counts.
@@ -4604,18 +4475,23 @@ def build_entity_digest(source_filter: str = None, layer_filter: str = None,
     if cached and time.time() < cached['expires']:
         return cached['data']
 
+    # ── PRIMARY: local SQLite ──
+    if _cpdb_available():
+        try:
+            result = _sqlite_entity_digest(source_filter, layer_filter, status_filter)
+            _digest_cache[cache_key] = {'data': result, 'expires': time.time() + _DIGEST_TTL}
+            return result
+        except Exception as e:
+            log.warning(f'SQLite entity digest failed, falling back to Fabric SQL: {e}')
+
     t0 = time.time()
 
-    # ── Try SQLite first ──
-    rows = _build_entity_digest_sqlite(source_filter)
-
-    # ── Fall back to stored procedure if SQLite returned nothing ──
-    if rows is None:
-        if source_filter:
-            safe_src = source_filter.replace("'", "''")
-            rows = query_sql(f"EXEC execution.sp_BuildEntityDigest @SourceFilter = '{safe_src}'")
-        else:
-            rows = query_sql("EXEC execution.sp_BuildEntityDigest")
+    # ── Call stored procedure ──
+    if source_filter:
+        safe_src = source_filter.replace("'", "''")
+        rows = query_sql(f"EXEC execution.sp_BuildEntityDigest @SourceFilter = '{safe_src}'")
+    else:
+        rows = query_sql("EXEC execution.sp_BuildEntityDigest")
 
     # ── Build entity list and group by source ──
     sources: dict = {}
@@ -4765,14 +4641,7 @@ def register_connection(body: dict) -> dict:
         f"@Type = '{conn_type}', "
         f"@IsActive = 1"
     )
-    # Dual-write: SQLite first (must succeed), Fabric SQL second (best-effort)
-    cpdb.upsert_connection({
-        'ConnectionGuid': body.get('connectionGuid', ''),
-        'Name': body.get('name', ''),
-        'Type': body.get('type', 'SqlServer'),
-        'IsActive': 1,
-    })
-    _fire_and_forget_fabric(lambda: query_sql(sql), 'register_connection')
+    query_sql(sql)
     log.info(f'Connection registered: {name} ({guid[:8]}...)')
     return {'success': True, 'message': f'Connection {name} registered'}
 
@@ -4826,23 +4695,7 @@ def register_datasource(body: dict) -> dict:
         log.error(f'sp_UpsertDataSource completed but "{name}" not found in DB — proc may have silently failed')
         raise ValueError(f'Data source "{name}" was not created — sp_UpsertDataSource may have silently failed')
 
-    ds_id_created = verify[0]['DataSourceId']
-    log.info(f'Data source registered and verified: {name} (type={ds_type}, id={ds_id_created})')
-
-    # Sync newly registered datasource back to SQLite (best-effort)
-    try:
-        cpdb.upsert_datasource({
-            'DataSourceId': ds_id_created,
-            'ConnectionId': conn_id,
-            'Name': name,
-            'Namespace': namespace,
-            'Type': ds_type,
-            'Description': description,
-            'IsActive': 1,
-        })
-    except Exception as ex:
-        log.debug(f'SQLite sync-back after register_datasource failed: {ex}')
-
+    log.info(f'Data source registered and verified: {name} (type={ds_type}, id={verify[0]["DataSourceId"]})')
     return {'success': True, 'message': f'Data source {name} registered'}
 
 def register_entity(body: dict) -> dict:
@@ -4953,34 +4806,6 @@ def register_entity(body: dict) -> dict:
                         log.info(f'Silver entity auto-registered for {schema}.{table}')
     except Exception as ex:
         log.warning(f'Auto Bronze/Silver registration failed for {schema}.{table}: {ex}')
-
-    # Sync newly registered entities back to SQLite (best-effort)
-    try:
-        ds_id = int(ds_check[0]['DataSourceId'])
-        lz_row = _execute_parameterized(
-            "SELECT * FROM integration.LandingzoneEntity "
-            "WHERE SourceSchema = ? AND SourceName = ? AND DataSourceId = ?",
-            (schema, table, ds_id))
-        if lz_row:
-            cpdb.upsert_lz_entity(lz_row[0])
-            lz_eid = int(lz_row[0]['LandingzoneEntityId'])
-            b_row = _execute_parameterized(
-                "SELECT BronzeLayerEntityId, LandingzoneEntityId, LakehouseId, "
-                "[Schema] AS Schema_, Name, PrimaryKeys, FileType, IsActive "
-                "FROM integration.BronzeLayerEntity WHERE LandingzoneEntityId = ?",
-                (lz_eid,))
-            if b_row:
-                cpdb.upsert_bronze_entity(b_row[0])
-                b_eid = int(b_row[0]['BronzeLayerEntityId'])
-                s_row = _execute_parameterized(
-                    "SELECT SilverLayerEntityId, BronzeLayerEntityId, LakehouseId, "
-                    "[Schema] AS Schema_, Name, FileType, IsActive "
-                    "FROM integration.SilverLayerEntity WHERE BronzeLayerEntityId = ?",
-                    (b_eid,))
-                if s_row:
-                    cpdb.upsert_silver_entity(s_row[0])
-    except Exception as ex2:
-        log.debug(f'SQLite sync-back after register_entity failed: {ex2}')
 
     return {'success': True, 'message': f'Entity {schema}.{table} registered (LZ{bronze_msg}{silver_msg})'}
 
@@ -5332,6 +5157,230 @@ def register_bronze_silver(datasource_id: int, entities: list[dict] = None,
         'summary': f'{bronze_created} Bronze + {silver_created} Silver entities created, '
                    f'{incremental_updated} set to incremental'
     }
+
+
+# ── Orchestrated Source Import ──
+# Single-action import: register → optimize → load LZ → load Bronze → load Silver
+# Progress is streamed via SSE. No internal vocabulary exposed to the user.
+
+_PHASE_LABELS = {
+    'registering': 'Registering tables',
+    'optimizing': 'Analyzing tables',
+    'loading_lz': 'Importing data',
+    'loading_bronze': 'Processing data',
+    'loading_silver': 'Finalizing data',
+    'complete': 'Complete',
+    'failed': 'Failed',
+}
+
+# In-memory store for active import jobs
+_import_jobs: dict = {}  # job_id -> ImportJob
+_import_jobs_lock = threading.Lock()
+
+
+class ImportJob:
+    """Tracks an orchestrated source import through all pipeline phases."""
+
+    def __init__(self, job_id: str, datasource_name: str, table_count: int):
+        self.job_id = job_id
+        self.datasource_name = datasource_name
+        self.table_count = table_count
+        self.phase = 'registering'
+        self.phase_label = _PHASE_LABELS['registering']
+        self.progress = 0  # 0-100
+        self.current_table = ''
+        self.tables_done = 0
+        self.started_at = datetime.utcnow().isoformat() + 'Z'
+        self.finished_at = None
+        self.error = None
+        self._events: list[dict] = []
+        self._condition = threading.Condition()
+
+    def set_phase(self, phase: str, progress: int = None, current_table: str = None):
+        """Update phase and notify SSE listeners."""
+        self.phase = phase
+        self.phase_label = _PHASE_LABELS.get(phase, phase)
+        if progress is not None:
+            self.progress = min(progress, 100)
+        if current_table is not None:
+            self.current_table = current_table
+        event = {
+            'phase': self.phase,
+            'label': self.phase_label,
+            'progress': self.progress,
+            'currentTable': self.current_table,
+            'tablesDone': self.tables_done,
+            'tableCount': self.table_count,
+        }
+        with self._condition:
+            self._events.append(event)
+            self._condition.notify_all()
+
+    def add_error(self, msg: str):
+        self.error = msg
+        self.phase = 'failed'
+        self.phase_label = _PHASE_LABELS['failed']
+        self.finished_at = datetime.utcnow().isoformat() + 'Z'
+        event = {'phase': 'failed', 'label': 'Failed', 'error': msg, 'progress': self.progress}
+        with self._condition:
+            self._events.append(event)
+            self._condition.notify_all()
+
+    def complete(self):
+        self.phase = 'complete'
+        self.phase_label = _PHASE_LABELS['complete']
+        self.progress = 100
+        self.finished_at = datetime.utcnow().isoformat() + 'Z'
+        event = {'phase': 'complete', 'label': 'Complete', 'progress': 100}
+        with self._condition:
+            self._events.append(event)
+            self._condition.notify_all()
+
+    def wait_for_event(self, last_index: int, timeout: float = 30.0) -> list[dict]:
+        """Block until new events are available after last_index."""
+        with self._condition:
+            while len(self._events) <= last_index:
+                if not self._condition.wait(timeout=timeout):
+                    return []  # timeout — send keepalive
+            return self._events[last_index:]
+
+    def to_dict(self) -> dict:
+        return {
+            'jobId': self.job_id,
+            'datasource': self.datasource_name,
+            'phase': self.phase,
+            'label': self.phase_label,
+            'progress': self.progress,
+            'currentTable': self.current_table,
+            'tablesDone': self.tables_done,
+            'tableCount': self.table_count,
+            'startedAt': self.started_at,
+            'finishedAt': self.finished_at,
+            'error': self.error,
+        }
+
+
+def _run_source_import(job: ImportJob, body: dict):
+    """Background thread: runs the full import pipeline for a source."""
+    datasource_id = body['datasourceId']
+    tables = body.get('tables', [])  # list of {schema, table} or empty = all
+    username = body.get('username', '')
+    password = body.get('password', '')
+
+    try:
+        # ── Phase 1: Register entities ──
+        job.set_phase('registering', progress=5)
+        if tables:
+            registered = 0
+            for t in tables:
+                schema = t.get('schema', 'dbo')
+                table = t.get('table', t.get('name', ''))
+                if not table:
+                    continue
+                try:
+                    register_entity({
+                        'datasourceId': datasource_id,
+                        'schema': schema,
+                        'table': table,
+                    })
+                    registered += 1
+                    job.tables_done = registered
+                    pct = 5 + int((registered / len(tables)) * 10)
+                    job.set_phase('registering', progress=pct, current_table=f'{schema}.{table}')
+                except Exception as ex:
+                    log.warning(f'Import: failed to register {schema}.{table}: {ex}')
+        job.set_phase('registering', progress=15)
+
+        # ── Phase 2: Load optimization (analyze PKs, watermarks) ──
+        job.set_phase('optimizing', progress=20)
+        try:
+            opt_result = analyze_source_tables(int(datasource_id), username, password)
+            log.info(f'Import: optimization complete — {opt_result.get("tablesAnalyzed", 0)} tables analyzed')
+        except Exception as ex:
+            log.warning(f'Import: load optimization failed (non-fatal): {ex}')
+        job.set_phase('optimizing', progress=30)
+
+        # ── Phase 2b: Register Bronze/Silver entities ──
+        try:
+            bs_result = register_bronze_silver(int(datasource_id), username=username, password=password)
+            log.info(f'Import: Bronze/Silver registration — {bs_result.get("summary", "")}')
+        except Exception as ex:
+            log.warning(f'Import: Bronze/Silver registration failed (non-fatal): {ex}')
+        job.set_phase('optimizing', progress=35)
+
+        # ── Phase 3: Trigger Landing Zone load ──
+        job.set_phase('loading_lz', progress=40)
+        try:
+            lz_result = trigger_pipeline('PL_FMD_LDZ_COPY_SQL')
+            log.info(f'Import: LZ pipeline triggered — job {lz_result.get("jobInstanceId", "?")}')
+        except Exception as ex:
+            log.warning(f'Import: LZ pipeline trigger failed, trying COPY_FROM_ASQL: {ex}')
+            try:
+                lz_result = trigger_pipeline('PL_FMD_LDZ_COPY_FROM_ASQL_01')
+                log.info(f'Import: LZ fallback pipeline triggered')
+            except Exception as ex2:
+                job.add_error(f'Could not start data import: {ex2}')
+                return
+        job.set_phase('loading_lz', progress=55)
+
+        # ── Phase 4: Trigger Bronze load ──
+        job.set_phase('loading_bronze', progress=60)
+        try:
+            bronze_result = trigger_pipeline('PL_FMD_LOAD_LANDING_BRONZE')
+            log.info(f'Import: Bronze pipeline triggered — job {bronze_result.get("jobInstanceId", "?")}')
+        except Exception as ex:
+            log.warning(f'Import: Bronze pipeline failed (non-fatal): {ex}')
+        job.set_phase('loading_bronze', progress=75)
+
+        # ── Phase 5: Trigger Silver load ──
+        job.set_phase('loading_silver', progress=80)
+        try:
+            silver_result = trigger_pipeline('PL_FMD_LOAD_BRONZE_SILVER')
+            log.info(f'Import: Silver pipeline triggered — job {silver_result.get("jobInstanceId", "?")}')
+        except Exception as ex:
+            log.warning(f'Import: Silver pipeline failed (non-fatal): {ex}')
+        job.set_phase('loading_silver', progress=95)
+
+        # ── Done ──
+        job.complete()
+        log.info(f'Import job {job.job_id} completed for {job.datasource_name}')
+
+    except Exception as ex:
+        log.exception(f'Import job {job.job_id} failed: {ex}')
+        job.add_error(str(ex)[:500])
+
+
+def start_source_import(body: dict) -> dict:
+    """Start an orchestrated source import. Returns job ID for progress tracking."""
+    datasource_id = body.get('datasourceId')
+    if not datasource_id:
+        raise ValueError('datasourceId is required')
+
+    datasource_name = body.get('datasourceName', f'Source {datasource_id}')
+    tables = body.get('tables', [])
+    table_count = len(tables) if tables else 0
+
+    job_id = str(uuid.uuid4())
+    job = ImportJob(job_id, datasource_name, table_count)
+
+    with _import_jobs_lock:
+        _import_jobs[job_id] = job
+
+    # Start background thread
+    t = threading.Thread(target=_run_source_import, args=(job, body), daemon=True)
+    t.start()
+
+    log.info(f'Import job {job_id} started for {datasource_name} ({table_count} tables)')
+    return {'jobId': job_id, 'status': 'started'}
+
+
+def get_import_job(job_id: str) -> dict:
+    """Get current status of an import job."""
+    with _import_jobs_lock:
+        job = _import_jobs.get(job_id)
+    if not job:
+        raise ValueError(f'Import job {job_id} not found')
+    return job.to_dict()
 
 
 def get_load_config(datasource_id: int = None) -> list[dict]:
@@ -5939,26 +5988,13 @@ def setup_get_current_config() -> dict:
         else:
             workspace_map[key] = None
 
-    # Read lakehouse records — SQLite first, Fabric SQL fallback
+    # Read lakehouse records from SQL metadata
     lakehouses = {}
     try:
-        lh_rows = None
-        try:
-            conn_lite = cpdb._get_conn()
-            try:
-                lh_rows = [dict(r) for r in conn_lite.execute(
-                    'SELECT LakehouseId, LakehouseGuid, WorkspaceGuid, Name '
-                    'FROM lakehouses ORDER BY LakehouseId'
-                ).fetchall()]
-            finally:
-                conn_lite.close()
-        except Exception:
-            pass
-        if not lh_rows:
-            lh_rows = query_sql('SELECT LakehouseId, LakehouseGuid, WorkspaceGuid, Name, IsActive '
-                                'FROM integration.Lakehouse ORDER BY LakehouseId')
-        for r in lh_rows:
-            lakehouses[r.get('Name', f"LH_{r.get('LakehouseId', '')}")] = {
+        rows = query_sql('SELECT LakehouseId, LakehouseGuid, WorkspaceGuid, Name, IsActive '
+                         'FROM integration.Lakehouse ORDER BY LakehouseId')
+        for r in rows:
+            lakehouses[r.get('Name', f"LH_{r['LakehouseId']}")] = {
                 'id': r.get('LakehouseGuid', ''),
                 'displayName': r.get('Name', ''),
                 'workspaceGuid': r.get('WorkspaceGuid', ''),
@@ -5967,26 +6003,13 @@ def setup_get_current_config() -> dict:
     except Exception as ex:
         log.warning('setup_get_current_config: failed to read lakehouses: %s', ex)
 
-    # Read connection records — SQLite first, Fabric SQL fallback
+    # Read connection records from SQL metadata
     connections_db = {}
     try:
-        conn_rows = None
-        try:
-            conn_lite = cpdb._get_conn()
-            try:
-                conn_rows = [dict(r) for r in conn_lite.execute(
-                    'SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName '
-                    'FROM connections ORDER BY ConnectionId'
-                ).fetchall()]
-            finally:
-                conn_lite.close()
-        except Exception:
-            pass
-        if not conn_rows:
-            conn_rows = query_sql('SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName '
-                                  'FROM integration.Connection ORDER BY ConnectionId')
-        for r in conn_rows:
-            connections_db[r.get('Name', f"CON_{r.get('ConnectionId', '')}")] = {
+        rows = query_sql('SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName '
+                         'FROM integration.Connection ORDER BY ConnectionId')
+        for r in rows:
+            connections_db[r.get('Name', f"CON_{r['ConnectionId']}")] = {
                 'id': r.get('ConnectionGuid', ''),
                 'displayName': r.get('Name', ''),
                 'type': r.get('Type', ''),
@@ -8432,26 +8455,109 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif self.path == '/api/stats':
                 self._json_response(get_dashboard_stats())
             elif self.path == '/api/health':
+                sqlite_info = None
+                if _CPDB_AVAILABLE and cpdb is not None:
+                    try:
+                        sqlite_info = {
+                            'available': _cpdb_available(),
+                            'path': str(cpdb.DB_PATH),
+                            'stats': cpdb.get_stats() if _cpdb_available() else None,
+                            'lastSync': cpdb.get_sync_watermark() if _cpdb_available() else None,
+                        }
+                    except Exception:
+                        sqlite_info = {'available': False, 'error': 'failed to read stats'}
                 self._json_response({
                     'status': 'ok',
                     'sql': SQL_SERVER,
                     'mode': 'production' if STATIC_DIR.exists() else 'api-only',
                     'static_dir': str(STATIC_DIR),
                     'purview': PURVIEW_ACCOUNT or None,
-                    'sqlite_db': str(cpdb.DB_PATH),
-                    'sqlite_stats': cpdb.get_stats(),
-                    'sqlite_last_sync': cpdb.get_sync_watermark(),
-                })
-            # SQLite control plane diagnostics
-            elif self.path == '/api/control-plane/db-stats':
-                self._json_response({
-                    'stats': cpdb.get_stats(),
-                    'lastSync': cpdb.get_sync_watermark(),
-                    'dbPath': str(cpdb.DB_PATH),
+                    'sqlite': sqlite_info,
                 })
             # Control Plane (read-only aggregate view)
             elif self.path == '/api/control-plane':
                 self._json_response(get_control_plane())
+            # Execution Matrix (entity load status across LZ/Bronze/Silver)
+            elif self.path == '/api/execution-matrix':
+                if _cpdb_available():
+                    try:
+                        self._json_response(_sqlite_execution_matrix())
+                    except Exception as e:
+                        log.warning(f'SQLite execution-matrix failed: {e}')
+                        self._error_response(f'Execution matrix unavailable: {e}')
+                else:
+                    self._error_response('SQLite control plane not initialized — run background sync first', 503)
+            # Record Counts (entity counts by source system)
+            elif self.path == '/api/record-counts':
+                if _cpdb_available():
+                    try:
+                        self._json_response(_sqlite_record_counts())
+                    except Exception as e:
+                        log.warning(f'SQLite record-counts failed: {e}')
+                        self._error_response(f'Record counts unavailable: {e}')
+                else:
+                    # Fallback to Fabric SQL
+                    try:
+                        self._json_response(get_dashboard_stats())
+                    except Exception as e:
+                        self._error_response(str(e))
+            # Sources (source system list with entity counts)
+            elif self.path == '/api/sources':
+                if _cpdb_available():
+                    try:
+                        self._json_response(_sqlite_sources())
+                    except Exception as e:
+                        log.warning(f'SQLite sources failed: {e}')
+                        self._error_response(f'Sources unavailable: {e}')
+                else:
+                    # Fallback to Fabric SQL
+                    try:
+                        self._json_response(runner_get_sources())
+                    except Exception as e:
+                        self._error_response(str(e))
+            # ── Source Import (orchestrated) endpoints ──
+            elif self.path.startswith('/api/sources/import/') and '/stream' in self.path:
+                # SSE progress stream: GET /api/sources/import/{id}/stream
+                parts = self.path.split('/')
+                job_id = parts[4] if len(parts) > 4 else ''
+                with _import_jobs_lock:
+                    job = _import_jobs.get(job_id)
+                if not job:
+                    self._error_response(f'Import job {job_id} not found', 404)
+                else:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/event-stream')
+                    self.send_header('Cache-Control', 'no-cache')
+                    self.send_header('Connection', 'keep-alive')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    cursor = 0
+                    try:
+                        while True:
+                            new_events = job.wait_for_event(cursor, timeout=15.0)
+                            if new_events:
+                                for evt in new_events:
+                                    line = f"data: {json.dumps(evt)}\n\n"
+                                    self.wfile.write(line.encode())
+                                    cursor += 1
+                                self.wfile.flush()
+                            else:
+                                # keepalive
+                                self.wfile.write(b": keepalive\n\n")
+                                self.wfile.flush()
+                            # Stop streaming if job is done
+                            if job.phase in ('complete', 'failed'):
+                                break
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+            elif self.path.startswith('/api/sources/import/'):
+                # JSON status: GET /api/sources/import/{id}
+                parts = self.path.split('/')
+                job_id = parts[4] if len(parts) > 4 else ''
+                try:
+                    self._json_response(get_import_job(job_id))
+                except ValueError as e:
+                    self._error_response(str(e), 404)
             # Onboarding endpoints
             elif self.path == '/api/onboarding':
                 self._json_response(get_onboarding_sources())
@@ -8800,6 +8906,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif self.path == '/api/admin/config':
                 self._json_response({"hiddenPages": _admin_config.get("hiddenPages", [])})
             # ── FMD v3 Engine endpoints ──
+            # Intercept engine/status and engine/runs to serve from SQLite
+            elif self.path == '/api/engine/status' and _cpdb_available():
+                try:
+                    self._json_response(_sqlite_engine_status())
+                except Exception as e:
+                    log.warning(f'SQLite engine status failed, delegating to engine API: {e}')
+                    from engine.api import handle_engine_request
+                    handle_engine_request(self, method='GET', path=self.path,
+                                          config=CONFIG, query_sql_fn=query_sql)
+                    return
+            elif self.path.startswith('/api/engine/runs') and _cpdb_available():
+                try:
+                    qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                    limit = int(qs.get('limit', ['50'])[0])
+                    self._json_response(_sqlite_engine_runs(limit=limit))
+                except Exception as e:
+                    log.warning(f'SQLite engine runs failed, delegating to engine API: {e}')
+                    from engine.api import handle_engine_request
+                    handle_engine_request(self, method='GET', path=self.path,
+                                          config=CONFIG, query_sql_fn=query_sql)
+                    return
             elif self.path.startswith('/api/engine/'):
                 from engine.api import handle_engine_request
                 handle_engine_request(self, method='GET', path=self.path,
@@ -8864,6 +8991,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 else:
                     _save_server_label(srv, label)
                     self._json_response({'server': srv, 'label': label})
+            # ── Orchestrated Source Import ──
+            elif self.path == '/api/sources/import':
+                try:
+                    result = start_source_import(body)
+                    self._json_response(result, 202)
+                except ValueError as e:
+                    self._error_response(str(e), 400)
             # Onboarding endpoints
             elif self.path == '/api/onboarding':
                 source_name = body.get('sourceName', '').strip()
@@ -9043,13 +9177,14 @@ if __name__ == '__main__':
     if mode == 'production':
         log.info(f'  Static:     {STATIC_DIR}')
     log.info(f'  Log file:   {log_cfg.get("file", "console only")}')
+    log.info(f'  SQLite:     {"ENABLED" if _CPDB_AVAILABLE else "DISABLED"} (primary read source)')
     log.info('')
     log.info('API Endpoints:')
     log.info('  GET  /api/gateway-connections')
     log.info('  GET  /api/connections')
     log.info('  GET  /api/datasources')
     log.info('  GET  /api/entities')
-    log.info('  GET  /api/entity-digest      (Digest Engine — stored proc)')
+    log.info('  GET  /api/entity-digest      (SQLite primary, Fabric SQL fallback)')
     log.info('  GET  /api/pipeline-view')
     log.info('  GET  /api/health')
     log.info('  POST /api/connections')
@@ -9059,7 +9194,10 @@ if __name__ == '__main__':
     log.info('  POST /api/onboarding')
     log.info('  POST /api/onboarding/step')
     log.info('  POST /api/onboarding/delete')
-    log.info('  GET  /api/control-plane')
+    log.info('  GET  /api/control-plane       (SQLite primary, Fabric SQL fallback)')
+    log.info('  GET  /api/execution-matrix    (SQLite)')
+    log.info('  GET  /api/record-counts       (SQLite primary, Fabric SQL fallback)')
+    log.info('  GET  /api/sources             (SQLite primary, Fabric SQL fallback)')
     log.info('  POST /api/deploy/start')
     log.info('  GET  /api/deploy/stream      (SSE)')
     log.info('  GET  /api/deploy/state')
@@ -9067,22 +9205,23 @@ if __name__ == '__main__':
     log.info('  GET  /api/analyze-source     (Load Optimization)')
     log.info('  GET  /api/load-config')
     log.info('  POST /api/register-bronze-silver')
+    log.info('  POST /api/sources/import      (orchestrated import)')
+    log.info('  GET  /api/sources/import/{id}  (import status)')
+    log.info('  GET  /api/sources/import/{id}/stream (SSE progress)')
     log.info('  POST /api/load-config        (update)')
     log.info('  ── FMD v3 Engine ──')
-    log.info('  GET  /api/engine/status')
+    log.info('  GET  /api/engine/status       (SQLite primary, engine API fallback)')
     log.info('  GET  /api/engine/plan')
     log.info('  GET  /api/engine/logs')
     log.info('  GET  /api/engine/logs/stream  (SSE)')
     log.info('  GET  /api/engine/health')
     log.info('  GET  /api/engine/metrics')
-    log.info('  GET  /api/engine/runs')
+    log.info('  GET  /api/engine/runs         (SQLite primary, engine API fallback)')
     log.info('  POST /api/engine/start')
     log.info('  POST /api/engine/stop')
     log.info('  POST /api/engine/retry')
     log.info('  POST /api/engine/entity/*/reset')
     log.info(f'  Snapshot:   {CONTROL_PLANE_SNAPSHOT}')
-    log.info(f'  SQLite:     {cpdb.DB_PATH}')
-    log.info(f'  GET  /api/control-plane/db-stats   (SQLite diagnostics)')
     if mode == 'production':
         log.info('')
         log.info('  /*   → Static files from dist/')
@@ -9091,10 +9230,9 @@ if __name__ == '__main__':
     # Auto-create dashboard-only tables if they don't exist
     ensure_onboarding_table()
 
-    # Initialize local SQLite control plane DB and start background sync
-    log.info(f'  SQLite DB:  {cpdb.DB_PATH}')
-    log.info(f'  SQLite stats: {cpdb.get_stats()}')
-    _start_sync_thread()
+    # Initialize SQLite control plane DB and start background sync
+    _init_control_plane_db()
+    _start_background_sync()
 
     server = ThreadedHTTPServer((HOST, PORT), DashboardHandler)
     try:
