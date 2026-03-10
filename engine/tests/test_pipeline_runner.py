@@ -164,8 +164,7 @@ class TestExtractJobId:
 
     def test_returns_none_when_no_location(self):
         mock_resp = MagicMock()
-        mock_resp.headers = {}
-        mock_resp.headers.get = MagicMock(return_value="")
+        mock_resp.headers = {"Location": ""}
         result = FabricPipelineRunner._extract_job_id(mock_resp)
         assert result is None
 

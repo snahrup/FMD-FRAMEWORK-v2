@@ -366,4 +366,5 @@ class TestTransientErrors:
     def test_known_codes_present(self):
         from engine.orchestrator import _THROTTLE_PATTERNS
         assert "429" in _THROTTLE_PATTERNS
-        assert "too many connections" in _THROTTLE_PATTE
+        assert "too many connections" in _THROTTLE_PATTERNS
+        assert "rate limit exceeded" in _THROTTLE_PATTERNS
