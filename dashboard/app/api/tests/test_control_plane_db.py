@@ -454,8 +454,8 @@ class TestMetricsAndStats:
         assert stats['lz_entities'] == 0
         assert stats['engine_runs'] == 0
         assert stats['sync_metadata'] == 0
-        # All 17 table counts should be present
-        assert len(stats) == 17
+        # All 18 table counts should be present (17 original + admin_config)
+        assert len(stats) == 18
 
     def test_get_stats_with_data(self, seeded_db):
         """T-CPDB-018: get_stats returns correct counts for populated database."""

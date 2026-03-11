@@ -255,6 +255,14 @@ def init_db():
                 updated_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );
 
+            -- admin config (dashboard settings stored locally) -------------------
+
+            CREATE TABLE IF NOT EXISTS admin_config (
+                key        TEXT PRIMARY KEY,
+                value      TEXT,
+                updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
             -- indexes ------------------------------------------------------------
 
             CREATE INDEX IF NOT EXISTS idx_lz_datasource   ON lz_entities(DataSourceId);
@@ -947,7 +955,7 @@ def get_stats() -> dict:
         'pipeline_lz_entity', 'pipeline_bronze_entity',
         'entity_status', 'watermarks',
         'pipeline_audit', 'copy_activity_audit',
-        'sync_metadata',
+        'sync_metadata', 'admin_config',
     ]
     conn = _get_conn()
     try:
