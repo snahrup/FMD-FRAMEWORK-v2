@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ObjectTree } from '@/components/sql-explorer/ObjectTree';
 import { TableDetail } from '@/components/sql-explorer/TableDetail';
@@ -9,7 +9,11 @@ export default function SqlExplorer() {
   const [searchParams] = useSearchParams();
   const [selectedTable, setSelectedTable] = useState<SelectedTable | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(300);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  sidebarWidthRef.current = sidebarWidth;
   const isResizing = useRef(false);
+  // Track active listeners so useEffect cleanup can remove them on unmount
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   // Deep-link support: read ?server=X&database=Y&schema=Z&table=T from URL
   const initialSelection = useMemo<SelectedTable | null>(() => {
@@ -21,11 +25,18 @@ export default function SqlExplorer() {
     return { server, database: database || '', schema: schema || 'dbo', table: table || '' };
   }, [searchParams]);
 
+  // Cleanup document listeners on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      cleanupRef.current?.();
+    };
+  }, []);
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     isResizing.current = true;
     const startX = e.clientX;
-    const startWidth = sidebarWidth;
+    const startWidth = sidebarWidthRef.current;
 
     const onMouseMove = (ev: MouseEvent) => {
       if (!isResizing.current) return;
@@ -40,13 +51,16 @@ export default function SqlExplorer() {
       document.removeEventListener('mouseup', onMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      cleanupRef.current = null;
     };
 
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [sidebarWidth]);
+    // Store cleanup so unmount can remove listeners if resize is in-progress
+    cleanupRef.current = onMouseUp;
+  }, []);
 
   return (
     <div className="flex flex-col h-[calc(100vh-3rem)] bg-background">

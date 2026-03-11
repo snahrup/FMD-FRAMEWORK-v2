@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Loader2, Server, Wand2, Settings2, Rocket } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Loader2, Server, Wand2, Settings2, Rocket, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SetupWizard } from "./setup/SetupWizard";
 import { SetupSettings } from "./setup/SetupSettings";
@@ -15,26 +15,41 @@ export default function EnvironmentSetup() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const resp = await fetch(`${API}/setup/current-config`);
-        if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
-        const data = await resp.json();
-        if (data.config) {
-          setConfig({ ...EMPTY_CONFIG, ...data.config });
-          // If config has workspaces already set, default to Settings mode
-          if (data.config.workspaces?.data_dev?.id) {
-            setMode("settings");
-          }
-        }
-      } catch (ex) {
-        setLoadError(ex instanceof Error ? ex.message : String(ex));
-      } finally {
-        setLoading(false);
+  const loadConfig = useCallback(async (signal: AbortSignal) => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const resp = await fetch(`${API}/setup/current-config`, { signal });
+      if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+      const ct = resp.headers.get("content-type") ?? "";
+      if (!ct.includes("application/json")) {
+        throw new Error(`Expected JSON response but got ${ct || "unknown content-type"}`);
       }
-    })();
+      const data = await resp.json();
+      if (signal.aborted) return;
+      // Backend returns { workspaces, lakehouses, database, ... } at top level.
+      // Map into EnvironmentConfig when a "config" wrapper is present,
+      // otherwise check for known top-level keys.
+      const cfg = data.config ?? (data.workspaces ? data : null);
+      if (cfg) {
+        setConfig({ ...EMPTY_CONFIG, ...cfg });
+        if (cfg.workspaces?.data_dev?.id) {
+          setMode("settings");
+        }
+      }
+    } catch (ex) {
+      if (signal.aborted) return;
+      setLoadError(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      if (!signal.aborted) setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    loadConfig(ac.signal);
+    return () => ac.abort();
+  }, [loadConfig]);
 
   if (loading) {
     return (
@@ -88,8 +103,18 @@ export default function EnvironmentSetup() {
       </div>
 
       {loadError && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-400">
-          Could not load current config: {loadError}. Starting with empty configuration.
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-400 flex items-center justify-between gap-3">
+          <span>Could not load current config: {loadError}. Starting with empty configuration.</span>
+          <button
+            onClick={() => {
+              const ac = new AbortController();
+              loadConfig(ac.signal);
+            }}
+            className="flex items-center gap-1 shrink-0 px-2 py-1 rounded border border-amber-500/30 hover:bg-amber-500/20 transition-colors"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Retry
+          </button>
         </div>
       )}
 

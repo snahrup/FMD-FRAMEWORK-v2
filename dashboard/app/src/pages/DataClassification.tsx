@@ -3,17 +3,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { KpiCard, KpiRow } from "@/components/ui/kpi-card";
-import { SensitivityBadge, CertificationBadge } from "@/components/ui/sensitivity-badge";
+import { CertificationBadge } from "@/components/ui/sensitivity-badge";
 import { LayerBadge } from "@/components/ui/layer-badge";
 import { formatRowCount, formatPercent } from "@/lib/formatters";
 import { getSourceColor } from "@/lib/layers";
 import { resolveSourceLabel } from "@/hooks/useSourceConfig";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
 import {
-  Shield, Search, Eye, Lock, Globe, Building, ShieldAlert, UserX,
-  Tag, BarChart3, Columns3, Filter, Sparkles,
+  Shield, Search, Lock, UserX,
+  Tag, BarChart3, Columns3, Sparkles,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import type { SensitivityLevel } from "@/types/governance";
 
 // ── Sensitivity heatmap cell ──
@@ -251,8 +250,12 @@ export default function DataClassification() {
                   </tr>
                 </thead>
                 <tbody>
-                  {loading ? (
+                  {loading && allEntities.length === 0 ? (
                     <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">Loading...</td></tr>
+                  ) : filtered.length === 0 ? (
+                    <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">
+                      {search || sourceFilter !== "all" ? "No entities match the current filters." : "No entities found."}
+                    </td></tr>
                   ) : filtered.map((e) => (
                     <tr key={e.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
                       <td className="py-1.5 px-3 font-mono text-xs">{e.tableName}</td>
