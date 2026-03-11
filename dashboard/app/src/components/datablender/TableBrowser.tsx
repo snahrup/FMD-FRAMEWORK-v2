@@ -5,10 +5,10 @@ import {
   Search, ChevronRight, ChevronDown, Table2, Database,
   Layers, AlertCircle, Loader2,
 } from 'lucide-react';
-import { mockTables, layerConfig } from '@/data/blenderMockData';
+import { layerConfig } from '@/data/blenderMockData';
 import type { DataLayer } from '@/types/blender';
 
-interface BlenderTable {
+export interface BlenderTable {
   id: string;
   name: string;
   layer: DataLayer;
@@ -19,7 +19,7 @@ interface BlenderTable {
 
 interface TableBrowserProps {
   selectedTableId: string | null;
-  onSelectTable: (tableId: string) => void;
+  onSelectTable: (table: BlenderTable) => void;
 }
 
 export function TableBrowser({ selectedTableId, onSelectTable }: TableBrowserProps) {
@@ -147,7 +147,7 @@ export function TableBrowser({ selectedTableId, onSelectTable }: TableBrowserPro
                       {lhExpanded && lhTables.map(table => (
                         <button
                           key={table.id}
-                          onClick={() => onSelectTable(table.id)}
+                          onClick={() => onSelectTable(table)}
                           className={cn(
                             "flex items-center gap-2 w-full ml-3 px-2 py-1 rounded-[var(--radius-sm)] text-[11px] transition-colors cursor-pointer",
                             selectedTableId === table.id

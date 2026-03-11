@@ -322,13 +322,13 @@ def _sync_fabric_to_sqlite():
         log.warning(f'Sync Silver entities failed: {e}')
 
     try:
-        # Engine Runs
+        # Engine Runs (Fabric SQL uses StartedAtUtc/CompletedAtUtc, SQLite expects StartedAt/EndedAt)
         rows = query_sql(
             'SELECT RunId, Mode, Status, TotalEntities, SucceededEntities, FailedEntities, '
             'SkippedEntities, TotalRowsRead, TotalRowsWritten, TotalBytesTransferred, '
             'TotalDurationSeconds, Layers, EntityFilter, TriggeredBy, ErrorSummary, '
-            'StartedAt, EndedAt '
-            'FROM execution.EngineRun ORDER BY StartedAt DESC'
+            'StartedAtUtc AS StartedAt, CompletedAtUtc AS EndedAt '
+            'FROM execution.EngineRun ORDER BY StartedAtUtc DESC'
         )
         for r in rows:
             cpdb.upsert_engine_run(r)
@@ -338,13 +338,38 @@ def _sync_fabric_to_sqlite():
 
     try:
         # Entity Status (execution.EntityStatusSummary)
+        # Fabric SQL stores a flat row per entity; SQLite expects one row per entity per layer.
+        # Unpivot LzStatus/BronzeStatus/SilverStatus into separate per-layer rows.
         rows = query_sql(
-            'SELECT LandingzoneEntityId, Layer, Status, LoadEndDateTime, ErrorMessage, UpdatedBy '
+            'SELECT LandingzoneEntityId, '
+            'LzStatus, LzLastLoad, '
+            'BronzeStatus, BronzeLastLoad, '
+            'SilverStatus, SilverLastLoad, '
+            'LastErrorMessage, LastErrorLayer, LastUpdatedBy '
             'FROM execution.EntityStatusSummary'
         )
+        status_count = 0
         for r in rows:
-            cpdb.upsert_entity_status(r)
-        synced['entity_status'] = len(rows)
+            eid = r.get('LandingzoneEntityId')
+            err_layer = (r.get('LastErrorLayer') or '').lower()
+            for layer, status_key, load_key in [
+                ('landing', 'LzStatus', 'LzLastLoad'),
+                ('bronze', 'BronzeStatus', 'BronzeLastLoad'),
+                ('silver', 'SilverStatus', 'SilverLastLoad'),
+            ]:
+                status = r.get(status_key)
+                if status:
+                    err = r.get('LastErrorMessage') if err_layer == layer else None
+                    cpdb.upsert_entity_status({
+                        'LandingzoneEntityId': eid,
+                        'Layer': layer,
+                        'Status': status,
+                        'LoadEndDateTime': r.get(load_key),
+                        'ErrorMessage': err,
+                        'UpdatedBy': r.get('LastUpdatedBy'),
+                    })
+                    status_count += 1
+        synced['entity_status'] = status_count
     except Exception as e:
         log.warning(f'Sync entity status failed: {e}')
 

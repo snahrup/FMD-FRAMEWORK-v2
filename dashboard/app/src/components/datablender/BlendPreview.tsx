@@ -1,7 +1,4 @@
-import { useState } from 'react';
-import {
-  XCircle,
-} from 'lucide-react';
+import { XCircle } from 'lucide-react';
 
 interface BlendPreviewProps {
   blendId: string;

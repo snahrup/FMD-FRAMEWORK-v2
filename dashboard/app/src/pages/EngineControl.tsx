@@ -1067,7 +1067,8 @@ export default function EngineControl() {
       if (s.pipeline_configured !== undefined) setPipelineConfigured(s.pipeline_configured);
 
       // If engine is running and we don't have an active SSE, start one
-      if (s.status === "running" && s.current_run_id && !liveRunIdRef.current) {
+      // But don't re-trigger if SSE already gave up after max retries
+      if (s.status === "running" && s.current_run_id && !liveRunIdRef.current && !sseGaveUp.current) {
         setLiveRunId(s.current_run_id);
       }
     } catch (err) {
@@ -1126,10 +1127,32 @@ export default function EngineControl() {
   // ── Fetch metrics ──
   const fetchMetrics = useCallback(async () => {
     try {
-      const data = await fetchJson<MetricsData>("/engine/metrics?hours=24");
-      setMetrics(data);
+      const raw = await fetchJson<Record<string, unknown>>("/engine/metrics?hours=24");
+      // Normalize: backend returns `layers` as an array of objects with
+      // {Layer, TotalTasks, AvgDurationSeconds, ...} but the frontend
+      // MetricsData interface expects a Record<string, {count, avg_duration}>.
+      let normalizedLayers: MetricsData["layers"] = {};
+      const rawLayers = raw.layers;
+      if (Array.isArray(rawLayers)) {
+        for (const row of rawLayers) {
+          const key = String(row.Layer || "unknown").toLowerCase();
+          normalizedLayers[key] = {
+            count: Number(row.TotalTasks || 0),
+            avg_duration: Number(row.AvgDurationSeconds || 0),
+          };
+        }
+      } else if (rawLayers && typeof rawLayers === "object") {
+        normalizedLayers = rawLayers as MetricsData["layers"];
+      }
+
+      setMetrics({
+        runs: (raw.runs || []) as MetricsData["runs"],
+        layers: normalizedLayers,
+        slowest_entities: (raw.slowest_entities || []) as MetricsData["slowest_entities"],
+        top_errors: (raw.top_errors || []) as MetricsData["top_errors"],
+      });
     } catch {
-      // silently fail
+      // silently fail — metrics are non-critical
     }
   }, []);
 
@@ -1141,6 +1164,9 @@ export default function EngineControl() {
   // Connect SSE only when liveRunId is set. Use a ref-based guard so the
   // effect doesn't re-fire on every status poll cycle.
   const sseRunIdRef = useRef<string | null>(null);
+  const sseRetryCount = useRef(0);
+  const sseGaveUp = useRef(false);
+  const SSE_MAX_RETRIES = 5;
 
   useEffect(() => {
     // Only open SSE when we have a live run and haven't already connected for it
@@ -1153,6 +1179,11 @@ export default function EngineControl() {
     sseRunIdRef.current = liveRunId;
     const es = new EventSource(`${API}/engine/logs/stream`);
     eventSourceRef.current = es;
+
+    es.addEventListener("open", () => {
+      // Connection established — reset retry counter
+      sseRetryCount.current = 0;
+    });
 
     es.addEventListener("log", (e: MessageEvent) => {
       try {
@@ -1183,6 +1214,7 @@ export default function EngineControl() {
       } catch { /* ignore */ }
       setFabricJobs([]);
       setFabricRunElapsed(0);
+      sseRetryCount.current = 0;
       es.close();
       eventSourceRef.current = null;
       sseRunIdRef.current = null;
@@ -1193,16 +1225,40 @@ export default function EngineControl() {
         const data = JSON.parse(e.data);
         setRunError(data.error || "Unknown error");
       } catch { /* ignore */ }
+      sseRetryCount.current = 0;
       es.close();
       eventSourceRef.current = null;
       sseRunIdRef.current = null;
     });
 
     es.onerror = () => {
-      // If SSE connection fails, clean up
+      // SSE connection failed — close and attempt reconnection with backoff.
+      // The effect dep array is [liveRunId] which hasn't changed, so we must
+      // force a re-render cycle to trigger reconnection.
       es.close();
       eventSourceRef.current = null;
       sseRunIdRef.current = null;
+      sseRetryCount.current += 1;
+
+      if (sseRetryCount.current > SSE_MAX_RETRIES) {
+        // Give up — the SSE endpoint is unreachable. The status poll
+        // (every 5s) still tracks the engine, so the UI isn't blind.
+        // Set gaveUp flag so fetchStatus won't re-trigger SSE.
+        sseGaveUp.current = true;
+        console.warn(`SSE reconnect failed after ${SSE_MAX_RETRIES} attempts, giving up`);
+        return;
+      }
+
+      // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+      const delay = Math.min(2000 * Math.pow(2, sseRetryCount.current - 1), 32000);
+      setTimeout(() => {
+        if (liveRunIdRef.current && !eventSourceRef.current) {
+          // Briefly clear and re-set liveRunId to force the effect to re-fire
+          const currentId = liveRunIdRef.current;
+          setLiveRunId(null);
+          requestAnimationFrame(() => setLiveRunId(currentId));
+        }
+      }, delay);
     };
 
     return () => {
@@ -1245,6 +1301,7 @@ export default function EngineControl() {
     setRunError(null);
     setLogBuffer([]);
     setEntityResults([]);
+    sseRetryCount.current = 0;
 
     const layers = Array.from(configLayers) as ("landing" | "bronze" | "silver")[];
     const entityIds = Array.from(selectedEntityIds);
@@ -1384,8 +1441,33 @@ export default function EngineControl() {
     setExpandedRunLogsLoading(true);
     setExpandedRunLogs([]);
     try {
-      const data = await fetchJson<{ logs: LogEntry[]; count: number }>(`/engine/logs?run_id=${runId}&limit=200`);
-      setExpandedRunLogs(data.logs || []);
+      const data = await fetchJson<{ logs: TaskLog[]; count: number }>(`/engine/logs?run_id=${runId}&limit=200`);
+      // The API returns TaskLog objects (from sp_GetEngineTaskLogs) which have
+      // PascalCase fields like {TaskId, RunId, EntityId, Layer, Status, StartedAtUtc...}.
+      // Map them into LogEntry shape so LogLine can render them.
+      const mapped: LogEntry[] = (data.logs || []).map((task) => {
+        const entityLabel = task.SourceName
+          ? `${task.SourceSchema || "dbo"}.${task.SourceName}`
+          : `Entity ${task.EntityId}`;
+        const statusLower = (task.Status || "").toLowerCase();
+        const level = statusLower === "failed" ? "ERROR" : statusLower === "succeeded" ? "INFO" : "WARN";
+        const parts = [`[${(task.Layer || "?").toUpperCase()}] ${entityLabel}: ${task.Status || "unknown"}`];
+        if (task.RowsRead != null && task.RowsRead > 0) parts.push(`${task.RowsRead.toLocaleString()} rows`);
+        if (task.DurationSeconds != null) parts.push(`${task.DurationSeconds.toFixed(1)}s`);
+        if (statusLower === "failed" && task.ErrorMessage) parts.push(`- ${task.ErrorMessage.slice(0, 100)}`);
+        return {
+          timestamp: task.StartedAtUtc || task.CompletedAtUtc || "",
+          level,
+          message: parts.join(" "),
+          run_id: task.RunId,
+          entity_id: task.EntityId,
+          layer: task.Layer,
+          status: task.Status,
+          rows_read: task.RowsRead ?? undefined,
+          duration_seconds: task.DurationSeconds ?? undefined,
+        };
+      });
+      setExpandedRunLogs(mapped);
     } catch {
       setExpandedRunLogs([]);
     } finally {
@@ -2271,7 +2353,7 @@ export default function EngineControl() {
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Skipped</p>
                   </div>
                   <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-center">
-                    <p className="text-2xl font-bold text-blue-400 tabular-nums">{runSummary.total_rows.toLocaleString()}</p>
+                    <p className="text-2xl font-bold text-blue-400 tabular-nums">{fmtNum(runSummary.total_rows)}</p>
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Rows</p>
                   </div>
                 </div>
@@ -2347,7 +2429,7 @@ export default function EngineControl() {
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Duration</p>
                     </div>
                     <div className="p-2 rounded bg-blue-500/5 border border-blue-500/20 text-center">
-                      <p className="text-lg font-bold text-blue-400 tabular-nums">{totalRows.toLocaleString()}</p>
+                      <p className="text-lg font-bold text-blue-400 tabular-nums">{fmtNum(totalRows)}</p>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Rows</p>
                     </div>
                   </div>

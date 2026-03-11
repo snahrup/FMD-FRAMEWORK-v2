@@ -304,7 +304,7 @@ tasks:
       ```
 
       ## CRITICAL: Read these files first for context
-      - Memory: `C:\Users\sasnahrup\.claude\projects\c--Users-snahrup-CascadeProjects-FMD-FRAMEWORK\memory\MEMORY.md`
+      - Memory: `C:\Users\snahrup\.claude\projects\C--Users-snahrup-CascadeProjects-FMD-FRAMEWORK\memory\MEMORY.md`
       - Memory: load-optimization-engine.md, dashboard-debugging.md in same dir
       - Config: `dashboard/app/api/config.json` — reuse this exact config structure
       - Config: `config/item_config.yaml` — workspace/lakehouse IDs

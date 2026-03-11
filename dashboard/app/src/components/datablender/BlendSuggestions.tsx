@@ -2,7 +2,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Link2, ArrowRight } from 'lucide-react';
-import { mockBlendSuggestions, layerConfig } from '@/data/blenderMockData';
+import { layerConfig } from '@/data/blenderMockData';
 import type { BlendSuggestion } from '@/types/blender';
 
 interface BlendSuggestionsProps {

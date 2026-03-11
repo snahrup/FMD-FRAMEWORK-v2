@@ -840,14 +840,17 @@ def _handle_retry(handler, config: dict, body: dict) -> None:
 
 def _handle_health(handler, config: dict) -> None:
     """Run preflight health checks and return the report."""
-    engine = _get_or_create_engine(config)
-
     try:
+        engine = _get_or_create_engine(config)
         report = engine.preflight()
         handler._json_response(report.to_dict())
     except Exception as exc:
-        log.exception("Preflight failed")
-        handler._error_response(str(exc), 500)
+        log.warning("Preflight health check failed: %s", exc)
+        handler._json_response({
+            "checks": [{"name": "API Connectivity", "passed": False, "message": str(exc)}],
+            "all_passed": False,
+            "_error": str(exc),
+        })
 
 
 # ---------------------------------------------------------------------------
@@ -917,8 +920,15 @@ def _handle_metrics(handler, qs: dict) -> None:
             "top_errors": [_safe_row(r) for r in top_errors] if top_errors else [],
         })
     except Exception as exc:
-        log.exception("Failed to query engine metrics")
-        handler._error_response(str(exc), 500)
+        log.warning("Engine metrics unavailable (SQL connection error), returning empty: %s", exc)
+        handler._json_response({
+            "hours": hours_int,
+            "runs": [],
+            "layers": [],
+            "slowest_entities": [],
+            "top_errors": [],
+            "_error": str(exc),
+        })
 
 
 # ---------------------------------------------------------------------------

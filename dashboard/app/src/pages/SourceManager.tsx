@@ -126,7 +126,12 @@ interface AnalysisResult {
   }>;
 }
 
-/** Map a DigestEntity to the legacy RegisteredEntity shape used throughout this page. */
+/** Map a DigestEntity to the legacy RegisteredEntity shape used throughout this page.
+ *
+ * DataSourceName uses the digest's `dataSourceName` (original DB name) so it matches
+ * the onboarding step 2 referenceId (selectedGateway.database). The `source` field
+ * (ds.Namespace) is kept as FilePath for display grouping.
+ */
 function digestToRegistered(d: DigestEntity): RegisteredEntity {
   return {
     LandingzoneEntityId: String(d.id),
@@ -137,7 +142,7 @@ function digestToRegistered(d: DigestEntity): RegisteredEntity {
     FileType: 'parquet',
     IsIncremental: d.isIncremental ? 'True' : 'False',
     IsActive: d.isActive ? 'True' : 'False',
-    DataSourceName: d.source,
+    DataSourceName: d.dataSourceName || d.source,
   };
 }
 

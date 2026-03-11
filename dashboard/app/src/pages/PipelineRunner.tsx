@@ -49,7 +49,11 @@ interface RunnerState {
   layer?: string;
   selectedSources?: number[];
   kept?: { lz: number; bronze: number; silver: number };
-  deactivated?: { lz: number; bronze: number; silver: number };
+  deactivated?: {
+    lz: number | number[];
+    bronze: number | number[];
+    silver: number | number[];
+  };
   affected?: { lz: number; bronze: number; silver: number };
   pipelineTriggered?: string;
   jobInstanceId?: string;
@@ -370,10 +374,16 @@ export default function PipelineRunner() {
   }, []);
 
   const toggleSource = (dsId: number) => {
-    setSelectedSources(prev => {
+    setSelectedSources((prev) => {
       const next = new Set(prev);
       if (next.has(dsId)) next.delete(dsId);
       else next.add(dsId);
+      // Reset entity-level state when source selection changes
+      setEntityMode("all");
+      setEntities([]);
+      setSelectedEntityIds(new Set());
+      setEntitySearch("");
+      setExpandedSource(null);
       return next;
     });
   };
@@ -410,7 +420,15 @@ export default function PipelineRunner() {
 
   // Computed values for review
   const selectedSourcesList = sources.filter(s => selectedSources.has(s.dataSourceId));
-  const totalEntitiesInScope = selectedSourcesList.reduce((sum, s) => sum + s.entities.landing.active, 0);
+  const totalEntitiesInScope = selectedSourcesList.reduce((sum, s) => {
+    const layerKey =
+      selectedLayer === "full" ? "landing" : selectedLayer;
+    return (
+      sum +
+      (s.entities[layerKey as keyof typeof s.entities]?.active ??
+        s.entities.landing.active)
+    );
+  }, 0);
   const pipelineName = layerConfig[selectedLayer].pipeline;
 
   // Execute the scoped run
@@ -719,7 +737,7 @@ export default function PipelineRunner() {
                       <span className="text-sm font-semibold tabular-nums">
                         {entityMode === 'custom' && selectedSources.size === 1
                           ? `${selectedEntityIds.size} entities`
-                          : `${s.entities.landing.active} entities`
+                          : `${s.entities[selectedLayer === "full" ? "landing" : selectedLayer]?.active ?? s.entities.landing.active} entities`
                         }
                       </span>
                     </div>

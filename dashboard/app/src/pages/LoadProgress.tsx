@@ -77,7 +77,7 @@ interface LoadData {
 // ── Helpers ──
 
 function formatDuration(seconds: number | null): string {
-  if (!seconds) return "--";
+  if (seconds == null) return "--";
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   const h = Math.floor(seconds / 3600);
@@ -143,6 +143,7 @@ function normalizeData(raw: LoadData): LoadData {
     loadedEntities: raw.loadedEntities.map((e) => ({
       ...e,
       EntityId: num(e.EntityId),
+      RowsCopied: e.RowsCopied != null ? num(e.RowsCopied) : null,
       IsIncremental: bool(e.IsIncremental),
       Status: e.Status || (e.LoadedAt ? "Loaded" : "Pending"),
     })),
@@ -167,6 +168,7 @@ export default function LoadProgress() {
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const prevLoadedCount = useRef(0);
   const [recentlyLoaded, setRecentlyLoaded] = useState<Set<number>>(new Set());
+  const dataRef = useRef<LoadData | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -177,7 +179,7 @@ export default function LoadProgress() {
       const d = normalizeData(raw);
 
       // Track newly loaded entities for animation
-      if (data && d.overall.LoadedEntities > prevLoadedCount.current) {
+      if (dataRef.current && d.overall.LoadedEntities > prevLoadedCount.current) {
         const newIds = new Set(
           d.loadedEntities
             .slice(0, d.overall.LoadedEntities - prevLoadedCount.current)
@@ -188,6 +190,7 @@ export default function LoadProgress() {
       }
       prevLoadedCount.current = d.overall.LoadedEntities;
 
+      dataRef.current = d;
       setData(d);
       setError(null);
       setLastRefresh(new Date());
@@ -196,7 +199,7 @@ export default function LoadProgress() {
     } finally {
       setLoading(false);
     }
-  }, [data]);
+  }, []);
 
   useEffect(() => {
     fetchData();

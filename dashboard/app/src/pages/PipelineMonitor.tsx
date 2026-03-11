@@ -1100,7 +1100,7 @@ function ExecutionLogModal({
                     <div
                       key={activity.activityRunId || idx}
                       className={cn(
-                        "flex flex-col gap-0 rounded-lg border transition-all overflow-hidden",
+                        "relative flex flex-col gap-0 rounded-lg border transition-all overflow-hidden",
                         isActive
                           ? "bg-blue-50/50 dark:bg-blue-950/20 border-blue-300 dark:border-blue-700"
                           : isFailed
@@ -1702,8 +1702,8 @@ export default function PipelineMonitor() {
               )}
               {action.label}
               {isRunning && (
-                <span className="flex h-2 w-2 ml-1">
-                  <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-blue-400 opacity-75" />
+                <span className="relative flex h-2 w-2 ml-1">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
                 </span>
               )}
@@ -1828,7 +1828,11 @@ export default function PipelineMonitor() {
                     };
 
                     const duration = job.startTimeUtc
-                      ? (job.endTimeUtc ? formatDuration(job.startTimeUtc, job.endTimeUtc) : '—')
+                      ? (job.endTimeUtc
+                        ? formatDuration(job.startTimeUtc, job.endTimeUtc)
+                        : isActive
+                          ? formatDuration(job.startTimeUtc, undefined)
+                          : '—')
                       : '—';
 
                     const key = job.id || `${job.pipelineName}-${idx}`;

@@ -96,27 +96,42 @@ function humanDuration(seconds: number | null | undefined): string {
   return `${Math.floor(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`;
 }
 
-type LayerStatus = "loaded" | "pending" | "not_started";
+// The entity_status.Status column may contain values beyond the canonical
+// "loaded"/"pending"/"not_started" — e.g., "Succeeded", "complete", "Failed",
+// "error", "InProgress". We bucket them for display.
+const SUCCESS_STATUSES = new Set(["loaded", "complete", "succeeded"]);
+const PENDING_STATUSES = new Set(["pending", "inprogress", "running"]);
+const NEVER_RUN_STATUSES = new Set(["not_started", ""]);
+
+type LayerStatus = string; // Broadened from union — raw DB values may vary
 
 function layerStatusLabel(s: LayerStatus): string {
-  if (s === "loaded") return "Succeeded";
-  if (s === "pending") return "Pending";
-  return "Never Run";
+  const lower = s.toLowerCase();
+  if (SUCCESS_STATUSES.has(lower)) return "Succeeded";
+  if (PENDING_STATUSES.has(lower)) return "Pending";
+  if (NEVER_RUN_STATUSES.has(lower)) return "Never Run";
+  // "failed", "error", or unknown
+  if (lower === "failed" || lower === "error") return "Failed";
+  return s || "Never Run";
 }
 
 function layerStatusCls(s: LayerStatus): string {
-  if (s === "loaded") return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-  if (s === "pending") return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+  const lower = s.toLowerCase();
+  if (SUCCESS_STATUSES.has(lower)) return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+  if (PENDING_STATUSES.has(lower)) return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+  if (lower === "failed" || lower === "error") return "bg-red-500/10 text-red-400 border-red-500/20";
   return "bg-zinc-500/10 text-zinc-500 border-zinc-500/20";
 }
 
 function layerStatusIcon(s: LayerStatus) {
-  if (s === "loaded") return <CheckCircle2 className="w-3 h-3" />;
-  if (s === "pending") return <Clock className="w-3 h-3" />;
+  const lower = s.toLowerCase();
+  if (SUCCESS_STATUSES.has(lower)) return <CheckCircle2 className="w-3 h-3" />;
+  if (PENDING_STATUSES.has(lower)) return <Clock className="w-3 h-3" />;
+  if (lower === "failed" || lower === "error") return <XCircle className="w-3 h-3 text-red-400" />;
   return <XCircle className="w-3 h-3 opacity-40" />;
 }
 
-function overallStatusCls(overall: DigestEntity["overall"]): string {
+function overallStatusCls(overall: string): string {
   if (overall === "complete") return "text-emerald-400";
   if (overall === "error") return "text-red-400";
   if (overall === "partial") return "text-amber-400";

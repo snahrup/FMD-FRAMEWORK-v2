@@ -5,11 +5,18 @@ import {
 } from 'lucide-react';
 import type { QueryResult } from '@/types/blender';
 
-interface SqlWorkbenchProps {
-  tableId: string | null;
+interface TableMeta {
+  name: string;
+  lakehouse: string;
+  schema: string;
 }
 
-export function SqlWorkbench({ tableId }: SqlWorkbenchProps) {
+interface SqlWorkbenchProps {
+  tableId: string | null;
+  tableMeta?: TableMeta | null;
+}
+
+export function SqlWorkbench({ tableId, tableMeta }: SqlWorkbenchProps) {
   const [sql, setSql] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -21,7 +28,7 @@ export function SqlWorkbench({ tableId }: SqlWorkbenchProps) {
     if (tableId) {
       if (tableId.startsWith('lh-')) {
         // Parse lakehouse discovery format: lh-{lakehouse}-{schema}-{table}
-        const rest = tableId.replace('lh-', '');
+        const rest = tableId.slice(3);
         const lastDash = rest.lastIndexOf('-');
         const secondLastDash = rest.lastIndexOf('-', lastDash - 1);
         const tableName = rest.substring(lastDash + 1);
@@ -29,13 +36,16 @@ export function SqlWorkbench({ tableId }: SqlWorkbenchProps) {
         const lh = rest.substring(0, secondLastDash);
         setLakehouse(lh);
         setSql(`SELECT TOP 100 *\nFROM [${schema}].[${tableName}]\nORDER BY 1 DESC`);
+      } else if (tableMeta) {
+        setLakehouse(tableMeta.lakehouse);
+        setSql(`SELECT TOP 100 *\nFROM [${tableMeta.schema}].[${tableMeta.name}]\nORDER BY 1 DESC`);
       } else {
-        // Generic fallback — user can type their own query
+        setLakehouse('');
         setSql('SELECT TOP 100 * FROM ...');
       }
       setResult(null);
     }
-  }, [tableId]);
+  }, [tableId, tableMeta]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(sql);
@@ -73,7 +83,7 @@ export function SqlWorkbench({ tableId }: SqlWorkbenchProps) {
           <span className="font-mono text-primary">SQL</span>
           <span className="text-muted-foreground">Workbench</span>
           {lakehouse && (
-            <span className="text-[10px] text-muted-foreground/60 font-mono">→ {lakehouse}</span>
+            <span className="text-[10px] text-muted-foreground/60 font-mono">&rarr; {lakehouse}</span>
           )}
         </div>
         {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}

@@ -39,8 +39,8 @@ interface PipelineRun {
 
 interface SourceSystem {
   namespace: string;
-  connections: Array<{ name: string; type: string; isActive: string }>;
-  dataSources: Array<{ name: string; type: string; isActive: string; connectionName: string }>;
+  connections: Array<{ name: string; type: string; isActive: string | number | boolean }>;
+  dataSources: Array<{ name: string; type: string; isActive: string | number | boolean; connectionName: string }>;
   entities: { landing: number; bronze: number; silver: number };
   activeEntities: { landing: number; bronze: number; silver: number };
 }
@@ -122,6 +122,13 @@ const statusBadge = (status: string) => {
   return <span className={`text-[11px] px-2 py-0.5 rounded border font-mono ${cls}`}>{status}</span>;
 };
 
+/** Check IsActive across both SQLite (integer 0/1) and Fabric SQL (string 'True'/'1') */
+function checkActive(val: unknown): boolean {
+  if (val === true || val === 1) return true;
+  const s = String(val).toLowerCase();
+  return s === 'true' || s === '1';
+}
+
 const HEALTH_CONFIG = {
   healthy: { label: 'All Systems Operational', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', pulse: 'bg-emerald-500' },
   warning: { label: 'Degraded — Recent Failures', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20', pulse: 'bg-amber-500' },
@@ -164,6 +171,7 @@ export default function ControlPlane() {
   const [expandedNs, setExpandedNs] = useState<Set<string>>(new Set());
   const [maintenanceRunning, setMaintenanceRunning] = useState(false);
   const [maintenanceResult, setMaintenanceResult] = useState<string | null>(null);
+  const [entityError, setEntityError] = useState<string | null>(null);
 
   const visibleRef = useRef(true);
   useEffect(() => {
@@ -191,6 +199,9 @@ export default function ControlPlane() {
         if (entRes.ok) {
           const entData = await entRes.json();
           setEntities(Array.isArray(entData) ? entData : []);
+          setEntityError(null);
+        } else {
+          setEntityError('Entity metadata unavailable (Fabric SQL unreachable)');
         }
         setError(null);
       } catch (e: unknown) {
@@ -400,11 +411,18 @@ export default function ControlPlane() {
         const dataSources = [...new Set(entities.map(e => e.dataSource))].sort();
         const filtered = entities.filter(e => {
           if (dsFilter && e.dataSource !== dsFilter) return false;
-          if (q && !e.table.toLowerCase().includes(q) && !e.FileName.toLowerCase().includes(q) && !e.schema.toLowerCase().includes(q)) return false;
+          if (q && !(e.table || '').toLowerCase().includes(q) && !(e.FileName || '').toLowerCase().includes(q) && !(e.schema || '').toLowerCase().includes(q)) return false;
           return true;
         });
         return (
           <div className="rounded-xl border border-border bg-card overflow-hidden">
+            {/* Entity load error banner */}
+            {entityError && entities.length === 0 && (
+              <div className="px-4 py-3 border-b border-amber-500/20 bg-amber-500/5 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                <p className="text-xs text-amber-300">{entityError}</p>
+              </div>
+            )}
             {/* Filters */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted">
               <input
@@ -556,8 +574,8 @@ export default function ControlPlane() {
           {activeSources.map(src => {
             const isExpanded = expandedNs.has(src.namespace);
             const totalEntities = src.entities.landing + src.entities.bronze + src.entities.silver;
-            const allActive = src.connections.every(c => String(c.isActive).toLowerCase() === 'true' || c.isActive === '1') &&
-                              src.dataSources.every(d => String(d.isActive).toLowerCase() === 'true' || d.isActive === '1');
+            const allActive = src.connections.every(c => checkActive(c.isActive)) &&
+                              src.dataSources.every(d => checkActive(d.isActive));
             return (
               <div key={src.namespace} className="rounded-xl border border-border bg-card overflow-hidden">
                 {/* Namespace header */}
@@ -588,7 +606,7 @@ export default function ControlPlane() {
                         <div className="space-y-1">
                           {src.connections.map(c => (
                             <div key={c.name} className="flex items-center gap-2 text-xs">
-                              <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${String(c.isActive).toLowerCase() === 'true' || c.isActive === '1' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                              <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${checkActive(c.isActive) ? 'bg-emerald-500' : 'bg-red-500'}`} />
                               <span className="font-mono text-foreground">{c.name}</span>
                               <span className="text-muted-foreground/60">{c.type}</span>
                             </div>
@@ -686,14 +704,12 @@ export default function ControlPlane() {
                 <span className="text-xs text-muted-foreground">Active</span>
                 <span className="text-lg font-bold text-emerald-400">{s.pipelines.active}</span>
               </div>
-              <div className="flex items-center justify-between pt-2 border-t border-border mt-2">
-                <span className="text-xs text-muted-foreground">DEV (IDs 1-22)</span>
-                <span className="text-xs font-mono text-foreground">22</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">PROD (IDs 23-44)</span>
-                <span className="text-xs font-mono text-foreground">22</span>
-              </div>
+              {s.pipelines.total > 0 && (
+                <div className="flex items-center justify-between pt-2 border-t border-border mt-2">
+                  <span className="text-xs text-muted-foreground">DEV + PROD split</span>
+                  <span className="text-xs font-mono text-foreground">{Math.ceil(s.pipelines.total / 2)} each</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -33,9 +33,9 @@ type LogTab = 'pipelines' | 'copies' | 'notebooks';
 
 function normalizeLogType(logType: string | null): string {
   const lt = (logType || '').toLowerCase();
-  if (lt === 'succeeded' || lt === 'endpipeline' || lt === 'endcopyactivity' || lt === 'endnotebookexecution') return 'Succeeded';
-  if (lt === 'failed') return 'Failed';
-  if (lt === 'inprogress' || lt === 'startpipeline' || lt === 'startcopyactivity' || lt === 'startnotebookexecution' || lt === 'running') return 'InProgress';
+  if (lt === 'succeeded' || lt === 'endpipeline' || lt === 'endcopyactivity' || lt === 'endnotebookexecution' || lt === 'endnotebook') return 'Succeeded';
+  if (lt === 'failed' || lt === 'failpipeline' || lt === 'pipelineerror' || lt === 'error') return 'Failed';
+  if (lt === 'inprogress' || lt === 'startpipeline' || lt === 'startcopyactivity' || lt === 'startnotebookexecution' || lt === 'startnotebook' || lt === 'running') return 'InProgress';
   if (lt === 'cancelled' || lt === 'canceled') return 'Cancelled';
   if (lt === 'queued') return 'Queued';
   return logType || 'Unknown';
@@ -55,11 +55,37 @@ function normalizeRun(run: PipelineRun): PipelineRun {
   if (!out.StartTime && out.TriggerTime) {
     out.StartTime = out.TriggerTime;
   }
+  // Map StartedAt -> StartTime (engine_runs table uses StartedAt)
+  if (!out.StartTime && out.StartedAt) {
+    out.StartTime = out.StartedAt;
+  }
+  // Map EndedAt -> EndTime (engine_runs table uses EndedAt)
+  if (!out.EndTime && out.EndedAt) {
+    out.EndTime = out.EndedAt;
+  }
+  // Map ErrorSummary -> ErrorMessage (engine_runs table uses ErrorSummary)
+  if (!out.ErrorMessage && out.ErrorSummary) {
+    out.ErrorMessage = out.ErrorSummary;
+  }
   // Unify Name field
   if (!out.Name) {
     out.Name = out.PipelineName || out.CopyActivityName || out.NotebookName || null;
   }
   return out;
+}
+
+/** Stable row key: prefer GUID-based IDs, fall back to PipelineRunGuid + LogType, then index */
+function rowKey(run: PipelineRun, index: number): string {
+  // Fabric SQL tables may have auto-increment PipelineExecutionId / CopyActivityExecutionId / NotebookExecutionId
+  if (run.PipelineExecutionId) return run.PipelineExecutionId;
+  if (run.CopyActivityExecutionId) return run.CopyActivityExecutionId;
+  if (run.NotebookExecutionId) return run.NotebookExecutionId;
+  // SQLite pipeline_audit / copy_activity_audit use PipelineRunGuid (not unique per row)
+  // Combine with LogType + LogDateTime for uniqueness
+  if (run.PipelineRunGuid) return `${run.PipelineRunGuid}-${run.LogType || ''}-${run.LogDateTime || index}`;
+  // engine_runs table uses RunId
+  if (run.RunId) return run.RunId;
+  return String(index);
 }
 
 // ── Helpers ──
@@ -157,9 +183,18 @@ export default function ExecutionLog() {
         fetch('/api/notebook-executions'),
       ]);
       if (!plRes.ok && !cpRes.ok && !nbRes.ok) throw new Error('API server not responding');
-      const pl: PipelineRun[] = plRes.ok ? await plRes.json() : [];
-      const cp: PipelineRun[] = cpRes.ok ? await cpRes.json() : [];
-      const nb: PipelineRun[] = nbRes.ok ? await nbRes.json() : [];
+      const safeParse = async (res: Response): Promise<PipelineRun[]> => {
+        if (!res.ok) return [];
+        try {
+          const data = await res.json();
+          return Array.isArray(data) ? data : [];
+        } catch {
+          return [];
+        }
+      };
+      const pl = await safeParse(plRes);
+      const cp = await safeParse(cpRes);
+      const nb = await safeParse(nbRes);
       setPipelineRuns(pl.map(normalizeRun));
       setCopyRuns(cp.map(normalizeRun));
       setNotebookRuns(nb.map(normalizeRun));
@@ -193,10 +228,16 @@ export default function ExecutionLog() {
       );
     }
 
-    // Sort by first column (usually ID = chronological)
-    if (sortDir === 'asc') {
-      filtered = [...filtered].reverse();
-    }
+    // Sort by StartTime (normalized from LogDateTime/TriggerTime/StartedAt)
+    filtered = [...filtered].sort((a, b) => {
+      const aTime = a.StartTime || a.LogDateTime || '';
+      const bTime = b.StartTime || b.LogDateTime || '';
+      if (!aTime && !bTime) return 0;
+      if (!aTime) return 1;
+      if (!bTime) return -1;
+      const cmp = aTime < bTime ? -1 : aTime > bTime ? 1 : 0;
+      return sortDir === 'desc' ? -cmp : cmp;
+    });
 
     return filtered;
   }, [activeTab, pipelineRuns, copyRuns, notebookRuns, statusFilter, searchTerm, sortDir]);
@@ -359,6 +400,7 @@ export default function ExecutionLog() {
             <option value="succeeded">Succeeded</option>
             <option value="failed">Failed</option>
             <option value="inprogress">Running</option>
+            <option value="queued">Queued</option>
             <option value="cancelled">Cancelled</option>
           </select>
         </div>
@@ -387,7 +429,7 @@ export default function ExecutionLog() {
         /* ━━━ BUSINESS VIEW ━━━ */
         <div className="space-y-3">
           {currentData.map((run, i) => {
-            const key = run.PipelineExecutionId || run.CopyActivityExecutionId || run.NotebookExecutionId || String(i);
+            const key = rowKey(run, i);
             const statusInfo = getStatusInfo(run.Status);
             const StatusIcon = statusInfo.Icon;
             const isExpanded = expandedRow === key;
@@ -451,7 +493,7 @@ export default function ExecutionLog() {
               </thead>
               <tbody>
                 {currentData.map((run, i) => {
-                  const key = run.PipelineExecutionId || run.CopyActivityExecutionId || run.NotebookExecutionId || String(i);
+                  const key = rowKey(run, i);
                   const statusInfo = getStatusInfo(run.Status);
                   const StatusIcon = statusInfo.Icon;
                   const isRunning = (run.Status || '').toLowerCase() === 'inprogress' || (run.Status || '').toLowerCase() === 'running';

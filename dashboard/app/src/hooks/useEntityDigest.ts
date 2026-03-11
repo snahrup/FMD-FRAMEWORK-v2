@@ -41,15 +41,20 @@ export interface DigestEntity {
   bronzeId: number | null;
   bronzePKs: string;
   silverId: number | null;
-  lzStatus: "loaded" | "pending" | "not_started";
+  // Status values are canonically "loaded"/"pending"/"not_started" but the
+  // entity_status table may contain other values from pipeline notebooks like
+  // "Succeeded", "complete", "Failed", "error", "InProgress", etc.
+  lzStatus: string;
   lzLastLoad: string;
-  bronzeStatus: "loaded" | "pending" | "not_started";
+  bronzeStatus: string;
   bronzeLastLoad: string;
-  silverStatus: "loaded" | "pending" | "not_started";
+  silverStatus: string;
   silverLastLoad: string;
   lastError: EntityError | null;
   diagnosis: string;
-  overall: "complete" | "error" | "pending" | "partial" | "not_started";
+  // Computed by the backend: "complete" | "error" | "pending" | "partial" | "not_started"
+  // Broadened to string for safety against unexpected backend values.
+  overall: string;
   connection: EntityConnection | null;
 }
 
@@ -99,6 +104,80 @@ function cacheKey(filters: DigestFilters): string {
   return `${filters.source || ""}|${filters.layer || ""}|${filters.status || ""}`;
 }
 
+/**
+ * Normalize the raw API response into the canonical DigestResponse shape.
+ *
+ * The backend has two code paths:
+ *   1. SQLite (_sqlite_entity_digest) — returns `sources` as an array of objects
+ *      with `statusCounts` (not `summary`), and missing `key` field.
+ *   2. Fabric SQL (build_entity_digest) — returns `sources` as a dict keyed by
+ *      source name, with `summary` and `key` fields.
+ *
+ * This function normalizes both into `Record<string, DigestSource>`.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeDigestResponse(raw: any): DigestResponse {
+  let sourcesDict: Record<string, DigestSource> = {};
+
+  const rawSources = raw.sources;
+
+  if (Array.isArray(rawSources)) {
+    // SQLite path: sources is an array
+    for (const src of rawSources) {
+      const key = src.key || src.name || "UNKNOWN";
+      // SQLite uses `statusCounts`, Fabric SQL uses `summary`
+      const counts = src.summary || src.statusCounts || {};
+      const summary: DigestSourceSummary = {
+        total: (counts.total ?? 0) || (src.entities?.length ?? 0),
+        complete: counts.complete ?? 0,
+        pending: counts.pending ?? 0,
+        error: counts.error ?? 0,
+        partial: counts.partial ?? 0,
+        not_started: counts.not_started ?? 0,
+      };
+      sourcesDict[key] = {
+        key,
+        name: src.displayName || src.name || key,
+        connection: src.connection ?? null,
+        entities: src.entities ?? [],
+        summary,
+      };
+    }
+  } else if (rawSources && typeof rawSources === "object") {
+    // Fabric SQL path: sources is a dict
+    for (const [key, src] of Object.entries(rawSources)) {
+      const s = src as DigestSource;
+      // Ensure summary exists (guard against statusCounts variant)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const counts = s.summary || (s as any).statusCounts || {};
+      const summary: DigestSourceSummary = {
+        total: (counts.total ?? 0) || (s.entities?.length ?? 0),
+        complete: counts.complete ?? 0,
+        pending: counts.pending ?? 0,
+        error: counts.error ?? 0,
+        partial: counts.partial ?? 0,
+        not_started: counts.not_started ?? 0,
+      };
+      sourcesDict[key] = {
+        key: s.key || key,
+        name: s.name || key,
+        connection: s.connection ?? null,
+        entities: s.entities ?? [],
+        summary,
+      };
+    }
+  }
+
+  return {
+    generatedAt: raw.generatedAt || new Date().toISOString(),
+    buildTimeMs: raw.buildTimeMs ?? 0,
+    totalEntities: raw.totalEntities ?? Object.values(sourcesDict).reduce(
+      (sum, s) => sum + s.entities.length, 0
+    ),
+    sources: sourcesDict,
+  };
+}
+
 async function fetchDigest(filters: DigestFilters): Promise<DigestResponse> {
   const params = new URLSearchParams();
   if (filters.source) params.set("source", filters.source);
@@ -119,7 +198,8 @@ async function fetchDigest(filters: DigestFilters): Promise<DigestResponse> {
     try {
       const resp = await fetch(`${API}/api/entity-digest?${params}`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data: DigestResponse = await resp.json();
+      const raw = await resp.json();
+      const data = normalizeDigestResponse(raw);
       _cache = { data, fetchedAt: Date.now(), key };
       return data;
     } finally {
@@ -143,13 +223,17 @@ export function useEntityDigest(filters: DigestFilters = {}) {
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
 
+  const hasLoadedOnce = useRef(false);
+
   const load = useCallback(async () => {
-    setLoading(true);
+    // Only show loading spinner on initial load — refreshes update data silently
+    if (!hasLoadedOnce.current) setLoading(true);
     setError(null);
     try {
       const digest = await fetchDigest(filters);
       if (mountedRef.current) {
         setData(digest);
+        hasLoadedOnce.current = true;
       }
     } catch (e: unknown) {
       if (mountedRef.current) {

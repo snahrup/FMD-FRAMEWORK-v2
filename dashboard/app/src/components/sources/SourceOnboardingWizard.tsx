@@ -147,7 +147,7 @@ export function SourceOnboardingWizard({
   const [bulkRegistering, setBulkRegistering] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   const [showConfirmation, setShowConfirmation] = useState(false);
-  const [sourceCredentials, setSourceCredentials] = useState({ username: 'UsrSQLRead', password: 'Ku7T@hoqFDmDPqG4deMgrrxQ9' });
+  const [sourceCredentials, setSourceCredentials] = useState({ username: '', password: '' });
   const [filePath, setFilePath] = useState('');
 
   // Pipeline trigger state (legacy — kept for backward compat)
@@ -163,6 +163,7 @@ export function SourceOnboardingWizard({
   const [importComplete, setImportComplete] = useState(false);
   const [importStarting, setImportStarting] = useState(false);
   const importEventSourceRef = useRef<EventSource | null>(null);
+  const importCompleteRef = useRef(false);
 
   // Background task context — registration survives page navigation
   const bgTasks = useBackgroundTasks();
@@ -302,17 +303,24 @@ export function SourceOnboardingWizard({
 
   // ── API helpers ──
   const updateStep = async (stepNumber: number, stepStatus: string, referenceId?: string, notes?: string) => {
-    await fetch('/api/onboarding/step', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sourceName: selectedSource,
-        stepNumber,
-        status: stepStatus,
-        referenceId: referenceId || null,
-        notes: notes || null,
-      }),
-    });
+    try {
+      const res = await fetch('/api/onboarding/step', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceName: selectedSource,
+          stepNumber,
+          status: stepStatus,
+          referenceId: referenceId || null,
+          notes: notes || null,
+        }),
+      });
+      if (!res.ok) {
+        console.warn(`updateStep(${stepNumber}, ${stepStatus}) failed: HTTP ${res.status}`);
+      }
+    } catch (e) {
+      console.warn(`updateStep(${stepNumber}, ${stepStatus}) network error:`, e);
+    }
   };
 
   const createNewSource = async () => {
@@ -581,30 +589,60 @@ export function SourceOnboardingWizard({
 
   // ── Orchestrated Import: start full pipeline with SSE progress ──
   const startImport = async () => {
+    // Close any previous SSE connection (e.g. from a retry)
+    if (importEventSourceRef.current) {
+      importEventSourceRef.current.close();
+      importEventSourceRef.current = null;
+    }
+
     setImportStarting(true);
     setImportError(null);
     setImportComplete(false);
+    importCompleteRef.current = false;
     setImportProgress(0);
     setImportPhase('');
     setImportLabel('Starting...');
 
     try {
-      // Get datasource info from steps
+      // Get datasource info — look up the actual numeric DataSourceId
+      // Step 2 referenceId stores the database name, not a numeric ID.
+      // We need to resolve it to the DataSourceId from the registered datasources.
       const dsStep = steps.find(s => s.stepNumber === 2);
-      const dsId = dsStep?.referenceId || '';
+      const dsDbName = dsStep?.referenceId || '';
       const dsName = selectedSource || 'Unknown';
 
-      // Collect registered tables as import payload
-      const tables = registeredEntities.map(e => ({
-        schema: e.SourceSchema,
-        table: e.SourceName,
-      }));
+      // Resolve datasource ID: match by Name (database name stored in step 2)
+      const matchedDs = registeredDataSources.find(
+        ds => ds.Name.toLowerCase() === dsDbName.toLowerCase()
+      );
+      const dsId = matchedDs ? parseInt(matchedDs.DataSourceId, 10) : 0;
+
+      if (!dsId) {
+        throw new Error(
+          `Could not resolve datasource ID for "${dsDbName}". ` +
+          'Ensure Step 1 (Configure Source) completed successfully.'
+        );
+      }
+
+      // Collect only this source's registered tables (not ALL entities)
+      const sourceEntities = registeredEntities.filter(e => {
+        // Match by DataSourceName (from digest, this is the namespace or db name)
+        // Also try matching by the resolved datasource name
+        const eName = e.DataSourceName?.toLowerCase() || '';
+        return eName === dsDbName.toLowerCase()
+          || eName === (matchedDs?.Namespace?.toLowerCase() || '')
+          || eName === dsName.toLowerCase();
+      });
+
+      const tables = sourceEntities.length > 0
+        ? sourceEntities.map(e => ({ schema: e.SourceSchema, table: e.SourceName }))
+        : registeredEntities.map(e => ({ schema: e.SourceSchema, table: e.SourceName }));
 
       const res = await fetch('/api/sources/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          datasourceId: dsId ? parseInt(dsId) : 0,
+          datasourceId: dsId,
           datasourceName: dsName,
           tables,
           username: sourceCredentials.username,
@@ -631,10 +669,13 @@ export function SourceOnboardingWizard({
 
           if (evt.phase === 'complete') {
             setImportComplete(true);
+            importCompleteRef.current = true;
             es.close();
+            importEventSourceRef.current = null;
           } else if (evt.phase === 'failed') {
             setImportError(evt.error || 'Import failed');
             es.close();
+            importEventSourceRef.current = null;
           }
         } catch {
           // ignore parse errors on keepalive
@@ -644,14 +685,19 @@ export function SourceOnboardingWizard({
       es.onerror = () => {
         // SSE connection lost — poll for final status
         es.close();
-        if (!importComplete) {
+        importEventSourceRef.current = null;
+        // Use ref to avoid stale closure over importComplete state
+        if (!importCompleteRef.current) {
           fetch(`/api/sources/import/${jobId}`)
             .then(r => r.json())
             .then(status => {
               setImportPhase(status.phase);
               setImportLabel(status.label);
               setImportProgress(status.progress);
-              if (status.phase === 'complete') setImportComplete(true);
+              if (status.phase === 'complete') {
+                setImportComplete(true);
+                importCompleteRef.current = true;
+              }
               if (status.error) setImportError(status.error);
             })
             .catch(() => {});
@@ -666,7 +712,10 @@ export function SourceOnboardingWizard({
   // Cleanup SSE on unmount
   useEffect(() => {
     return () => {
-      importEventSourceRef.current?.close();
+      if (importEventSourceRef.current) {
+        importEventSourceRef.current.close();
+        importEventSourceRef.current = null;
+      }
     };
   }, []);
 
@@ -1576,7 +1625,7 @@ export function SourceOnboardingWizard({
                         ) : null}
 
                         <button
-                          onClick={() => { setShowNewSource(true); setSelectedSource(''); setActiveVisualStep(null); setImportJobId(null); setImportComplete(false); setImportError(null); }}
+                          onClick={() => { if (importEventSourceRef.current) { importEventSourceRef.current.close(); importEventSourceRef.current = null; } importCompleteRef.current = false; setShowNewSource(true); setSelectedSource(''); setActiveVisualStep(null); setImportJobId(null); setImportComplete(false); setImportError(null); }}
                           className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 text-xs transition-colors"
                         >
                           <Plus className="h-3.5 w-3.5" />

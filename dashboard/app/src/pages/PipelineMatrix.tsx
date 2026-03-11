@@ -21,7 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { EntityDrillDown, type DrillDownConfig } from "@/components/pipeline-matrix/EntityDrillDown";
 
-const API = "";
+const API = import.meta.env.VITE_API_URL || "";
 
 // ── Types ──
 
@@ -50,15 +50,6 @@ interface PipelineRun {
   runId: string;
 }
 
-interface RecentRun {
-  runId: string;
-  pipeline: string;
-  layer: string;
-  startTime: string;
-  endTime: string;
-  status: string;
-}
-
 interface MatrixData {
   sources: Record<string, SourceData>;
   totals: {
@@ -69,8 +60,125 @@ interface MatrixData {
     silverPending: number;
   };
   pipelines: PipelineRun[];
-  recentRuns: RecentRun[];
   serverTime: string;
+}
+
+// ── Source icon mapping by namespace key ──
+
+const SOURCE_ICON_MAP: Record<string, string> = {
+  MES: "factory",
+  ETQ: "shield-check",
+  M3C: "cloud",
+  OPTIVA: "flask-conical",
+  M3: "database",
+};
+
+// ── Build MatrixData from entity-digest + control-plane responses ──
+
+function buildMatrixData(digest: Record<string, unknown>, controlPlane: Record<string, unknown> | null): MatrixData {
+  // entity-digest returns sources as either a dict (Fabric SQL path) or a list (SQLite path)
+  const rawSources = (digest as Record<string, unknown>).sources;
+  const sourceEntries: Array<{ key: string; entities: Array<Record<string, unknown>>; summary: Record<string, number>; name?: string }> = [];
+
+  if (Array.isArray(rawSources)) {
+    // SQLite path: sources is an array of {name, displayName, entities, statusCounts}
+    for (const s of rawSources) {
+      sourceEntries.push({
+        key: (s as Record<string, unknown>).name as string || "Unknown",
+        entities: ((s as Record<string, unknown>).entities as Array<Record<string, unknown>>) || [],
+        summary: ((s as Record<string, unknown>).statusCounts as Record<string, number>) || {},
+        name: ((s as Record<string, unknown>).displayName as string) || ((s as Record<string, unknown>).name as string),
+      });
+    }
+  } else if (rawSources && typeof rawSources === "object") {
+    // Fabric SQL path: sources is Record<string, DigestSource>
+    for (const [key, val] of Object.entries(rawSources as Record<string, Record<string, unknown>>)) {
+      sourceEntries.push({
+        key,
+        entities: (val.entities as Array<Record<string, unknown>>) || [],
+        summary: (val.summary as Record<string, number>) || {},
+        name: (val.name as string) || key,
+      });
+    }
+  }
+
+  const sources: Record<string, SourceData> = {};
+  let totalLz = 0, totalBronze = 0, totalSilver = 0;
+  let totalBronzePending = 0, totalSilverPending = 0;
+
+  for (const src of sourceEntries) {
+    const entities = src.entities;
+    let lzLoaded = 0, bronzeLoaded = 0, silverLoaded = 0;
+    let lzPending = 0, bronzePending = 0, silverPending = 0;
+    const registered = entities.length;
+
+    for (const e of entities) {
+      const lzS = e.lzStatus as string || "not_started";
+      const brS = e.bronzeStatus as string || "not_started";
+      const slS = e.silverStatus as string || "not_started";
+
+      if (["loaded", "complete", "Succeeded"].includes(lzS)) lzLoaded++;
+      else if (["pending", "InProgress", "running"].includes(lzS)) lzPending++;
+
+      if (["loaded", "complete", "Succeeded"].includes(brS)) bronzeLoaded++;
+      else if (["pending", "InProgress", "running"].includes(brS)) bronzePending++;
+
+      if (["loaded", "complete", "Succeeded"].includes(slS)) silverLoaded++;
+      else if (["pending", "InProgress", "running"].includes(slS)) silverPending++;
+    }
+
+    const layerStatus = (loaded: number, pending: number, total: number): LayerData["status"] => {
+      if (total === 0) return "not_started";
+      if (loaded >= total) return "complete";
+      if (pending > 0) return "in_progress";
+      if (loaded > 0) return "partial";
+      return "not_started";
+    };
+
+    sources[src.key] = {
+      key: src.key,
+      name: src.name || src.key,
+      icon: SOURCE_ICON_MAP[src.key] || "database",
+      lz: { loaded: lzLoaded, registered, pending: lzPending, status: layerStatus(lzLoaded, lzPending, registered) },
+      bronze: { loaded: bronzeLoaded, registered, pending: bronzePending, status: layerStatus(bronzeLoaded, bronzePending, registered) },
+      silver: { loaded: silverLoaded, registered, pending: silverPending, status: layerStatus(silverLoaded, silverPending, registered) },
+    };
+
+    totalLz += lzLoaded;
+    totalBronze += bronzeLoaded;
+    totalSilver += silverLoaded;
+    totalBronzePending += bronzePending;
+    totalSilverPending += silverPending;
+  }
+
+  // Extract pipeline runs from control-plane response
+  const pipelines: PipelineRun[] = [];
+  if (controlPlane) {
+    const recentRuns = (controlPlane.recentRuns as Array<Record<string, string>>) || [];
+    for (const run of recentRuns) {
+      pipelines.push({
+        name: run.PipelineName || "",
+        itemName: run.PipelineName || "",
+        status: run.Status || "Unknown",
+        startTime: run.StartTime || "",
+        endTime: run.EndTime || "",
+        runId: run.RunGuid || "",
+      });
+    }
+  }
+
+  return {
+    sources,
+    totals: {
+      lz: totalLz,
+      bronze: totalBronze,
+      silver: totalSilver,
+      bronzePending: totalBronzePending,
+      silverPending: totalSilverPending,
+    },
+    pipelines,
+    serverTime: (digest as Record<string, string>).generatedAt || new Date().toISOString(),
+  };
 }
 
 // ── Helpers ──
@@ -566,10 +674,15 @@ export default function PipelineMatrix() {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const resp = await fetch(`${API}/api/pipeline-matrix`);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = await resp.json();
-      setData(json);
+      // Fetch entity digest (primary data) and control plane (pipeline runs) in parallel
+      const [digestResp, cpResp] = await Promise.all([
+        fetch(`${API}/api/entity-digest`),
+        fetch(`${API}/api/control-plane`).catch(() => null),
+      ]);
+      if (!digestResp.ok) throw new Error(`HTTP ${digestResp.status}`);
+      const digest = await digestResp.json();
+      const controlPlane = cpResp && cpResp.ok ? await cpResp.json() : null;
+      setData(buildMatrixData(digest, controlPlane));
       setError(null);
       setLastRefresh(new Date());
     } catch (e: unknown) {

@@ -150,7 +150,7 @@ export default function RecordCounts() {
   // Lakehouse counts — starts empty, populated from API
   const [counts, setCounts] = useState<Record<string, LakehouseCount[]> | null>(null);
   const [countsMeta, setCountsMeta] = useState<CountsMeta | null>(null);
-  const [countsLoading, setCountsLoading] = useState(false);
+  const [countsLoading, setCountsLoading] = useState(true);
   const [countsError, setCountsError] = useState<string | null>(null);
 
   // UI
@@ -180,8 +180,8 @@ export default function RecordCounts() {
       setCountsMeta(meta || null);
       setIsDemo(false);
     } catch {
-      // API unavailable — show empty state (user can enable demo mode manually)
-      setCounts({});
+      // API unavailable — keep counts null so the empty-state card doesn't render
+      setCounts(null);
       setCountsMeta(null);
       setCountsError("API server not reachable");
     } finally {
@@ -211,10 +211,13 @@ export default function RecordCounts() {
       silverMap.set(`${c.schema}.${c.table}`.toLowerCase(), c.rowCount);
     }
 
-    // Build entity-to-datasource lookup from digest
+    // Build entity-to-datasource lookup from digest.
+    // Key by LAKEHOUSE schema (ent.source = datasource namespace, e.g. "mes", "etq")
+    // because lakehouse tables are written under the namespace schema, not the
+    // source DB schema (ent.sourceSchema, which is typically "dbo").
     const entityToSource = new Map<string, { dataSource: string; loadType: string }>();
     for (const ent of allEntities) {
-      entityToSource.set(`${ent.sourceSchema}.${ent.tableName}`.toLowerCase(), {
+      entityToSource.set(`${ent.source}.${ent.tableName}`.toLowerCase(), {
         dataSource: ent.source,
         loadType: ent.isIncremental ? "Incremental" : "Full",
       });

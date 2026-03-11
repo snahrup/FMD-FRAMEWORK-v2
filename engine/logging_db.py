@@ -62,8 +62,9 @@ class AuditLogger:
         audit.log_run_end(run_id, results)
     """
 
-    def __init__(self, db: MetadataDB):
+    def __init__(self, db: MetadataDB, local_db=None):
         self._db = db
+        self._local_db = local_db
 
     # ------------------------------------------------------------------
     # Run-level logging

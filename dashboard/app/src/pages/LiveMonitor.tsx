@@ -221,7 +221,7 @@ export default function LiveMonitor() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [interval, setRefreshInterval] = useState(5);
+  const [pollInterval, setRefreshInterval] = useState(5);
   const [refreshCount, setRefreshCount] = useState(0);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [timeWindow, setTimeWindow] = useState(30); // minutes — default 30m (show recent only)
@@ -262,9 +262,9 @@ export default function LiveMonitor() {
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
-    timerRef.current = setInterval(fetchData, interval * 1000);
+    timerRef.current = setInterval(fetchData, pollInterval * 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [autoRefresh, interval, fetchData]);
+  }, [autoRefresh, pollInterval, fetchData]);
 
   // ── Build pipeline runs from events ──
   const pipelineRuns: PipelineRun[] = [];
@@ -379,7 +379,7 @@ export default function LiveMonitor() {
             className={cn("gap-1.5", autoRefresh && "border-emerald-500/50 text-emerald-600 dark:text-emerald-400")}
           >
             {autoRefresh ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-            {autoRefresh ? `Auto ${interval}s` : 'Paused'}
+            {autoRefresh ? `Auto ${pollInterval}s` : 'Paused'}
           </Button>
           <Button variant="outline" size="sm" onClick={fetchData} className="gap-1.5" disabled={refreshing}>
             <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
@@ -404,7 +404,9 @@ export default function LiveMonitor() {
             <CardTitle className="text-base flex items-center gap-2">
               <Play className="h-4 w-4 text-blue-500" />
               Pipeline Runs
-              <span className="text-xs text-muted-foreground font-normal ml-1">(last 4h)</span>
+              <span className="text-xs text-muted-foreground font-normal ml-1">
+                ({timeWindow === 0 ? 'all time' : `last ${timeWindow >= 60 ? `${timeWindow / 60}h` : `${timeWindow}m`}`})
+              </span>
             </CardTitle>
             {expandedSections.pipelines ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
           </div>
@@ -412,7 +414,9 @@ export default function LiveMonitor() {
         {expandedSections.pipelines && (
           <CardContent className="pt-0">
             {pipelineRuns.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">No pipeline runs in the last 4 hours</p>
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                No pipeline runs {timeWindow === 0 ? '' : `in the last ${timeWindow >= 60 ? `${timeWindow / 60} hours` : `${timeWindow} minutes`}`}
+              </p>
             ) : (
               <div className="divide-y divide-border">
                 {pipelineRuns.map(run => (
@@ -512,7 +516,7 @@ export default function LiveMonitor() {
           <CardContent className="pt-0">
             {(!data?.notebookEvents || data.notebookEvents.length === 0) ? (
               <div className="text-sm text-muted-foreground py-6 text-center space-y-1">
-                <p>No notebook executions in the last 4 hours</p>
+                <p>No notebook executions {timeWindow === 0 ? '' : `in the last ${timeWindow >= 60 ? `${timeWindow / 60} hours` : `${timeWindow} minutes`}`}</p>
                 <p className="text-xs">This section populates when Bronze/Silver notebooks process entities</p>
               </div>
             ) : (
@@ -575,7 +579,9 @@ export default function LiveMonitor() {
         {expandedSections.copies && (
           <CardContent className="pt-0">
             {copyEnds.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">No copy activity in the last 4 hours</p>
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                No copy activity {timeWindow === 0 ? '' : `in the last ${timeWindow >= 60 ? `${timeWindow / 60} hours` : `${timeWindow} minutes`}`}
+              </p>
             ) : (
               <div className="divide-y divide-border max-h-[400px] overflow-y-auto">
                 {copyEnds.map((evt, i) => {

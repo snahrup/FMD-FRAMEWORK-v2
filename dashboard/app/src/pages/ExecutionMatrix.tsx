@@ -137,14 +137,14 @@ export default function ExecutionMatrix() {
       list = list.filter((e) => e.lastError?.message?.includes(errorFilter));
     }
 
-    // Search
+    // Search (defensive: coerce to string in case backend sends null/undefined)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
         (e) =>
-          e.tableName.toLowerCase().includes(q) ||
-          e.sourceSchema.toLowerCase().includes(q) ||
-          e.source.toLowerCase().includes(q) ||
+          (e.tableName || "").toLowerCase().includes(q) ||
+          (e.sourceSchema || "").toLowerCase().includes(q) ||
+          (e.source || "").toLowerCase().includes(q) ||
           String(e.id).includes(q)
       );
     }
@@ -153,23 +153,31 @@ export default function ExecutionMatrix() {
   }, [allEntities, sourceFilter, statusFilter, searchQuery, errorFilter]);
 
   // ── Derived: layer-level counts from digest ──
+  // NOTE: The entity_status.Status column may contain values beyond the
+  // canonical "loaded"/"pending"/"not_started" — e.g., "Succeeded", "complete",
+  // "Failed", "error", "InProgress". We bucket them correctly here.
   const layerCounts = useMemo(() => {
+    const SUCCESS_VALUES = new Set(["loaded", "complete", "succeeded"]);
+    const PENDING_VALUES = new Set(["pending", "inprogress", "running"]);
+
+    const bucket = (status: string) => {
+      const s = status.toLowerCase();
+      if (SUCCESS_VALUES.has(s)) return "succeeded" as const;
+      if (PENDING_VALUES.has(s)) return "pending" as const;
+      // "not_started", "failed", "error", or anything unknown → pending-bucket
+      // except actual failure statuses
+      if (s === "not_started" || s === "") return "pending" as const;
+      return "failed" as const;
+    };
+
     const lz = { succeeded: 0, failed: 0, pending: 0 };
     const bz = { succeeded: 0, failed: 0, pending: 0 };
     const sv = { succeeded: 0, failed: 0, pending: 0 };
 
     allEntities.forEach((e) => {
-      if (e.lzStatus === "loaded") lz.succeeded++;
-      else if (e.lzStatus === "pending") lz.pending++;
-      else lz.failed++;
-
-      if (e.bronzeStatus === "loaded") bz.succeeded++;
-      else if (e.bronzeStatus === "pending") bz.pending++;
-      else bz.failed++;
-
-      if (e.silverStatus === "loaded") sv.succeeded++;
-      else if (e.silverStatus === "pending") sv.pending++;
-      else sv.failed++;
+      lz[bucket(e.lzStatus)]++;
+      bz[bucket(e.bronzeStatus)]++;
+      sv[bucket(e.silverStatus)]++;
     });
 
     return { lz, bz, sv };

@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { TableBrowser } from '@/components/datablender/TableBrowser';
+import type { BlenderTable } from '@/components/datablender/TableBrowser';
 import { TableProfiler } from '@/components/datablender/TableProfiler';
 import { BlendSuggestions } from '@/components/datablender/BlendSuggestions';
 import { BlendPreview } from '@/components/datablender/BlendPreview';
 import { SqlWorkbench } from '@/components/datablender/SqlWorkbench';
-import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, XCircle } from 'lucide-react';
 
 type Tab = 'profile' | 'blend' | 'preview';
 
 export default function DataBlender() {
-  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const [selectedTable, setSelectedTable] = useState<BlenderTable | null>(null);
   const [selectedBlendId, setSelectedBlendId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const [purviewConnected, setPurviewConnected] = useState<boolean | null>(null);
@@ -32,8 +32,8 @@ export default function DataBlender() {
     }
   }
 
-  const handleSelectTable = (tableId: string) => {
-    setSelectedTableId(tableId);
+  const handleSelectTable = (table: BlenderTable) => {
+    setSelectedTable(table);
     setSelectedBlendId(null);
     setActiveTab('profile');
   };
@@ -42,6 +42,8 @@ export default function DataBlender() {
     setSelectedBlendId(blendId);
     setActiveTab('preview');
   };
+
+  const selectedTableId = selectedTable?.id ?? null;
 
   const tabs: { id: Tab; label: string; disabled?: boolean }[] = [
     { id: 'profile', label: 'Profile' },
@@ -88,7 +90,7 @@ export default function DataBlender() {
 
         {/* Right panel: Content */}
         <div className="flex-1 flex flex-col overflow-hidden bg-background">
-          {selectedTableId ? (
+          {selectedTable ? (
             <>
               {/* Tabs */}
               <div className="flex items-center gap-0 px-4 border-b border-border bg-card">
@@ -114,11 +116,11 @@ export default function DataBlender() {
               {/* Tab content */}
               <div className="flex-1 overflow-hidden">
                 {activeTab === 'profile' && (
-                  <TableProfiler tableId={selectedTableId} />
+                  <TableProfiler tableId={selectedTable.id} tableMeta={selectedTable} />
                 )}
                 {activeTab === 'blend' && (
                   <BlendSuggestions
-                    sourceTableId={selectedTableId}
+                    sourceTableId={selectedTable.id}
                     selectedBlendId={selectedBlendId}
                     onSelectBlend={handleSelectBlend}
                   />
@@ -129,7 +131,7 @@ export default function DataBlender() {
               </div>
 
               {/* SQL Workbench */}
-              <SqlWorkbench tableId={selectedTableId} />
+              <SqlWorkbench tableId={selectedTable.id} tableMeta={selectedTable} />
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center">

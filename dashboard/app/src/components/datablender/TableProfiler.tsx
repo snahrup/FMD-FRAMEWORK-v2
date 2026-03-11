@@ -2,27 +2,31 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
-  Rows3, Columns3, ShieldCheck, Clock, ArrowUpDown,
+  Rows3, Columns3, ShieldCheck, ArrowUpDown,
   ExternalLink, Loader2, AlertTriangle, Zap,
 } from 'lucide-react';
-import { getTableProfile, formatNumber, mockTables } from '@/data/blenderMockData';
+import { formatNumber } from '@/data/blenderMockData';
 import type { LiveTableProfile } from '@/types/blender';
+
+interface TableMeta {
+  id: string;
+  name: string;
+  lakehouse: string;
+  schema: string;
+}
 
 interface TableProfilerProps {
   tableId: string;
+  tableMeta?: TableMeta;
 }
 
 type SortKey = 'name' | 'dataType' | 'nullPercentage' | 'distinctCount' | 'completeness';
 
-export function TableProfiler({ tableId }: TableProfilerProps) {
+export function TableProfiler({ tableId, tableMeta }: TableProfilerProps) {
   const [liveProfile, setLiveProfile] = useState<LiveTableProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>('name');
-  const [sortAsc, setSortAsc] = useState(true);
   const [purviewEntity, setPurviewEntity] = useState<Record<string, string> | null>(null);
-
-  const tableInfo = mockTables.find(t => t.id === tableId);
 
   useEffect(() => {
     loadProfile();
@@ -36,16 +40,18 @@ export function TableProfiler({ tableId }: TableProfilerProps) {
     let lakehouse = '', schema = '', tableName = '';
 
     if (tableId.startsWith('lh-')) {
-      const rest = tableId.replace('lh-', '');
+      // Format: lh-{lakehouse}-{schema}-{table}
+      // Parse from the right: last segment = table, second-to-last = schema, rest = lakehouse
+      const rest = tableId.slice(3); // strip 'lh-'
       const lastDash = rest.lastIndexOf('-');
       const secondLastDash = rest.lastIndexOf('-', lastDash - 1);
       tableName = rest.substring(lastDash + 1);
       schema = rest.substring(secondLastDash + 1, lastDash);
       lakehouse = rest.substring(0, secondLastDash);
-    } else if (tableInfo) {
-      lakehouse = tableInfo.lakehouse;
-      schema = tableInfo.schema;
-      tableName = tableInfo.name;
+    } else if (tableMeta) {
+      lakehouse = tableMeta.lakehouse;
+      schema = tableMeta.schema;
+      tableName = tableMeta.name;
     }
 
     if (lakehouse && tableName) {
@@ -64,11 +70,11 @@ export function TableProfiler({ tableId }: TableProfilerProps) {
           }
         }
       } catch {
-        // Fall through to mock
+        // Fall through to empty state
       }
     }
 
-    fetchPurview(tableName || tableInfo?.name || '');
+    fetchPurview(tableName);
     setLoading(false);
   }
 
