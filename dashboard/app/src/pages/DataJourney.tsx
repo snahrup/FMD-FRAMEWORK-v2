@@ -353,6 +353,7 @@ export default function DataJourney() {
   const [journey, setJourney] = useState<JourneyData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedOnce = useRef(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [diffTab, setDiffTab] = useState<"diff" | "bronze" | "silver">("diff");
@@ -360,7 +361,7 @@ export default function DataJourney() {
   // Load journey when entity is selected
   const loadJourney = useCallback(
     async (id: number) => {
-      setLoading(true);
+      if (!hasLoadedOnce.current) setLoading(true);
       setError(null);
       try {
         const data = await fetchJson<JourneyData>(`/journey?entity=${id}`);
@@ -369,6 +370,7 @@ export default function DataJourney() {
           setJourney(null);
         } else {
           setJourney(data);
+          hasLoadedOnce.current = true;
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load journey");
@@ -382,7 +384,7 @@ export default function DataJourney() {
 
   // Resolve URL params on mount
   useEffect(() => {
-    if (entityIdParam) {
+    if (entityIdParam && /^\d+$/.test(entityIdParam)) {
       loadJourney(parseInt(entityIdParam, 10));
     } else if (tableParam && entities.length > 0) {
       // Reverse lookup: find entity by table name
@@ -402,6 +404,7 @@ export default function DataJourney() {
   // Select an entity
   const selectEntity = useCallback(
     (id: string) => {
+      hasLoadedOnce.current = false;
       setSearchParams({ entity: id }, { replace: true });
       setDropdownOpen(false);
       setSearchQuery("");
@@ -524,6 +527,7 @@ export default function DataJourney() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  hasLoadedOnce.current = false;
                   setSearchParams({}, { replace: true });
                   setJourney(null);
                   setSearchQuery("");

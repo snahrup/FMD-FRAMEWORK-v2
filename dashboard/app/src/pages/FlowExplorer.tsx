@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   Search,
@@ -49,6 +49,14 @@ interface Pipeline {
   WorkspaceGuid: string;
   Name: string;
   IsActive: string;
+}
+
+/** Normalize IsActive from Fabric SQL / SQLite — handles "True", "1", 1, true */
+function _isActive(v: unknown): boolean {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v === 1;
+  if (typeof v === "string") return v === "True" || v === "1" || v.toLowerCase() === "true";
+  return false;
 }
 
 // ============================================================================
@@ -155,7 +163,8 @@ async function fetchJson<T>(path: string): Promise<T> {
 }
 
 /** Format numbers with commas for readability (1234 → "1,234") */
-function fmt(n: number): string {
+function fmt(n: number | null | undefined): string {
+  if (n == null || isNaN(n)) return "0";
   return n.toLocaleString("en-US");
 }
 
@@ -251,7 +260,7 @@ interface ArchSourcePath {
 }
 
 function buildArchSourcePaths(pipelines: Pipeline[], connections: Connection[]): ArchSourcePath[] {
-  const active = pipelines.filter(p => p.IsActive === "True");
+  const active = pipelines.filter(p => _isActive(p.IsActive));
 
   const sourceTypes: { key: string; friendly: string; cmdMatch: string; copyMatch: string }[] = [
     { key: "ASQL", friendly: "SQL Server", cmdMatch: "COMMAND_ASQL", copyMatch: "COPY_FROM_ASQL_01" },
@@ -268,7 +277,7 @@ function buildArchSourcePaths(pipelines: Pipeline[], connections: Connection[]):
   return sourceTypes.map(st => {
     const cmd = active.find(p => p.Name.includes(st.cmdMatch));
     const copy = active.find(p => p.Name.includes(st.copyMatch));
-    const conn = connections.find(c => c.IsActive === "True" && c.Name.includes(st.key.replace("_T", "").replace("_F", "")));
+    const conn = connections.find(c => _isActive(c.IsActive) && c.Name.includes(st.key.replace("_T", "").replace("_F", "")));
     return {
       id: st.key,
       sourceType: st.key,
@@ -311,7 +320,7 @@ function FrameworkArchView({
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
 
   const sourcePaths = buildArchSourcePaths(pipelines, connections);
-  const activePipes = pipelines.filter(p => p.IsActive === "True");
+  const activePipes = pipelines.filter(p => _isActive(p.IsActive));
   const orchPipeline = activePipes.find(p => p.Name === "PL_FMD_LOAD_ALL") || activePipes.find(p => p.Name.includes("LOAD_LANDINGZONE"));
 
   const filtered = searchQuery.trim()
@@ -526,7 +535,7 @@ function FrameworkArchView({
         <span className="text-border">|</span>
         <span>{fmt(activePipes.length)} active pipelines</span>
         <span className="text-border">|</span>
-        <span>{fmt(connections.filter(c => c.IsActive === "True").length)} connections</span>
+        <span>{fmt(connections.filter(c => _isActive(c.IsActive)).length)} connections</span>
       </div>
     </div>
   );
@@ -552,6 +561,7 @@ export default function FlowExplorer() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const auxLoadedOnce = useRef(false);
 
   // UI state
   const [searchQuery, setSearchQuery] = useState("");
@@ -567,7 +577,7 @@ export default function FlowExplorer() {
 
   // Fetch auxiliary data (connections, datasources, pipelines)
   const loadAuxData = useCallback(async () => {
-    setAuxLoading(true);
+    if (!auxLoadedOnce.current) setAuxLoading(true);
     setAuxError(null);
     try {
       const [conn, ds, pipes] = await Promise.all([
@@ -578,6 +588,7 @@ export default function FlowExplorer() {
       setConnections(conn);
       setDataSources(ds);
       setPipelines(pipes);
+      auxLoadedOnce.current = true;
     } catch (err) {
       setAuxError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
@@ -588,8 +599,9 @@ export default function FlowExplorer() {
   useEffect(() => { loadAuxData(); }, [loadAuxData]);
 
   // Combined loading / error state
+  // Only block the page on initial load; aux errors are non-fatal for the data flow view
   const loading = digestLoading || auxLoading;
-  const error = digestError || auxError;
+  const error = digestError; // auxError is shown inline, not as a page blocker
 
   const loadData = useCallback(() => {
     refreshDigest();
@@ -672,7 +684,7 @@ export default function FlowExplorer() {
   const totalFlows = sourceGroups.reduce((acc, g) => acc + g.flows.length, 0);
   const totalBronze = sourceGroups.reduce((acc, g) => acc + g.bronzeCount, 0);
   const totalSilver = sourceGroups.reduce((acc, g) => acc + g.silverCount, 0);
-  const activePipelines = pipelines.filter((p) => p.IsActive === "True").length;
+  const activePipelines = pipelines.filter((p) => _isActive(p.IsActive)).length;
 
   const toggleSource = (name: string) => {
     setExpandedSources((prev) => {
@@ -855,6 +867,15 @@ export default function FlowExplorer() {
           </button>
         </div>
       </div>
+
+      {/* Inline warning when auxiliary data (connections/pipelines) failed */}
+      {auxError && (
+        <div className="px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-600 text-[11px] flex items-center gap-2">
+          <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>Pipeline/connection metadata unavailable ({auxError}). Data flow view still works.</span>
+          <button onClick={loadAuxData} className="ml-auto text-[10px] font-medium underline hover:no-underline">Retry</button>
+        </div>
+      )}
 
       {/* Main Area */}
       <div className="flex flex-1 min-h-0">
@@ -1336,7 +1357,7 @@ export default function FlowExplorer() {
                   </div>
                   <div className="px-2 py-1.5 rounded bg-card border border-border/30">
                     <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Progress</div>
-                    <div className="text-[11px] font-semibold mt-0.5" style={{ color: LAYERS[LAYERS.findIndex(l => l.key === selectedFlow.maxLayer)].color }}>
+                    <div className="text-[11px] font-semibold mt-0.5" style={{ color: (LAYERS.find(l => l.key === selectedFlow.maxLayer) ?? LAYERS[0]).color }}>
                       {selectedFlow.maxLayer === "landing" ? "Landing Zone" : selectedFlow.maxLayer.charAt(0).toUpperCase() + selectedFlow.maxLayer.slice(1)} Layer
                     </div>
                   </div>

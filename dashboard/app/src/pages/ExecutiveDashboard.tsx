@@ -136,13 +136,15 @@ const FRIENDLY_PIPELINE_NAMES: Record<string, string> = {
 
 const API = "/api";
 
-function fmtNum(n: number): string {
+function fmtNum(n: number | null | undefined): string {
+  if (n == null || isNaN(n)) return "0";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString("en-US");
 }
 
-function fmtPct(n: number): string {
+function fmtPct(n: number | null | undefined): string {
+  if (n == null || isNaN(n)) return "0.0%";
   return `${n.toFixed(1)}%`;
 }
 
@@ -480,8 +482,13 @@ export default function ExecutiveDashboard() {
 
   if (!data) return null;
 
-  const { overview, sources, pipelineHealth, recentActivity, issues, trends } = data;
-  const layers = overview.layers;
+  const overview = data.overview ?? { totalEntities: 0, layers: { landing: {total:0}, bronze: {total:0}, silver: {total:0} }, rowCounts: { bronze: 0, silver: 0, landing: 0 } };
+  const sources = data.sources ?? [];
+  const pipelineHealth = data.pipelineHealth ?? { totalRuns: 0, succeeded: 0, failed: 0, running: 0, successRate: 0 };
+  const recentActivity = data.recentActivity ?? [];
+  const issues = data.issues ?? [];
+  const trends = data.trends ?? { health: [], layers: [], pipelineRate: { total: 0, succeeded: 0, failed: 0, running: 0, successRate: 0 } };
+  const layers = overview.layers ?? { landing: {total:0}, bronze: {total:0}, silver: {total:0} };
 
   // Build trend chart data from health trends
   const trendData = (trends.health || []).map((h: HealthTrend) => ({
@@ -749,7 +756,7 @@ export default function ExecutiveDashboard() {
 
       {/* ── Footer ── */}
       <div className="flex items-center justify-between text-[10px] text-muted-foreground/60 pt-2">
-        <span>FMD Pipeline Control &middot; Auto-refreshing every 30s via SSE</span>
+        <span>FMD Pipeline Control &middot; Auto-refreshing every 2 min</span>
         <span>Last snapshot: {data.timestamp ? new Date(data.timestamp).toLocaleString() : "—"}</span>
       </div>
     </div>

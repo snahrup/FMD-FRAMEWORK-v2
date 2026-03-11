@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -146,17 +146,23 @@ export default function ValidationChecklist() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [launching, setLaunching] = useState(false);
   const [launchResult, setLaunchResult] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedOnce = useRef(false);
 
   const fetchData = useCallback(async () => {
+    if (!hasLoadedOnce.current) setLoading(true);
+    else setRefreshing(true);
     try {
       const result = await fetchJson<ValidationData>("/engine/validation");
       setData(result);
       setError(null);
       setLastUpdated(new Date());
+      hasLoadedOnce.current = true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch validation data");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -330,7 +336,7 @@ export default function ValidationChecklist() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {loading && data && (
+          {refreshing && (
             <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
           )}
           {lastUpdated && (

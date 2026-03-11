@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -113,7 +113,7 @@ function fmtTime(iso?: string): string {
 // ===== Top Issue Banner =====
 function TopIssueBanner({ topIssue }: { topIssue: TopIssue }) {
   if (topIssue.count <= 1) return null;
-  const pct = Math.round((topIssue.count / topIssue.totalErrors) * 100);
+  const pct = topIssue.totalErrors > 0 ? Math.round((topIssue.count / topIssue.totalErrors) * 100) : 0;
   return (
     <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/10 rounded-xl border border-amber-200/60 dark:border-amber-800/40 p-4 shadow-sm">
       <div className="flex items-start gap-3">
@@ -152,7 +152,7 @@ function ErrorCard({
 }) {
   const config = severityConfig[summary.severity];
   const SeverityIcon = config.icon;
-  const catErrors = errors.filter(e => e.category === summary.category);
+  const catErrors = useMemo(() => errors.filter(e => e.category === summary.category), [errors, summary.category]);
   const [showAllOccurrences, setShowAllOccurrences] = useState(false);
 
   // Group repeated errors by errorType for collapse
@@ -358,17 +358,34 @@ export default function ErrorIntelligence() {
   const [filterSeverity, setFilterSeverity] = useState<ErrorSeverity | 'all'>('all');
   const [filterPipeline, setFilterPipeline] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const hasLoadedOnce = useRef(false);
+  const mountedRef = useRef(true);
 
   const fetchData = () => {
-    setLoading(true);
+    if (!hasLoadedOnce.current) setLoading(true);
     setError(null);
     fetch(`${API}/api/error-intelligence`)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d: ErrorIntelligenceData) => { setData(d); setLoading(false); })
-      .catch(e => { setError(e.message); setLoading(false); });
+      .then((d: ErrorIntelligenceData) => {
+        if (mountedRef.current) {
+          setData(d);
+          setLoading(false);
+          hasLoadedOnce.current = true;
+        }
+      })
+      .catch(e => {
+        if (mountedRef.current) {
+          setError(e.message);
+          setLoading(false);
+        }
+      });
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchData();
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const summaries = data?.summaries || [];
   const allErrors = data?.errors || [];
