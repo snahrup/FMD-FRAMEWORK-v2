@@ -180,9 +180,14 @@ function EditableValue({
       return;
     }
     setSaving(true);
-    await onSave(draft);
-    setSaving(false);
-    setEditing(false);
+    try {
+      await onSave(draft);
+      setEditing(false);
+    } catch {
+      setDraft(value);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const isEmpty = !value || value.trim() === "";
@@ -288,6 +293,7 @@ export default function NotebookConfig() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updateLog, setUpdateLog] = useState<string[]>([]);
+  const hasLoadedOnce = useRef(false);
 
   // Deploy state
   const [deployPhase, setDeployPhase] = useState<DeployPhase>("idle");
@@ -304,6 +310,7 @@ export default function NotebookConfig() {
     try {
       const result = await fetchJson<NotebookConfigData>("/notebook-config");
       setData(result);
+      hasLoadedOnce.current = true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -316,21 +323,31 @@ export default function NotebookConfig() {
   }, [load]);
 
   const doUpdate = async (body: Record<string, unknown>) => {
-    const result = await postJson<Record<string, unknown>>("/notebook-config/update", body);
-    if (result.error) {
-      setUpdateLog((prev) => [`ERROR: ${result.error}`, ...prev]);
-    } else {
+    try {
+      const result = await postJson<Record<string, unknown>>("/notebook-config/update", body);
+      if (result.error) {
+        setUpdateLog((prev) => [`ERROR: ${result.error}`, ...prev]);
+      } else {
+        setUpdateLog((prev) => [
+          `Updated ${body.target}: ${JSON.stringify(result).slice(0, 120)}`,
+          ...prev,
+        ]);
+      }
+      await load();
+    } catch (e) {
       setUpdateLog((prev) => [
-        `Updated ${body.target}: ${JSON.stringify(result).slice(0, 120)}`,
+        `ERROR: ${e instanceof Error ? e.message : "Network error"}`,
         ...prev,
       ]);
     }
-    await load();
   };
 
   // ── Deploy logic ──
 
+  const initDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const stopPolling = useCallback(() => {
+    if (initDelayRef.current) { clearTimeout(initDelayRef.current); initDelayRef.current = null; }
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   }, []);
@@ -371,12 +388,11 @@ export default function NotebookConfig() {
     };
 
     // First poll after 5s (notebook needs time to spin up)
-    const firstPoll = setTimeout(() => {
+    initDelayRef.current = setTimeout(() => {
+      initDelayRef.current = null;
       poll();
       pollRef.current = setInterval(poll, 5000);
     }, 5000);
-    // Store the timeout so we can clean up
-    pollRef.current = firstPoll as unknown as ReturnType<typeof setInterval>;
   }, [stopPolling]);
 
   const handleTriggerNotebook = async () => {
@@ -410,18 +426,25 @@ export default function NotebookConfig() {
     return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
   };
 
-  if (loading && !data) {
+  if (!hasLoadedOnce.current && loading) {
     return (
       <div className="flex items-center justify-center h-96">
         <RefreshCw className="h-8 w-8 text-muted-foreground animate-spin" />
       </div>
     );
   }
-  if (error) {
+  if (error && !data) {
     return (
       <div className="p-8">
-        <div className="bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-500/40 rounded-xl p-6">
+        <div className="bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-500/40 rounded-xl p-6 flex items-center justify-between">
           <p className="text-red-700 dark:text-red-300">{error}</p>
+          <button
+            onClick={load}
+            className="flex items-center gap-2 px-4 py-2 bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 rounded-lg text-sm text-red-700 dark:text-red-300 border border-red-300 dark:border-red-500/30 transition-colors"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -600,7 +623,7 @@ export default function NotebookConfig() {
                     <span className="text-xs text-emerald-600 dark:text-emerald-400">
                       Completed in {formatElapsed(elapsedSeconds)}
                     </span>
-                    {jobStatus?.endTime && (
+                    {jobStatus?.endTime && !isNaN(new Date(jobStatus.endTime).getTime()) && (
                       <span className="text-xs text-emerald-600 dark:text-emerald-400 font-mono">
                         Finished: {new Date(jobStatus.endTime).toLocaleTimeString()}
                       </span>

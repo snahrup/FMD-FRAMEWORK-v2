@@ -28,7 +28,6 @@ import {
   CheckCircle2,
   Clock,
   AlertTriangle,
-  XCircle,
   Circle,
   Loader2,
   AlertCircle,
@@ -40,7 +39,7 @@ import {
   type DigestEntity,
   type DigestSource,
 } from "@/hooks/useEntityDigest";
-import { getSourceColor, LAYERS, SOURCE_COLORS } from "@/lib/layers";
+import { getSourceColor } from "@/lib/layers";
 import LayerNodeComponent, { type LayerNodeData } from "@/components/impact-pulse/LayerNode";
 import AnimatedEdgeComponent, { type AnimatedEdgeData } from "@/components/impact-pulse/AnimatedEdge";
 
@@ -350,8 +349,9 @@ function LayerDrawer({
               || "Event";
             const logType = (evt as { LogType?: string }).LogType || "";
             const time = (evt as { LogDateTime?: string }).LogDateTime || "";
+            const runGuid = (evt as { PipelineRunGuid?: string }).PipelineRunGuid || "";
             return (
-              <div key={i} className="flex items-center justify-between py-1">
+              <div key={`${runGuid}-${logType}-${time}-${i}`} className="flex items-center justify-between py-1">
                 <div className="flex items-center gap-2 min-w-0">
                   <Activity className="w-3 h-3 text-muted-foreground/40 flex-shrink-0" />
                   <span className="text-[10px] text-foreground truncate">{name}</span>
@@ -469,12 +469,21 @@ export default function ImpactPulse() {
 
   const isSourceActive = useCallback((sourceName: string) => {
     const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+    const needle = sourceName.toLowerCase();
     return allLiveEvents.some((e) => {
-      const name = (e as CopyEvent).EntityName || (e as NotebookEvent).NotebookName || "";
       const time = (e as { LogDateTime?: string }).LogDateTime;
       if (!time) return false;
       const ts = new Date(time.endsWith("Z") ? time : time + "Z").getTime();
-      return name.toLowerCase().includes(sourceName.toLowerCase()) && ts > fiveMinAgo;
+      if (ts <= fiveMinAgo) return false;
+      // Check entity name, copy activity name, notebook name, pipeline name, and EntityLayer
+      const fields = [
+        (e as CopyEvent).EntityName,
+        (e as CopyEvent).CopyActivityName,
+        (e as NotebookEvent).NotebookName,
+        (e as PipelineEvent).PipelineName,
+        (e as { EntityLayer?: string }).EntityLayer,
+      ];
+      return fields.some((f) => f && f.toLowerCase().includes(needle));
     });
   }, [allLiveEvents]);
 
@@ -642,6 +651,9 @@ export default function ImpactPulse() {
     setSelectedNode(node.id);
   }, []);
 
+  // Stable reference for drawer close — avoids re-registering event listeners on every render
+  const closeDrawer = useCallback(() => setSelectedNode(null), []);
+
   // Resolve drawer props from selectedNode
   const drawerProps = useMemo(() => {
     if (!selectedNode) return null;
@@ -800,7 +812,7 @@ export default function ImpactPulse() {
           allEntities={allEntities}
           liveEvents={allLiveEvents}
           sourceList={sourceList}
-          onClose={() => setSelectedNode(null)}
+          onClose={closeDrawer}
         />
       )}
 

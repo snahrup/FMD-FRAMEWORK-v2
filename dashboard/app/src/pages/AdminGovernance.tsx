@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   XCircle,
   RefreshCw,
@@ -108,9 +108,10 @@ export default function AdminGovernance() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [hoveredLane, setHoveredLane] = useState<string | null>(null);
   const [expandedLane, setExpandedLane] = useState<string | null>(null);
+  const hasLoadedMetaOnce = useRef(false);
 
   const loadMetadata = useCallback(async () => {
-    setMetaLoading(true);
+    if (!hasLoadedMetaOnce.current) setMetaLoading(true);
     setMetaError(null);
     try {
       const [conn, ds, pipes, ws, lh, st] = await Promise.all([
@@ -127,6 +128,7 @@ export default function AdminGovernance() {
       setWorkspaces(ws);
       setLakehouses(lh);
       setStats(st);
+      hasLoadedMetaOnce.current = true;
     } catch (err) {
       setMetaError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
@@ -151,8 +153,8 @@ export default function AdminGovernance() {
   const silverEntityCount = useMemo(() => allEntities.filter(e => e.silverId !== null).length, [allEntities]);
 
   // Derived data
-  const activePipelines = pipelines.filter(p => p.IsActive === 'True');
-  const pipelinesByCategory = {
+  const activePipelines = useMemo(() => pipelines.filter(p => p.IsActive === 'True'), [pipelines]);
+  const pipelinesByCategory = useMemo(() => ({
     landingZone: activePipelines.filter(p => p.Name.includes('_LDZ_')),
     bronze: activePipelines.filter(p => p.Name.includes('_BRONZE_') || p.Name.includes('_BRZ_')),
     silver: activePipelines.filter(p => p.Name.includes('_SILVER_') || p.Name.includes('_SLV_')),
@@ -162,14 +164,14 @@ export default function AdminGovernance() {
       !p.Name.includes('_SILVER_') && !p.Name.includes('_SLV_') &&
       !(p.Name.includes('_LOAD_') && !p.Name.includes('_LDZ_'))
     ),
-  };
+  }), [activePipelines]);
 
-  const devWorkspaces = workspaces.filter(w => w.Name.includes('(D)'));
-  const prodWorkspaces = workspaces.filter(w => w.Name.includes('(P)'));
-  const configWorkspaces = workspaces.filter(w => !w.Name.includes('(D)') && !w.Name.includes('(P)'));
+  const devWorkspaces = useMemo(() => workspaces.filter(w => w.Name.includes('(D)')), [workspaces]);
+  const prodWorkspaces = useMemo(() => workspaces.filter(w => w.Name.includes('(P)')), [workspaces]);
+  const configWorkspaces = useMemo(() => workspaces.filter(w => !w.Name.includes('(D)') && !w.Name.includes('(P)')), [workspaces]);
 
   // Build swim lane data grouped by data source (driven by digest)
-  const sourceLanes = dataSources
+  const sourceLanes = useMemo(() => dataSources
     .filter(ds => ds.IsActive === 'True')
     .map(ds => {
       const conn = connections.find(c => c.Name === ds.ConnectionName);
@@ -187,12 +189,12 @@ export default function AdminGovernance() {
         silverCount: slvEnts.length,
         digestEntities: dsEntities,
       };
-    });
+    }), [dataSources, connections, allEntities]);
 
   // Connections with no data source registered yet
-  const orphanConnections = connections
+  const orphanConnections = useMemo(() => connections
     .filter(c => c.IsActive === 'True' && c.Name !== 'ONELAKE')
-    .filter(c => !dataSources.some(ds => ds.ConnectionName === c.Name));
+    .filter(c => !dataSources.some(ds => ds.ConnectionName === c.Name)), [connections, dataSources]);
 
   const hasLineageData = sourceLanes.length > 0 || orphanConnections.length > 0;
 
@@ -301,15 +303,15 @@ export default function AdminGovernance() {
             </div>
             <div className="flex items-center mt-2 space-x-4 text-xs">
               <span className="flex items-center text-blue-600 dark:text-blue-400">
-                <div className="w-2 h-2 bg-blue-500 rounded-full mr-1.5"></div>
+                <span className="w-2 h-2 bg-blue-500 rounded-full mr-1.5 inline-block"></span>
                 {lzEntityCount} Landing
               </span>
               <span className="flex items-center text-amber-600 dark:text-amber-400">
-                <div className="w-2 h-2 bg-amber-500 rounded-full mr-1.5"></div>
+                <span className="w-2 h-2 bg-amber-500 rounded-full mr-1.5 inline-block"></span>
                 {bronzeEntityCount} Bronze
               </span>
               <span className="flex items-center text-purple-600 dark:text-purple-400">
-                <div className="w-2 h-2 bg-purple-500 rounded-full mr-1.5"></div>
+                <span className="w-2 h-2 bg-purple-500 rounded-full mr-1.5 inline-block"></span>
                 {silverEntityCount} Silver
               </span>
             </div>
@@ -546,7 +548,7 @@ export default function AdminGovernance() {
                           {/* Landing entities */}
                           <div>
                             <p className="text-xs font-semibold mb-2 flex items-center gap-1.5" style={{ color: layerColors.landing }}>
-                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: layerColors.landing }} />
+                              <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: layerColors.landing }} />
                               Landing Zone ({lane.landingCount})
                             </p>
                             <div className="space-y-0.5 max-h-40 overflow-y-auto">
@@ -570,7 +572,7 @@ export default function AdminGovernance() {
                           {/* Bronze entities */}
                           <div>
                             <p className="text-xs font-semibold mb-2 flex items-center gap-1.5" style={{ color: layerColors.bronze }}>
-                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: layerColors.bronze }} />
+                              <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: layerColors.bronze }} />
                               Bronze ({lane.bronzeCount})
                             </p>
                             <div className="space-y-0.5 max-h-40 overflow-y-auto">
@@ -587,7 +589,7 @@ export default function AdminGovernance() {
                           {/* Silver entities */}
                           <div>
                             <p className="text-xs font-semibold mb-2 flex items-center gap-1.5" style={{ color: layerColors.silver }}>
-                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: layerColors.silver }} />
+                              <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: layerColors.silver }} />
                               Silver ({lane.silverCount})
                             </p>
                             <div className="space-y-0.5 max-h-40 overflow-y-auto">
@@ -763,16 +765,16 @@ export default function AdminGovernance() {
           </h2>
 
           {[
-            { label: 'Landing Zone', pipes: pipelinesByCategory.landingZone, color: 'blue' },
-            { label: 'Bronze Layer', pipes: pipelinesByCategory.bronze, color: 'amber' },
-            { label: 'Silver Layer', pipes: pipelinesByCategory.silver, color: 'purple' },
-            { label: 'Orchestration', pipes: pipelinesByCategory.orchestration, color: 'emerald' },
-            { label: 'Utility', pipes: pipelinesByCategory.utility, color: 'slate' },
+            { label: 'Landing Zone', pipes: pipelinesByCategory.landingZone, badgeClass: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20' },
+            { label: 'Bronze Layer', pipes: pipelinesByCategory.bronze, badgeClass: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20' },
+            { label: 'Silver Layer', pipes: pipelinesByCategory.silver, badgeClass: 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/20' },
+            { label: 'Orchestration', pipes: pipelinesByCategory.orchestration, badgeClass: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20' },
+            { label: 'Utility', pipes: pipelinesByCategory.utility, badgeClass: 'text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/20' },
           ].filter(cat => cat.pipes.length > 0).map(cat => (
             <div key={cat.label} className="mb-4">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">{cat.label}</h3>
-                <span className={`text-xs font-medium text-${cat.color}-600 dark:text-${cat.color}-400 bg-${cat.color}-50 dark:bg-${cat.color}-950/20 px-2 py-0.5 rounded-full`}>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cat.badgeClass}`}>
                   {cat.pipes.length}
                 </span>
               </div>

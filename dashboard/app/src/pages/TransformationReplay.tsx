@@ -477,6 +477,11 @@ export default function TransformationReplay() {
   const timelineRef = useRef<HTMLDivElement>(null);
   const progressBarRef = useRef<HTMLDivElement>(null);
 
+  // Anti-flash: suppress loading skeleton until first data arrives
+  const hasLoadedOnce = useRef(false);
+  if (!digestLoading && allEntities.length > 0) hasLoadedOnce.current = true;
+  const showDigestLoading = digestLoading && !hasLoadedOnce.current;
+
   // ── Derive selected entity ──
   const selectedEntity = useMemo<DigestEntity | undefined>(() => {
     if (!entityIdParam) return undefined;
@@ -531,13 +536,15 @@ export default function TransformationReplay() {
 
   // ── GSAP ScrollTrigger animations ──
   useEffect(() => {
+    const localTriggers: ScrollTrigger[] = [];
+
     // Small delay to ensure DOM is ready
     const timer = setTimeout(() => {
       const cards = document.querySelectorAll(".replay-step-card");
       if (!cards.length) return;
 
       cards.forEach((card, i) => {
-        gsap.from(card, {
+        const tween = gsap.from(card, {
           scrollTrigger: {
             trigger: card,
             start: "top 85%",
@@ -550,11 +557,12 @@ export default function TransformationReplay() {
           ease: "power2.out",
           delay: 0.05 * (i % 3),
         });
+        if (tween.scrollTrigger) localTriggers.push(tween.scrollTrigger);
       });
 
       // Progress bar tied to timeline scroll
       if (timelineRef.current) {
-        ScrollTrigger.create({
+        const st = ScrollTrigger.create({
           trigger: timelineRef.current,
           start: "top top",
           end: "bottom bottom",
@@ -568,12 +576,13 @@ export default function TransformationReplay() {
             setCurrentStep(stepIdx + 1);
           },
         });
+        localTriggers.push(st);
       }
     }, 100);
 
     return () => {
       clearTimeout(timer);
-      ScrollTrigger.getAll().forEach((t) => t.kill());
+      localTriggers.forEach((t) => t.kill());
     };
   }, [enrichedSteps]);
 
@@ -684,13 +693,14 @@ export default function TransformationReplay() {
               selectedId={entityIdParam}
               onSelect={handleEntitySelect}
               onClear={handleEntityClear}
-              loading={digestLoading}
+              loading={showDigestLoading}
               placeholder="Select an entity to see real transformation data..."
             />
           </div>
           {entityIdParam && (
             <div className="flex-shrink-0">
               <input
+                key={pkParam || ""}
                 type="text"
                 placeholder="Primary Key..."
                 defaultValue={pkParam || ""}

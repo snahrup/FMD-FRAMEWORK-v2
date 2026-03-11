@@ -120,12 +120,14 @@ function SourcePanel({
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   // Close on click outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose();
+        onCloseRef.current();
       }
     };
     // Delay listener so the click that opened the panel doesn't immediately close it
@@ -134,16 +136,16 @@ function SourcePanel({
       clearTimeout(timer);
       document.removeEventListener("mousedown", handler);
     };
-  }, [onClose]);
+  }, []);
 
   // Close on escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, []);
 
   // Group by status
   const grouped = useMemo(() => {
@@ -235,6 +237,10 @@ export default function SankeyFlow() {
   const [selectedSource, setSelectedSource] = useState<DigestSource | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 960, height: 600 });
+  const hasLoadedOnce = useRef(false);
+
+  // Track first successful load for anti-flash pattern
+  if (data && !hasLoadedOnce.current) hasLoadedOnce.current = true;
 
   // ── Responsive dimensions ──
   useEffect(() => {
@@ -430,9 +436,7 @@ export default function SankeyFlow() {
           const t = (link.target as ProcessedNode).id;
           return (
             (s === hoveredNode && t === nodeId) ||
-            (t === hoveredNode && s === nodeId) ||
-            s === nodeId && s === hoveredNode ||
-            t === nodeId && t === hoveredNode
+            (t === hoveredNode && s === nodeId)
           );
         });
       }
@@ -452,8 +456,8 @@ export default function SankeyFlow() {
 
   // ── Render ──
 
-  // Loading state
-  if (loading && !data) {
+  // Loading state — only show spinner before first successful load
+  if (loading && !hasLoadedOnce.current) {
     return (
       <div className="h-full flex items-center justify-center gap-3 text-muted-foreground">
         <Loader2 className="w-5 h-5 animate-spin" />
@@ -462,8 +466,8 @@ export default function SankeyFlow() {
     );
   }
 
-  // Error state
-  if (error) {
+  // Error state — only show full-page error if we have no stale data to display
+  if (error && !data) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
         <AlertCircle className="w-8 h-8 text-red-400" />
@@ -506,13 +510,18 @@ export default function SankeyFlow() {
             )}
           </p>
         </div>
-        <button
-          onClick={refresh}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {error && data && (
+            <span className="text-[10px] text-red-400/80 mr-1">Refresh failed</span>
+          )}
+          <button
+            onClick={refresh}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* SVG canvas */}

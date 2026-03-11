@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Play, Loader2, AlertCircle, CheckCircle2, Database,
   RefreshCw, Clock, XCircle, ChevronDown, ChevronRight,
-  Timer, Activity, AlertTriangle, Layers, Zap,
-  ArrowRight, Server, FlaskConical, Settings2, Eye, EyeOff,
+  Settings2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -55,24 +54,41 @@ interface RunResult {
 
 // ── Helpers ──
 
-const LAYER_INFO: Record<string, { label: string; description: string; color: string; step: number }> = {
+const LAYER_INFO: Record<string, {
+  label: string; description: string; step: number;
+  activeBg: string; activeBorder: string;
+  badgeBg: string; badgeText: string;
+  dotColor: string;
+}> = {
   landing: {
     label: "Extract from Source",
     description: "Pull raw data from SQL databases into the Landing Zone",
-    color: "blue",
     step: 1,
+    activeBg: "bg-blue-50 dark:bg-blue-950/20",
+    activeBorder: "border-blue-300 dark:border-blue-700/50",
+    badgeBg: "bg-blue-100 dark:bg-blue-900/40",
+    badgeText: "text-blue-700 dark:text-blue-300",
+    dotColor: "bg-blue-500 dark:bg-blue-400",
   },
   bronze: {
     label: "Load to Bronze",
     description: "Move landing zone data into structured Bronze tables",
-    color: "amber",
     step: 2,
+    activeBg: "bg-amber-50 dark:bg-amber-950/20",
+    activeBorder: "border-amber-300 dark:border-amber-700/50",
+    badgeBg: "bg-amber-100 dark:bg-amber-900/40",
+    badgeText: "text-amber-700 dark:text-amber-300",
+    dotColor: "bg-amber-500 dark:bg-amber-400",
   },
   silver: {
     label: "Transform to Silver",
     description: "Apply business rules and SCD Type 2 transformations",
-    color: "purple",
     step: 3,
+    activeBg: "bg-purple-50 dark:bg-purple-950/20",
+    activeBorder: "border-purple-300 dark:border-purple-700/50",
+    badgeBg: "bg-purple-100 dark:bg-purple-900/40",
+    badgeText: "text-purple-700 dark:text-purple-300",
+    dotColor: "bg-purple-500 dark:bg-purple-400",
   },
 };
 
@@ -85,7 +101,10 @@ function friendlyDuration(ms: number): string {
 }
 
 function friendlyTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
 
 // ── Component ──
@@ -106,9 +125,11 @@ export default function NotebookDebug() {
   const [recentJobs, setRecentJobs] = useState<JobEntry[]>([]);
   const [error, setError] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasLoadedOnce = useRef(false);
 
   // UI state
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [showEntityPreview, setShowEntityPreview] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -139,6 +160,7 @@ export default function NotebookDebug() {
       setError(e instanceof Error ? e.message : "Failed to load entities");
     } finally {
       setLoading(false);
+      hasLoadedOnce.current = true;
     }
   }, [layer]);
 
@@ -283,7 +305,7 @@ export default function NotebookDebug() {
                 className={cn(
                   "relative text-left p-4 rounded-xl border transition-all",
                   isActive
-                    ? `bg-${info.color}-50 dark:bg-${info.color}-950/20 border-${info.color}-300 dark:border-${info.color}-700/50 shadow-sm`
+                    ? cn(info.activeBg, info.activeBorder, "shadow-sm")
                     : "bg-card border-border hover:border-muted-foreground/30"
                 )}
               >
@@ -291,7 +313,7 @@ export default function NotebookDebug() {
                   <div className={cn(
                     "w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold",
                     isActive
-                      ? `bg-${info.color}-100 dark:bg-${info.color}-900/40 text-${info.color}-700 dark:text-${info.color}-300`
+                      ? cn(info.badgeBg, info.badgeText)
                       : "bg-muted text-muted-foreground"
                   )}>
                     {info.step}
@@ -310,7 +332,7 @@ export default function NotebookDebug() {
                   {info.description}
                 </p>
                 {isActive && (
-                  <div className={`absolute top-3 right-3 w-2 h-2 rounded-full bg-${info.color}-500 dark:bg-${info.color}-400`} />
+                  <div className={cn("absolute top-3 right-3 w-2 h-2 rounded-full", info.dotColor)} />
                 )}
               </button>
             );
@@ -332,7 +354,7 @@ export default function NotebookDebug() {
               <option value="">All sources ({entities.length} tables)</option>
               {namespaces.map((ns) => (
                 <option key={ns} value={ns}>
-                  {ns.toUpperCase()} ({entities.filter((e) => e.namespace === ns).length} tables)
+                  {(ns || "").toUpperCase()} ({entities.filter((e) => e.namespace === ns).length} tables)
                 </option>
               ))}
             </select>
@@ -365,8 +387,10 @@ export default function NotebookDebug() {
         {/* What will happen — plain English summary */}
         <div className="rounded-lg bg-muted/40 border border-border p-4 mb-5">
           <p className="text-sm text-foreground">
-            {loading ? (
+            {loading && !hasLoadedOnce.current ? (
               <span className="text-muted-foreground">Loading...</span>
+            ) : loading ? (
+              <span className="text-muted-foreground">Refreshing...</span>
             ) : (
               <>
                 This will <strong>{layerInfo.label.toLowerCase()}</strong> for{" "}
@@ -560,20 +584,20 @@ export default function NotebookDebug() {
 
           {/* Technical details — collapsible */}
           <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
+            onClick={() => setShowDetails(!showDetails)}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             Technical details
-            {showAdvanced ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            {showDetails ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           </button>
 
-          {showAdvanced && (
+          {showDetails && (
             <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
                 { label: "Tables", value: `${runResult.entityCount}${runResult.originalCount !== runResult.entityCount ? ` / ${runResult.originalCount}` : ""}` },
                 { label: "Mode", value: runResult.chunkMode || "auto" },
                 { label: "Source", value: runResult.dataSourceFilter || "all" },
-                { label: "Job ID", value: runResult.jobInstanceId?.slice(0, 12) + "..." },
+                { label: "Job ID", value: runResult.jobInstanceId ? runResult.jobInstanceId.slice(0, 12) + "..." : "—" },
               ].map((item) => (
                 <div key={item.label} className="rounded-lg bg-muted border border-border p-3">
                   <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{item.label}</div>
@@ -639,7 +663,7 @@ export default function NotebookDebug() {
                       <span className="text-xs text-red-600 dark:text-red-400 truncate flex-1">
                         {job.failureReason.message === "Job instance failed without detail error"
                           ? "Notebook execution failed"
-                          : job.failureReason.message?.slice(0, 60)}
+                          : (job.failureReason.message || "Unknown error").slice(0, 60)}
                       </span>
                     )}
 
