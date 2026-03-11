@@ -263,6 +263,57 @@ def init_db():
                 updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );
 
+            -- notebook execution log ---------------------------------------------
+            -- Mirrors logging.NotebookExecution from Fabric SQL.
+            -- Written by pipeline notebooks (NB_FMD_PROCESSING_*, NB_FMD_LOAD_*).
+
+            CREATE TABLE IF NOT EXISTS notebook_executions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                NotebookName    TEXT,
+                PipelineRunGuid TEXT,
+                EntityId        INTEGER,
+                EntityLayer     TEXT,
+                LogType         TEXT,
+                LogDateTime     TEXT,
+                LogData         TEXT,
+                Status          TEXT,
+                StartedAt       TEXT,
+                EndedAt         TEXT,
+                created_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            -- import job tracking ------------------------------------------------
+            -- Persists the state of source import jobs started via
+            -- POST /api/sources/import so they survive server restarts.
+
+            CREATE TABLE IF NOT EXISTS import_jobs (
+                job_id          TEXT PRIMARY KEY,
+                datasource_name TEXT NOT NULL,
+                datasource_id   INTEGER,
+                table_count     INTEGER DEFAULT 0,
+                tables_done     INTEGER DEFAULT 0,
+                phase           TEXT NOT NULL DEFAULT 'registering',
+                progress        INTEGER DEFAULT 0,
+                current_table   TEXT,
+                status          TEXT NOT NULL DEFAULT 'running',
+                started_at      TEXT,
+                finished_at     TEXT,
+                error           TEXT,
+                created_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            -- server display labels ----------------------------------------------
+            -- User-defined friendly names for SQL Server hostnames shown in the
+            -- SQL Explorer (e.g. "m3-db1" -> "MES").  Complements the
+            -- admin_config approach already used by sql_explorer.py.
+
+            CREATE TABLE IF NOT EXISTS server_labels (
+                server      TEXT PRIMARY KEY,
+                label       TEXT NOT NULL,
+                updated_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
             -- indexes ------------------------------------------------------------
 
             CREATE INDEX IF NOT EXISTS idx_lz_datasource   ON lz_entities(DataSourceId);
@@ -278,6 +329,9 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_paudit_run        ON pipeline_audit(PipelineRunGuid);
             CREATE INDEX IF NOT EXISTS idx_caudit_run        ON copy_activity_audit(PipelineRunGuid);
             CREATE INDEX IF NOT EXISTS idx_caudit_entity     ON copy_activity_audit(EntityId);
+            CREATE INDEX IF NOT EXISTS idx_nb_exec_run       ON notebook_executions(PipelineRunGuid);
+            CREATE INDEX IF NOT EXISTS idx_nb_exec_entity    ON notebook_executions(EntityId);
+            CREATE INDEX IF NOT EXISTS idx_import_jobs_status ON import_jobs(status);
         """)
         conn.commit()
     finally:
@@ -956,6 +1010,7 @@ def get_stats() -> dict:
         'entity_status', 'watermarks',
         'pipeline_audit', 'copy_activity_audit',
         'sync_metadata', 'admin_config',
+        'notebook_executions', 'import_jobs', 'server_labels',
     ]
     conn = _get_conn()
     try:
