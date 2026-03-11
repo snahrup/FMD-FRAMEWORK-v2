@@ -11,11 +11,6 @@
         "workspace_data_id": "0596d0e7-e036-451d-a967-41a284302e8d",
         "workspace_code_id": "c0366b24-e6f8-4994-b4df-b765ecb5bbf8"
     },
-    "sql": {
-        "server": "7xuydsw5a3hutnnj5z2ed72tam-sec7pymam6ju3bf4xjcxeuj6lq.database.fabric.microsoft.com,1433",
-        "database": "SQL_INTEGRATION_FRAMEWORK-ed567507-5ec0-48fd-8b46-0782241219d5",
-        "driver": "ODBC Driver 18 for SQL Server"
-    },
     "purview": {
         "account_name": "${PURVIEW_ACCOUNT_NAME}"
     },

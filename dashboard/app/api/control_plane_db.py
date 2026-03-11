@@ -1,8 +1,8 @@
-"""FMD Control Plane DB — SQLite local mirror of Fabric SQL metadata.
+"""FMD Control Plane DB — SQLite single source of truth for FMD metadata.
 
-Replaces the unreliable Fabric SQL Analytics Endpoint as the primary read
-source for the FMD dashboard.  Mirrors integration.*, execution.*, and
-logging.* schemas into a single WAL-mode SQLite file.
+Stores integration.*, execution.*, and logging.* schemas in a single
+WAL-mode SQLite file.  Data is ingested from OneLake Parquet via
+delta_ingest.py.
 """
 
 import sqlite3
@@ -30,7 +30,7 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def _v(val):
-    """Stringify non-None values to match query_sql() behaviour."""
+    """Stringify non-None values so all columns are TEXT (consistent dict rows)."""
     return str(val) if val is not None else None
 
 
@@ -264,7 +264,7 @@ def init_db():
             );
 
             -- notebook execution log ---------------------------------------------
-            -- Mirrors logging.NotebookExecution from Fabric SQL.
+            -- Notebook execution log.
             -- Written by pipeline notebooks (NB_FMD_PROCESSING_*, NB_FMD_LOAD_*).
 
             CREATE TABLE IF NOT EXISTS notebook_executions (
@@ -663,7 +663,7 @@ def insert_copy_activity_audit(row: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Read functions — shapes match what server.py expects from Fabric SQL
+# Read functions — return list[dict] consumed by route handlers
 # ---------------------------------------------------------------------------
 
 def get_connections() -> list[dict]:

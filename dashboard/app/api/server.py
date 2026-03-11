@@ -12,12 +12,8 @@ import logging
 import mimetypes
 import os
 import socketserver
-import struct
 import sys
-import threading
-import time
 import urllib.parse
-import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -91,8 +87,6 @@ logging.basicConfig(
 log = logging.getLogger("fmd-dashboard")
 
 # ── Key config values ──
-SQL_SERVER = CONFIG["sql"]["server"]
-SQL_DATABASE = CONFIG["sql"]["database"]
 PORT = CONFIG["server"]["port"]
 HOST = CONFIG["server"].get("host", "127.0.0.1")
 STATIC_DIR = Path(__file__).parent / CONFIG["server"].get("static_dir", "../dist")
@@ -127,110 +121,6 @@ def _init_control_plane_db():
             log.info("SQLite control plane DB initialized at %s", cpdb.DB_PATH)
         except Exception as exc:
             log.warning("Failed to initialize SQLite control plane DB: %s", exc)
-
-
-# ── Fabric auth + SQL (used by background sync and by some route modules) ──
-
-_token_cache: dict = {}
-_token_lock = threading.Lock()
-
-
-def get_fabric_token(scope: str) -> str:
-    """Get an OAuth2 token from Entra ID, with thread-safe caching."""
-    from datetime import datetime as _dt
-    tenant_id = CONFIG["fabric"]["tenant_id"]
-    client_id = CONFIG["fabric"]["client_id"]
-    client_secret = CONFIG["fabric"]["client_secret"]
-    with _token_lock:
-        cached = _token_cache.get(scope)
-        if cached and cached["expires"] > _dt.now().timestamp():
-            return cached["token"]
-    token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
-    data = urllib.parse.urlencode({
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "scope": scope,
-        "grant_type": "client_credentials",
-    }).encode()
-    req = urllib.request.Request(
-        token_url, data=data,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    resp = urllib.request.urlopen(req)
-    result = json.loads(resp.read())
-    with _token_lock:
-        _token_cache[scope] = {
-            "token": result["access_token"],
-            "expires": _dt.now().timestamp() + result.get("expires_in", 3600) - 60,
-        }
-    log.info("Token refreshed for scope: %s...", scope[:50])
-    return result["access_token"]
-
-
-def get_sql_connection():
-    """Connect to Fabric SQL Database using SP token."""
-    import pyodbc
-    sql_driver = CONFIG["sql"].get("driver", "ODBC Driver 18 for SQL Server")
-    token = get_fabric_token("https://database.windows.net/.default")
-    token_bytes = token.encode("UTF-16-LE")
-    token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
-    conn_str = (
-        f"DRIVER={{{sql_driver}}};"
-        f"SERVER={SQL_SERVER};"
-        f"DATABASE={SQL_DATABASE};"
-        "Encrypt=yes;TrustServerCertificate=no;"
-    )
-    return pyodbc.connect(conn_str, attrs_before={1256: token_struct})
-
-
-def query_sql(sql: str) -> list:
-    """Execute SQL and return list of dicts."""
-    conn = get_sql_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(sql)
-        if not cursor.description:
-            conn.commit()
-            return []
-        cols = [c[0] for c in cursor.description]
-        rows = cursor.fetchall()
-        conn.commit()
-        return [
-            {c: (str(v) if v is not None else None) for c, v in zip(cols, row)}
-            for row in rows
-        ]
-    finally:
-        conn.close()
-
-
-# ── Background sync ──
-_SYNC_INTERVAL_SEC = 1800  # 30 minutes
-
-
-def _start_background_sync():
-    """Start the thread that syncs Fabric SQL → SQLite every 30 minutes."""
-    if not _CPDB_AVAILABLE:
-        log.info("SQLite control plane not available — background sync disabled")
-        return
-
-    from dashboard.app.api.sync import sync_fabric_to_sqlite
-
-    def _sync_loop():
-        time.sleep(5)
-        try:
-            sync_fabric_to_sqlite(query_sql, cpdb)
-        except Exception as exc:
-            log.warning("Initial Fabric→SQLite sync failed: %s", exc)
-        while True:
-            time.sleep(_SYNC_INTERVAL_SEC)
-            try:
-                sync_fabric_to_sqlite(query_sql, cpdb)
-            except Exception as exc:
-                log.warning("Background Fabric→SQLite sync failed: %s", exc)
-
-    t = threading.Thread(target=_sync_loop, daemon=True, name="fabric-sqlite-sync")
-    t.start()
-    log.info("Background sync thread started (interval=%ss)", _SYNC_INTERVAL_SEC)
 
 
 # ── Static file serving ──
@@ -371,16 +261,13 @@ if __name__ == "__main__":
     log.info("=" * 60)
     log.info("  Mode:       %s", mode)
     log.info("  Server:     http://%s:%s", HOST, PORT)
-    log.info("  SQL:        %s...", SQL_SERVER[:40])
-    log.info("  Database:   %s...", SQL_DATABASE[:40])
     if mode == "production":
         log.info("  Static:     %s", STATIC_DIR)
     log.info("  Log file:   %s", log_cfg.get("file", "console only"))
-    log.info("  SQLite:     %s (primary read source)", "ENABLED" if _CPDB_AVAILABLE else "DISABLED")
+    log.info("  SQLite:     %s (single source of truth)", "ENABLED" if _CPDB_AVAILABLE else "DISABLED")
     log.info("=" * 60)
 
     _init_control_plane_db()
-    _start_background_sync()
 
     # Start parquet export background thread
     try:

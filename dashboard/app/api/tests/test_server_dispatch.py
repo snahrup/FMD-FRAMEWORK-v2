@@ -17,11 +17,9 @@ def test_server_do_get_uses_dispatch():
 def test_server_under_420_lines():
     """New server.py must be under 420 lines (down from 9,267).
 
-    The threshold is 420 rather than the original 300 to accommodate the
-    Fabric auth helpers (get_fabric_token / get_sql_connection / query_sql)
-    which the background sync thread requires at module level, plus the
-    parquet export and delta ingest thread startup blocks added in Task 17.
-    All handler logic has been moved to routes/*.py — the server is 96% smaller.
+    After the Fabric SQL purge, the Fabric auth helpers, background sync
+    thread, and SQL connection code have been removed.  server.py is now
+    a thin HTTP shell that delegates to routes/*.py.
     """
     import dashboard.app.api.server as srv
     source = open(srv.__file__).read()
@@ -81,9 +79,13 @@ def test_server_preserves_config_loading():
     assert isinstance(srv.CONFIG, dict), "CONFIG must be a dict"
 
 
-def test_server_preserves_background_sync():
-    """Background sync thread starter must be present."""
+def test_server_no_fabric_sql_remnants():
+    """server.py must not contain Fabric SQL references after the purge."""
     import dashboard.app.api.server as srv
-    assert hasattr(srv, "_start_background_sync"), (
-        "server.py must retain _start_background_sync() for Fabric→SQLite sync"
-    )
+    source = open(srv.__file__).read()
+    assert "get_sql_connection" not in source, "get_sql_connection still in server.py"
+    assert "query_sql" not in source, "query_sql still in server.py"
+    assert "get_fabric_token" not in source, "get_fabric_token still in server.py"
+    assert "SQL_SERVER" not in source, "SQL_SERVER still in server.py"
+    assert "SQL_DATABASE" not in source, "SQL_DATABASE still in server.py"
+    assert "_start_background_sync" not in source, "_start_background_sync still in server.py"
