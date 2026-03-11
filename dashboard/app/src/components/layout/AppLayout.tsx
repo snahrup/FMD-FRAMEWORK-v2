@@ -23,6 +23,7 @@ import {
   Grid3X3,
   Server,
   DatabaseZap,
+  Database,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -76,6 +77,7 @@ const CORE_GROUPS: NavGroup[] = [
       { icon: Wrench, label: "Config Manager", href: "/config" },
       { icon: BookOpen, label: "Notebook Config", href: "/notebook-config" },
       { icon: Server, label: "Environment Setup", href: "/setup" },
+      { icon: Database, label: "Database Explorer", href: "/db-explorer" },
     ],
   },
 ];
