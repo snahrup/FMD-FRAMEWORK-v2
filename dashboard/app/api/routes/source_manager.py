@@ -31,6 +31,15 @@ from dashboard.app.api import db
 
 log = logging.getLogger("fmd.routes.source_manager")
 
+
+def _queue_export(table: str):
+    """Best-effort queue a Parquet export. No-op if pyarrow unavailable."""
+    try:
+        from dashboard.app.api.parquet_sync import queue_export
+        queue_export(table)
+    except (ImportError, Exception):
+        pass
+
 # ---------------------------------------------------------------------------
 # Config helpers (lazy)
 # ---------------------------------------------------------------------------
@@ -207,6 +216,8 @@ def _run_source_import(job: ImportJob, body: dict):
                 except Exception as ex:
                     log.warning("Import: failed to register %s.%s: %s", schema, table, ex)
         job.set_phase("registering", progress=15)
+        if tables:
+            _queue_export("lz_entities")
 
         # Phase 2: optimizing (stub — full analyze requires VPN)
         job.set_phase("optimizing", progress=30)
@@ -376,6 +387,9 @@ def post_sources_purge(params: dict) -> dict:
         db.execute("DELETE FROM lz_entities WHERE LandingzoneEntityId = ?", (lz_id,))
         purged["lz"] += 1
 
+    _queue_export("lz_entities")
+    _queue_export("bronze_entities")
+    _queue_export("silver_entities")
     return {"success": True, "sourceName": source_name, "purged": purged}
 
 
@@ -551,6 +565,8 @@ def post_register_bronze_silver(params: dict) -> dict:
             except Exception as e:
                 log.warning("Silver insert failed for %s: %s", table_name, e)
 
+    _queue_export("bronze_entities")
+    _queue_export("silver_entities")
     return {"success": True, "summary": f"Registered {registered} entities", "registered": registered}
 
 
@@ -665,4 +681,5 @@ def post_load_config(params: dict) -> dict:
             (is_inc, wm_col, eid),
         )
         updated += 1
+    _queue_export("lz_entities")
     return {"success": True, "updated": updated}

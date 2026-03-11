@@ -11,6 +11,15 @@ from dashboard.app.api import db
 
 log = logging.getLogger("fmd.routes.admin")
 
+
+def _queue_export(table: str):
+    """Best-effort queue a Parquet export. No-op if pyarrow unavailable."""
+    try:
+        from dashboard.app.api.parquet_sync import queue_export
+        queue_export(table)
+    except (ImportError, Exception):
+        pass
+
 # Ensure admin_config table exists. control_plane_db.init_db() does not create
 # it, so we create it here on first import. CREATE IF NOT EXISTS is idempotent.
 db.execute("""

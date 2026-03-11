@@ -382,6 +382,20 @@ if __name__ == "__main__":
     _init_control_plane_db()
     _start_background_sync()
 
+    # Start parquet export background thread
+    try:
+        from dashboard.app.api.parquet_sync import start_export_thread
+        start_export_thread()
+    except ImportError:
+        log.warning("parquet_sync not available (pyarrow missing?) — export disabled")
+
+    # Start delta ingest background thread (every 30 minutes)
+    try:
+        from dashboard.app.api.delta_ingest import start_ingest_thread
+        start_ingest_thread(interval_seconds=1800)
+    except ImportError:
+        log.warning("delta_ingest not available — ingest disabled")
+
     server = ThreadedHTTPServer((HOST, PORT), DashboardHandler)
     try:
         server.serve_forever()

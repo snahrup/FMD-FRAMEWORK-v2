@@ -17,6 +17,15 @@ from dashboard.app.api.router import route, HttpError
 
 log = logging.getLogger("fmd.routes.entities")
 
+
+def _queue_export(table: str):
+    """Best-effort queue a Parquet export. No-op if pyarrow unavailable."""
+    try:
+        from dashboard.app.api.parquet_sync import queue_export
+        queue_export(table)
+    except (ImportError, Exception):
+        pass
+
 # ---------------------------------------------------------------------------
 # Constants / helpers
 # ---------------------------------------------------------------------------
@@ -459,6 +468,12 @@ def register_entity(params):
     # Invalidate entity digest cache
     _DIGEST_CACHE.clear()
 
+    _queue_export("lz_entities")
+    if bronze_msg:
+        _queue_export("bronze_entities")
+    if silver_msg:
+        _queue_export("silver_entities")
+
     return {
         "success": True,
         "message": f"Entity {schema}.{source_name} registered (LZ{bronze_msg}{silver_msg})",
@@ -501,6 +516,12 @@ def delete_entity(params):
         msg += f" (+ {', '.join(parts)} cascade)"
 
     _DIGEST_CACHE.clear()
+    _queue_export("lz_entities")
+    if bronze_count:
+        _queue_export("bronze_entities")
+    if silver_count:
+        _queue_export("silver_entities")
+
     return {
         "success": True,
         "message": msg,
@@ -544,6 +565,12 @@ def bulk_delete_entities(params):
     silver_count = len(impact["silver"])
 
     _DIGEST_CACHE.clear()
+    _queue_export("lz_entities")
+    if bronze_count:
+        _queue_export("bronze_entities")
+    if silver_count:
+        _queue_export("silver_entities")
+
     return {
         "success": True,
         "message": (

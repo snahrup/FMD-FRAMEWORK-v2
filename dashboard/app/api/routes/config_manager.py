@@ -24,6 +24,15 @@ from dashboard.app.api import db
 
 log = logging.getLogger("fmd.routes.config_manager")
 
+
+def _queue_export(table: str):
+    """Best-effort queue a Parquet export. No-op if pyarrow unavailable."""
+    try:
+        from dashboard.app.api.parquet_sync import queue_export
+        queue_export(table)
+    except (ImportError, Exception):
+        pass
+
 # ---------------------------------------------------------------------------
 # Path helpers
 # ---------------------------------------------------------------------------
@@ -208,6 +217,7 @@ def post_config_update(params: dict) -> dict:
             db.execute("UPDATE workspaces SET WorkspaceGuid = ? WHERE WorkspaceId = ?", (new_guid, ws_id))
         if new_name:
             db.execute("UPDATE workspaces SET Name = ? WHERE WorkspaceId = ?", (new_name, ws_id))
+        _queue_export("workspaces")
         return {"success": True, "updated": "workspace", "workspaceId": ws_id}
 
     elif target == "lakehouse":
@@ -221,6 +231,7 @@ def post_config_update(params: dict) -> dict:
         if params.get("newName"):
             db.execute("UPDATE lakehouses SET Name = ? WHERE LakehouseId = ?",
                        (params["newName"].strip(), lh_id))
+        _queue_export("lakehouses")
         return {"success": True, "updated": "lakehouse", "lakehouseId": lh_id}
 
     elif target == "connection":
@@ -234,6 +245,7 @@ def post_config_update(params: dict) -> dict:
         if params.get("newName"):
             db.execute("UPDATE connections SET Name = ? WHERE ConnectionId = ?",
                        (params["newName"].strip(), conn_id))
+        _queue_export("connections")
         return {"success": True, "updated": "connection", "connectionId": conn_id}
 
     elif target == "datasource":
@@ -253,6 +265,7 @@ def post_config_update(params: dict) -> dict:
         if params.get("newIsActive") is not None:
             db.execute("UPDATE datasources SET IsActive = ? WHERE DataSourceId = ?",
                        (1 if params["newIsActive"] else 0, ds_id))
+        _queue_export("datasources")
         return {"success": True, "updated": "datasource", "dataSourceId": ds_id}
 
     elif target == "pipeline_db":
@@ -266,6 +279,7 @@ def post_config_update(params: dict) -> dict:
         if params.get("newIsActive") is not None:
             db.execute("UPDATE pipelines SET IsActive = ? WHERE PipelineId = ?",
                        (1 if params["newIsActive"] else 0, p_id))
+        _queue_export("pipelines")
         return {"success": True, "updated": "pipeline_db", "pipelineId": p_id}
 
     elif target == "pipeline_param":
