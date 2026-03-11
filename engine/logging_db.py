@@ -1,20 +1,21 @@
 """
-FMD v3 Engine — Structured JSON logging to SQL audit tables.
+FMD v3 Engine — Structured JSON logging to SQLite audit tables.
 
 Every operation produces a LogEnvelope that gets:
   1. Written to the Python logger (for local troubleshooting)
-  2. Persisted to SQL via stored procedures (for the dashboard)
+  2. Persisted to SQLite via control_plane_db (for the dashboard)
 
-SQL procs used:
+SQLite tables written:
   Run-level:
-    - execution.sp_UpsertEngineRun        — engine-specific run tracking
-    - logging.sp_AuditPipeline            — generic pipeline audit (backward compat)
+    - engine_run         — engine-specific run tracking
+    - pipeline_audit     — generic pipeline audit (backward compat)
 
   Entity-level:
-    - execution.sp_InsertEngineTaskLog    — engine-specific task log (rich detail)
-    - logging.sp_AuditCopyActivity        — generic copy audit (backward compat)
-    - execution.sp_UpsertPipelineLandingzoneEntity — mark entity as loaded
-    - execution.sp_UpsertEntityStatus     — update entity digest for dashboard
+    - engine_task_log    — engine-specific task log (rich detail)
+    - copy_activity_audit — generic copy audit (backward compat)
+    - pipeline_lz_entity — mark entity as loaded
+    - entity_status      — update entity digest for dashboard
+    - watermark          — incremental load watermark tracking
 """
 
 import logging
@@ -22,7 +23,6 @@ import traceback
 from datetime import datetime
 from typing import Optional, List
 
-from engine.connections import MetadataDB
 from engine.models import Entity, RunResult, LogEnvelope
 
 log = logging.getLogger("fmd.logging_db")
@@ -45,26 +45,25 @@ def _get_cpdb():
         from dashboard.app.api import control_plane_db
         _cpdb = control_plane_db
     except Exception as exc:
-        log.debug("control_plane_db not available (SQLite dual-write disabled): %s", exc)
+        log.debug("control_plane_db not available (SQLite writes disabled): %s", exc)
         _cpdb = None
     _cpdb_loaded = True
     return _cpdb
 
 
 class AuditLogger:
-    """Writes structured audit records to both Python logger and SQL.
+    """Writes structured audit records to Python logger and SQLite.
 
     Usage::
 
-        audit = AuditLogger(metadata_db)
+        audit = AuditLogger()
         audit.log_run_start(run_id, mode, entity_count, layers, triggered_by)
         audit.log_entity_result(run_id, entity, result)
         audit.log_run_end(run_id, results)
     """
 
-    def __init__(self, db: MetadataDB, local_db=None):
-        self._db = db
-        self._local_db = local_db
+    def __init__(self):
+        pass
 
     # ------------------------------------------------------------------
     # Run-level logging
@@ -265,15 +264,10 @@ class AuditLogger:
     ) -> None:
         """Mark an entity as loaded in the execution tracking tables.
 
-        Dual-write: SQLite (primary) then Fabric SQL (secondary/best-effort).
-
-        Calls:
-          - execution.sp_UpsertPipelineLandingzoneEntity (marks as loaded, IsProcessed=False)
-          - execution.sp_UpsertEntityStatus (updates digest for dashboard)
+        Writes to SQLite only via control_plane_db.
         """
         now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # --- SQLite (PRIMARY) ---
         cpdb = _get_cpdb()
         if cpdb:
             try:
@@ -305,41 +299,6 @@ class AuditLogger:
                     entity.id, exc,
                 )
 
-        # --- Fabric SQL (SECONDARY — best-effort) ---
-        try:
-            self._db.execute_proc(
-                "[execution].[sp_UpsertPipelineLandingzoneEntity]",
-                {
-                    "LandingzoneEntityId": entity.id,
-                    "Filename": file_name,
-                    "FilePath": file_path,
-                    "IsProcessed": 0,
-                },
-            )
-        except Exception as exc:
-            log.warning(
-                "Fabric SQL: Failed to mark entity %d as loaded (sp_UpsertPipelineLandingzoneEntity): %s",
-                entity.id, exc,
-            )
-
-        try:
-            self._db.execute_proc(
-                "[execution].[sp_UpsertEntityStatus]",
-                {
-                    "LandingzoneEntityId": entity.id,
-                    "Layer": "LandingZone",
-                    "Status": "Succeeded",
-                    "LoadEndDateTime": datetime.utcnow(),
-                    "ErrorMessage": "",
-                    "UpdatedBy": "FMD_ENGINE_V3",
-                },
-            )
-        except Exception as exc:
-            log.warning(
-                "Fabric SQL: Failed to update entity digest for entity %d: %s",
-                entity.id, exc,
-            )
-
     def update_watermark(
         self,
         entity: Entity,
@@ -347,15 +306,13 @@ class AuditLogger:
     ) -> None:
         """Update the watermark tracking table for incremental loads.
 
-        Dual-write: SQLite (primary) then Fabric SQL (secondary).
-        Writes to execution.LandingzoneEntityLastLoadValue.
+        Writes to SQLite only via control_plane_db.
         """
         if not new_value or new_value == entity.last_load_value:
             return
 
         now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # --- SQLite (PRIMARY) ---
         cpdb = _get_cpdb()
         if cpdb:
             try:
@@ -364,28 +321,6 @@ class AuditLogger:
                 log.warning(
                     "SQLite: Failed to update watermark for entity %d: %s", entity.id, exc,
                 )
-
-        # --- Fabric SQL (SECONDARY — best-effort) ---
-        try:
-            sql = """
-                MERGE [execution].[LandingzoneEntityLastLoadValue] AS target
-                USING (SELECT ? AS LandingzoneEntityId, ? AS LoadValue) AS source
-                ON target.LandingzoneEntityId = source.LandingzoneEntityId
-                WHEN MATCHED THEN
-                    UPDATE SET LoadValue = source.LoadValue, LastLoadDatetime = GETUTCDATE()
-                WHEN NOT MATCHED THEN
-                    INSERT (LandingzoneEntityId, LoadValue, LastLoadDatetime)
-                    VALUES (source.LandingzoneEntityId, source.LoadValue, GETUTCDATE());
-            """
-            self._db.execute(sql, (entity.id, new_value))
-            log.debug(
-                "Watermark updated for entity %d: %s -> %s",
-                entity.id, entity.last_load_value, new_value,
-            )
-        except Exception as exc:
-            log.warning(
-                "Fabric SQL: Failed to update watermark for entity %d: %s", entity.id, exc,
-            )
 
     # ------------------------------------------------------------------
     # SQL writers
@@ -398,10 +333,9 @@ class AuditLogger:
         status: str,
         message: str,
     ) -> None:
-        """Dual-write to SQLite (primary) + logging.sp_AuditPipeline (secondary)."""
+        """Write pipeline audit record to SQLite."""
         now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # --- SQLite (PRIMARY) ---
         cpdb = _get_cpdb()
         if cpdb:
             try:
@@ -418,29 +352,6 @@ class AuditLogger:
             except Exception as exc:
                 log.warning("SQLite: Failed to write pipeline audit: %s", exc)
 
-        # --- Fabric SQL (SECONDARY — best-effort) ---
-        try:
-            self._db.execute_proc(
-                "[logging].[sp_AuditPipeline]",
-                {
-                    "PipelineGuid": "00000000-0000-0000-0000-000000000000",
-                    "PipelineName": pipeline_name,
-                    "PipelineRunGuid": run_id,
-                    "PipelineParentRunGuid": run_id,
-                    "PipelineParameters": "",
-                    "TriggerType": "Engine",
-                    "TriggerGuid": "00000000-0000-0000-0000-000000000000",
-                    "TriggerTime": datetime.utcnow(),
-                    "LogData": message[:8000],
-                    "LogType": status,
-                    "WorkspaceGuid": "00000000-0000-0000-0000-000000000000",
-                    "EntityId": 0,
-                    "EntityLayer": "all",
-                },
-            )
-        except Exception as exc:
-            log.warning("Fabric SQL: Failed to write pipeline audit: %s", exc)
-
     def _write_copy_audit(
         self,
         run_id: str,
@@ -452,11 +363,10 @@ class AuditLogger:
         duration_seconds: float,
         message: str,
     ) -> None:
-        """Dual-write to SQLite (primary) + logging.sp_AuditCopyActivity (secondary)."""
+        """Write copy activity audit record to SQLite."""
         now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         params_str = f"rows={rows_read},bytes={bytes_transferred},dur={duration_seconds}s"
 
-        # --- SQLite (PRIMARY) ---
         cpdb = _get_cpdb()
         if cpdb:
             try:
@@ -473,29 +383,6 @@ class AuditLogger:
                 })
             except Exception as exc:
                 log.warning("SQLite: Failed to write copy audit for entity %d: %s", entity_id, exc)
-
-        # --- Fabric SQL (SECONDARY — best-effort) ---
-        try:
-            self._db.execute_proc(
-                "[logging].[sp_AuditCopyActivity]",
-                {
-                    "PipelineGuid": "00000000-0000-0000-0000-000000000000",
-                    "CopyActivityName": f"Engine_Entity_{entity_id}",
-                    "PipelineRunGuid": run_id,
-                    "PipelineParentRunGuid": run_id,
-                    "CopyActivityParameters": params_str,
-                    "TriggerType": "Engine",
-                    "TriggerGuid": "00000000-0000-0000-0000-000000000000",
-                    "TriggerTime": datetime.utcnow(),
-                    "LogData": message[:8000],
-                    "LogType": status,
-                    "WorkspaceGuid": "00000000-0000-0000-0000-000000000000",
-                    "EntityId": entity_id,
-                    "EntityLayer": "LandingZone",
-                },
-            )
-        except Exception as exc:
-            log.warning("Fabric SQL: Failed to write copy audit for entity %d: %s", entity_id, exc)
 
     def _write_engine_run(
         self,
@@ -515,10 +402,9 @@ class AuditLogger:
         triggered_by: str = "",
         error_summary: Optional[str] = None,
     ) -> None:
-        """Dual-write to SQLite (primary) + execution.sp_UpsertEngineRun (secondary)."""
+        """Write engine run record to SQLite."""
         now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # --- SQLite (PRIMARY) ---
         cpdb = _get_cpdb()
         if cpdb:
             try:
@@ -548,31 +434,6 @@ class AuditLogger:
             except Exception as exc:
                 log.warning("SQLite: Failed to write engine run: %s", exc)
 
-        # --- Fabric SQL (SECONDARY — best-effort) ---
-        try:
-            self._db.execute_proc(
-                "[execution].[sp_UpsertEngineRun]",
-                {
-                    "RunId": run_id,
-                    "Mode": mode or "",
-                    "Status": status,
-                    "TotalEntities": total_entities,
-                    "SucceededEntities": succeeded_entities,
-                    "FailedEntities": failed_entities,
-                    "SkippedEntities": skipped_entities,
-                    "TotalRowsRead": total_rows_read,
-                    "TotalRowsWritten": total_rows_written,
-                    "TotalBytesTransferred": total_bytes,
-                    "TotalDurationSeconds": total_duration,
-                    "Layers": layers or "",
-                    "EntityFilter": entity_filter or "",
-                    "TriggeredBy": triggered_by or "",
-                    "ErrorSummary": error_summary or "",
-                },
-            )
-        except Exception as exc:
-            log.warning("Fabric SQL: Failed to write engine run: %s", exc)
-
     @staticmethod
     def _classify_error(error: Optional[str]) -> str:
         """Classify an error message into a category."""
@@ -598,7 +459,7 @@ class AuditLogger:
         result: RunResult,
         log_data: str = "",
     ) -> None:
-        """Dual-write to SQLite (primary) + execution.sp_InsertEngineTaskLog (secondary)."""
+        """Write engine task log record to SQLite."""
         load_type = "incremental" if entity.is_incremental and entity.last_load_value else "full"
         error_type = self._classify_error(result.error)
 
@@ -628,19 +489,9 @@ class AuditLogger:
             "LogData": log_data[:8000],
         }
 
-        # --- SQLite (PRIMARY) ---
         cpdb = _get_cpdb()
         if cpdb:
             try:
                 cpdb.insert_engine_task_log(task_row)
             except Exception as exc:
                 log.warning("SQLite: Failed to write engine task log for entity %d: %s", entity.id, exc)
-
-        # --- Fabric SQL (SECONDARY — best-effort) ---
-        try:
-            self._db.execute_proc(
-                "[execution].[sp_InsertEngineTaskLog]",
-                task_row,
-            )
-        except Exception as exc:
-            log.warning("Fabric SQL: Failed to write engine task log for entity %d: %s", entity.id, exc)

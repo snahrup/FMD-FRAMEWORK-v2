@@ -120,18 +120,7 @@ class LoadOrchestrator:
         self._source_conn = SourceConnection(config)
         self._extractor = DataExtractor(config, self._source_conn)
         self._loader = OneLakeLoader(config, self._tokens)
-        # Local SQLite control plane for dual-write (primary local, secondary Fabric SQL)
-        _local_db = None
-        try:
-            import importlib
-            _cpdb = importlib.import_module("dashboard.app.api.control_plane_db")
-            _cpdb.init_db()
-            _local_db = _cpdb
-            log.info("Local control plane DB connected for dual-write")
-        except Exception as _exc:
-            log.warning("Local control plane DB unavailable (dashboard-only writes): %s", _exc)
-
-        self._audit = AuditLogger(self._metadata_db, local_db=_local_db)
+        self._audit = AuditLogger()
         self._notebooks = NotebookTrigger(config, self._tokens)
         self._pipeline_runner = FabricPipelineRunner(config, self._tokens)
         self._load_method = config.load_method          # "notebook" | "pipeline" | "local"
