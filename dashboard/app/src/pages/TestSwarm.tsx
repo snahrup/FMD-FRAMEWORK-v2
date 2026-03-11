@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { RefreshCw, History } from "lucide-react";
 import KPIRow from "@/components/test-swarm/KPIRow";
@@ -49,12 +49,9 @@ interface IterationData {
   tests?: Array<{ name: string; status: "passed" | "failed" | "skipped" | "error"; duration?: number; error?: string; file?: string }>;
 }
 
-function formatTime(ms: number): string {
-  return new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
 function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
+  if (!Number.isFinite(ms) || ms < 0) return "0ms";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
   const secs = Math.floor(ms / 1000);
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
@@ -72,13 +69,22 @@ export default function TestSwarm() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Ref to read selectedRunId inside fetchRuns without adding it as a dependency.
+  // This prevents the interval from being torn down and recreated every time the
+  // user picks a different run.
+  const selectedRunIdRef = useRef(selectedRunId);
+  selectedRunIdRef.current = selectedRunId;
+
+  // Version counter to discard stale iteration fetches after a run switch
+  const runVersionRef = useRef(0);
+
   const fetchRuns = useCallback(async () => {
     try {
       const res = await fetch(`${API}/test-swarm/runs`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: RunListEntry[] = await res.json();
       setRuns(data);
-      if (data.length > 0 && !selectedRunId) {
+      if (data.length > 0 && !selectedRunIdRef.current) {
         setSelectedRunId(data[0].runId);
       }
       setError(null);
@@ -87,7 +93,7 @@ export default function TestSwarm() {
     } finally {
       setLoading(false);
     }
-  }, [selectedRunId]);
+  }, []);
 
   const fetchRunDetail = useCallback(async (runId: string) => {
     try {
@@ -103,11 +109,13 @@ export default function TestSwarm() {
     }
   }, []);
 
-  const fetchIteration = useCallback(async (runId: string, n: number) => {
+  const fetchIteration = useCallback(async (runId: string, n: number, version: number) => {
     try {
       const res = await fetch(`${API}/test-swarm/runs/${runId}/iteration/${n}`);
       if (!res.ok) return;
       const data: IterationData = await res.json();
+      // Discard if the user has already switched to a different run
+      if (version !== runVersionRef.current) return;
       setIterations(prev => new Map(prev).set(n, data));
     } catch {
       // Best effort
@@ -122,6 +130,9 @@ export default function TestSwarm() {
 
   useEffect(() => {
     if (selectedRunId) {
+      // Bump version so in-flight iteration fetches from the previous run are discarded
+      const version = ++runVersionRef.current;
+
       fetchRunDetail(selectedRunId);
       setIterations(new Map());
       setSelectedIteration(null);
@@ -129,17 +140,21 @@ export default function TestSwarm() {
 
       // Eagerly load all iterations for heatmap (up to 10)
       const run = runs.find(r => r.runId === selectedRunId);
-      const iterCount = run?.summary?.iterations || 0;
+      const iterCount = run?.summary?.iterations ?? 0;
       for (let i = 1; i <= Math.min(iterCount, 10); i++) {
-        fetchIteration(selectedRunId, i);
+        fetchIteration(selectedRunId, i, version);
       }
     }
-  }, [selectedRunId, fetchRunDetail, runs, fetchIteration]);
+  // Only re-run when selectedRunId actually changes. `runs` is intentionally
+  // excluded — the eager iteration fetch uses the runs snapshot at selection
+  // time; including it would reset detail state on every 10s poll.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRunId, fetchRunDetail, fetchIteration]);
 
   useEffect(() => {
     if (selectedRunId && selectedIteration != null) {
       if (!iterations.has(selectedIteration)) {
-        fetchIteration(selectedRunId, selectedIteration);
+        fetchIteration(selectedRunId, selectedIteration, runVersionRef.current);
       }
     }
   }, [selectedRunId, selectedIteration, fetchIteration, iterations]);
@@ -148,13 +163,14 @@ export default function TestSwarm() {
   const summary = selectedRun?.summary;
 
   // Build timeline nodes from convergence data
+  const lastIteration = convergence.length > 0 ? convergence[convergence.length - 1].iteration : -1;
   const timelineNodes: TimelineNode[] = convergence.map(c => ({
     iteration: c.iteration,
     passed: c.passed,
     total: c.passed + c.failed,
     failed: c.failed,
     delta: c.delta,
-    active: summary?.status === "in_progress" && c.iteration === convergence.length - 1,
+    active: summary?.status === "in_progress" && c.iteration === lastIteration,
   }));
 
   // Calculate lines changed from loaded iterations

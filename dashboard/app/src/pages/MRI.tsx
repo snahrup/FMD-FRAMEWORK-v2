@@ -3,14 +3,14 @@
  * Unified dashboard: visual testing, backend API testing, AI analysis, and swarm fix loop.
  * 5-tab layout: Overview | Visual | Backend | Swarm | History
  */
-import { useState, lazy, Suspense } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Play, RefreshCw, Eye, Globe, Bug, History,
   LayoutGrid, Activity, Loader2, BrainCircuit,
-  CheckCircle2, XCircle, Camera, Zap,
+  XCircle, Camera, Zap,
 } from "lucide-react";
 import { useMRI } from "@/hooks/useMRI";
 import UnifiedKPIRow from "@/components/mri/UnifiedKPIRow";
@@ -37,8 +37,10 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
 ];
 
 function formatElapsed(s: number): string {
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
+  if (!Number.isFinite(s) || s < 0) return "0s";
+  const clamped = Math.floor(s);
+  const m = Math.floor(clamped / 60);
+  const sec = clamped % 60;
   return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
 }
 
@@ -70,6 +72,18 @@ export default function MRI() {
   const latestSummary = mri.runs[0]?.summary ?? null;
   const phase = getScanPhase(mri.scanElapsed);
   const PhaseIcon = phase.icon;
+
+  // Keep selectedDiff in sync with refreshed visualDiffs data
+  useEffect(() => {
+    if (selectedDiff && mri.visualDiffs.length > 0) {
+      const fresh = mri.visualDiffs.find(d => d.testName === selectedDiff.testName);
+      if (fresh && fresh !== selectedDiff) {
+        setSelectedDiff(fresh);
+      } else if (!fresh) {
+        setSelectedDiff(null);
+      }
+    }
+  }, [mri.visualDiffs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-6">

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -6,14 +6,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { KpiCard, KpiRow } from "@/components/ui/kpi-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { LayerBadge } from "@/components/ui/layer-badge";
-import { CertificationBadge } from "@/components/ui/sensitivity-badge";
 import { formatRowCount, formatTimestamp, formatPercent } from "@/lib/formatters";
 import { getSourceColor } from "@/lib/layers";
 import { resolveSourceLabel } from "@/hooks/useSourceConfig";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
 import {
   BookOpen, Search, Database, Table2, HardDrive, Sparkles,
-  ArrowUpDown, Columns3,
+  ArrowUpDown, Columns3, AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -168,7 +167,7 @@ function EntityDetailModal({ entity, open, onClose }: { entity: DigestEntity | n
                     {entity.lastError && (
                       <div className="p-2.5 rounded-lg bg-red-500/5 border border-red-500/20">
                         <span className="text-red-400 font-medium text-[10px] uppercase">Last Error</span>
-                        <p className="font-mono text-red-300/80 mt-1 text-[11px] break-all">{entity.lastError.message}</p>
+                        <p className="font-mono text-red-300/80 mt-1 text-[11px] break-all">{typeof entity.lastError === "string" ? entity.lastError : entity.lastError.message ?? "Unknown error"}</p>
                       </div>
                     )}
                   </div>
@@ -218,7 +217,10 @@ function EntityDetailModal({ entity, open, onClose }: { entity: DigestEntity | n
 // ── Main Page ──
 
 export default function DataCatalog() {
-  const { allEntities, loading } = useEntityDigest();
+  const { allEntities, loading, error } = useEntityDigest();
+  const hasLoadedOnce = useRef(false);
+  if (!loading && allEntities.length > 0) hasLoadedOnce.current = true;
+  const showSkeleton = loading && !hasLoadedOnce.current;
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<"name" | "source">("name");
@@ -298,9 +300,22 @@ export default function DataCatalog() {
         </div>
       </div>
 
+      {/* Error state */}
+      {error && !hasLoadedOnce.current && (
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="p-6 flex items-center gap-3">
+            <AlertCircle className="h-5 w-5 text-red-400 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-red-400">Failed to load entity digest</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Entity Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {loading ? (
+        {showSkeleton ? (
           Array.from({ length: 6 }).map((_, i) => (
             <Card key={i} className="animate-pulse">
               <CardContent className="p-4 h-24" />

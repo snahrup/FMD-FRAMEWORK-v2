@@ -1,46 +1,19 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { LayerBadge } from "@/components/ui/layer-badge";
 import { KpiCard, KpiRow } from "@/components/ui/kpi-card";
 import { formatTimestamp, formatRowCount } from "@/lib/formatters";
-import { LAYERS, LAYER_MAP, getSourceColor } from "@/lib/layers";
+import { LAYER_MAP, getSourceColor } from "@/lib/layers";
 import { resolveSourceLabel } from "@/hooks/useSourceConfig";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
 import {
-  GitBranch, Search, ChevronRight, ChevronDown, Database, HardDrive,
-  Table2, Sparkles, Crown, ArrowRight, Columns3, Filter, X, Maximize2,
+  GitBranch, Search, Database, HardDrive,
+  Table2, Sparkles, Crown, ArrowRight, Columns3, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { MedallionLayer, LineageRelationshipType } from "@/types/governance";
-
-// ── Types ──
-
-interface LayerColumn {
-  name: string;
-  dataType: string;
-  isSystemColumn: boolean;
-  isPrimaryKey: boolean;
-}
-
-interface EntityLineage {
-  entityId: number;
-  name: string;
-  schema: string;
-  dataSource: string;
-  sourceServer?: string;
-  sourceDatabase?: string;
-  layers: {
-    layer: MedallionLayer;
-    entityId: number;
-    status: string;
-    lastLoaded?: string;
-    rowCount?: number;
-    columns: LayerColumn[];
-  }[];
-}
+import type { MedallionLayer } from "@/types/governance";
 
 // ── Column Lineage Row ──
 
@@ -87,29 +60,59 @@ function ColumnLineageRow({ col, layers }: { col: string; layers: MedallionLayer
 
 // ── Entity Lineage Detail Panel ──
 
-function EntityLineageDetail({ entity, digest, onClose }: { entity: DigestEntity; digest: DigestEntity[]; onClose: () => void }) {
+function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClose: () => void }) {
   const [columnView, setColumnView] = useState(false);
   const [columns, setColumns] = useState<{ layer: string; columns: string[] }[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const loadColumns = useCallback(async () => {
+    // Abort any in-flight request before starting a new one
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
+    setFetchError(null);
     try {
-      const res = await fetch(`/api/microscope/${entity.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        // Extract column names from microscope data
-        const layerCols: { layer: string; columns: string[] }[] = [];
-        for (const layer of ["source", "landing", "bronze", "silver"]) {
-          if (data[layer]?.columns) {
-            layerCols.push({ layer, columns: data[layer].columns.map((c: { name: string }) => c.name) });
-          }
+      const res = await fetch(`/api/microscope/${entity.id}`, { signal: controller.signal });
+      if (!res.ok) {
+        setFetchError(`API returned ${res.status}`);
+        setLoading(false);
+        return;
+      }
+      let data: Record<string, { columns?: { name: string }[] }>;
+      try {
+        data = await res.json();
+      } catch {
+        setFetchError("Invalid JSON response");
+        setLoading(false);
+        return;
+      }
+      // Extract column names from microscope data
+      const layerCols: { layer: string; columns: string[] }[] = [];
+      for (const layer of ["source", "landing", "bronze", "silver"]) {
+        if (data[layer]?.columns) {
+          layerCols.push({ layer, columns: data[layer].columns.map((c) => c.name) });
         }
+      }
+      if (!controller.signal.aborted) {
         setColumns(layerCols);
       }
-    } catch { /* */ }
-    setLoading(false);
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      setFetchError("Failed to load column data");
+    }
+    if (!controller.signal.aborted) {
+      setLoading(false);
+    }
   }, [entity.id]);
+
+  // Cleanup abort controller on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   useEffect(() => {
     if (columnView && columns.length === 0) loadColumns();
@@ -142,7 +145,7 @@ function EntityLineageDetail({ entity, digest, onClose }: { entity: DigestEntity
           <div>
             <CardTitle className="text-base font-display">{entity.sourceSchema}.{entity.tableName}</CardTitle>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              {resolveSourceLabel(entity.source)} · {entity.connection?.server}/{entity.connection?.database}
+              {resolveSourceLabel(entity.source)}{entity.connection ? ` · ${entity.connection.server}/${entity.connection.database}` : ""}
             </p>
           </div>
           <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0"><X className="h-4 w-4" /></Button>
@@ -208,6 +211,8 @@ function EntityLineageDetail({ entity, digest, onClose }: { entity: DigestEntity
           <div>
             {loading ? (
               <div className="text-center py-8 text-muted-foreground text-sm">Loading column data...</div>
+            ) : fetchError ? (
+              <div className="text-center py-8 text-sm text-destructive">{fetchError}</div>
             ) : allColumns.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground text-sm">No column data available. Run a load first to capture schema.</div>
             ) : (
@@ -392,7 +397,6 @@ export default function DataLineage() {
         {selectedEntity && (
           <EntityLineageDetail
             entity={selectedEntity}
-            digest={allEntities}
             onClose={() => setSelectedEntity(null)}
           />
         )}

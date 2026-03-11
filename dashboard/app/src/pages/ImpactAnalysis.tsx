@@ -11,7 +11,7 @@ import { resolveSourceLabel } from "@/hooks/useSourceConfig";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
 import {
   Zap, Search, ArrowRight,
-  AlertTriangle, GitBranch, Database, Table2, Sparkles,
+  AlertTriangle, GitBranch, Database, Sparkles,
   Download, HardDrive, Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -98,8 +98,13 @@ function ImpactChain({ result }: { result: ImpactResult }) {
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               A schema or data change to <span className="font-mono">{result.origin.sourceSchema}.{result.origin.tableName}</span> in
-              <span style={{ color: getSourceColor(resolveSourceLabel(result.origin.source)) }}> {resolveSourceLabel(result.origin.source)}</span> would
-              propagate through {result.impactedLayers.filter((l) => l.isActive && l.layer !== "source").map((l) => LAYER_MAP[l.layer]?.label).join(" → ")}.
+              <span style={{ color: getSourceColor(resolveSourceLabel(result.origin.source)) }}> {resolveSourceLabel(result.origin.source)}</span>
+              {(() => {
+                const activeLayers = result.impactedLayers.filter((l) => l.isActive && l.layer !== "source").map((l) => LAYER_MAP[l.layer]?.label).filter(Boolean);
+                return activeLayers.length > 0
+                  ? <> would propagate through {activeLayers.join(" \u2192 ")}.</>
+                  : <> has no active downstream layers yet.</>;
+              })()}
               {result.origin.silverStatus === "loaded" && " All downstream SCD2 records in Silver would need reprocessing."}
             </p>
           </div>
@@ -163,7 +168,6 @@ export default function ImpactAnalysis() {
   const fullChain = allEntities.filter((e) => e.lzStatus === "loaded" && e.bronzeStatus === "loaded" && e.silverStatus === "loaded").length;
   const partialChain = allEntities.filter((e) => e.lzStatus === "loaded" && (e.bronzeStatus !== "loaded" || e.silverStatus !== "loaded")).length;
   const notStarted = allEntities.filter((e) => !e.lzStatus || e.lzStatus === "not_started").length;
-  const withErrors = allEntities.filter((e) => e.lastError).length;
 
   // Source breakdown
   const sourceBreakdown = useMemo(() => {
@@ -384,8 +388,8 @@ export default function ImpactAnalysis() {
                       onClick={() => handleSelect(e)}
                     >
                       <div className="min-w-0">
-                        <p className="font-mono text-xs truncate">{e.tableName}</p>
-                        <p className="text-[10px] text-muted-foreground truncate">{e.sourceSchema}</p>
+                        <span className="block font-mono text-xs truncate">{e.tableName}</span>
+                        <span className="block text-[10px] text-muted-foreground truncate">{e.sourceSchema}</span>
                       </div>
                       <div className="flex items-center gap-2 ml-2 shrink-0">
                         {e.lastError && <StatusBadge status="error" size="sm" />}

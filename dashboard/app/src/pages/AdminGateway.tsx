@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Lock,
   Eye,
@@ -71,12 +71,25 @@ function PageVisibilityTab({ password }: { password: string }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
-    getHiddenPages().then((pages) => {
-      setHiddenPages(pages);
-      setLoading(false);
-    });
+    mountedRef.current = true;
+    getHiddenPages()
+      .then((pages) => {
+        if (mountedRef.current) {
+          setHiddenPages(pages);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current) setLoading(false);
+      });
+    return () => {
+      mountedRef.current = false;
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    };
   }, []);
 
   const toggle = useCallback((href: string) => {
@@ -87,18 +100,23 @@ function PageVisibilityTab({ password }: { password: string }) {
   }, []);
 
   const save = useCallback(async () => {
+    if (saving) return;
     setSaving(true);
     setError(null);
     try {
       await updateHiddenPages(hiddenPages, password);
+      if (!mountedRef.current) return;
       setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      savedTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) setSaved(false);
+      }, 3000);
     } catch (e: any) {
+      if (!mountedRef.current) return;
       setError(e.message || "Failed to save");
     } finally {
-      setSaving(false);
+      if (mountedRef.current) setSaving(false);
     }
-  }, [hiddenPages, password]);
+  }, [hiddenPages, password, saving]);
 
   if (loading) {
     return (
@@ -195,20 +213,29 @@ function EnvironmentTab() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const resp = await fetch(`${API}/setup/current-config`);
         if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
-        const data = await resp.json();
+        let data: any;
+        try {
+          data = await resp.json();
+        } catch {
+          throw new Error("Server returned non-JSON response");
+        }
+        if (cancelled) return;
         if (data.config) {
           setConfig({ ...EMPTY_CONFIG, ...data.config });
         }
       } catch (ex) {
+        if (cancelled) return;
         setLoadError(ex instanceof Error ? ex.message : String(ex));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) {
@@ -351,10 +378,10 @@ export default function AdminGateway() {
         </nav>
       </div>
 
-      {/* Tab content */}
+      {/* Tab content — keep data-fetching tabs mounted to prevent loading flash on re-visit */}
       <div className="flex-1 min-w-0 overflow-y-auto">
-        {activeTab === "environment" && <EnvironmentTab />}
-        {activeTab === "pages" && <PageVisibilityTab password={password} />}
+        <div className={activeTab === "environment" ? "" : "hidden"}><EnvironmentTab /></div>
+        <div className={activeTab === "pages" ? "" : "hidden"}><PageVisibilityTab password={password} /></div>
         {activeTab === "general" && <GeneralTab />}
         {activeTab === "deployment" && <DeploymentManager />}
         {activeTab === "governance" && <AdminGovernance />}
