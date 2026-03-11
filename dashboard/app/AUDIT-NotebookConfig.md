@@ -28,6 +28,18 @@ Audited: 2026-03-11
    - Problem: `doUpdate` called `postJson` which throws on non-2xx responses. The thrown error would propagate as an unhandled rejection (the `handleSave` caller had no catch at the time, and even after fix #2 the error message was lost).
    - Fix: Wrapped `doUpdate` body in try/catch; network errors are now logged to the update log.
 
+7. **MEDIUM -- EditableValue draft not synced on external data refresh**
+   - Problem: `draft` is initialized via `useState(value)` which only runs on mount. If the parent re-fetches data (e.g., after `doUpdate` calls `load()`), the `value` prop changes but `draft` stays stale. Re-entering edit mode shows the old value.
+   - Fix: Added `useEffect` that syncs `draft` with `value` when `editing` is false.
+
+8. **MEDIUM -- Non-null assertions on trigger response fields**
+   - Problem: After `POST /api/notebook/trigger`, `res.workspaceId!` and `res.notebookId!` (line 414-416) crash if the backend returns success without these fields.
+   - Fix: Added explicit guard: `if (res.error || !res.workspaceId || !res.notebookId)` before accessing fields. Falls to error path with descriptive message.
+
+9. **MEDIUM -- `load()` anti-flash not fully applied**
+   - Problem: `hasLoadedOnce` ref existed but `load()` set `setLoading(true)` unconditionally. After `doUpdate` triggered `load()`, the loading state could flash.
+   - Fix: Changed to `if (!hasLoadedOnce.current) setLoading(true)` — only first load shows spinner.
+
 ## Backend Issues
 
 1. **LOW — `update_notebook_config` has no try/catch around file I/O** (`server.py:5814`)

@@ -174,6 +174,11 @@ function EditableValue({
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState(false);
 
+  // Sync draft with prop when not actively editing
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
   const handleSave = async () => {
     if (draft === value) {
       setEditing(false);
@@ -305,7 +310,7 @@ export default function NotebookConfig() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedOnce.current) setLoading(true);
     setError(null);
     try {
       const result = await fetchJson<NotebookConfigData>("/notebook-config");
@@ -406,14 +411,14 @@ export default function NotebookConfig() {
         workspaceId?: string;
         error?: string;
       }>("/notebook/trigger", {});
-      if (res.error) {
+      if (res.error || !res.workspaceId || !res.notebookId) {
         setDeployPhase("failed");
-        setDeployError(res.error);
+        setDeployError(res.error || "Missing workspaceId or notebookId in response");
         return;
       }
-      setNotebookInfo({ workspaceId: res.workspaceId!, notebookId: res.notebookId! });
+      setNotebookInfo({ workspaceId: res.workspaceId, notebookId: res.notebookId });
       setDeployPhase("running");
-      startPolling(res.workspaceId!, res.notebookId!);
+      startPolling(res.workspaceId, res.notebookId);
     } catch (e) {
       setDeployPhase("failed");
       setDeployError(e instanceof Error ? e.message : "Failed to trigger notebook");
