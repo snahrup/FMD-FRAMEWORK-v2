@@ -313,7 +313,7 @@ function EditableCell({ value, onSave }: { value: string; onSave: (v: string) =>
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             setSaving(true);
-            onSave(draft).then(() => { setEditing(false); setSaving(false); });
+            onSave(draft).then(() => { setEditing(false); }).catch(() => {}).finally(() => setSaving(false));
           }
           if (e.key === "Escape") setEditing(false);
         }}
@@ -322,7 +322,7 @@ function EditableCell({ value, onSave }: { value: string; onSave: (v: string) =>
         disabled={saving}
         onClick={() => {
           setSaving(true);
-          onSave(draft).then(() => { setEditing(false); setSaving(false); });
+          onSave(draft).then(() => { setEditing(false); }).catch(() => {}).finally(() => setSaving(false));
         }}
         className="p-1 hover:bg-emerald-900/50 rounded"
       >
@@ -492,7 +492,7 @@ function CascadeModal({
   onSkip: () => void;
 }) {
   const [selected, setSelected] = useState<Set<number>>(
-    () => new Set(prompt.references.filter((r) => r.target !== "yaml_readonly").map((_, i) => i))
+    () => new Set(prompt.references.map((r, i) => ({ r, i })).filter(({ r }) => r.target !== "yaml_readonly").map(({ i }) => i))
   );
   const [applying, setApplying] = useState(false);
 
@@ -657,8 +657,12 @@ export default function ConfigManager() {
   };
 
   const handleCascadeConfirm = async (selected: CascadeRef[]) => {
-    for (const ref of selected) {
-      await doUpdateDirect({ target: ref.target, ...ref.params, [ref.field]: cascadePrompt!.newValue });
+    try {
+      for (const ref of selected) {
+        await doUpdateDirect({ target: ref.target, ...ref.params, [ref.field]: cascadePrompt!.newValue });
+      }
+    } catch (e) {
+      setUpdateLog((prev) => [`ERROR: Cascade update failed: ${e}`, ...prev]);
     }
     setCascadePrompt(null);
     await load();
@@ -804,18 +808,22 @@ export default function ConfigManager() {
             </h2>
             <button
               onClick={async () => {
-                for (const m of mismatches) {
-                  if (m.category === "pipeline_param" && m.pipeline) {
-                    await doUpdateDirect({
-                      target: "pipeline_param",
-                      pipelineName: m.pipeline,
-                      paramName: "Data_WorkspaceGuid",
-                      newValue: m.expected,
-                    });
+                try {
+                  for (const m of mismatches) {
+                    if (m.category === "pipeline_param" && m.pipeline) {
+                      await doUpdateDirect({
+                        target: "pipeline_param",
+                        pipelineName: m.pipeline,
+                        paramName: "Data_WorkspaceGuid",
+                        newValue: m.expected,
+                      });
+                    }
                   }
+                  await load();
+                  setShowDeployPrompt(true);
+                } catch (e) {
+                  setUpdateLog((prev) => [`ERROR: Fix all mismatches failed: ${e}`, ...prev]);
                 }
-                await load();
-                setShowDeployPrompt(true);
               }}
               className="ml-auto flex items-center gap-2 px-4 py-2 bg-red-600/80 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
             >
@@ -1530,8 +1538,9 @@ export default function ConfigManager() {
                   </h3>
                   <p className="text-xs text-muted-foreground mb-4">{descriptions[section] || ""}</p>
                   <div className="space-y-3">
-                    {Object.entries(values as Record<string, string>).map(([key, val]) => {
-                      const isSecret = val?.startsWith?.("${") || key.includes("secret");
+                    {Object.entries(values as Record<string, string>).map(([key, rawVal]) => {
+                      const val = rawVal == null ? "" : String(rawVal);
+                      const isSecret = val.startsWith("${") || key.includes("secret");
                       const friendlyKey = biz ? FRIENDLY_CONFIG_KEYS[section]?.[key] : undefined;
                       const isGuid = val && GUID_PATTERN.test(val);
                       const resolved = isGuid ? resolveGuid(val) : null;
@@ -1552,7 +1561,7 @@ export default function ConfigManager() {
                             ) : (
                               <>
                                 <EditableCell
-                                  value={val || ""}
+                                  value={val}
                                   onSave={async (v) => doUpdate({ target: "dashboard_config", section, key, newValue: v }, val)}
                                 />
                                 {!isSecret && val && <CopyButton text={val} />}

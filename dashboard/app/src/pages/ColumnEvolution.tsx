@@ -93,7 +93,7 @@ const TYPE_ICON_MAP: Record<string, { icon: React.ElementType; color: string; bg
 };
 
 function getTypeStyle(dataType: string) {
-  const key = dataType.toLowerCase().replace(/\(.*\)/, "").trim();
+  const key = (dataType || "").toLowerCase().replace(/\(.*\)/, "").trim();
   return TYPE_ICON_MAP[key] || { icon: Type, color: "text-muted-foreground", bg: "bg-muted" };
 }
 
@@ -746,11 +746,13 @@ export default function ColumnEvolution() {
   const [activeLayer, setActiveLayer] = useState(0);
   const [autoPlay, setAutoPlay] = useState(false);
   const autoPlayRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasLoadedOnce = useRef(false);
 
   // ── Fetch journey data ──
 
   const loadJourney = useCallback(async (id: number) => {
-    setLoading(true);
+    if (isNaN(id) || id <= 0) return;
+    if (!hasLoadedOnce.current) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API}/api/journey?entity=${id}`);
@@ -761,6 +763,7 @@ export default function ColumnEvolution() {
         setJourney(null);
       } else {
         setJourney(data);
+        hasLoadedOnce.current = true;
         setActiveLayer(0); // reset to Source
       }
     } catch (e) {
@@ -786,8 +789,10 @@ export default function ColumnEvolution() {
         setJourney(null);
         setActiveLayer(0);
         setAutoPlay(false);
+        hasLoadedOnce.current = false;
         return;
       }
+      hasLoadedOnce.current = false;
       setSearchParams({ entity: id }, { replace: true });
       loadJourney(parseInt(id, 10));
     },

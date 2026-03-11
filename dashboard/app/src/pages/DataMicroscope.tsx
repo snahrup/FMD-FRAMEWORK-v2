@@ -356,11 +356,20 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
   } | null>(null);
   const [silverVersionIdx, setSilverVersionIdx] = useState(0);
 
+  // Reset silver version index when data changes (prevents out-of-bounds access)
+  const versionCount = data.silver.versions.length;
+  useEffect(() => {
+    setSilverVersionIdx(0);
+    setActivePopover(null);
+  }, [data.entityId, data.pkValue]);
+
+  const clampedIdx = versionCount > 0 ? Math.min(silverVersionIdx, versionCount - 1) : 0;
+
   const sourceRow = data.source.row;
   const bronzeRow = data.bronze.row;
   const silverRow =
-    data.silver.versions.length > 0
-      ? (data.silver.versions[silverVersionIdx] as Record<string, unknown>)
+    versionCount > 0
+      ? (data.silver.versions[clampedIdx] as Record<string, unknown>)
       : null;
 
   // Build unified column list
@@ -499,7 +508,7 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
             Silver Version:
           </span>
           <select
-            value={silverVersionIdx}
+            value={clampedIdx}
             onChange={(e) => setSilverVersionIdx(Number(e.target.value))}
             className="text-xs px-2 py-1 rounded border border-border bg-card text-foreground"
           >
@@ -816,7 +825,8 @@ export default function DataMicroscope() {
 
   const { allEntities, loading: digestLoading } = useEntityDigest();
 
-  const entityId = entityIdParam ? parseInt(entityIdParam, 10) : null;
+  const parsedId = entityIdParam ? parseInt(entityIdParam, 10) : NaN;
+  const entityId = Number.isNaN(parsedId) ? null : parsedId;
   const {
     data: microscopeData,
     loading: microscopeLoading,
@@ -827,12 +837,14 @@ export default function DataMicroscope() {
   // Entity selection
   const handleEntitySelect = useCallback(
     (id: string) => {
-      const params = new URLSearchParams(searchParams);
-      params.set("entity", id);
-      params.delete("pk");
-      setSearchParams(params);
+      setSearchParams((prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("entity", id);
+        params.delete("pk");
+        return params;
+      });
     },
-    [searchParams, setSearchParams]
+    [setSearchParams]
   );
 
   const handleEntityClear = useCallback(() => {
@@ -842,11 +854,13 @@ export default function DataMicroscope() {
   // PK selection
   const handlePkSelect = useCallback(
     (pk: string) => {
-      const params = new URLSearchParams(searchParams);
-      params.set("pk", pk);
-      setSearchParams(params);
+      setSearchParams((prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("pk", pk);
+        return params;
+      });
     },
-    [searchParams, setSearchParams]
+    [setSearchParams]
   );
 
   // Find selected entity for display

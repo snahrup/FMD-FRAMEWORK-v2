@@ -340,6 +340,7 @@ function postJson<T>(path: string): Promise<T> {
 }
 
 function formatDuration(ms: number): string {
+  if (ms == null || isNaN(ms)) return "—";
   if (ms < 1000) return `${ms}ms`;
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
@@ -349,7 +350,9 @@ function formatDuration(ms: number): string {
 }
 
 function formatTimestamp(ts: string): string {
+  if (!ts) return "—";
   const d = new Date(ts);
+  if (isNaN(d.getTime())) return "—";
   const now = new Date();
   const diff = now.getTime() - d.getTime();
   if (diff < 60_000) return "just now";
@@ -396,13 +399,13 @@ function ScoreBar({ run }: { run: RunSummary }) {
           <span>{formatTimestamp(run.timestamp)}</span>
         </div>
         <div className="h-2.5 rounded-full bg-muted overflow-hidden flex">
-          {run.passed > 0 && (
+          {run.passed > 0 && run.total > 0 && (
             <div className="bg-emerald-400 h-full" style={{ width: `${(run.passed / run.total) * 100}%` }} />
           )}
-          {run.failed > 0 && (
+          {run.failed > 0 && run.total > 0 && (
             <div className="bg-red-400 h-full" style={{ width: `${(run.failed / run.total) * 100}%` }} />
           )}
-          {run.skipped > 0 && (
+          {run.skipped > 0 && run.total > 0 && (
             <div className="bg-amber-400 h-full" style={{ width: `${(run.skipped / run.total) * 100}%` }} />
           )}
         </div>
@@ -890,35 +893,44 @@ export default function TestAudit() {
   const [triggering, setTriggering] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasLoadedOnce = useRef(false);
+  const selectedRunRef = useRef(selectedRun);
+  selectedRunRef.current = selectedRun;
+  const auditStatusRef = useRef(auditStatus);
+  auditStatusRef.current = auditStatus;
 
   const loadHistory = useCallback(async () => {
     try {
       const data = await fetchJson<RunSummary[]>("/api/audit/history");
+      if (!Array.isArray(data)) return;
       setHistory(data);
-      if (!selectedRun && data.length > 0) setSelectedRun(data[0]);
+      if (!selectedRunRef.current && data.length > 0) setSelectedRun(data[0]);
     } catch { /* no history */ }
-    setLoading(false);
-  }, [selectedRun]);
+    if (!hasLoadedOnce.current) {
+      hasLoadedOnce.current = true;
+      setLoading(false);
+    }
+  }, []);
 
   const checkStatus = useCallback(async () => {
     try {
       const status = await fetchJson<AuditStatus>("/api/audit/status");
-      const wasRunning = auditStatus.status === "running";
+      const wasRunning = auditStatusRef.current.status === "running";
       setAuditStatus(status);
       if (status.status === "idle" && wasRunning) loadHistory();
     } catch { /* ignore */ }
-  }, [auditStatus.status, loadHistory]);
+  }, [loadHistory]);
 
   useEffect(() => {
     loadHistory();
     checkStatus();
     pollRef.current = setInterval(checkStatus, 3000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
+  }, [loadHistory, checkStatus]);
 
   useEffect(() => {
-    if (auditStatus.status === "idle") loadHistory();
-  }, [auditStatus.status]);
+    if (auditStatus.status === "idle" && hasLoadedOnce.current) loadHistory();
+  }, [auditStatus.status, loadHistory]);
 
   const triggerRun = async () => {
     setTriggering(true);

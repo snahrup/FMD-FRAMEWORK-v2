@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, Fragment } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
 import {
@@ -145,7 +145,7 @@ function pctFmt(n: number): string {
 }
 
 function qualityScore(col: ProfileColumn): number {
-  return (col.completeness * 0.6) + (Math.min(col.uniqueness || 0, 100) * 0.4);
+  return ((col.completeness ?? 0) * 0.6) + (Math.min(col.uniqueness || 0, 100) * 0.4);
 }
 
 type SortKey = "name" | "type" | "completeness" | "uniqueness" | "nulls" | "distinct" | "quality";
@@ -678,9 +678,21 @@ export default function DataProfiler() {
         `${API}/blender/profile?lakehouse=${encodeURIComponent(paramLakehouse)}&schema=${encodeURIComponent(paramSchema)}&table=${encodeURIComponent(paramTable)}`
       );
       if (!res.ok) throw new Error(`API ${res.status}`);
-      const data: ProfileData = await res.json();
-      if (data.columns && data.columns.length > 0) {
-        setProfile(data);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data: any = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else if (data.columns && data.columns.length > 0) {
+        // Ensure completeness/uniqueness are always numbers (backend omits them when rowCount=0)
+        const cols = data.columns.map((c: ProfileColumn) => ({
+          ...c,
+          completeness: c.completeness ?? 0,
+          uniqueness: c.uniqueness ?? 0,
+          nullPercentage: c.nullPercentage ?? 0,
+          nullCount: c.nullCount ?? 0,
+          distinctCount: c.distinctCount ?? 0,
+        }));
+        setProfile({ ...data, columns: cols } as ProfileData);
       } else {
         setError("No column data available. Table may not have been loaded yet.");
       }
@@ -868,16 +880,22 @@ export default function DataProfiler() {
               {
                 label: "Avg Completeness",
                 value: pctFmt(
-                  profile.columns.reduce((s, c) => s + c.completeness, 0) / profile.columns.length
+                  profile.columns.length > 0
+                    ? profile.columns.reduce((s, c) => s + c.completeness, 0) / profile.columns.length
+                    : 0
                 ),
                 color: qualityColor(
-                  profile.columns.reduce((s, c) => s + c.completeness, 0) / profile.columns.length
+                  profile.columns.length > 0
+                    ? profile.columns.reduce((s, c) => s + c.completeness, 0) / profile.columns.length
+                    : 0
                 ),
               },
               {
                 label: "Avg Uniqueness",
                 value: pctFmt(
-                  profile.columns.reduce((s, c) => s + (c.uniqueness || 0), 0) / profile.columns.length
+                  profile.columns.length > 0
+                    ? profile.columns.reduce((s, c) => s + (c.uniqueness || 0), 0) / profile.columns.length
+                    : 0
                 ),
                 color: "#6366f1",
               },
@@ -937,9 +955,8 @@ export default function DataProfiler() {
                         const TypeIcon = typeInfo.icon;
 
                         return (
-                          <>
+                          <Fragment key={col.name}>
                             <tr
-                              key={col.name}
                               className="border-b border-border/10 hover:bg-muted/50 cursor-pointer transition-colors"
                               style={{ backgroundColor: nullBg(col.nullPercentage) }}
                               onClick={() => setExpandedCol(isExpanded ? null : col.name)}
@@ -1067,7 +1084,7 @@ export default function DataProfiler() {
                                 rowCount={profile.rowCount}
                               />
                             )}
-                          </>
+                          </Fragment>
                         );
                       })}
                     </tbody>

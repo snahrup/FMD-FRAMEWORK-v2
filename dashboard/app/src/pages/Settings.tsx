@@ -287,11 +287,12 @@ function DeployWizard() {
       }
     };
 
-    const firstPoll = setTimeout(() => {
+    const delayId = setTimeout(() => {
       poll();
       pollRef.current = setInterval(poll, 5000);
     }, 5000);
-    pollRef.current = firstPoll as unknown as ReturnType<typeof setInterval>;
+    // Store the timeout so stopPolling can clear it if called before the first poll
+    pollRef.current = delayId as unknown as ReturnType<typeof setInterval>;
   }, [stopPolling]);
 
   const handleDeploy = async () => {
@@ -304,18 +305,20 @@ function DeployWizard() {
     try {
       // Step 1: Save config values
       setLogMessages(["Saving configuration values..."]);
-      await postJson("/notebook-config/update", {
+      const cfgRes1 = await postJson<{ error?: string }>("/notebook-config/update", {
         target: "item_config",
         section: "workspaces",
         key: "workspace_config",
         newValue: fields.workspace_config,
       });
-      await postJson("/notebook-config/update", {
+      if (cfgRes1.error) throw new Error(cfgRes1.error);
+      const cfgRes2 = await postJson<{ error?: string }>("/notebook-config/update", {
         target: "item_config",
         section: "connections",
         key: "CON_FMD_FABRIC_SQL",
         newValue: fields.con_fmd_fabric_sql,
       });
+      if (cfgRes2.error) throw new Error(cfgRes2.error);
       setLogMessages((prev) => [...prev, "Configuration saved."]);
 
       // Step 2: Wipe old workspaces + trigger notebook
@@ -399,7 +402,7 @@ function DeployWizard() {
     const selectedConnName = fabricConnections.find((c) => c.id === fields.con_fmd_fabric_sql)?.displayName;
     // Filter to only FabricSql connections for the SQL dropdown
     const sqlConnections = fabricConnections.filter(
-      (c) => c.type === 'FabricSql' || c.displayName.startsWith('CON_FMD')
+      (c) => c.type === 'FabricSql' || (c.displayName ?? '').startsWith('CON_FMD')
     );
 
     return (
@@ -531,14 +534,16 @@ function DeployWizard() {
               setPreflight(null);
               try {
                 // Save config first so preflight reads fresh values
-                await postJson("/notebook-config/update", {
+                const r1 = await postJson<{ error?: string }>("/notebook-config/update", {
                   target: "item_config", section: "workspaces",
                   key: "workspace_config", newValue: fields.workspace_config,
                 });
-                await postJson("/notebook-config/update", {
+                if (r1.error) throw new Error(r1.error);
+                const r2 = await postJson<{ error?: string }>("/notebook-config/update", {
                   target: "item_config", section: "connections",
                   key: "CON_FMD_FABRIC_SQL", newValue: fields.con_fmd_fabric_sql,
                 });
+                if (r2.error) throw new Error(r2.error);
                 const pf = await fetchJson<PreflightResult>("/deploy/preflight");
                 setPreflight(pf);
                 setStep("preflight");
@@ -834,7 +839,7 @@ function DeployWizard() {
             {logMessages.map((msg, i) => (
               <div key={i} className="flex items-start gap-2">
                 <span className="text-zinc-600 flex-shrink-0 select-none">
-                  {formatElapsed(DEPLOY_PHASES[i]?.after ?? 0)}
+                  {DEPLOY_PHASES[i] != null ? formatElapsed(DEPLOY_PHASES[i].after) : '\u00A0\u00A0\u00A0'}
                 </span>
                 <CheckCircle2 className="h-3 w-3 text-emerald-500 flex-shrink-0 mt-0.5" />
                 <span className="text-zinc-300">{msg}</span>
@@ -875,7 +880,7 @@ function DeployWizard() {
               </p>
               <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
                 Completed in {formatElapsed(elapsed)}
-                {jobStatus?.endTime && (
+                {jobStatus?.endTime && !isNaN(new Date(jobStatus.endTime).getTime()) && (
                   <> &bull; Finished at {new Date(jobStatus.endTime).toLocaleTimeString()}</>
                 )}
               </p>
