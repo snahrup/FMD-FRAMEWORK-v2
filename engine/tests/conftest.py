@@ -77,14 +77,6 @@ def mock_token_provider():
 
 
 @pytest.fixture
-def mock_metadata_db():
-    """Mock MetadataDB that pings successfully."""
-    db = MagicMock()
-    db.ping.return_value = True
-    return db
-
-
-@pytest.fixture
 def mock_source_conn():
     """Mock SourceConnection that pings successfully."""
     sc = MagicMock()

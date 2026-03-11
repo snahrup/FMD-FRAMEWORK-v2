@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional
 
 from engine.auth import TokenProvider
-from engine.connections import MetadataDB, SourceConnection, build_source_map
+from engine.connections import SourceConnection, build_source_map
 from engine.extractor import DataExtractor
 from engine.loader import OneLakeLoader
 from engine.logging_db import AuditLogger
@@ -116,7 +116,6 @@ class LoadOrchestrator:
 
         # Build the dependency graph — one instance of each module
         self._tokens = TokenProvider(config)
-        self._metadata_db = MetadataDB(config, self._tokens)
         self._source_conn = SourceConnection(config)
         self._extractor = DataExtractor(config, self._source_conn)
         self._loader = OneLakeLoader(config, self._tokens)
@@ -319,7 +318,6 @@ class LoadOrchestrator:
         checker = PreflightChecker(
             self.config,
             self._tokens,
-            self._metadata_db,
             self._source_conn,
             self._loader,
         )
@@ -330,45 +328,45 @@ class LoadOrchestrator:
     # ------------------------------------------------------------------
 
     def get_worklist(self, entity_ids: Optional[List[int]] = None) -> List[Entity]:
-        """Fetch active entities from the metadata DB.
+        """Fetch active entities from the local SQLite control-plane DB.
 
-        Reads from execution.vw_LoadSourceToLandingzone — the same view
-        the old Fabric pipelines used, so the worklist is identical.
+        Mirrors the Fabric SQL query against the local SQLite tables that are
+        synced from Fabric SQL by the dashboard.  No Fabric SQL connection needed.
         """
         sql = """
             SELECT
                 le.LandingzoneEntityId,
                 le.SourceName,
                 le.SourceSchema,
-                c.ServerName AS SourceServer,
-                c.DatabaseName AS SourceDatabase,
+                c.ServerName      AS SourceServer,
+                c.DatabaseName    AS SourceDatabase,
                 le.DataSourceId,
-                c.Type AS ConnectionType,
+                c.Type            AS ConnectionType,
                 lh.WorkspaceGuid,
                 lh.LakehouseGuid,
                 le.IsIncremental,
                 le.IsIncrementalColumn AS WatermarkColumn,
-                llv.LoadValue AS LastLoadValue,
-                ble.PrimaryKeys,
+                w.LoadValue       AS LastLoadValue,
+                be.PrimaryKeys,
                 le.IsActive,
                 COALESCE(NULLIF(ds.Namespace, ''), ds.Name) AS Namespace,
                 c.ConnectionGuid
-            FROM integration.LandingzoneEntity le
-            INNER JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-            INNER JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId
-            INNER JOIN integration.Lakehouse lh ON le.LakehouseId = lh.LakehouseId
-            LEFT JOIN execution.LandingzoneEntityLastLoadValue llv
-                ON le.LandingzoneEntityId = llv.LandingzoneEntityId
-            LEFT JOIN integration.BronzeLayerEntity ble
-                ON le.LandingzoneEntityId = ble.LandingzoneEntityId
+            FROM lz_entities le
+            INNER JOIN datasources ds  ON le.DataSourceId  = ds.DataSourceId
+            INNER JOIN connections c   ON ds.ConnectionId  = c.ConnectionId
+            INNER JOIN lakehouses  lh  ON le.LakehouseId   = lh.LakehouseId
+            LEFT JOIN  watermarks  w   ON le.LandingzoneEntityId = w.LandingzoneEntityId
+            LEFT JOIN  bronze_entities be ON le.LandingzoneEntityId = be.LandingzoneEntityId
             WHERE le.IsActive = 1
         """
 
+        params: tuple = ()
         if entity_ids:
-            id_list = ",".join(str(i) for i in entity_ids)
-            sql += f" AND le.LandingzoneEntityId IN ({id_list})"
+            placeholders = ",".join("?" for _ in entity_ids)
+            sql += f" AND le.LandingzoneEntityId IN ({placeholders})"
+            params = tuple(entity_ids)
 
-        rows = self._metadata_db.query(sql)
+        rows = self._cpdb_query(sql, params)
 
         entities: list[Entity] = []
         blank_ids: list[int] = []
@@ -402,15 +400,32 @@ class LoadOrchestrator:
         if blank_ids:
             log.error(
                 "BLANK SourceName: %d entities have empty SourceName and will fail: %s. "
-                "Fix: UPDATE integration.LandingzoneEntity SET SourceName = '<table_name>' WHERE LandingzoneEntityId IN (%s)",
+                "Fix in control-plane DB: UPDATE lz_entities SET SourceName = '<table_name>' "
+                "WHERE LandingzoneEntityId IN (%s)",
                 len(blank_ids), blank_ids[:10], ",".join(str(i) for i in blank_ids),
             )
         # Store blank IDs so run() can inject tracked failures
         self._blank_source_ids = blank_ids
 
-        log.info("Worklist: %d entities from metadata DB (%d skipped — blank SourceName)",
+        log.info("Worklist: %d entities from SQLite control-plane DB (%d skipped — blank SourceName)",
                  len(entities), len(blank_ids))
         return entities
+
+    @staticmethod
+    def _cpdb_query(sql: str, params: tuple = ()) -> list[dict]:
+        """Query the local SQLite control-plane DB.  Returns list of dicts.
+
+        Uses the same lazy-import pattern as logging_db.py to avoid circular
+        imports and allow the engine to run standalone.
+        """
+        try:
+            from dashboard.app.api import db as fmd_db
+            rows = fmd_db.query(sql, params)
+            # fmd_db.query returns sqlite3.Row objects — convert to plain dicts
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            log.error("SQLite worklist query failed: %s", exc)
+            return []
 
     # ------------------------------------------------------------------
     # Plan mode

@@ -1,7 +1,7 @@
 """Unit tests for engine/preflight.py — no network or VPN required.
 
 Tests the PreflightChecker, CheckResult, and PreflightReport classes
-using mocked dependencies (TokenProvider, MetadataDB, SourceConnection, OneLakeLoader).
+using mocked dependencies (TokenProvider, SourceConnection, OneLakeLoader).
 """
 
 from unittest.mock import MagicMock, patch
@@ -136,14 +136,13 @@ def _make_entity(**overrides) -> Entity:
 
 def _make_checker(token_ok=True, db_ok=True, onelake_ok=True, source_ok=True):
     """Create a PreflightChecker with configurable mock outcomes."""
+    from unittest.mock import patch as _patch
+
     token_provider = MagicMock()
     if token_ok:
-        token_provider.validate.return_value = {"fabric_sql": True, "fabric_api": True, "onelake": True}
+        token_provider.validate.return_value = {"fabric_api": True, "onelake": True}
     else:
-        token_provider.validate.return_value = {"fabric_sql": False, "fabric_api": True, "onelake": True}
-
-    metadata_db = MagicMock()
-    metadata_db.ping.return_value = db_ok
+        token_provider.validate.return_value = {"fabric_api": False, "onelake": True}
 
     source_conn = MagicMock()
     source_conn.ping.return_value = source_ok
@@ -151,13 +150,34 @@ def _make_checker(token_ok=True, db_ok=True, onelake_ok=True, source_ok=True):
     loader = MagicMock()
     loader.ping.return_value = onelake_ok
 
-    return PreflightChecker(
+    checker = PreflightChecker(
         config=_make_config(),
         token_provider=token_provider,
-        metadata_db=metadata_db,
         source_conn=source_conn,
         loader=loader,
     )
+
+    # Patch the SQLite DB check directly on the checker instance
+    if db_ok:
+        checker._check_metadata_db = lambda: __import__(
+            "engine.preflight", fromlist=["CheckResult"]
+        ).CheckResult(
+            name="SQLite Control-Plane DB",
+            passed=True,
+            message="Readable — 100 active entities",
+            duration_ms=1.0,
+        )
+    else:
+        checker._check_metadata_db = lambda: __import__(
+            "engine.preflight", fromlist=["CheckResult"]
+        ).CheckResult(
+            name="SQLite Control-Plane DB",
+            passed=False,
+            message="Cannot read — database not found",
+            duration_ms=1.0,
+        )
+
+    return checker
 
 
 # --- Token checks ---
@@ -176,7 +196,7 @@ def test_checker_token_failure():
     token_check = report.checks[0]
     assert token_check.name == "Service Principal Tokens"
     assert token_check.passed is False
-    assert "fabric_sql" in token_check.message
+    assert "fabric_api" in token_check.message
 
 
 def test_checker_token_exception():
@@ -195,7 +215,7 @@ def test_checker_db_failure():
     report = checker.run()
     assert report.passed is False
     db_check = report.checks[1]
-    assert db_check.name == "Fabric SQL Database"
+    assert db_check.name == "SQLite Control-Plane DB"
     assert db_check.passed is False
 
 
@@ -204,7 +224,7 @@ def test_checker_db_pass():
     report = checker.run()
     db_check = report.checks[1]
     assert db_check.passed is True
-    assert "Connected" in db_check.message
+    assert "Readable" in db_check.message
 
 
 # --- OneLake checks ---

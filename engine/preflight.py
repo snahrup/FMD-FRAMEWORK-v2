@@ -2,8 +2,8 @@
 FMD v3 Engine — Preflight health checks.
 
 Validates all dependencies before a run starts:
-  1. SP tokens (Fabric SQL, Fabric API, OneLake)
-  2. Fabric SQL metadata DB connectivity
+  1. SP tokens (Fabric API, OneLake)
+  2. SQLite control-plane DB readability
   3. OneLake ADLS reachability
   4. Source SQL server connectivity (per unique server)
   5. Entity worklist sanity (counts, missing fields)
@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from engine.auth import TokenProvider
-from engine.connections import MetadataDB, SourceConnection
+from engine.connections import SourceConnection
 from engine.loader import OneLakeLoader
 from engine.models import EngineConfig, Entity
 
@@ -75,7 +75,7 @@ class PreflightChecker:
 
     Usage::
 
-        checker = PreflightChecker(config, token_provider, metadata_db, source_conn, loader)
+        checker = PreflightChecker(config, token_provider, source_conn, loader)
         report = checker.run()
         if not report.passed:
             print(report.summary())
@@ -88,13 +88,11 @@ class PreflightChecker:
         self,
         config: EngineConfig,
         token_provider: TokenProvider,
-        metadata_db: MetadataDB,
         source_conn: SourceConnection,
         loader: OneLakeLoader,
     ):
         self._config = config
         self._token_provider = token_provider
-        self._metadata_db = metadata_db
         self._source_conn = source_conn
         self._loader = loader
 
@@ -155,23 +153,27 @@ class PreflightChecker:
             )
 
     def _check_metadata_db(self) -> CheckResult:
-        """Ping the Fabric SQL metadata DB."""
+        """Verify the local SQLite control-plane DB is readable."""
         t0 = time.perf_counter()
-        ok = self._metadata_db.ping()
-        elapsed_ms = (time.perf_counter() - t0) * 1000
-        if ok:
+        try:
+            from dashboard.app.api import db as fmd_db
+            rows = fmd_db.query("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive = 1")
+            cnt = dict(rows[0])["cnt"] if rows else 0
+            elapsed_ms = (time.perf_counter() - t0) * 1000
             return CheckResult(
-                name="Fabric SQL Database",
+                name="SQLite Control-Plane DB",
                 passed=True,
-                message="Connected",
+                message=f"Readable — {cnt} active entities",
                 duration_ms=elapsed_ms,
             )
-        return CheckResult(
-            name="Fabric SQL Database",
-            passed=False,
-            message="Cannot connect — check SP token and network",
-            duration_ms=elapsed_ms,
-        )
+        except Exception as exc:
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            return CheckResult(
+                name="SQLite Control-Plane DB",
+                passed=False,
+                message=f"Cannot read — {exc}",
+                duration_ms=elapsed_ms,
+            )
 
     def _check_onelake(self) -> CheckResult:
         """Ping OneLake ADLS endpoint."""

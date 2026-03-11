@@ -1,117 +1,21 @@
 """
 FMD v3 Engine — Source SQL Server connection management.
 
-Manages connections to both:
-  - Fabric SQL metadata DB (via SP token)
-  - On-prem source SQL servers (via Windows auth over VPN)
+Manages connections to on-prem source SQL servers (via Windows auth over VPN).
+Fabric SQL metadata is now served from the local SQLite control-plane DB.
 
-All connections go through pyodbc.  The metadata DB connection uses the
-attrs_before token struct; source connections use Trusted_Connection.
+All connections go through pyodbc with Trusted_Connection.
 """
 
 import logging
 from contextlib import contextmanager
-from typing import Generator, Optional
+from typing import Generator
 
 import pyodbc
 
-from engine.auth import TokenProvider
 from engine.models import EngineConfig, Entity
 
 log = logging.getLogger("fmd.connections")
-
-
-class MetadataDB:
-    """Connection manager for the Fabric SQL metadata database.
-
-    Every call gets a fresh connection (they're lightweight and pooled by
-    the ODBC driver).  Callers should use the context manager::
-
-        with db.connect() as conn:
-            cursor = conn.cursor()
-            ...
-    """
-
-    def __init__(self, config: EngineConfig, token_provider: TokenProvider):
-        self._config = config
-        self._token_provider = token_provider
-
-    @contextmanager
-    def connect(self) -> Generator[pyodbc.Connection, None, None]:
-        """Yield a pyodbc connection to the Fabric SQL DB.
-
-        Commits on clean exit, rolls back on exception.
-        """
-        token_struct = self._token_provider.get_sql_token_struct()
-        conn_str = (
-            f"DRIVER={{{self._config.sql_driver}}};"
-            f"SERVER={self._config.sql_server};"
-            f"DATABASE={self._config.sql_database};"
-            f"Encrypt=yes;TrustServerCertificate=no;"
-        )
-        conn = pyodbc.connect(conn_str, attrs_before={1256: token_struct})
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-
-    def query(self, sql: str, params: tuple = ()) -> list[dict]:
-        """Execute a query and return list of dicts.
-
-        Handles stored procs that return result sets correctly — always
-        commits after fetch (the silent-rollback bug from v2).
-        """
-        with self.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute(sql, params) if params else cursor.execute(sql)
-            if not cursor.description:
-                return []
-            cols = [c[0] for c in cursor.description]
-            rows = cursor.fetchall()
-            return [
-                {c: (v if v is not None else None) for c, v in zip(cols, row)}
-                for row in rows
-            ]
-
-    def execute(self, sql: str, params: tuple = ()) -> None:
-        """Execute a statement that does not return rows (INSERT/UPDATE/EXEC)."""
-        with self.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute(sql, params) if params else cursor.execute(sql)
-
-    def execute_proc(self, proc: str, params: dict) -> list[dict]:
-        """Execute a stored procedure with named parameters and return results.
-
-        Builds an EXEC statement like:
-            EXEC [schema].[proc] @Param1=?, @Param2=?
-        """
-        param_clause = ", ".join(f"@{k}=?" for k in params)
-        sql = f"EXEC {proc} {param_clause}"
-        values = tuple(params.values())
-        with self.connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute(sql, values)
-            if not cursor.description:
-                return []
-            cols = [c[0] for c in cursor.description]
-            rows = cursor.fetchall()
-            return [
-                {c: (v if v is not None else None) for c, v in zip(cols, row)}
-                for row in rows
-            ]
-
-    def ping(self) -> bool:
-        """Test connectivity — returns True if a trivial query succeeds."""
-        try:
-            result = self.query("SELECT 1 AS ok")
-            return len(result) == 1
-        except Exception as exc:
-            log.warning("Metadata DB ping failed: %s", exc)
-            return False
 
 
 class SourceConnection:
