@@ -2,8 +2,9 @@
 FMD v3 Engine REST API handlers.
 
 Imported by dashboard/app/api/server.py and wired into the /api/engine/* routes.
-Each handler receives the DashboardHandler instance (for writing responses),
-plus the dashboard CONFIG dict and the query_sql function for DB access.
+Each handler receives the DashboardHandler instance (for writing responses)
+plus the dashboard CONFIG dict.  All database access goes through the local
+SQLite control-plane DB — no Fabric SQL dependency.
 
 Architecture:
     - Engine singleton is created lazily on first /api/engine/* request
@@ -80,6 +81,48 @@ def _get_or_create_engine(dashboard_config: dict):
 
 
 # ---------------------------------------------------------------------------
+# SQLite control-plane DB — lazy import (mirrors logging_db.py pattern)
+# ---------------------------------------------------------------------------
+
+_cpdb = None
+_cpdb_loaded = False
+
+
+def _get_cpdb():
+    """Lazily import control_plane_db.  Returns the module or None."""
+    global _cpdb, _cpdb_loaded
+    if _cpdb_loaded:
+        return _cpdb
+    try:
+        from dashboard.app.api import control_plane_db
+        _cpdb = control_plane_db
+    except Exception as exc:
+        log.debug("control_plane_db not available: %s", exc)
+        _cpdb = None
+    _cpdb_loaded = True
+    return _cpdb
+
+
+def _db_query(sql: str, params: tuple = ()) -> list:
+    """Run an arbitrary SELECT against the SQLite control-plane DB."""
+    try:
+        from dashboard.app.api import db as fmd_db
+        return fmd_db.query(sql, params)
+    except Exception as exc:
+        log.warning("SQLite query failed: %s", exc)
+        return []
+
+
+def _db_execute(sql: str, params: tuple = ()) -> None:
+    """Run an arbitrary write statement against the SQLite control-plane DB."""
+    try:
+        from dashboard.app.api import db as fmd_db
+        fmd_db.execute(sql, params)
+    except Exception as exc:
+        log.warning("SQLite execute failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
 # SSE Broadcaster — mirrors the _deploy_cond pattern in server.py
 # ---------------------------------------------------------------------------
 
@@ -91,7 +134,7 @@ _sse_max_events = 10_000              # cap memory; older events silently drop
 class _SSEHook:
     """Injects into the engine's AuditLogger to broadcast events in real-time.
 
-    The orchestrator's AuditLogger writes to SQL.  This hook additionally
+    The orchestrator's AuditLogger writes to SQLite.  This hook additionally
     publishes each log entry as an SSE event so the dashboard can stream them.
     """
 
@@ -198,31 +241,8 @@ def _publish_entity_result(run_id: str, entity_id: int, layer: str,
 
 
 # ---------------------------------------------------------------------------
-# SQL helper — use dashboard's query_sql for stored proc calls
+# Startup cleanup
 # ---------------------------------------------------------------------------
-
-_query_sql = None   # set by handle_engine_request from server.py
-
-
-def _exec_proc(proc: str, params: dict) -> list[dict]:
-    """Call a stored proc via the dashboard's query_sql function.
-
-    Builds EXEC [proc] @Param1=N'val1', @Param2=N'val2' ...
-    Uses inline values (not parameterised) because the dashboard's query_sql
-    only accepts a raw SQL string.
-    """
-    parts = []
-    for key, val in params.items():
-        if val is None:
-            parts.append(f"@{key}=NULL")
-        elif isinstance(val, (int, float)):
-            parts.append(f"@{key}={val}")
-        else:
-            safe = str(val).replace("'", "''")
-            parts.append(f"@{key}=N'{safe}'")
-    sql = f"EXEC {proc} {', '.join(parts)}"
-    return _query_sql(sql)
-
 
 def _cleanup_orphaned_runs() -> None:
     """Mark any InProgress runs as Aborted on engine startup.
@@ -230,21 +250,15 @@ def _cleanup_orphaned_runs() -> None:
     When the process crashes or reboots, log_run_end() never fires,
     leaving runs stuck as InProgress forever.  This cleans them up.
     """
-    if _query_sql is None:
-        return
     try:
-        rows = _query_sql(
-            "UPDATE execution.EngineRun "
+        _db_execute(
+            "UPDATE engine_runs "
             "SET Status = 'Aborted', "
-            "    CompletedAtUtc = SYSUTCDATETIME(), "
+            "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
             "    ErrorSummary = 'Aborted: engine process restarted before completion' "
-            "OUTPUT inserted.RunId "
             "WHERE Status IN ('InProgress', 'running')"
         )
-        if rows:
-            count = len(rows)
-            log.info("Cleaned up %d orphaned InProgress run(s) on startup", count)
-            _publish_log("warning", f"Cleaned up {count} orphaned run(s) from previous session")
+        log.info("Orphaned InProgress runs cleaned up on startup")
     except Exception as exc:
         log.warning("Failed to clean up orphaned runs: %s", exc)
 
@@ -253,8 +267,7 @@ def _cleanup_orphaned_runs() -> None:
 # Route dispatcher — called from server.py's do_GET / do_POST
 # ---------------------------------------------------------------------------
 
-def handle_engine_request(handler, method: str, path: str,
-                          config: dict, query_sql_fn) -> None:
+def handle_engine_request(handler, method: str, path: str, config: dict) -> None:
     """Main entry point called by server.py for any /api/engine/* path.
 
     Parameters
@@ -268,12 +281,7 @@ def handle_engine_request(handler, method: str, path: str,
         Full request path, e.g. '/api/engine/status?limit=10'
     config : dict
         Dashboard CONFIG dict (same as server.py's module-level CONFIG)
-    query_sql_fn : callable
-        Reference to server.py's query_sql() function
     """
-    global _query_sql
-    _query_sql = query_sql_fn
-
     # Parse path and query string
     parsed = urllib.parse.urlparse(path)
     sub_path = parsed.path.replace("/api/engine", "").rstrip("/") or "/"
@@ -361,23 +369,13 @@ def _handle_status(handler, config: dict) -> None:
         "last_run": None,
     }
 
-    # Query last run — SQLite first, Fabric SQL fallback
+    cpdb = _get_cpdb()
     rows = None
-    try:
-        import control_plane_db as cpdb
-        sqlite_runs = cpdb.get_engine_runs(limit=1)
-        if sqlite_runs:
-            rows = sqlite_runs
-    except Exception:
-        pass
-
-    if rows is None:
+    if cpdb:
         try:
-            rows = _exec_proc("[execution].[sp_GetEngineRuns]", {"Limit": 1})
+            rows = cpdb.get_engine_runs(limit=1)
         except Exception as exc:
-            log.warning("Failed to query last run: %s", exc)
-            response["last_run"] = {"error": str(exc)}
-            rows = None
+            log.warning("Failed to query last run from SQLite: %s", exc)
 
     if rows:
         row = rows[0]
@@ -385,8 +383,8 @@ def _handle_status(handler, config: dict) -> None:
             "run_id": str(row.get("RunId", "")),
             "status": str(row.get("Status", "")),
             "mode": str(row.get("Mode", "")),
-            "started": str(row.get("StartedAtUtc") or row.get("StartedAt", "")),
-            "completed": str(row.get("CompletedAtUtc") or row.get("EndedAt", "")),
+            "started": str(row.get("StartedAt", "")),
+            "completed": str(row.get("EndedAt", "")),
             "total": _to_int(row.get("TotalEntities")),
             "succeeded": _to_int(row.get("SucceededEntities")),
             "failed": _to_int(row.get("FailedEntities")),
@@ -395,7 +393,7 @@ def _handle_status(handler, config: dict) -> None:
             "duration_seconds": _to_float(row.get("TotalDurationSeconds")),
             "layers": str(row.get("Layers", "")),
             "triggered_by": str(row.get("TriggeredBy", "")),
-            "elapsed_seconds": _to_int(row.get("ElapsedSeconds")),
+            "elapsed_seconds": _to_int(row.get("TotalDurationSeconds")),
         }
 
     handler._json_response(response)
@@ -523,20 +521,20 @@ def _handle_stop(handler, config: dict) -> None:
     # Force-cancel in-flight futures
     engine.stop(force=True)
 
-    # Abort the active run in DB
+    # Abort the active run in SQLite
     run_id = engine.current_run_id
-    if run_id and _query_sql:
+    if run_id:
         try:
-            safe_id = str(run_id).replace("'", "''")
-            _query_sql(
-                f"UPDATE execution.EngineRun "
-                f"SET Status = 'Aborted', "
-                f"    CompletedAtUtc = SYSUTCDATETIME(), "
-                f"    ErrorSummary = 'Stopped by user from dashboard' "
-                f"WHERE RunId = '{safe_id}' AND Status IN ('InProgress', 'running')"
+            _db_execute(
+                "UPDATE engine_runs "
+                "SET Status = 'Aborted', "
+                "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+                "    ErrorSummary = 'Stopped by user from dashboard' "
+                "WHERE RunId = ? AND Status IN ('InProgress', 'running')",
+                (str(run_id),)
             )
         except Exception as exc:
-            log.warning("Failed to abort run in DB on stop: %s", exc)
+            log.warning("Failed to abort run in SQLite on stop: %s", exc)
 
     # Reset engine state
     engine.status = "idle"
@@ -554,7 +552,7 @@ def _handle_abort_run(handler, body: dict) -> None:
     """Abort a specific run by ID (or all InProgress runs).
 
     Body: {"run_id": "..."} or {"all": true}
-    Updates the DB status to 'Aborted' and sets CompletedAtUtc.
+    Updates the SQLite status to 'Aborted'.
     If the run is currently active, also sends a stop signal to the engine.
     """
     run_id = body.get("run_id")
@@ -566,28 +564,31 @@ def _handle_abort_run(handler, body: dict) -> None:
 
     try:
         if abort_all:
-            rows = _query_sql(
-                "UPDATE execution.EngineRun "
+            _db_execute(
+                "UPDATE engine_runs "
                 "SET Status = 'Aborted', "
-                "    CompletedAtUtc = SYSUTCDATETIME(), "
+                "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
                 "    ErrorSummary = CASE WHEN ErrorSummary IS NULL OR ErrorSummary = '' "
                 "        THEN 'Aborted by user' ELSE ErrorSummary END "
-                "OUTPUT inserted.RunId "
                 "WHERE Status IN ('InProgress', 'running')"
             )
-            count = len(rows) if rows else 0
-        else:
-            safe_id = str(run_id).replace("'", "''")
-            rows = _query_sql(
-                f"UPDATE execution.EngineRun "
-                f"SET Status = 'Aborted', "
-                f"    CompletedAtUtc = SYSUTCDATETIME(), "
-                f"    ErrorSummary = CASE WHEN ErrorSummary IS NULL OR ErrorSummary = '' "
-                f"        THEN 'Aborted by user' ELSE ErrorSummary END "
-                f"OUTPUT inserted.RunId "
-                f"WHERE RunId = '{safe_id}'"
+            # Count how many were actually in-progress (approximate — check after)
+            aborted = _db_query(
+                "SELECT COUNT(*) AS cnt FROM engine_runs WHERE Status = 'Aborted' "
+                "AND EndedAt >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-5 seconds')"
             )
-            count = len(rows) if rows else 0
+            count = aborted[0]["cnt"] if aborted else 0
+        else:
+            _db_execute(
+                "UPDATE engine_runs "
+                "SET Status = 'Aborted', "
+                "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+                "    ErrorSummary = CASE WHEN ErrorSummary IS NULL OR ErrorSummary = '' "
+                "        THEN 'Aborted by user' ELSE ErrorSummary END "
+                "WHERE RunId = ?",
+                (str(run_id),)
+            )
+            count = 1
 
         # If the currently active run was aborted, stop the engine too
         if _engine and _engine.status == "running":
@@ -638,34 +639,46 @@ def _handle_plan(handler, config: dict, qs: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _handle_logs(handler, qs: dict) -> None:
-    """Query task logs from execution.sp_GetEngineTaskLogs."""
-    params = {}
-
+    """Query task logs from the SQLite engine_task_log table."""
     run_id = qs.get("run_id", [None])[0]
-    if run_id:
-        params["RunId"] = run_id
-
-    entity_id = qs.get("entity_id", [None])[0]
-    if entity_id and str(entity_id).isdigit():
-        params["EntityId"] = int(entity_id)
-
+    entity_id_raw = qs.get("entity_id", [None])[0]
+    entity_id = int(entity_id_raw) if entity_id_raw and str(entity_id_raw).isdigit() else None
     layer = qs.get("layer", [None])[0]
-    if layer:
-        params["Layer"] = layer
-
     status = qs.get("status", [None])[0]
-    if status:
-        params["Status"] = status
-
-    limit = qs.get("limit", ["100"])[0]
-    params["Limit"] = int(limit) if str(limit).isdigit() else 100
-
-    offset = qs.get("offset", ["0"])[0]
-    params["Offset"] = int(offset) if str(offset).isdigit() else 0
+    limit_raw = qs.get("limit", ["100"])[0]
+    limit = int(limit_raw) if str(limit_raw).isdigit() else 100
+    offset_raw = qs.get("offset", ["0"])[0]
+    offset = int(offset_raw) if str(offset_raw).isdigit() else 0
 
     try:
-        rows = _exec_proc("[execution].[sp_GetEngineTaskLogs]", params)
-        # Convert all values to JSON-safe types
+        cpdb = _get_cpdb()
+        if cpdb:
+            rows = cpdb.get_engine_task_log(run_id=run_id, entity_id=entity_id)
+            # Apply layer / status filters and pagination in Python
+            if layer:
+                rows = [r for r in rows if (r.get("Layer") or "").lower() == layer.lower()]
+            if status:
+                rows = [r for r in rows if (r.get("Status") or "").lower() == status.lower()]
+            rows = rows[offset: offset + limit]
+        else:
+            sql = "SELECT * FROM engine_task_log WHERE 1=1"
+            params: list = []
+            if run_id:
+                sql += " AND RunId = ?"
+                params.append(run_id)
+            if entity_id is not None:
+                sql += " AND EntityId = ?"
+                params.append(entity_id)
+            if layer:
+                sql += " AND Layer = ?"
+                params.append(layer)
+            if status:
+                sql += " AND Status = ?"
+                params.append(status)
+            sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            rows = _db_query(sql, tuple(params))
+
         safe_rows = [_safe_row(r) for r in rows]
         handler._json_response({"logs": safe_rows, "count": len(safe_rows)})
     except Exception as exc:
@@ -756,16 +769,15 @@ def _handle_retry(handler, config: dict, body: dict) -> None:
     entity_ids = body.get("entity_ids")
     layers = body.get("layers")
 
-    # If no explicit entity_ids, query failed ones from the run
+    # If no explicit entity_ids, query failed ones from the run via SQLite
     if not entity_ids and run_id:
         try:
-            rows = _exec_proc("[execution].[sp_GetEngineTaskLogs]", {
-                "RunId": run_id,
-                "Status": "failed",
-                "Limit": 10000,
-                "Offset": 0,
-            })
-            entity_ids = list(set(int(r["EntityId"]) for r in rows if r.get("EntityId")))
+            rows = _db_query(
+                "SELECT DISTINCT EntityId FROM engine_task_log "
+                "WHERE RunId = ? AND Status = 'failed' AND EntityId IS NOT NULL",
+                (str(run_id),)
+            )
+            entity_ids = [int(r["EntityId"]) for r in rows if r.get("EntityId")]
         except Exception as exc:
             handler._error_response(f"Failed to query failed entities: {exc}", 500)
             return
@@ -858,59 +870,59 @@ def _handle_health(handler, config: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _handle_metrics(handler, qs: dict) -> None:
-    """Query aggregated metrics from execution.sp_GetEngineMetrics.
-
-    The stored proc returns multiple result sets, but query_sql only returns
-    the first.  We call it once for run metrics, then do supplementary queries
-    for layer breakdown and top errors.
-    """
+    """Query aggregated metrics from SQLite engine_task_log and engine_runs."""
     hours = qs.get("hours", ["24"])[0]
     hours_int = int(hours) if str(hours).isdigit() else 24
 
     try:
-        # sp_GetEngineMetrics returns 4 result sets but query_sql gets the first
-        # So we call it and also do follow-up queries for the other data
-        run_metrics = _exec_proc("[execution].[sp_GetEngineMetrics]", {"HoursBack": hours_int})
+        # Run-level metrics (last N hours)
+        run_metrics = _db_query(
+            "SELECT RunId, Mode, Status, TotalEntities, SucceededEntities, FailedEntities, "
+            "       SkippedEntities, TotalRowsRead, TotalRowsWritten, TotalDurationSeconds, "
+            "       StartedAt, EndedAt, TriggeredBy, ErrorSummary "
+            "FROM engine_runs "
+            "WHERE StartedAt >= datetime('now', ? || ' hours') "
+            "ORDER BY StartedAt DESC",
+            (f"-{hours_int}",)
+        )
 
         # Layer breakdown
-        since_sql = f"DATEADD(HOUR, -{hours_int}, SYSUTCDATETIME())"
-        layer_sql = f"""
-            SELECT Layer,
-                   COUNT(*) AS TotalTasks,
-                   SUM(CASE WHEN Status = 'succeeded' THEN 1 ELSE 0 END) AS Succeeded,
-                   SUM(CASE WHEN Status = 'failed' THEN 1 ELSE 0 END) AS Failed,
-                   SUM(RowsRead) AS TotalRowsRead,
-                   AVG(DurationSeconds) AS AvgDurationSeconds,
-                   AVG(RowsPerSecond) AS AvgRowsPerSecond
-            FROM [execution].[EngineTaskLog]
-            WHERE StartedAtUtc >= {since_sql}
-            GROUP BY Layer
-        """
-        layer_metrics = _query_sql(layer_sql)
+        layer_metrics = _db_query(
+            "SELECT Layer, "
+            "       COUNT(*) AS TotalTasks, "
+            "       SUM(CASE WHEN Status = 'succeeded' THEN 1 ELSE 0 END) AS Succeeded, "
+            "       SUM(CASE WHEN Status = 'failed' THEN 1 ELSE 0 END) AS Failed, "
+            "       SUM(RowsRead) AS TotalRowsRead, "
+            "       AVG(DurationSeconds) AS AvgDurationSeconds "
+            "FROM engine_task_log "
+            "WHERE created_at >= datetime('now', ? || ' hours') "
+            "GROUP BY Layer",
+            (f"-{hours_int}",)
+        )
 
         # Top 10 slowest
-        slow_sql = f"""
-            SELECT TOP 10
-                t.EntityId, le.SourceName, ds.Name AS DataSourceName,
-                t.Layer, t.DurationSeconds, t.RowsRead, t.Status
-            FROM [execution].[EngineTaskLog] t
-            LEFT JOIN [integration].[LandingzoneEntity] le ON t.EntityId = le.LandingzoneEntityId
-            LEFT JOIN [integration].[DataSource] ds ON le.DataSourceId = ds.DataSourceId
-            WHERE t.StartedAtUtc >= {since_sql} AND t.Status = 'succeeded'
-            ORDER BY t.DurationSeconds DESC
-        """
-        slowest = _query_sql(slow_sql)
+        slowest = _db_query(
+            "SELECT t.EntityId, e.SourceName, d.Name AS DataSourceName, "
+            "       t.Layer, t.DurationSeconds, t.RowsRead, t.Status "
+            "FROM engine_task_log t "
+            "LEFT JOIN lz_entities e ON t.EntityId = e.LandingzoneEntityId "
+            "LEFT JOIN datasources d ON e.DataSourceId = d.DataSourceId "
+            "WHERE t.created_at >= datetime('now', ? || ' hours') AND t.Status = 'succeeded' "
+            "ORDER BY t.DurationSeconds DESC "
+            "LIMIT 10",
+            (f"-{hours_int}",)
+        )
 
         # Top 5 errors
-        errors_sql = f"""
-            SELECT TOP 5
-                ErrorType, ErrorMessage, COUNT(*) AS Occurrences
-            FROM [execution].[EngineTaskLog]
-            WHERE StartedAtUtc >= {since_sql} AND Status = 'failed'
-            GROUP BY ErrorType, ErrorMessage
-            ORDER BY COUNT(*) DESC
-        """
-        top_errors = _query_sql(errors_sql)
+        top_errors = _db_query(
+            "SELECT ErrorType, ErrorMessage, COUNT(*) AS Occurrences "
+            "FROM engine_task_log "
+            "WHERE created_at >= datetime('now', ? || ' hours') AND Status = 'failed' "
+            "GROUP BY ErrorType, ErrorMessage "
+            "ORDER BY COUNT(*) DESC "
+            "LIMIT 5",
+            (f"-{hours_int}",)
+        )
 
         handler._json_response({
             "hours": hours_int,
@@ -920,7 +932,7 @@ def _handle_metrics(handler, qs: dict) -> None:
             "top_errors": [_safe_row(r) for r in top_errors] if top_errors else [],
         })
     except Exception as exc:
-        log.warning("Engine metrics unavailable (SQL connection error), returning empty: %s", exc)
+        log.warning("Engine metrics unavailable, returning empty: %s", exc)
         handler._json_response({
             "hours": hours_int,
             "runs": [],
@@ -936,14 +948,14 @@ def _handle_metrics(handler, qs: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _handle_entity_reset(handler, entity_id: int) -> None:
-    """Reset watermark for an entity by deleting its LastLoadValue record.
+    """Reset watermark for an entity by deleting its watermark record.
 
     This forces the next run to do a full load for this entity.
     """
     try:
-        _query_sql(
-            f"DELETE FROM [execution].[LandingzoneEntityLastLoadValue] "
-            f"WHERE LandingzoneEntityId = {int(entity_id)}"
+        _db_execute(
+            "DELETE FROM watermarks WHERE LandingzoneEntityId = ?",
+            (int(entity_id),)
         )
         handler._json_response({
             "success": True,
@@ -960,38 +972,25 @@ def _handle_entity_reset(handler, entity_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 def _handle_runs(handler, qs: dict) -> None:
-    """Query run history. SQLite first, falls back to execution.sp_GetEngineRuns."""
-    params = {}
-
-    limit = qs.get("limit", ["20"])[0]
-    limit_val = int(limit) if str(limit).isdigit() else 20
-    params["Limit"] = limit_val
-
+    """Query run history from SQLite engine_runs table."""
+    limit_raw = qs.get("limit", ["20"])[0]
+    limit_val = int(limit_raw) if str(limit_raw).isdigit() else 20
     status = qs.get("status", [None])[0]
-    if status:
-        params["Status"] = status
 
-    rows = None
-
-    # Try local SQLite first
-    try:
-        import control_plane_db as cpdb
-        sqlite_runs = cpdb.get_engine_runs(limit=limit_val)
-        if sqlite_runs:
-            if status:
-                sqlite_runs = [r for r in sqlite_runs if r.get('Status', '').lower() == status.lower()]
-            rows = sqlite_runs
-            log.debug("Engine runs served from SQLite (%d rows)", len(rows))
-    except Exception:
-        pass
-
-    if rows is None:
-        try:
-            rows = _exec_proc("[execution].[sp_GetEngineRuns]", params)
-        except Exception as exc:
-            log.exception("Failed to query engine runs")
-            handler._error_response(str(exc), 500)
-            return
+    cpdb = _get_cpdb()
+    if cpdb:
+        rows = cpdb.get_engine_runs(limit=limit_val)
+        if status:
+            rows = [r for r in rows if r.get("Status", "").lower() == status.lower()]
+    else:
+        sql = "SELECT * FROM engine_runs WHERE 1=1"
+        params: list = []
+        if status:
+            sql += " AND Status = ?"
+            params.append(status)
+        sql += " ORDER BY StartedAt DESC LIMIT ?"
+        params.append(limit_val)
+        rows = _db_query(sql, tuple(params))
 
     # Map columns to frontend format
     mapped = []
@@ -1001,9 +1000,9 @@ def _handle_runs(handler, qs: dict) -> None:
             "run_id": sr.get("RunId", ""),
             "status": sr.get("Status", "unknown"),
             "mode": sr.get("Mode", "run"),
-            "started_at": sr.get("StartedAtUtc") or sr.get("StartedAt", ""),
-            "finished_at": sr.get("CompletedAtUtc") or sr.get("EndedAt"),
-            "duration_seconds": sr.get("ElapsedSeconds") or sr.get("TotalDurationSeconds"),
+            "started_at": sr.get("StartedAt", ""),
+            "finished_at": sr.get("EndedAt"),
+            "duration_seconds": sr.get("TotalDurationSeconds"),
             "entities_succeeded": sr.get("SucceededEntities", 0),
             "entities_failed": sr.get("FailedEntities", 0),
             "entities_skipped": sr.get("SkippedEntities", 0),
@@ -1021,184 +1020,141 @@ def _handle_runs(handler, qs: dict) -> None:
 def _handle_validation(handler) -> None:
     """Return entity load status across all layers, grouped by source.
 
-    This powers the Validation Checklist dashboard page — the concrete
-    before/after proof that v3 fixed everything.
+    This powers the Validation Checklist dashboard page.
     """
     try:
         # Overview by source
-        overview = _query_sql("""
+        overview = _db_query("""
             SELECT
-                ds.Name AS DataSource,
+                d.Name AS DataSource,
                 COUNT(*) AS TotalEntities,
-                SUM(CASE WHEN le.IsActive = 1 THEN 1 ELSE 0 END) AS Active,
-                SUM(CASE WHEN le.IsActive = 0 THEN 1 ELSE 0 END) AS Inactive
-            FROM integration.LandingzoneEntity le
-            JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-            GROUP BY ds.Name
-            ORDER BY ds.Name
+                SUM(CASE WHEN e.IsActive = 1 THEN 1 ELSE 0 END) AS Active,
+                SUM(CASE WHEN e.IsActive = 0 THEN 1 ELSE 0 END) AS Inactive
+            FROM lz_entities e
+            JOIN datasources d ON e.DataSourceId = d.DataSourceId
+            GROUP BY d.Name
+            ORDER BY d.Name
         """)
 
-        # Layer status per source (LZ)
-        lz_status = _query_sql("""
+        # LZ status per source
+        lz_status = _db_query("""
             SELECT
-                ds.Name AS DataSource,
+                d.Name AS DataSource,
                 SUM(CASE WHEN ple.IsProcessed = 1 THEN 1 ELSE 0 END) AS LzLoaded,
                 SUM(CASE WHEN ple.IsProcessed = 0 THEN 1 ELSE 0 END) AS LzFailed,
                 SUM(CASE WHEN ple.LandingzoneEntityId IS NULL THEN 1 ELSE 0 END) AS LzNeverAttempted
-            FROM integration.LandingzoneEntity le
-            JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-            LEFT JOIN execution.PipelineLandingzoneEntity ple
-                ON le.LandingzoneEntityId = ple.LandingzoneEntityId
-            WHERE le.IsActive = 1
-            GROUP BY ds.Name
-            ORDER BY ds.Name
+            FROM lz_entities e
+            JOIN datasources d ON e.DataSourceId = d.DataSourceId
+            LEFT JOIN pipeline_lz_entity ple ON e.LandingzoneEntityId = ple.LandingzoneEntityId
+            WHERE e.IsActive = 1
+            GROUP BY d.Name
+            ORDER BY d.Name
         """)
 
         # Bronze status per source
-        bronze_status = _query_sql("""
+        bronze_status = _db_query("""
             SELECT
-                ds.Name AS DataSource,
+                d.Name AS DataSource,
                 SUM(CASE WHEN pbe.IsProcessed = 1 THEN 1 ELSE 0 END) AS BronzeLoaded,
                 SUM(CASE WHEN pbe.IsProcessed = 0 THEN 1 ELSE 0 END) AS BronzeFailed,
                 SUM(CASE WHEN pbe.BronzeLayerEntityId IS NULL THEN 1 ELSE 0 END) AS BronzeNeverAttempted
-            FROM integration.LandingzoneEntity le
-            JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-            JOIN integration.BronzeLayerEntity ble ON le.LandingzoneEntityId = ble.LandingzoneEntityId
-            LEFT JOIN execution.PipelineBronzeLayerEntity pbe
-                ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
-            WHERE le.IsActive = 1
-            GROUP BY ds.Name
-            ORDER BY ds.Name
+            FROM lz_entities e
+            JOIN datasources d ON e.DataSourceId = d.DataSourceId
+            JOIN bronze_entities b ON e.LandingzoneEntityId = b.LandingzoneEntityId
+            LEFT JOIN pipeline_bronze_entity pbe ON b.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+            WHERE e.IsActive = 1
+            GROUP BY d.Name
+            ORDER BY d.Name
         """)
 
-        # Silver status per source (table created on first Silver notebook run)
+        # Silver status per source
         try:
-            silver_status = _query_sql("""
+            silver_status = _db_query("""
                 SELECT
-                    ds.Name AS DataSource,
-                    SUM(CASE WHEN pse.IsProcessed = 1 THEN 1 ELSE 0 END) AS SilverLoaded,
-                    SUM(CASE WHEN pse.IsProcessed = 0 THEN 1 ELSE 0 END) AS SilverFailed,
-                    SUM(CASE WHEN pse.SilverLayerEntityId IS NULL THEN 1 ELSE 0 END) AS SilverNeverAttempted
-                FROM integration.LandingzoneEntity le
-                JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-                JOIN integration.BronzeLayerEntity ble ON le.LandingzoneEntityId = ble.LandingzoneEntityId
-                LEFT JOIN integration.SilverLayerEntity sle ON ble.BronzeLayerEntityId = sle.BronzeLayerEntityId
-                LEFT JOIN execution.PipelineSilverLayerEntity pse
-                    ON sle.SilverLayerEntityId = pse.SilverLayerEntityId
-                WHERE le.IsActive = 1
-                GROUP BY ds.Name
-                ORDER BY ds.Name
+                    d.Name AS DataSource,
+                    SUM(CASE WHEN s.IsActive = 1 THEN 1 ELSE 0 END) AS SilverLoaded,
+                    SUM(CASE WHEN s.IsActive = 0 THEN 1 ELSE 0 END) AS SilverFailed,
+                    0 AS SilverNeverAttempted
+                FROM lz_entities e
+                JOIN datasources d ON e.DataSourceId = d.DataSourceId
+                JOIN bronze_entities b ON e.LandingzoneEntityId = b.LandingzoneEntityId
+                LEFT JOIN silver_entities s ON b.BronzeLayerEntityId = s.BronzeLayerEntityId
+                WHERE e.IsActive = 1
+                GROUP BY d.Name
+                ORDER BY d.Name
             """)
         except Exception:
             silver_status = []
 
-        # Digest summary
+        # Digest summary from entity_status
         try:
-            digest = _query_sql("""
-                SELECT OverallStatus, COUNT(*) AS EntityCount
-                FROM execution.EntityStatusSummary
-                GROUP BY OverallStatus
+            digest = _db_query("""
+                SELECT Status AS OverallStatus, COUNT(*) AS EntityCount
+                FROM entity_status
+                GROUP BY Status
                 ORDER BY EntityCount DESC
             """)
         except Exception:
             digest = []
 
         # Never-attempted entities (limited list for display)
-        never_attempted = _query_sql("""
-            SELECT TOP 50
-                le.LandingzoneEntityId AS EntityId,
-                ds.Name AS DataSource,
-                le.SourceSchema,
-                le.SourceName
-            FROM integration.LandingzoneEntity le
-            JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-            LEFT JOIN execution.PipelineLandingzoneEntity ple
-                ON le.LandingzoneEntityId = ple.LandingzoneEntityId
-            WHERE le.IsActive = 1 AND ple.LandingzoneEntityId IS NULL
-            ORDER BY ds.Name, le.SourceSchema, le.SourceName
+        never_attempted = _db_query("""
+            SELECT
+                e.LandingzoneEntityId AS EntityId,
+                d.Name AS DataSource,
+                e.SourceSchema,
+                e.SourceName
+            FROM lz_entities e
+            JOIN datasources d ON e.DataSourceId = d.DataSourceId
+            LEFT JOIN pipeline_lz_entity ple ON e.LandingzoneEntityId = ple.LandingzoneEntityId
+            WHERE e.IsActive = 1 AND ple.LandingzoneEntityId IS NULL
+            ORDER BY d.Name, e.SourceSchema, e.SourceName
+            LIMIT 50
         """)
 
-        # Stuck at LZ (distinct entities only, not per-run duplicates)
-        stuck_at_lz = _query_sql("""
+        # Stuck at LZ (loaded LZ but not bronze)
+        stuck_at_lz = _db_query("""
             SELECT
-                ds.Name AS DataSource,
-                COUNT(DISTINCT le.LandingzoneEntityId) AS StuckCount
-            FROM integration.LandingzoneEntity le
-            JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-            JOIN execution.PipelineLandingzoneEntity ple
-                ON le.LandingzoneEntityId = ple.LandingzoneEntityId
-            JOIN integration.BronzeLayerEntity ble
-                ON le.LandingzoneEntityId = ble.LandingzoneEntityId
-            LEFT JOIN execution.PipelineBronzeLayerEntity pbe
-                ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
-            WHERE le.IsActive = 1
+                d.Name AS DataSource,
+                COUNT(DISTINCT e.LandingzoneEntityId) AS StuckCount
+            FROM lz_entities e
+            JOIN datasources d ON e.DataSourceId = d.DataSourceId
+            JOIN pipeline_lz_entity ple ON e.LandingzoneEntityId = ple.LandingzoneEntityId
+            JOIN bronze_entities b ON e.LandingzoneEntityId = b.LandingzoneEntityId
+            LEFT JOIN pipeline_bronze_entity pbe ON b.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+            WHERE e.IsActive = 1
               AND ple.IsProcessed = 1
               AND (pbe.BronzeLayerEntityId IS NULL OR pbe.IsProcessed = 0)
-            GROUP BY ds.Name
-            ORDER BY ds.Name
+            GROUP BY d.Name
+            ORDER BY d.Name
         """)
 
-        # Per-entity layer status (the selectable table)
-        # Try with PipelineSilverLayerEntity; fall back without if table doesn't exist yet
-        try:
-            entities = _query_sql("""
-                SELECT
-                    le.LandingzoneEntityId AS EntityId,
-                    ds.Name AS DataSource,
-                    le.SourceSchema,
-                    le.SourceName,
-                    le.IsIncremental,
-                    CASE WHEN ple.IsProcessed = 1 THEN 1
-                         WHEN ple.IsProcessed = 0 THEN 0
-                         ELSE -1 END AS LzStatus,
-                    CASE WHEN pbe.IsProcessed = 1 THEN 1
-                         WHEN pbe.IsProcessed = 0 THEN 0
-                         ELSE -1 END AS BronzeStatus,
-                    CASE WHEN pse.IsProcessed = 1 THEN 1
-                         WHEN pse.IsProcessed = 0 THEN 0
-                         ELSE -1 END AS SilverStatus
-                FROM integration.LandingzoneEntity le
-                JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-                LEFT JOIN execution.PipelineLandingzoneEntity ple
-                    ON le.LandingzoneEntityId = ple.LandingzoneEntityId
-                LEFT JOIN integration.BronzeLayerEntity ble
-                    ON le.LandingzoneEntityId = ble.LandingzoneEntityId
-                LEFT JOIN execution.PipelineBronzeLayerEntity pbe
-                    ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
-                LEFT JOIN integration.SilverLayerEntity sle
-                    ON ble.BronzeLayerEntityId = sle.BronzeLayerEntityId
-                LEFT JOIN execution.PipelineSilverLayerEntity pse
-                    ON sle.SilverLayerEntityId = pse.SilverLayerEntityId
-                WHERE le.IsActive = 1
-                ORDER BY ds.Name, le.SourceSchema, le.SourceName
-            """)
-        except Exception:
-            # PipelineSilverLayerEntity doesn't exist yet — query without it
-            entities = _query_sql("""
-                SELECT
-                    le.LandingzoneEntityId AS EntityId,
-                    ds.Name AS DataSource,
-                    le.SourceSchema,
-                    le.SourceName,
-                    le.IsIncremental,
-                    CASE WHEN ple.IsProcessed = 1 THEN 1
-                         WHEN ple.IsProcessed = 0 THEN 0
-                         ELSE -1 END AS LzStatus,
-                    CASE WHEN pbe.IsProcessed = 1 THEN 1
-                         WHEN pbe.IsProcessed = 0 THEN 0
-                         ELSE -1 END AS BronzeStatus,
-                    -1 AS SilverStatus
-                FROM integration.LandingzoneEntity le
-                JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-                LEFT JOIN execution.PipelineLandingzoneEntity ple
-                    ON le.LandingzoneEntityId = ple.LandingzoneEntityId
-                LEFT JOIN integration.BronzeLayerEntity ble
-                    ON le.LandingzoneEntityId = ble.LandingzoneEntityId
-                LEFT JOIN execution.PipelineBronzeLayerEntity pbe
-                    ON ble.BronzeLayerEntityId = pbe.BronzeLayerEntityId
-                WHERE le.IsActive = 1
-                ORDER BY ds.Name, le.SourceSchema, le.SourceName
-            """)
+        # Per-entity layer status with silver join
+        entities = _db_query("""
+            SELECT
+                e.LandingzoneEntityId AS EntityId,
+                d.Name AS DataSource,
+                e.SourceSchema,
+                e.SourceName,
+                e.IsIncremental,
+                CASE WHEN ple.IsProcessed = 1 THEN 1
+                     WHEN ple.IsProcessed = 0 THEN 0
+                     ELSE -1 END AS LzStatus,
+                CASE WHEN pbe.IsProcessed = 1 THEN 1
+                     WHEN pbe.IsProcessed = 0 THEN 0
+                     ELSE -1 END AS BronzeStatus,
+                CASE WHEN s.IsActive = 1 THEN 1
+                     WHEN s.IsActive = 0 THEN 0
+                     ELSE -1 END AS SilverStatus
+            FROM lz_entities e
+            JOIN datasources d ON e.DataSourceId = d.DataSourceId
+            LEFT JOIN pipeline_lz_entity ple ON e.LandingzoneEntityId = ple.LandingzoneEntityId
+            LEFT JOIN bronze_entities b ON e.LandingzoneEntityId = b.LandingzoneEntityId
+            LEFT JOIN pipeline_bronze_entity pbe ON b.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+            LEFT JOIN silver_entities s ON b.BronzeLayerEntityId = s.BronzeLayerEntityId
+            WHERE e.IsActive = 1
+            ORDER BY d.Name, e.SourceSchema, e.SourceName
+        """)
 
         handler._json_response({
             "overview": [_safe_row(r) for r in overview],
@@ -1296,26 +1252,25 @@ def _handle_settings_post(handler, config: dict, body: dict) -> None:
 def _handle_entities(handler, config: dict) -> None:
     """Return all active LZ entities for the manual reload selector."""
     try:
-        rows = _query_sql("""
+        rows = _db_query("""
             SELECT
-                le.LandingzoneEntityId AS entity_id,
-                le.SourceSchema AS source_schema,
-                le.SourceName AS source_name,
-                COALESCE(NULLIF(ds.Namespace, ''), ds.Name) AS namespace,
-                ds.Name AS datasource,
+                e.LandingzoneEntityId AS entity_id,
+                e.SourceSchema AS source_schema,
+                e.SourceName AS source_name,
+                COALESCE(NULLIF(d.Namespace, ''), d.Name) AS namespace,
+                d.Name AS datasource,
                 c.DatabaseName AS source_database,
-                le.IsIncremental AS is_incremental,
-                ple.ProcessedDatetime AS last_loaded,
+                e.IsIncremental AS is_incremental,
+                ple.InsertDateTime AS last_loaded,
                 CASE WHEN ple.IsProcessed = 1 THEN 'loaded'
                      WHEN ple.IsProcessed = 0 THEN 'failed'
                      ELSE 'never' END AS lz_status
-            FROM integration.LandingzoneEntity le
-            INNER JOIN integration.DataSource ds ON le.DataSourceId = ds.DataSourceId
-            INNER JOIN integration.Connection c ON ds.ConnectionId = c.ConnectionId
-            LEFT JOIN execution.PipelineLandingzoneEntity ple
-                ON le.LandingzoneEntityId = ple.LandingzoneEntityId
-            WHERE le.IsActive = 1
-            ORDER BY ds.Name, le.SourceSchema, le.SourceName
+            FROM lz_entities e
+            INNER JOIN datasources d ON e.DataSourceId = d.DataSourceId
+            INNER JOIN connections c ON d.ConnectionId = c.ConnectionId
+            LEFT JOIN pipeline_lz_entity ple ON e.LandingzoneEntityId = ple.LandingzoneEntityId
+            WHERE e.IsActive = 1
+            ORDER BY d.Name, e.SourceSchema, e.SourceName
         """)
 
         entities = []
@@ -1345,8 +1300,8 @@ def _handle_entities(handler, config: dict) -> None:
 def _safe_row(row: dict) -> dict:
     """Convert a SQL row dict to JSON-safe types.
 
-    pyodbc returns datetime/Decimal/UUID objects that json.dumps can't handle.
-    This converts everything to str/int/float/None.
+    SQLite rows may contain datetime strings already; this just handles any
+    remaining non-serializable types.
     """
     safe = {}
     for k, v in row.items():

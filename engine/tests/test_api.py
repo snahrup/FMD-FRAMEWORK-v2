@@ -111,7 +111,7 @@ def test_handle_engine_request_unknown_get():
     handler = _make_handler(path="/api/engine/nonexistent")
     from engine.api import handle_engine_request
     handle_engine_request(handler, method="GET", path="/api/engine/nonexistent",
-                          config={}, query_sql_fn=lambda sql: [])
+                          config={})
     handler._error_response.assert_called_once()
     args = handler._error_response.call_args
     assert args[0][1] == 404
@@ -122,7 +122,7 @@ def test_handle_engine_request_unknown_post():
     handler = _make_handler(path="/api/engine/nonexistent", body=b"{}")
     from engine.api import handle_engine_request
     handle_engine_request(handler, method="POST", path="/api/engine/nonexistent",
-                          config={}, query_sql_fn=lambda sql: [])
+                          config={})
     handler._error_response.assert_called_once()
     args = handler._error_response.call_args
     assert args[0][1] == 404
@@ -132,7 +132,7 @@ def test_handle_engine_request_method_not_allowed():
     handler = _make_handler(path="/api/engine/status")
     from engine.api import handle_engine_request
     handle_engine_request(handler, method="DELETE", path="/api/engine/status",
-                          config={}, query_sql_fn=lambda sql: [])
+                          config={})
     handler._error_response.assert_called_once()
     args = handler._error_response.call_args
     assert args[0][1] == 405

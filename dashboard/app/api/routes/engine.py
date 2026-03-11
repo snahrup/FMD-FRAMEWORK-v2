@@ -3,10 +3,7 @@
 Registers all /api/engine/* routes and delegates to engine/api.py's
 handle_engine_request() via a lightweight HTTP-handler adapter.
 
-This is a temporary bridge (Task 6).  Task 12 will migrate engine/api.py
-from Fabric SQL to SQLite and rewrite these handlers natively.
-
-Delegation strategy (Option A):
+Delegation strategy:
     Each @route wrapper builds a _HandlerAdapter that mimics the subset of
     DashboardHandler that engine/api.py actually uses (_json_response,
     _error_response, headers, rfile, wfile).  handle_engine_request() writes
@@ -129,16 +126,8 @@ def _delegate(method: str, path: str, params: dict) -> dict:
         method=method,
         path=full_path,
         config=_get_config(),
-        query_sql_fn=_noop_query_sql,
     )
     return adapter.result()
-
-
-def _noop_query_sql(sql: str, params=None):
-    """Fallback query_sql — engine/api.py sets _query_sql on every call.
-    Routes that actually need Fabric SQL will fail at the engine level, not here.
-    """
-    return []
 
 
 # ---------------------------------------------------------------------------
