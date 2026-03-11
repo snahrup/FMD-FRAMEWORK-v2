@@ -109,6 +109,10 @@ result_data=''
 TriggerTime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 notebook_name=  notebookutils.runtime.context['currentNotebookName']
 
+# TODO (Task 19 — migration pending): This template still calls sp_AuditNotebook via
+# execute_with_outputs(). Once custom notebooks are deployed, replace StartNotebookActivity
+# and EndNotebookActivity with _write_audit_to_delta("notebook_executions", {...}) calls,
+# following the same pattern used in NB_FMD_LOAD_LANDING_BRONZE and NB_FMD_LOAD_BRONZE_SILVER.
 StartNotebookActivity = (
     f"[logging].[sp_AuditNotebook] "
     f"@NotebookGuid = \"{NotebookExecutionId}\", "

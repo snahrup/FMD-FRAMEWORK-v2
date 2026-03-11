@@ -363,35 +363,17 @@ def query_metadata(sql, params=None):
         conn.close()
 
 
-def exec_metadata(sql, params=None):
-    """Execute a statement against the Fabric SQL metadata DB (for SPs, updates)."""
-    token = notebookutils.credentials.getToken('https://analysis.windows.net/powerbi/api').encode("UTF-16-LE")
-    token_struct = struct.pack(f'<I{len(token)}s', len(token), token)
-    conn = pyodbc.connect(
-        f"DRIVER={driver};SERVER={connstring};PORT=1433;DATABASE={database};",
-        attrs_before={1256: token_struct},
-        timeout=30
-    )
+def _write_audit_to_delta(table_name: str, data: dict):
+    """Write a single audit record to a Delta table in the default lakehouse."""
     try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1")  # warm up
-            cur.fetchone()
-            if params:
-                cur.execute(sql, params)
-            else:
-                cur.execute(sql)
-            # Drain all result sets to ensure SP completes
-            while True:
-                try:
-                    if cur.description:
-                        cur.fetchall()
-                    if not cur.nextset():
-                        break
-                except:
-                    break
-            cur.commit()
-    finally:
-        conn.close()
+        from pyspark.sql import SparkSession
+        from datetime import datetime as _dt
+        _spark = SparkSession.builder.getOrCreate()
+        data["created_at"] = _dt.utcnow().isoformat() + "Z"
+        _df = _spark.createDataFrame([data])
+        _df.write.mode("append").format("delta").saveAsTable(table_name)
+    except Exception as _delta_err:
+        print(f"  [WARN] Delta write to {table_name} failed: {_delta_err}")
 
 # METADATA ********************
 
@@ -614,107 +596,90 @@ def poll_job_status(location, token):
 # CELL ********************
 
 def log_copy_start(entity):
-    """Log StartCopyActivity to logging.CopyActivityExecution (same as pipeline SP_START_AUDIT_PIPELINE_CP)."""
+    """Log StartCopyActivity to copy_activity_audit Delta table (replaces sp_AuditCopyActivity)."""
     try:
-        exec_metadata(f"""
-            EXEC [logging].[sp_AuditCopyActivity]
-                @LogType = 'StartCopyActivity',
-                @LogData = '{{"Action":"Start"}}',
-                @PipelineGuid = '{notebook_id}',
-                @CopyActivityName = '{notebook_name}',
-                @CopyActivityParameters = '{entity["SourceName"]}',
-                @PipelineRunGuid = '{PipelineRunGuid}',
-                @PipelineParentRunGuid = '{PipelineParentRunGuid}',
-                @TriggerGuid = '{TriggerGuid}',
-                @TriggerTime = '{TriggerTime}',
-                @TriggerType = '{TriggerType}',
-                @WorkspaceGuid = '{workspace_guid}',
-                @EntityLayer = 'Landingzone',
-                @EntityId = {entity["EntityId"]}
-        """)
+        _write_audit_to_delta("copy_activity_audit", {
+            "PipelineRunGuid": PipelineRunGuid,
+            "CopyActivityName": notebook_name,
+            "CopyActivityParameters": entity["SourceName"],
+            "EntityLayer": "Landingzone",
+            "TriggerType": TriggerType,
+            "LogType": "StartCopyActivity",
+            "LogDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "LogData": '{"Action":"Start"}',
+            "EntityId": int(entity["EntityId"]) if entity.get("EntityId") else None,
+        })
     except Exception as e:
         print(f"  WARNING: log_copy_start failed for {entity['SourceName']}: {str(e)[:200]}")
 
 
 def log_copy_end(entity, row_count, duration_sec):
-    """Log EndCopyActivity to logging.CopyActivityExecution."""
+    """Log EndCopyActivity to copy_activity_audit Delta table (replaces sp_AuditCopyActivity)."""
     log_data = json.dumps({
         "Action": "End",
         "rowsCopied": row_count,
         "duration": f"{duration_sec:.1f}s",
         "source": f"{entity['SourceSchema']}.{entity['SourceName']}"
-    }).replace("'", "''")
+    })
     try:
-        exec_metadata(f"""
-            EXEC [logging].[sp_AuditCopyActivity]
-                @LogType = 'EndCopyActivity',
-                @LogData = '{log_data}',
-                @PipelineGuid = '{notebook_id}',
-                @CopyActivityName = '{notebook_name}',
-                @CopyActivityParameters = '{entity["SourceName"]}',
-                @PipelineRunGuid = '{PipelineRunGuid}',
-                @PipelineParentRunGuid = '{PipelineParentRunGuid}',
-                @TriggerGuid = '{TriggerGuid}',
-                @TriggerTime = '{TriggerTime}',
-                @TriggerType = '{TriggerType}',
-                @WorkspaceGuid = '{workspace_guid}',
-                @EntityLayer = 'Landingzone',
-                @EntityId = {entity["EntityId"]}
-        """)
+        _write_audit_to_delta("copy_activity_audit", {
+            "PipelineRunGuid": PipelineRunGuid,
+            "CopyActivityName": notebook_name,
+            "CopyActivityParameters": entity["SourceName"],
+            "EntityLayer": "Landingzone",
+            "TriggerType": TriggerType,
+            "LogType": "EndCopyActivity",
+            "LogDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "LogData": log_data,
+            "EntityId": int(entity["EntityId"]) if entity.get("EntityId") else None,
+        })
     except Exception as e:
         print(f"  WARNING: log_copy_end failed for {entity['SourceName']}: {str(e)[:200]}")
 
 
 def log_copy_failure(entity, error_msg):
-    """Log FailedCopyActivity to logging.CopyActivityExecution."""
-    safe_error = str(error_msg)[:500].replace("'", "''").replace('"', '\\"')
-    log_data = f'{{"Action":"Error","Message":"{safe_error}"}}'
+    """Log FailedCopyActivity to copy_activity_audit Delta table (replaces sp_AuditCopyActivity)."""
+    log_data = json.dumps({"Action": "Error", "Message": str(error_msg)[:500]})
     try:
-        exec_metadata(f"""
-            EXEC [logging].[sp_AuditCopyActivity]
-                @LogType = 'FailedCopyActivity',
-                @LogData = '{log_data}',
-                @PipelineGuid = '{notebook_id}',
-                @CopyActivityName = '{notebook_name}',
-                @CopyActivityParameters = '{entity["SourceName"]}',
-                @PipelineRunGuid = '{PipelineRunGuid}',
-                @PipelineParentRunGuid = '{PipelineParentRunGuid}',
-                @TriggerGuid = '{TriggerGuid}',
-                @TriggerTime = '{TriggerTime}',
-                @TriggerType = '{TriggerType}',
-                @WorkspaceGuid = '{workspace_guid}',
-                @EntityLayer = 'Landingzone',
-                @EntityId = {entity["EntityId"]}
-        """)
+        _write_audit_to_delta("copy_activity_audit", {
+            "PipelineRunGuid": PipelineRunGuid,
+            "CopyActivityName": notebook_name,
+            "CopyActivityParameters": entity["SourceName"],
+            "EntityLayer": "Landingzone",
+            "TriggerType": TriggerType,
+            "LogType": "FailedCopyActivity",
+            "LogDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "LogData": log_data,
+            "EntityId": int(entity["EntityId"]) if entity.get("EntityId") else None,
+        })
     except Exception as e:
         print(f"  WARNING: log_copy_failure failed for {entity['SourceName']}: {str(e)[:200]}")
 
 
 def register_lz_entity(entity):
-    """Call sp_UpsertPipelineLandingzoneEntity — marks file for Bronze pickup."""
+    """Write to pipeline_lz_entity Delta table (replaces sp_UpsertPipelineLandingzoneEntity)."""
     try:
-        exec_metadata(f"""
-            EXEC [execution].[sp_UpsertPipelineLandingzoneEntity]
-                @Filename = '{entity["TargetFileName"]}',
-                @FilePath = '{entity["TargetFilePath"]}',
-                @IsProcessed = 'False',
-                @LandingzoneEntityId = '{entity["EntityId"]}'
-        """)
+        _write_audit_to_delta("pipeline_lz_entity", {
+            "LandingzoneEntityId": int(entity["EntityId"]) if entity.get("EntityId") else None,
+            "FileName": entity.get("TargetFileName"),
+            "FilePath": entity.get("TargetFilePath"),
+            "IsProcessed": 0,
+            "InsertDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
     except Exception as e:
         print(f"  WARNING: register_lz_entity failed for {entity['SourceName']}: {str(e)[:200]}")
 
 
 def update_watermark(entity_id, new_value):
-    """Update the LastLoadValue watermark for incremental loads."""
+    """Write watermark to watermarks Delta table (replaces sp_UpsertLandingZoneEntityLastLoadValue)."""
     if not new_value:
         return
-    safe_val = str(new_value).replace("'", "''")
     try:
-        exec_metadata(f"""
-            EXEC [integration].[sp_UpsertLandingZoneEntityLastLoadValue]
-                @LandingzoneEntityId = {entity_id},
-                @LoadValue = '{safe_val}'
-        """)
+        _write_audit_to_delta("watermarks", {
+            "LandingzoneEntityId": int(entity_id) if entity_id else None,
+            "LoadValue": str(new_value),
+            "LastLoadDatetime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
     except Exception as e:
         print(f"  WARNING: update_watermark failed for entity {entity_id}: {str(e)[:200]}")
 
