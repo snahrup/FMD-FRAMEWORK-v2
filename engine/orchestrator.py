@@ -241,20 +241,28 @@ class LoadOrchestrator:
                 results.extend(lz_results)
                 lz_duration = time.time() - lz_t
 
-            # Bronze — trigger Fabric notebook
+            # Bronze
             bronze_duration = 0.0
             if not layers or "bronze" in layers:
                 bronze_t = time.time()
-                bronze_result = self._notebooks.run_bronze(run_id)
-                results.append(bronze_result)
+                if effective_method == "local":
+                    bronze_results = self._run_bronze_local(run_id)
+                    results.extend(bronze_results)
+                else:
+                    bronze_result = self._notebooks.run_bronze(run_id)
+                    results.append(bronze_result)
                 bronze_duration = time.time() - bronze_t
 
-            # Silver — trigger Fabric notebook
+            # Silver
             silver_duration = 0.0
             if not layers or "silver" in layers:
                 silver_t = time.time()
-                silver_result = self._notebooks.run_silver(run_id)
-                results.append(silver_result)
+                if effective_method == "local":
+                    silver_results = self._run_silver_local(run_id)
+                    results.extend(silver_results)
+                else:
+                    silver_result = self._notebooks.run_silver(run_id)
+                    results.append(silver_result)
                 silver_duration = time.time() - silver_t
 
             self._audit.log_run_end(run_id, results)
@@ -411,6 +419,117 @@ class LoadOrchestrator:
                  len(entities), len(blank_ids))
         return entities
 
+    def get_bronze_worklist(self, entity_ids: Optional[List[int]] = None) -> list:
+        """Fetch active bronze entities from the local SQLite control-plane DB."""
+        from engine.models import BronzeEntity
+
+        sql = """
+            SELECT
+                be.BronzeLayerEntityId,
+                be.LandingzoneEntityId,
+                COALESCE(NULLIF(ds.Namespace, ''), ds.Name) AS Namespace,
+                le.SourceSchema,
+                le.SourceName,
+                be.PrimaryKeys,
+                le.IsIncremental,
+                lh_bronze.LakehouseGuid AS BronzeLakehouseGuid,
+                lh_bronze.WorkspaceGuid AS WorkspaceGuid,
+                le.SourceName || '.parquet' AS LzFileName,
+                COALESCE(NULLIF(ds.Namespace, ''), ds.Name) AS LzNamespace,
+                lh_lz.LakehouseGuid AS LzLakehouseGuid
+            FROM bronze_entities be
+            INNER JOIN lz_entities le     ON be.LandingzoneEntityId = le.LandingzoneEntityId
+            INNER JOIN datasources ds     ON le.DataSourceId = ds.DataSourceId
+            INNER JOIN connections c       ON ds.ConnectionId = c.ConnectionId
+            INNER JOIN lakehouses lh_bronze ON be.LakehouseId = lh_bronze.LakehouseId
+            INNER JOIN lakehouses lh_lz    ON le.LakehouseId = lh_lz.LakehouseId
+            WHERE be.IsActive = 1
+              AND le.IsActive = 1
+        """
+
+        params: tuple = ()
+        if entity_ids:
+            placeholders = ",".join("?" for _ in entity_ids)
+            sql += f" AND be.BronzeLayerEntityId IN ({placeholders})"
+            params = tuple(entity_ids)
+
+        rows = self._cpdb_query(sql, params)
+        entities = []
+        for row in rows:
+            source_name = str(row.get("SourceName", "") or "").strip()
+            if not source_name:
+                continue
+            entities.append(BronzeEntity(
+                bronze_entity_id=int(row["BronzeLayerEntityId"]),
+                lz_entity_id=int(row["LandingzoneEntityId"]),
+                namespace=row.get("Namespace", ""),
+                source_schema=row.get("SourceSchema", "dbo"),
+                source_name=source_name,
+                primary_keys=row.get("PrimaryKeys", "") or "",
+                is_incremental=bool(row.get("IsIncremental", False)),
+                lakehouse_guid=row.get("BronzeLakehouseGuid", ""),
+                workspace_guid=row.get("WorkspaceGuid", ""),
+                lz_file_name=row.get("LzFileName", f"{source_name}.parquet"),
+                lz_namespace=row.get("LzNamespace", ""),
+                lz_lakehouse_guid=row.get("LzLakehouseGuid", ""),
+            ))
+
+        log.info("Bronze worklist: %d entities", len(entities))
+        return entities
+
+    def get_silver_worklist(self, entity_ids: Optional[List[int]] = None) -> list:
+        """Fetch active silver entities from the local SQLite control-plane DB."""
+        from engine.models import SilverEntity
+
+        sql = """
+            SELECT
+                se.SilverLayerEntityId,
+                se.BronzeLayerEntityId,
+                COALESCE(NULLIF(ds.Namespace, ''), ds.Name) AS Namespace,
+                le.SourceName,
+                be.PrimaryKeys,
+                le.IsIncremental,
+                lh_silver.LakehouseGuid AS SilverLakehouseGuid,
+                lh_silver.WorkspaceGuid AS WorkspaceGuid,
+                lh_bronze.LakehouseGuid AS BronzeLakehouseGuid
+            FROM silver_entities se
+            INNER JOIN bronze_entities be   ON se.BronzeLayerEntityId = be.BronzeLayerEntityId
+            INNER JOIN lz_entities le       ON be.LandingzoneEntityId = le.LandingzoneEntityId
+            INNER JOIN datasources ds       ON le.DataSourceId = ds.DataSourceId
+            INNER JOIN lakehouses lh_silver ON se.LakehouseId = lh_silver.LakehouseId
+            INNER JOIN lakehouses lh_bronze ON be.LakehouseId = lh_bronze.LakehouseId
+            WHERE se.IsActive = 1
+              AND be.IsActive = 1
+              AND le.IsActive = 1
+        """
+
+        params: tuple = ()
+        if entity_ids:
+            placeholders = ",".join("?" for _ in entity_ids)
+            sql += f" AND se.SilverLayerEntityId IN ({placeholders})"
+            params = tuple(entity_ids)
+
+        rows = self._cpdb_query(sql, params)
+        entities = []
+        for row in rows:
+            source_name = str(row.get("SourceName", "") or "").strip()
+            if not source_name:
+                continue
+            entities.append(SilverEntity(
+                silver_entity_id=int(row["SilverLayerEntityId"]),
+                bronze_entity_id=int(row["BronzeLayerEntityId"]),
+                namespace=row.get("Namespace", ""),
+                source_name=source_name,
+                primary_keys=row.get("PrimaryKeys", "") or "",
+                is_incremental=bool(row.get("IsIncremental", False)),
+                lakehouse_guid=row.get("SilverLakehouseGuid", ""),
+                workspace_guid=row.get("WorkspaceGuid", ""),
+                bronze_lakehouse_guid=row.get("BronzeLakehouseGuid", ""),
+            ))
+
+        log.info("Silver worklist: %d entities", len(entities))
+        return entities
+
     @staticmethod
     def _cpdb_query(sql: str, params: tuple = ()) -> list[dict]:
         """Query the local SQLite control-plane DB.  Returns list of dicts.
@@ -498,40 +617,58 @@ class LoadOrchestrator:
             layer_plan.append(step)
 
         if "bronze" in active_layers:
-            nb_id = self.config.notebook_bronze_id
-            layer_plan.append({
-                "layer": "bronze",
-                "action": "Trigger NB_FMD_LOAD_LANDING_BRONZE via NB_FMD_PROCESSING_PARALLEL_MAIN",
-                "method": "notebook",
-                "entity_count": len(entities),
-                "batch_size": self.config.batch_size,
-                "chunk_rows": None,
-                "notebook_id": nb_id or None,
-                "details": (
-                    f"Notebook {nb_id or '(auto-discover)'} processes each entity: "
-                    f"read parquet from LZ → write Delta table to Bronze lakehouse"
-                ),
-            })
-            if not nb_id:
-                warnings.append("Bronze notebook ID not configured — will attempt auto-discovery")
+            if effective_method == "local":
+                layer_plan.append({
+                    "layer": "bronze",
+                    "action": "Read LZ parquet → hash PKs → change-detect → write Bronze Delta",
+                    "method": "local",
+                    "entity_count": len(entities),
+                    "batch_size": self.config.batch_size,
+                    "chunk_rows": None,
+                    "notebook_id": None,
+                    "details": "Local Python processing: polars + deltalake. Per-entity Delta merge to OneLake Bronze lakehouse.",
+                })
+            else:
+                nb_id = self.config.notebook_bronze_id
+                layer_plan.append({
+                    "layer": "bronze",
+                    "action": "Trigger NB_FMD_LOAD_LANDING_BRONZE via NB_FMD_PROCESSING_PARALLEL_MAIN",
+                    "method": "notebook",
+                    "entity_count": len(entities),
+                    "batch_size": self.config.batch_size,
+                    "chunk_rows": None,
+                    "notebook_id": nb_id or None,
+                    "details": f"Notebook {nb_id or '(auto-discover)'} processes each entity: read parquet from LZ → write Delta table to Bronze lakehouse",
+                })
+                if not nb_id:
+                    warnings.append("Bronze notebook ID not configured — will attempt auto-discovery")
 
         if "silver" in active_layers:
-            nb_id = self.config.notebook_silver_id
-            layer_plan.append({
-                "layer": "silver",
-                "action": "Trigger NB_FMD_LOAD_BRONZE_SILVER via NB_FMD_PROCESSING_PARALLEL_MAIN",
-                "method": "notebook",
-                "entity_count": len(entities),
-                "batch_size": self.config.batch_size,
-                "chunk_rows": None,
-                "notebook_id": nb_id or None,
-                "details": (
-                    f"Notebook {nb_id or '(auto-discover)'} processes each entity: "
-                    f"SCD Type 2 merge from Bronze → Silver Delta table"
-                ),
-            })
-            if not nb_id:
-                warnings.append("Silver notebook ID not configured — will attempt auto-discovery")
+            if effective_method == "local":
+                layer_plan.append({
+                    "layer": "silver",
+                    "action": "Read Bronze Delta → SCD Type 2 change detection → write Silver Delta",
+                    "method": "local",
+                    "entity_count": len(entities),
+                    "batch_size": self.config.batch_size,
+                    "chunk_rows": None,
+                    "notebook_id": None,
+                    "details": "Local Python processing: polars + deltalake. SCD Type 2 merge with IsCurrent/RecordStartDate/RecordEndDate/IsDeleted.",
+                })
+            else:
+                nb_id = self.config.notebook_silver_id
+                layer_plan.append({
+                    "layer": "silver",
+                    "action": "Trigger NB_FMD_LOAD_BRONZE_SILVER via NB_FMD_PROCESSING_PARALLEL_MAIN",
+                    "method": "notebook",
+                    "entity_count": len(entities),
+                    "batch_size": self.config.batch_size,
+                    "chunk_rows": None,
+                    "notebook_id": nb_id or None,
+                    "details": f"Notebook {nb_id or '(auto-discover)'} processes each entity: SCD Type 2 merge from Bronze → Silver Delta table",
+                })
+                if not nb_id:
+                    warnings.append("Silver notebook ID not configured — will attempt auto-discovery")
 
         # ── Detect issues ──
         blank_source = [e for e in entities if not (e.source_name or "").strip()]
@@ -590,6 +727,96 @@ class LoadOrchestrator:
                 for e in entities
             ],
         )
+
+    # ------------------------------------------------------------------
+    # Local Bronze processing
+    # ------------------------------------------------------------------
+
+    def _run_bronze_local(self, run_id: str) -> List[RunResult]:
+        """Process all active bronze entities locally."""
+        from engine.bronze_processor import BronzeProcessor
+
+        bronze_entities = self.get_bronze_worklist()
+        if not bronze_entities:
+            log.warning("[%s] No active bronze entities found", run_id[:8])
+            return []
+
+        processor = BronzeProcessor(self.config, self._tokens)
+        results: list[RunResult] = []
+
+        log.info("[%s] Bronze local: processing %d entities", run_id[:8], len(bronze_entities))
+
+        for entity in bronze_entities:
+            if self._stop_requested:
+                results.append(RunResult(
+                    entity_id=entity.bronze_entity_id,
+                    layer="bronze",
+                    status="skipped",
+                ))
+                continue
+            try:
+                result = processor.process_entity(entity, run_id)
+                results.append(result)
+            except Exception as exc:
+                log.error("[%s] Bronze entity %d failed: %s",
+                          run_id[:8], entity.bronze_entity_id, exc)
+                results.append(RunResult(
+                    entity_id=entity.bronze_entity_id,
+                    layer="bronze",
+                    status="failed",
+                    error=str(exc),
+                ))
+
+        succeeded = sum(1 for r in results if r.status == "succeeded")
+        failed = sum(1 for r in results if r.status == "failed")
+        log.info("[%s] Bronze local: %d succeeded, %d failed, %d skipped",
+                 run_id[:8], succeeded, failed, len(results) - succeeded - failed)
+        return results
+
+    # ------------------------------------------------------------------
+    # Local Silver processing
+    # ------------------------------------------------------------------
+
+    def _run_silver_local(self, run_id: str) -> List[RunResult]:
+        """Process all active silver entities locally with SCD Type 2."""
+        from engine.silver_processor import SilverProcessor
+
+        silver_entities = self.get_silver_worklist()
+        if not silver_entities:
+            log.warning("[%s] No active silver entities found", run_id[:8])
+            return []
+
+        processor = SilverProcessor(self.config, self._tokens)
+        results: list[RunResult] = []
+
+        log.info("[%s] Silver local: processing %d entities", run_id[:8], len(silver_entities))
+
+        for entity in silver_entities:
+            if self._stop_requested:
+                results.append(RunResult(
+                    entity_id=entity.silver_entity_id,
+                    layer="silver",
+                    status="skipped",
+                ))
+                continue
+            try:
+                result = processor.process_entity(entity, run_id)
+                results.append(result)
+            except Exception as exc:
+                log.error("[%s] Silver entity %d failed: %s",
+                          run_id[:8], entity.silver_entity_id, exc)
+                results.append(RunResult(
+                    entity_id=entity.silver_entity_id,
+                    layer="silver",
+                    status="failed",
+                    error=str(exc),
+                ))
+
+        succeeded = sum(1 for r in results if r.status == "succeeded")
+        failed = sum(1 for r in results if r.status == "failed")
+        log.info("[%s] Silver local: %d succeeded, %d failed, %d skipped",
+                 run_id[:8], succeeded, failed, len(results) - succeeded - failed)
+        return results
 
     # ------------------------------------------------------------------
     # Landing Zone processing
