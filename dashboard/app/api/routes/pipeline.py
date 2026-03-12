@@ -489,10 +489,10 @@ def sse_pipeline_stream(http_handler, params: dict) -> None:
 @route("GET", "/api/runner/sources")
 def get_runner_sources(params: dict) -> list:
     datasources = db.query(
-        "SELECT DataSourceId, Name, ConnectionId, IsActive FROM datasources ORDER BY DataSourceId"
+        "SELECT DataSourceId, Name, DisplayName, ConnectionId, IsActive FROM datasources ORDER BY DataSourceId"
     )
-    connections = db.query("SELECT ConnectionId, Name FROM connections")
-    conn_map = {c["ConnectionId"]: c["Name"] for c in connections}
+    connections = db.query("SELECT ConnectionId, Name, DisplayName FROM connections")
+    conn_map = {c["ConnectionId"]: (c.get("DisplayName") or c["Name"]) for c in connections}
 
     lz_counts = db.query(
         "SELECT DataSourceId, COUNT(*) as total, "
@@ -501,19 +501,43 @@ def get_runner_sources(params: dict) -> list:
     )
     lz_map = {r["DataSourceId"]: r for r in lz_counts}
 
+    bronze_counts = db.query(
+        "SELECT le.DataSourceId, COUNT(*) as total, "
+        "SUM(CASE WHEN be.IsActive=1 THEN 1 ELSE 0 END) as active "
+        "FROM bronze_entities be "
+        "JOIN lz_entities le ON be.LandingzoneEntityId = le.LandingzoneEntityId "
+        "GROUP BY le.DataSourceId"
+    )
+    bronze_map = {r["DataSourceId"]: r for r in bronze_counts}
+
+    silver_counts = db.query(
+        "SELECT le.DataSourceId, COUNT(*) as total, "
+        "SUM(CASE WHEN se.IsActive=1 THEN 1 ELSE 0 END) as active "
+        "FROM silver_entities se "
+        "JOIN bronze_entities be ON se.BronzeLayerEntityId = be.BronzeLayerEntityId "
+        "JOIN lz_entities le ON be.LandingzoneEntityId = le.LandingzoneEntityId "
+        "GROUP BY le.DataSourceId"
+    )
+    silver_map = {r["DataSourceId"]: r for r in silver_counts}
+
     results = []
     for ds in datasources:
         dsid = ds["DataSourceId"]
         lz = lz_map.get(dsid)
         if not lz:
             continue
+        bz = bronze_map.get(dsid, {"total": 0, "active": 0})
+        sv = silver_map.get(dsid, {"total": 0, "active": 0})
         results.append({
             "dataSourceId": dsid,
             "name": ds["Name"],
+            "displayName": ds.get("DisplayName") or ds["Name"],
             "connectionName": conn_map.get(ds["ConnectionId"], "Unknown"),
             "isActive": ds["IsActive"],
             "entities": {
                 "landing": {"total": lz["total"], "active": lz["active"]},
+                "bronze": {"total": bz["total"], "active": bz["active"]},
+                "silver": {"total": sv["total"], "active": sv["active"]},
             },
         })
     return results

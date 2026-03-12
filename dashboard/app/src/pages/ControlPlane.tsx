@@ -464,7 +464,7 @@ export default function ControlPlane() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {filtered.slice(0, 200).map(e => {
-                    const isInc = e.IsIncremental?.toLowerCase() === 'true' || e.IsIncremental === '1';
+                    const isInc = e.IsIncremental === 1 || e.IsIncremental === true || String(e.IsIncremental).toLowerCase() === 'true';
                     const hasBronze = !!e.bronzeEntityId;
                     const hasSilver = !!e.silverEntityId;
                     return (

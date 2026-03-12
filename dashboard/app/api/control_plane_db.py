@@ -49,6 +49,7 @@ def init_db():
                 ConnectionId    INTEGER PRIMARY KEY,
                 ConnectionGuid  TEXT,
                 Name            TEXT NOT NULL,
+                DisplayName     TEXT,
                 Type            TEXT,
                 ServerName      TEXT,
                 DatabaseName    TEXT,
@@ -60,6 +61,7 @@ def init_db():
                 DataSourceId    INTEGER PRIMARY KEY,
                 ConnectionId    INTEGER NOT NULL,
                 Name            TEXT NOT NULL,
+                DisplayName     TEXT,
                 Namespace       TEXT,
                 Type            TEXT,
                 Description     TEXT,
@@ -85,6 +87,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS pipelines (
                 PipelineId      INTEGER PRIMARY KEY,
                 Name            TEXT NOT NULL,
+                PipelineGuid    TEXT,
+                WorkspaceGuid   TEXT,
                 IsActive        INTEGER DEFAULT 1,
                 updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );
@@ -334,6 +338,81 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_import_jobs_status ON import_jobs(status);
         """)
         conn.commit()
+
+        # ── Migrations (idempotent) ──
+        # Add DisplayName column to datasources if missing
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(datasources)").fetchall()}
+        if "DisplayName" not in cols:
+            conn.execute("ALTER TABLE datasources ADD COLUMN DisplayName TEXT")
+            conn.commit()
+            log.info("Migration: added DisplayName column to datasources")
+
+        # Seed DisplayName for existing rows that don't have one yet
+        needs_seed = conn.execute(
+            "SELECT DataSourceId, Name, Namespace, Description FROM datasources "
+            "WHERE DisplayName IS NULL OR DisplayName = ''"
+        ).fetchall()
+        if needs_seed:
+            _DISPLAY_SEEDS = {
+                "MES": "MES",
+                "ETQStagingPRD": "ETQ",
+                "m3fdbprd": "M3 ERP",
+                "DI_PRD_Staging": "M3 Cloud",
+                "optivalive": "Optiva",
+                "LH_DATA_LANDINGZONE": "OneLake Landing Zone",
+                "CUSTOM_NOTEBOOK": "Custom Notebook",
+            }
+            for row in needs_seed:
+                display = _DISPLAY_SEEDS.get(row[1])
+                if not display and row[3]:
+                    # Try to extract label from Description like "M3 Cloud (DI_PRD_Staging on sql2016live)"
+                    desc = row[3]
+                    paren = desc.find("(")
+                    display = desc[:paren].strip() if paren > 0 else desc
+                if not display:
+                    display = row[2] or row[1]  # Namespace or Name fallback
+                conn.execute("UPDATE datasources SET DisplayName = ? WHERE DataSourceId = ?",
+                             (display, row[0]))
+            conn.commit()
+            log.info("Migration: seeded DisplayName for %d datasources", len(needs_seed))
+
+        # Add DisplayName column to connections if missing
+        conn_cols = {r[1] for r in conn.execute("PRAGMA table_info(connections)").fetchall()}
+        if "DisplayName" not in conn_cols:
+            conn.execute("ALTER TABLE connections ADD COLUMN DisplayName TEXT")
+            conn.commit()
+            log.info("Migration: added DisplayName column to connections")
+
+        # Seed DisplayName for connections that don't have one yet
+        conn_needs_seed = conn.execute(
+            "SELECT ConnectionId, Name, ServerName, DatabaseName FROM connections "
+            "WHERE DisplayName IS NULL OR DisplayName = ''"
+        ).fetchall()
+        if conn_needs_seed:
+            _CONN_SEEDS = {
+                "CON_FMD_FABRIC_SQL": "Fabric SQL",
+                "CON_FMD_FABRIC_PIPELINES": "Fabric Pipelines",
+                "CON_FMD_FABRIC_NOTEBOOKS": "Fabric Notebooks",
+                "CON_FMD_NOTEBOOK": "Custom Notebook",
+                "CON_FMD_ONELAKE": "OneLake",
+                "CON_FMD_M3DB1_MES": "MES (m3-db1)",
+                "CON_FMD_M3DB3_ETQSTAGINGPRD": "ETQ (M3-DB3)",
+                "CON_FMD_M3DB1_M3": "M3 ERP (sqllogshipprd)",
+                "CON_FMD_M3DB1_M3CLOUD": "M3 Cloud (sql2016live)",
+                "CON_FMD_SQLOPTIVALIVE_OPTIVALIVE": "Optiva (SQLOptivaLive)",
+            }
+            for row in conn_needs_seed:
+                display = _CONN_SEEDS.get(row[1])
+                if not display:
+                    # Build from server → database
+                    parts = []
+                    if row[2]: parts.append(row[2])
+                    if row[3]: parts.append(row[3])
+                    display = " → ".join(parts) if parts else row[1]
+                conn.execute("UPDATE connections SET DisplayName = ? WHERE ConnectionId = ?",
+                             (display, row[0]))
+            conn.commit()
+            log.info("Migration: seeded DisplayName for %d connections", len(conn_needs_seed))
     finally:
         conn.close()
     log.info(f'Control-plane DB initialized at {DB_PATH}')
@@ -353,11 +432,12 @@ def upsert_connection(row: dict) -> None:
         try:
             conn.execute(
                 "INSERT OR REPLACE INTO connections "
-                "(ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName, IsActive, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "(ConnectionId, ConnectionGuid, Name, DisplayName, Type, ServerName, DatabaseName, IsActive, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (row.get('ConnectionId'), _v(row.get('ConnectionGuid')),
-                 _v(row.get('Name')), _v(row.get('Type')),
-                 _v(row.get('ServerName')), _v(row.get('DatabaseName')),
+                 _v(row.get('Name')), _v(row.get('DisplayName')),
+                 _v(row.get('Type')), _v(row.get('ServerName')),
+                 _v(row.get('DatabaseName')),
                  row.get('IsActive', 1), _now())
             )
             conn.commit()
@@ -371,11 +451,12 @@ def upsert_datasource(row: dict) -> None:
         try:
             conn.execute(
                 "INSERT OR REPLACE INTO datasources "
-                "(DataSourceId, ConnectionId, Name, Namespace, Type, Description, IsActive, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "(DataSourceId, ConnectionId, Name, DisplayName, Namespace, Type, Description, IsActive, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (row.get('DataSourceId'), row.get('ConnectionId'),
-                 _v(row.get('Name')), _v(row.get('Namespace')),
-                 _v(row.get('Type')), _v(row.get('Description')),
+                 _v(row.get('Name')), _v(row.get('DisplayName')),
+                 _v(row.get('Namespace')), _v(row.get('Type')),
+                 _v(row.get('Description')),
                  row.get('IsActive', 1), _now())
             )
             conn.commit()
@@ -934,7 +1015,7 @@ def get_source_config() -> list[dict]:
     conn = _get_conn()
     try:
         rows = conn.execute(
-            "SELECT d.DataSourceId, d.Name, d.Namespace, d.Type, d.Description, "
+            "SELECT d.DataSourceId, d.Name, d.DisplayName, d.Namespace, d.Type, d.Description, "
             "       d.IsActive, c.ConnectionId, c.Name AS ConnectionName, "
             "       c.ServerName, c.DatabaseName "
             "FROM datasources d "

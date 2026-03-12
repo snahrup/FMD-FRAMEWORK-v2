@@ -356,21 +356,27 @@ export default function SourceManager() {
     }
     setError(null);
     try {
+      // Gateway connections require Fabric API access (VPN + SP token) —
+      // fetch them best-effort so the page still loads without them.
       const [gwRes, connRes, dsRes] = await Promise.all([
-        fetch('/api/gateway-connections'),
+        fetch('/api/gateway-connections').catch(() => null),
         fetch('/api/connections'),
         fetch('/api/datasources'),
       ]);
 
-      if (!gwRes.ok || !connRes.ok || !dsRes.ok) {
+      if (!connRes.ok || !dsRes.ok) {
         throw new Error('API server not responding. Run: python dashboard/app/api/server.py');
       }
 
-      const [gw, conn, ds] = await Promise.all([
-        gwRes.json(), connRes.json(), dsRes.json(),
+      const [conn, ds] = await Promise.all([
+        connRes.json(), dsRes.json(),
       ]);
 
-      setGatewayConnections(gw);
+      // Gateway connections are optional — only needed for onboarding wizard
+      if (gwRes?.ok) {
+        const gw = await gwRes.json();
+        setGatewayConnections(gw);
+      }
       setRegisteredConnections(conn);
       setRegisteredDataSources(ds);
     } catch (e) {
@@ -978,7 +984,7 @@ export default function SourceManager() {
               <div className="flex flex-wrap items-center gap-2">
                 {uniqueDataSources.map(([dsId, dsName]) => (
                   <div key={dsId} className="flex items-center gap-1 bg-muted rounded-lg border border-border px-3 py-1.5">
-                    <span className="text-xs font-medium text-foreground mr-2">{dsName}</span>
+                    <span className="text-xs font-medium text-foreground mr-2">{friendlyLabel(dsName)}</span>
                     <button
                       onClick={() => handleAnalyzeSource(dsId)}
                       disabled={analyzing}
@@ -1018,7 +1024,7 @@ export default function SourceManager() {
                       <div className="flex items-center justify-between bg-muted p-3">
                         <div className="flex items-center gap-3">
                           <Database className="w-4 h-4 text-primary" />
-                          <span className="font-semibold text-sm text-foreground">{sourceName.toUpperCase()}</span>
+                          <span className="font-semibold text-sm text-foreground">{friendlyLabel(sourceName)}</span>
                           <span className="text-xs text-muted-foreground">
                             {entities.length} tables | {srcIncr} incremental | {srcBronze} Bronze
                           </span>

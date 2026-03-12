@@ -406,6 +406,65 @@ def get_datasources(params):
     return cpdb.get_datasources()
 
 
+# ── Palette for source color assignment (stable by index) ──
+_SOURCE_COLORS = [
+    {"key": "blue",    "bg": "bg-blue-500/10",    "text": "text-blue-400",    "ring": "ring-blue-500/30",    "bar": "bg-blue-500",    "hex": "#3b82f6"},
+    {"key": "emerald", "bg": "bg-emerald-500/10", "text": "text-emerald-400", "ring": "ring-emerald-500/30", "bar": "bg-emerald-500", "hex": "#10b981"},
+    {"key": "amber",   "bg": "bg-amber-500/10",   "text": "text-amber-400",   "ring": "ring-amber-500/30",   "bar": "bg-amber-500",   "hex": "#f59e0b"},
+    {"key": "violet",  "bg": "bg-violet-500/10",  "text": "text-violet-400",  "ring": "ring-violet-500/30",  "bar": "bg-violet-500",  "hex": "#8b5cf6"},
+    {"key": "rose",    "bg": "bg-rose-500/10",    "text": "text-rose-400",    "ring": "ring-rose-500/30",    "bar": "bg-rose-500",    "hex": "#f43f5e"},
+    {"key": "cyan",    "bg": "bg-cyan-500/10",    "text": "text-cyan-400",    "ring": "ring-cyan-500/30",    "bar": "bg-cyan-500",    "hex": "#06b6d4"},
+    {"key": "orange",  "bg": "bg-orange-500/10",  "text": "text-orange-400",  "ring": "ring-orange-500/30",  "bar": "bg-orange-500",  "hex": "#f97316"},
+    {"key": "teal",    "bg": "bg-teal-500/10",    "text": "text-teal-400",    "ring": "ring-teal-500/30",    "bar": "bg-teal-500",    "hex": "#14b8a6"},
+]
+_DEFAULT_COLOR = {"key": "slate", "bg": "bg-slate-500/10", "text": "text-slate-400", "ring": "ring-slate-500/30", "bar": "bg-slate-500", "hex": "#64748b"}
+
+
+@route("GET", "/api/source-config")
+def get_source_config(params):
+    """Source config — builds labelMap + colorMap for the frontend useSourceConfig hook."""
+    rows = cpdb.get_source_config()
+    sources = []
+    label_map: dict[str, str] = {}
+    color_map: dict[str, dict] = {}
+
+    for i, r in enumerate(rows):
+        display = r.get("DisplayName") or r.get("Namespace") or r.get("Name") or "Unknown"
+        color = _SOURCE_COLORS[i % len(_SOURCE_COLORS)]
+        info = {
+            "id": r["DataSourceId"],
+            "name": r["Name"],
+            "namespace": r.get("Namespace") or "",
+            "label": display,
+            "type": r.get("Type") or "",
+            "description": r.get("Description") or "",
+            "connectionName": r.get("ConnectionName") or "",
+            "serverName": r.get("ServerName") or "",
+            "databaseName": r.get("DatabaseName") or "",
+            "isActive": bool(r.get("IsActive")),
+            "color": color,
+        }
+        sources.append(info)
+
+        # Map every possible raw identifier to the display name
+        for key in [r["Name"], r.get("Namespace"), r.get("DatabaseName"),
+                     r.get("ServerName"), r.get("ConnectionName")]:
+            if key:
+                label_map[key] = display
+                label_map[key.lower()] = display
+        # Also map the display name to itself
+        label_map[display] = display
+        label_map[display.lower()] = display
+
+        for key in [r["Name"], r.get("Namespace"), r.get("DatabaseName"),
+                     r.get("ServerName"), r.get("ConnectionName"), display]:
+            if key:
+                color_map[key] = color
+                color_map[key.lower()] = color
+
+    return {"sources": sources, "labelMap": label_map, "colorMap": color_map}
+
+
 @route("GET", "/api/entities")
 def get_entities(params):
     """All registered LZ entities (full join including connection/datasource info)."""

@@ -240,6 +240,53 @@ def _run_source_import(job: ImportJob, body: dict):
 
 
 # ---------------------------------------------------------------------------
+# Register data source (called by onboarding wizard)
+# ---------------------------------------------------------------------------
+
+@route("POST", "/api/datasources")
+def post_datasource(params: dict) -> dict:
+    conn_name = params.get("connectionName", "")
+    name = params.get("name", "")
+    display_name = params.get("displayName", "")
+    namespace = params.get("namespace", "")
+    ds_type = params.get("type", "ASQL_01")
+    description = params.get("description", "")
+
+    if not conn_name or not name:
+        raise HttpError("connectionName and name are required", 400)
+
+    # Resolve ConnectionId from name
+    conn_row = db.query("SELECT ConnectionId FROM connections WHERE Name = ?", (conn_name,))
+    if not conn_row:
+        raise HttpError(f"Connection '{conn_name}' not found", 404)
+    conn_id = conn_row[0]["ConnectionId"]
+
+    # Check if datasource already exists
+    existing = db.query(
+        "SELECT DataSourceId FROM datasources WHERE Name = ? AND Type = ?", (name, ds_type)
+    )
+    if existing:
+        # Update display name if provided
+        if display_name:
+            db.execute(
+                "UPDATE datasources SET DisplayName = ?, Description = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+                "WHERE DataSourceId = ?",
+                (display_name, description, existing[0]["DataSourceId"]),
+            )
+        return {"success": True, "dataSourceId": existing[0]["DataSourceId"], "message": "Already registered"}
+
+    db.execute(
+        "INSERT INTO datasources (ConnectionId, Name, DisplayName, Namespace, Type, Description, IsActive) "
+        "VALUES (?, ?, ?, ?, ?, ?, 1)",
+        (conn_id, name, display_name or name, namespace, ds_type, description),
+    )
+    new_ds = db.query("SELECT DataSourceId FROM datasources WHERE Name = ? AND Type = ?", (name, ds_type))
+    ds_id = new_ds[0]["DataSourceId"] if new_ds else None
+    _queue_export("datasources")
+    return {"success": True, "dataSourceId": ds_id, "message": f"Source '{display_name or name}' registered"}
+
+
+# ---------------------------------------------------------------------------
 # Workspace / Lakehouse / Layer entity routes
 # ---------------------------------------------------------------------------
 
@@ -636,8 +683,8 @@ def get_load_config(params: dict) -> list:
     if ds_id_str and str(ds_id_str).isdigit():
         return db.query(
             "SELECT le.LandingzoneEntityId AS entityId, "
-            "ds.Namespace AS dataSource, ds.DataSourceId, "
-            "le.SourceSchema AS sourceSchema, le.SourceName AS tableName, le.FileName, "
+            "ds.Namespace AS dataSource, ds.DataSourceId AS dataSourceId, "
+            "le.SourceSchema AS [schema], le.SourceName AS [table], le.FileName, "
             "le.IsIncremental, le.IsIncrementalColumn AS watermarkColumn, "
             "be.BronzeLayerEntityId AS bronzeEntityId, be.PrimaryKeys AS primaryKeys, "
             "se.SilverLayerEntityId AS silverEntityId "
@@ -651,8 +698,8 @@ def get_load_config(params: dict) -> list:
         )
     return db.query(
         "SELECT le.LandingzoneEntityId AS entityId, "
-        "ds.Namespace AS dataSource, ds.DataSourceId, "
-        "le.SourceSchema AS sourceSchema, le.SourceName AS tableName, le.FileName, "
+        "ds.Namespace AS dataSource, ds.DataSourceId AS dataSourceId, "
+        "le.SourceSchema AS [schema], le.SourceName AS [table], le.FileName, "
         "le.IsIncremental, le.IsIncrementalColumn AS watermarkColumn, "
         "be.BronzeLayerEntityId AS bronzeEntityId, be.PrimaryKeys AS primaryKeys, "
         "se.SilverLayerEntityId AS silverEntityId "

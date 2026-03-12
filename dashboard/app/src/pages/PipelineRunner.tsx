@@ -102,14 +102,14 @@ const layerConfig: Record<LayerChoice, { label: string; description: string; pip
   bronze: {
     label: 'Bronze',
     description: 'Transform Landing Zone parquet files into Delta tables in the Bronze lakehouse',
-    pipeline: 'PL_FMD_LOAD_BRONZE',
+    pipeline: 'PL_FMD_LOAD_LANDING_BRONZE',
     color: 'text-amber-600',
     icon: '🥉',
   },
   silver: {
     label: 'Silver',
     description: 'Apply cleansing rules and load Bronze Delta tables into Silver lakehouse',
-    pipeline: 'PL_FMD_LOAD_SILVER',
+    pipeline: 'PL_FMD_LOAD_BRONZE_SILVER',
     color: 'text-purple-500',
     icon: '🥈',
   },

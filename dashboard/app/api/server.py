@@ -186,7 +186,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def _json_response(self, data, status=200):
@@ -236,6 +236,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(content_length)) if content_length else {}
         status, headers, response_body = dispatch("POST", path, query_params, body)
+        self._send(status, headers, response_body)
+
+    def do_PUT(self):
+        path, query_params = self._parse()
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = json.loads(self.rfile.read(content_length)) if content_length else {}
+        status, headers, response_body = dispatch("PUT", path, query_params, body)
         self._send(status, headers, response_body)
 
     def do_DELETE(self):

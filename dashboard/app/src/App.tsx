@@ -40,6 +40,7 @@ import DataClassification from '@/pages/DataClassification'
 import DataCatalog from '@/pages/DataCatalog'
 import ImpactAnalysis from '@/pages/ImpactAnalysis'
 import DatabaseExplorer from '@/pages/DatabaseExplorer'
+import DataManager from '@/pages/DataManager'
 
 function App() {
   return (
@@ -82,6 +83,7 @@ function App() {
         <Route path="/catalog" element={<DataCatalog />} />
         <Route path="/impact" element={<ImpactAnalysis />} />
         <Route path="/db-explorer" element={<DatabaseExplorer />} />
+        <Route path="/data-manager" element={<DataManager />} />
         {/* Labs pages — always routed, nav visibility controlled by feature flags */}
         <Route path="/labs/cleansing" element={<CleansingRuleEditor />} />
         <Route path="/labs/scd-audit" element={<ScdAudit />} />

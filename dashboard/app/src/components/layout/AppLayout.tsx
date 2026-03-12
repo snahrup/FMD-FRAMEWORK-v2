@@ -24,6 +24,7 @@ import {
   Server,
   DatabaseZap,
   Database,
+  TableProperties,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -67,6 +68,7 @@ const CORE_GROUPS: NavGroup[] = [
       { icon: GitBranch, label: "Flow Explorer", href: "/flow" },
       { icon: Route, label: "Data Journey", href: "/journey" },
       { icon: Hash, label: "Record Counts", href: "/counts" },
+      { icon: TableProperties, label: "Data Manager", href: "/data-manager" },
       { icon: DatabaseZap, label: "SQL Explorer", href: "/sql-explorer" },
     ],
   },
