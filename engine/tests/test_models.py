@@ -2,7 +2,7 @@
 
 import json
 import pytest
-from engine.models import Entity, RunResult, LogEnvelope, EngineConfig, LoadPlan
+from engine.models import Entity, RunResult, LogEnvelope, EngineConfig, LoadPlan, BronzeEntity, SilverEntity
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +115,54 @@ def test_engine_config_defaults():
     assert cfg.batch_size == 12
     assert cfg.onelake_account_url == "https://onelake.dfs.fabric.microsoft.com"
     assert cfg.notebook_bronze_id == ""
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# BronzeEntity
+# ---------------------------------------------------------------------------
+
+def test_bronze_entity_onelake_table_path():
+    e = BronzeEntity(
+        bronze_entity_id=1,
+        lz_entity_id=10,
+        namespace="MES",
+        source_schema="dbo",
+        source_name="CUSCONGB",
+        primary_keys="COMSID,COLANC",
+        is_incremental=False,
+        lakehouse_guid="F06393CA-C024-435F-8D7F-9F5AA3BB4CB3",
+        workspace_guid="0596d0e7-e036-451d-a967-41a284302e8d",
+        lz_file_name="CUSCONGB.parquet",
+        lz_namespace="m3",
+        lz_lakehouse_guid="3B9A7E79-1615-4EC2-9E93-0BDEBE985D5A",
+    )
+    assert e.delta_table_path == "F06393CA-C024-435F-8D7F-9F5AA3BB4CB3/Tables/MES/CUSCONGB"
+    assert e.lz_parquet_path == "3B9A7E79-1615-4EC2-9E93-0BDEBE985D5A/Files/m3/CUSCONGB.parquet"
+    assert e.pk_columns == ["COMSID", "COLANC"]
+
+
+# ---------------------------------------------------------------------------
+# SilverEntity
+# ---------------------------------------------------------------------------
+
+def test_silver_entity_onelake_table_path():
+    e = SilverEntity(
+        silver_entity_id=1,
+        bronze_entity_id=10,
+        namespace="MES",
+        source_name="CUSCONGB",
+        primary_keys="COMSID,COLANC",
+        is_incremental=False,
+        lakehouse_guid="F85E1BA0-2E40-4DE5-BE1E-F8AD3DDBC652",
+        workspace_guid="0596d0e7-e036-451d-a967-41a284302e8d",
+        bronze_lakehouse_guid="F06393CA-C024-435F-8D7F-9F5AA3BB4CB3",
+    )
+    assert e.delta_table_path == "F85E1BA0-2E40-4DE5-BE1E-F8AD3DDBC652/Tables/MES/CUSCONGB"
+    assert e.bronze_delta_path == "F06393CA-C024-435F-8D7F-9F5AA3BB4CB3/Tables/MES/CUSCONGB"
 
 
 # ---------------------------------------------------------------------------
