@@ -1,112 +1,272 @@
 """
 FMD v3 Engine — OneLake I/O helpers for reading/writing parquet and Delta tables.
 
-Uses the same ADLS SDK + credential adapter as loader.py.
-Delta read/write via polars (which uses deltalake under the hood).
+Two modes:
+    1. Filesystem (default): Read/write via OneLake Explorer local mount.
+       No auth needed — OneLake Explorer syncs to Fabric automatically.
+    2. ADLS SDK: Read/write via REST API with SP token auth.
+       Used when no local mount is available (e.g. cloud VM).
 
 Path conventions:
     Parquet (LZ):  {lakehouse_id}/Files/{namespace}/{table}.parquet
     Delta (Bronze/Silver): {lakehouse_id}/Tables/{namespace}/{table}/
+
+Filesystem paths:
+    {mount_path}/{lakehouse_name}.Lakehouse/Files/{namespace}/{table}.parquet
+    {mount_path}/{lakehouse_name}.Lakehouse/Tables/{namespace}/{table}/
 """
 
 import io
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Optional
 
 import polars as pl
-from azure.storage.filedatalake import DataLakeServiceClient
 
-from engine.auth import TokenProvider, SCOPE_ONELAKE
 from engine.models import EngineConfig
 
 log = logging.getLogger("fmd.onelake_io")
 
 
 class OneLakeIO:
-    """Read and write parquet/Delta files on OneLake via ADLS SDK.
+    """Read and write parquet/Delta files on OneLake.
+
+    When onelake_mount_path is configured, uses local filesystem I/O
+    through OneLake Explorer — no auth tokens needed, dramatically faster.
+
+    Falls back to ADLS SDK when no mount path is set.
 
     Usage::
 
         onio = OneLakeIO(config, token_provider)
         df = onio.read_parquet(workspace_id, "lh_guid/Files/MES/TABLE.parquet")
-        onio.write_delta(workspace_id, "lh_guid/Tables/MES/TABLE", df, mode="merge", ...)
+        onio.write_delta(workspace_id, "lh_guid/Tables/MES/TABLE", df)
     """
 
-    def __init__(self, config: EngineConfig, token_provider: TokenProvider):
+    def __init__(self, config: EngineConfig, token_provider=None):
         self._config = config
         self._token_provider = token_provider
-        self._credential = token_provider.get_datalake_credential()
-        self._service_client: Optional[DataLakeServiceClient] = None
+        self._mount_path = getattr(config, "onelake_mount_path", "") or ""
+        self._guid_to_name: dict[str, str] = {}
+
+        if self._mount_path:
+            self._guid_to_name = self._build_lakehouse_map()
+            log.info("OneLakeIO: filesystem mode — mount=%s, %d lakehouses mapped",
+                     self._mount_path, len(self._guid_to_name))
+        else:
+            log.info("OneLakeIO: ADLS SDK mode")
+
+        # Lazy ADLS client (only created if needed)
+        self._service_client = None
+        self._credential = None
 
     @property
-    def service_client(self) -> DataLakeServiceClient:
+    def _filesystem_mode(self) -> bool:
+        return bool(self._mount_path)
+
+    def _build_lakehouse_map(self) -> dict[str, str]:
+        """Build GUID → lakehouse name mapping from SQLite control-plane DB."""
+        try:
+            from dashboard.app.api import db as fmd_db
+            rows = fmd_db.query("SELECT LakehouseGuid, Name FROM lakehouses")
+            guid_map = {}
+            for row in rows:
+                guid = str(row["LakehouseGuid"]).upper()
+                name = row["Name"]
+                guid_map[guid] = name
+            return guid_map
+        except Exception as exc:
+            log.warning("Failed to build lakehouse map from SQLite: %s", exc)
+            return {}
+
+    def _resolve_local_path(self, path: str) -> Optional[str]:
+        """Resolve a GUID-based path to a local filesystem path.
+
+        Input:  "F06393CA-C024-435F-8D7F-9F5AA3BB4CB3/Tables/MES/CUSCONGB"
+        Output: "C:/Users/.../OneLake - Microsoft/INTEGRATION DATA (D)/LH_BRONZE_LAYER.Lakehouse/Tables/MES/CUSCONGB"
+        """
+        # Extract lakehouse GUID (first path segment)
+        parts = path.replace("\\", "/").split("/", 1)
+        if len(parts) < 2:
+            return None
+
+        guid = parts[0].upper()
+        rest = parts[1]
+
+        lakehouse_name = self._guid_to_name.get(guid)
+        if not lakehouse_name:
+            log.error("No lakehouse name found for GUID %s", guid)
+            return None
+
+        local_path = os.path.normpath(os.path.join(
+            self._mount_path, f"{lakehouse_name}.Lakehouse", rest
+        ))
+        return local_path
+
+    def _ensure_adls_client(self):
+        """Lazy-init ADLS client (only for SDK mode)."""
         if self._service_client is None:
+            from azure.storage.filedatalake import DataLakeServiceClient
+            from engine.auth import SCOPE_ONELAKE
+            self._credential = self._token_provider.get_datalake_credential()
             self._service_client = DataLakeServiceClient(
                 account_url=self._config.onelake_account_url,
                 credential=self._credential,
             )
-        return self._service_client
 
     # ------------------------------------------------------------------
     # Read
     # ------------------------------------------------------------------
 
     def read_parquet(self, workspace_id: str, path: str) -> Optional[pl.DataFrame]:
-        """Read a single parquet file from OneLake into a Polars DataFrame.
+        """Read a single parquet file from OneLake into a Polars DataFrame."""
+        if self._filesystem_mode:
+            return self._read_parquet_fs(path)
+        return self._read_parquet_adls(workspace_id, path)
 
-        Parameters
-        ----------
-        workspace_id : str
-            Fabric workspace GUID (= ADLS filesystem/container).
-        path : str
-            Full path within the workspace, e.g. "{lakehouse_id}/Files/MES/TABLE.parquet".
-        """
+    def _read_parquet_fs(self, path: str) -> Optional[pl.DataFrame]:
+        """Read parquet from local OneLake Explorer mount."""
+        t0 = time.perf_counter()
+        local_path = self._resolve_local_path(path)
+        if not local_path:
+            return None
+        try:
+            if not os.path.exists(local_path):
+                log.info("Parquet file does not exist: %s", local_path)
+                return None
+            df = pl.read_parquet(local_path)
+            elapsed = time.perf_counter() - t0
+            size_kb = os.path.getsize(local_path) / 1024
+            log.info("Read parquet (fs) %s: %d rows, %.1f KB in %.3fs",
+                     os.path.basename(local_path), len(df), size_kb, elapsed)
+            return df
+        except Exception as exc:
+            log.error("Failed to read parquet (fs) %s: %s", local_path, exc)
+            return None
+
+    def _read_parquet_adls(self, workspace_id: str, path: str) -> Optional[pl.DataFrame]:
+        """Read parquet via ADLS SDK."""
         t0 = time.perf_counter()
         try:
-            fs = self.service_client.get_file_system_client(workspace_id)
+            self._ensure_adls_client()
+            fs = self._service_client.get_file_system_client(workspace_id)
             file_client = fs.get_file_client(path)
             download = file_client.download_file()
             data = download.readall()
             df = pl.read_parquet(io.BytesIO(data))
             elapsed = time.perf_counter() - t0
-            log.info("Read parquet %s: %d rows, %.1f KB in %.1fs",
+            log.info("Read parquet (adls) %s: %d rows, %.1f KB in %.1fs",
                      path.split("/")[-1], len(df), len(data) / 1024, elapsed)
             return df
         except Exception as exc:
-            log.error("Failed to read parquet %s: %s", path, exc)
+            log.error("Failed to read parquet (adls) %s: %s", path, exc)
             return None
 
     def read_delta(self, workspace_id: str, table_path: str) -> Optional[pl.DataFrame]:
-        """Read a Delta table from OneLake into a Polars DataFrame.
+        """Read a Delta table from OneLake into a Polars DataFrame."""
+        if self._filesystem_mode:
+            return self._read_delta_fs(table_path)
+        return self._read_delta_adls(workspace_id, table_path)
 
-        Uses the abfss:// URI that polars/deltalake understand natively
-        with the storage_options for Azure SP auth.
+    def _read_delta_fs(self, table_path: str) -> Optional[pl.DataFrame]:
+        """Read Delta table from local OneLake Explorer mount.
 
-        Parameters
-        ----------
-        workspace_id : str
-            Fabric workspace GUID.
-        table_path : str
-            Path within workspace, e.g. "{lakehouse_id}/Tables/MES/TABLE".
+        Uses a custom reader that parses _delta_log and reads parquet files
+        directly, because delta-rs has issues with Windows paths containing
+        spaces (e.g. 'OneLake - Microsoft').
         """
+        t0 = time.perf_counter()
+        local_path = self._resolve_local_path(table_path)
+        if not local_path:
+            return None
+        try:
+            if not os.path.exists(local_path):
+                log.info("Delta table does not exist yet (first load): %s", local_path)
+                return None
+            delta_log = os.path.join(local_path, "_delta_log")
+            if not os.path.exists(delta_log):
+                log.info("Delta table %s has no _delta_log (first load)", local_path)
+                return None
+
+            # Parse delta log to find active parquet files
+            active_files = self._parse_delta_log(delta_log)
+            if not active_files:
+                log.info("Delta table %s has no active files", local_path)
+                return None
+
+            # Read each parquet file and concat
+            dfs = []
+            for rel_path in active_files:
+                full_path = os.path.join(local_path, rel_path)
+                if os.path.exists(full_path):
+                    dfs.append(pl.read_parquet(full_path))
+                else:
+                    log.warning("Parquet file not synced yet: %s", rel_path)
+
+            if not dfs:
+                log.info("Delta table %s: no readable parquet files", local_path)
+                return None
+
+            df = pl.concat(dfs, how="diagonal_relaxed") if len(dfs) > 1 else dfs[0]
+            elapsed = time.perf_counter() - t0
+            log.info("Read delta (fs) %s: %d rows from %d files in %.3fs",
+                     os.path.basename(local_path), len(df), len(dfs), elapsed)
+            return df
+        except Exception as exc:
+            log.error("Failed to read delta (fs) %s: %s", local_path, exc)
+            return None
+
+    @staticmethod
+    def _parse_delta_log(delta_log_path: str) -> list[str]:
+        """Parse Delta transaction log to find currently active parquet files.
+
+        Reads all JSON log files in order, tracking adds and removes
+        to determine which parquet files are currently active.
+        """
+        import json as _json
+
+        log_files = sorted(
+            f for f in os.listdir(delta_log_path) if f.endswith(".json")
+        )
+        if not log_files:
+            return []
+
+        active: set[str] = set()
+        for log_file in log_files:
+            with open(os.path.join(delta_log_path, log_file), encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    entry = _json.loads(line)
+                    if "add" in entry:
+                        active.add(entry["add"]["path"])
+                    if "remove" in entry:
+                        active.discard(entry["remove"]["path"])
+
+        return sorted(active)
+
+    def _read_delta_adls(self, workspace_id: str, table_path: str) -> Optional[pl.DataFrame]:
+        """Read Delta table via ADLS SDK."""
         t0 = time.perf_counter()
         uri = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{table_path}"
         try:
+            from engine.auth import SCOPE_ONELAKE
             token = self._token_provider.get_token(SCOPE_ONELAKE)
             storage_options = {"bearer_token": token, "use_fabric_endpoint": "true"}
             df = pl.read_delta(uri, storage_options=storage_options)
             elapsed = time.perf_counter() - t0
-            log.info("Read delta %s: %d rows in %.1fs",
+            log.info("Read delta (adls) %s: %d rows in %.1fs",
                      table_path.split("/")[-1], len(df), elapsed)
             return df
         except Exception as exc:
             error_msg = str(exc)
-            # Table doesn't exist yet — that's fine for first load
             if "not found" in error_msg.lower() or "FileNotFoundError" in error_msg:
                 log.info("Delta table %s does not exist yet (first load)", table_path)
                 return None
-            log.error("Failed to read delta %s: %s", table_path, exc)
+            log.error("Failed to read delta (adls) %s: %s", table_path, exc)
             return None
 
     # ------------------------------------------------------------------
@@ -120,37 +280,87 @@ class OneLakeIO:
         df: pl.DataFrame,
         mode: str = "overwrite",
     ) -> bool:
-        """Write a Polars DataFrame as a Delta table to OneLake.
+        """Write a Polars DataFrame as a Delta table to OneLake."""
+        if self._filesystem_mode:
+            return self._write_delta_fs(table_path, df, mode)
+        return self._write_delta_adls(workspace_id, table_path, df, mode)
 
-        Parameters
-        ----------
-        workspace_id : str
-            Fabric workspace GUID.
-        table_path : str
-            Path within workspace, e.g. "{lakehouse_id}/Tables/MES/TABLE".
-        df : pl.DataFrame
-            Data to write.
-        mode : str
-            "overwrite" or "append".
-        """
+    def _write_delta_fs(self, table_path: str, df: pl.DataFrame, mode: str) -> bool:
+        """Write Delta table to local OneLake Explorer mount."""
+        t0 = time.perf_counter()
+        local_path = self._resolve_local_path(table_path)
+        if not local_path:
+            return False
+        try:
+            # Ensure parent directories exist
+            os.makedirs(local_path, exist_ok=True)
+
+            # Cast timezone-aware datetimes to naive UTC (Delta protocol
+            # requires the timestampNtz feature for tz-aware columns, and
+            # OneLake/Fabric handles UTC implicitly).
+            cast_cols = []
+            for col_name, dtype in zip(df.columns, df.dtypes):
+                if isinstance(dtype, pl.Datetime) and dtype.time_zone is not None:
+                    cast_cols.append(pl.col(col_name).dt.replace_time_zone(None))
+            if cast_cols:
+                df = df.with_columns(cast_cols)
+
+            # schema_mode="overwrite" replaces the existing table schema
+            # entirely, which handles tables created by Fabric notebooks
+            # with different protocol versions.
+            df.write_delta(
+                local_path, mode=mode,
+                delta_write_options={"schema_mode": "overwrite"},
+            )
+            elapsed = time.perf_counter() - t0
+            log.info("Wrote delta (fs) %s: %d rows in %.3fs (mode=%s)",
+                     os.path.basename(local_path), len(df), elapsed, mode)
+            return True
+        except Exception as exc:
+            log.error("Failed to write delta (fs) %s: %s", local_path, exc)
+            return False
+
+    def _write_delta_adls(
+        self, workspace_id: str, table_path: str, df: pl.DataFrame, mode: str
+    ) -> bool:
+        """Write Delta table via ADLS SDK."""
         t0 = time.perf_counter()
         uri = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{table_path}"
         try:
+            # Strip timezone info (same as fs mode)
+            cast_cols = []
+            for col_name, dtype in zip(df.columns, df.dtypes):
+                if isinstance(dtype, pl.Datetime) and dtype.time_zone is not None:
+                    cast_cols.append(pl.col(col_name).dt.replace_time_zone(None))
+            if cast_cols:
+                df = df.with_columns(cast_cols)
+
+            from engine.auth import SCOPE_ONELAKE
             token = self._token_provider.get_token(SCOPE_ONELAKE)
             storage_options = {"bearer_token": token, "use_fabric_endpoint": "true"}
-            df.write_delta(uri, mode=mode, storage_options=storage_options)
+            df.write_delta(
+                uri, mode=mode, storage_options=storage_options,
+                delta_write_options={"schema_mode": "overwrite"},
+            )
             elapsed = time.perf_counter() - t0
-            log.info("Wrote delta %s: %d rows in %.1fs (mode=%s)",
+            log.info("Wrote delta (adls) %s: %d rows in %.1fs (mode=%s)",
                      table_path.split("/")[-1], len(df), elapsed, mode)
             return True
         except Exception as exc:
-            log.error("Failed to write delta %s: %s", table_path, exc)
+            log.error("Failed to write delta (adls) %s: %s", table_path, exc)
             return False
 
     def delta_table_exists(self, workspace_id: str, table_path: str) -> bool:
         """Check if a Delta table exists on OneLake."""
+        if self._filesystem_mode:
+            local_path = self._resolve_local_path(table_path)
+            if not local_path:
+                return False
+            return os.path.exists(os.path.join(local_path, "_delta_log"))
+
         uri = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{table_path}"
         try:
+            from engine.auth import SCOPE_ONELAKE
             token = self._token_provider.get_token(SCOPE_ONELAKE)
             storage_options = {"bearer_token": token, "use_fabric_endpoint": "true"}
             from deltalake import DeltaTable

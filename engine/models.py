@@ -252,6 +252,12 @@ class EngineConfig:
     # OneLake ADLS endpoint
     onelake_account_url: str = "https://onelake.dfs.fabric.microsoft.com"
 
+    # OneLake Explorer local mount path (filesystem mode — no auth needed)
+    # When set, engine reads/writes via local filesystem instead of ADLS SDK.
+    # OneLake Explorer syncs changes to Fabric automatically.
+    # Example: "C:\\Users\\sasnahrup\\OneLake - Microsoft\\INTEGRATION DATA (D)"
+    onelake_mount_path: str = ""
+
     # Notebook item IDs in CODE workspace (for triggering)
     notebook_bronze_id: str = ""
     notebook_silver_id: str = ""

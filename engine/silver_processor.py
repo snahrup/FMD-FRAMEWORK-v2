@@ -25,8 +25,31 @@ from engine.onelake_io import OneLakeIO
 
 log = logging.getLogger("fmd.silver")
 
-_FAR_FUTURE = datetime(9999, 12, 31, tzinfo=timezone.utc)
+_FAR_FUTURE = datetime(9999, 12, 31)  # naive UTC (tz stripped on Delta write)
 _SCD_COLUMNS = ["IsCurrent", "RecordStartDate", "RecordEndDate", "RecordModifiedDate", "IsDeleted"]
+
+
+def _utcnow() -> datetime:
+    """Current UTC time as a naive datetime (no timezone info).
+
+    Delta tables store timestamps as naive (OneLakeIO strips timezone on write),
+    so SCD columns must also be naive to avoid schema mismatches on concat.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _strip_tz(df: pl.DataFrame) -> pl.DataFrame:
+    """Strip timezone from all datetime columns (ensure naive UTC throughout).
+
+    Existing Delta tables written by Fabric notebooks may have tz-aware timestamps.
+    Our SCD columns use naive UTC. Normalizing on read prevents schema mismatches on concat.
+    """
+    cast_cols = [
+        pl.col(name).dt.replace_time_zone(None)
+        for name, dtype in zip(df.columns, df.dtypes)
+        if isinstance(dtype, pl.Datetime) and dtype.time_zone is not None
+    ]
+    return df.with_columns(cast_cols) if cast_cols else df
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +61,7 @@ def add_scd_columns(df: pl.DataFrame) -> pl.DataFrame:
 
     Matches notebook lines 813-818.
     """
-    now = datetime.now(timezone.utc)
+    now = _utcnow()
     return df.with_columns(
         pl.lit(True).alias("IsCurrent"),
         pl.lit(now).alias("RecordStartDate"),
@@ -62,7 +85,7 @@ def detect_changes(
         - updates_old: matching old versions → mark IsCurrent=False, set RecordEndDate
         - deletes: rows in existing (IsCurrent=True, IsDeleted=False) but NOT in incoming
     """
-    now = datetime.now(timezone.utc)
+    now = _utcnow()
 
     # Filter existing to current, non-deleted rows only
     current_existing = existing.filter(
@@ -160,10 +183,13 @@ class SilverProcessor:
                 error_suggestion="Ensure Bronze has been loaded first.",
             )
 
+        bronze_df = _strip_tz(bronze_df)
         rows_read = len(bronze_df)
 
         # Step 2: Read existing Silver
         silver_df = self._io.read_delta(workspace_id, entity.delta_table_path)
+        if silver_df is not None:
+            silver_df = _strip_tz(silver_df)
 
         if silver_df is None:
             # Step 3: First load — add SCD columns and write
