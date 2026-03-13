@@ -714,6 +714,7 @@ def get_purview_search(params: dict) -> list:
 
 @route("GET", "/api/blender/profile")
 def get_blender_profile(params: dict) -> dict:
+    """Profile a lakehouse table: row count + per-column null/distinct/min/max."""
     lakehouse = params.get("lakehouse", "")
     schema = params.get("schema", "dbo")
     table = params.get("table", "")
@@ -721,33 +722,124 @@ def get_blender_profile(params: dict) -> dict:
         raise HttpError("lakehouse and table params required", 400)
     s = _sanitize(schema)
     t = _sanitize(table)
+
+    # Step 1: Get full column metadata from INFORMATION_SCHEMA
     try:
         raw_cols = _query_lakehouse(
             lakehouse,
-            f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE "
+            f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
+            f"CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, "
+            f"ORDINAL_POSITION "
             f"FROM INFORMATION_SCHEMA.COLUMNS "
             f"WHERE TABLE_SCHEMA = '{s}' AND TABLE_NAME = '{t}' "
             f"ORDER BY ORDINAL_POSITION",
         )
-        cols = [
-            {
-                "name": c.get("COLUMN_NAME", ""),
-                "dataType": c.get("DATA_TYPE", ""),
-                "nullable": c.get("IS_NULLABLE", "YES") == "YES",
-            }
-            for c in raw_cols
-        ]
-        try:
-            rc = _query_lakehouse(lakehouse, f"SELECT COUNT(*) AS cnt FROM [{s}].[{t}]")
-            row_count = int(rc[0]["cnt"]) if rc else -1
-        except Exception:
-            row_count = -1
-        return {"lakehouse": lakehouse, "schema": schema, "table": table,
-                "rowCount": row_count, "columnCount": len(cols), "columns": cols}
     except HttpError:
         raise
     except Exception as e:
         raise HttpError(str(e), 502)
+
+    if not raw_cols:
+        return {"lakehouse": lakehouse, "schema": schema, "table": table,
+                "rowCount": 0, "columnCount": 0, "profiledColumns": 0, "columns": []}
+
+    # Step 2: Build per-column profiling query (limit to first 50 columns)
+    SORTABLE_TYPES = {
+        "int", "bigint", "smallint", "tinyint", "decimal", "numeric",
+        "float", "real", "money", "smallmoney",
+        "date", "datetime", "datetime2", "datetimeoffset", "time",
+        "varchar", "nvarchar", "char", "nchar",
+    }
+    profiled_cols = raw_cols[:50]
+    col_exprs = []
+    for col in profiled_cols:
+        name = col.get("COLUMN_NAME", "")
+        safe = name.replace("]", "]]")
+        col_exprs.append(f"COUNT(DISTINCT [{safe}]) AS [{safe}__distinct]")
+        col_exprs.append(f"SUM(CASE WHEN [{safe}] IS NULL THEN 1 ELSE 0 END) AS [{safe}__nulls]")
+        dtype = (col.get("DATA_TYPE") or "").lower()
+        if dtype in SORTABLE_TYPES:
+            col_exprs.append(f"MIN(CAST([{safe}] AS NVARCHAR(200))) AS [{safe}__min]")
+            col_exprs.append(f"MAX(CAST([{safe}] AS NVARCHAR(200))) AS [{safe}__max]")
+
+    profile_sql = (
+        f"SELECT COUNT(*) AS _row_count, {', '.join(col_exprs)} "
+        f"FROM (SELECT TOP 100000 * FROM [{s}].[{t}]) AS _sampled"
+    )
+
+    try:
+        result = _query_lakehouse(lakehouse, profile_sql)
+    except Exception as e:
+        log.error("Profile query failed for %s.%s.%s: %s", lakehouse, s, t, e)
+        # Fall back to metadata-only response
+        cols_meta = []
+        for col in raw_cols:
+            cols_meta.append({
+                "name": col.get("COLUMN_NAME", ""),
+                "dataType": col.get("DATA_TYPE", ""),
+                "nullable": col.get("IS_NULLABLE", "YES") == "YES",
+                "maxLength": _safe_int(col.get("CHARACTER_MAXIMUM_LENGTH")),
+                "precision": _safe_int(col.get("NUMERIC_PRECISION")),
+                "scale": _safe_int(col.get("NUMERIC_SCALE")),
+                "ordinal": _safe_int(col.get("ORDINAL_POSITION")),
+                "distinctCount": 0, "nullCount": 0, "nullPercentage": 0,
+                "minValue": None, "maxValue": None, "uniqueness": 0, "completeness": 0,
+            })
+        return {"lakehouse": lakehouse, "schema": schema, "table": table,
+                "rowCount": -1, "columnCount": len(raw_cols),
+                "profiledColumns": 0, "columns": cols_meta, "error": str(e)}
+
+    if not result:
+        return {"lakehouse": lakehouse, "schema": schema, "table": table,
+                "rowCount": 0, "columnCount": len(raw_cols), "profiledColumns": 0, "columns": []}
+
+    stats = result[0]
+    row_count = int(stats.get("_row_count", 0) or 0)
+
+    # Step 3: Assemble per-column profiles
+    column_profiles = []
+    for col in profiled_cols:
+        name = col.get("COLUMN_NAME", "")
+        distinct = int(stats.get(f"{name}__distinct", 0) or 0)
+        nulls = int(stats.get(f"{name}__nulls", 0) or 0)
+        null_pct = round((nulls / row_count * 100), 2) if row_count > 0 else 0.0
+        profile = {
+            "name": name,
+            "dataType": col.get("DATA_TYPE", ""),
+            "nullable": col.get("IS_NULLABLE", "YES") == "YES",
+            "maxLength": _safe_int(col.get("CHARACTER_MAXIMUM_LENGTH")),
+            "precision": _safe_int(col.get("NUMERIC_PRECISION")),
+            "scale": _safe_int(col.get("NUMERIC_SCALE")),
+            "ordinal": _safe_int(col.get("ORDINAL_POSITION")),
+            "distinctCount": distinct,
+            "nullCount": nulls,
+            "nullPercentage": null_pct,
+            "minValue": stats.get(f"{name}__min"),
+            "maxValue": stats.get(f"{name}__max"),
+            "uniqueness": round(distinct / row_count * 100, 2) if row_count > 0 else 0.0,
+            "completeness": round(100 - null_pct, 2),
+        }
+        column_profiles.append(profile)
+
+    return {
+        "lakehouse": lakehouse,
+        "schema": schema,
+        "table": table,
+        "rowCount": row_count,
+        "columnCount": len(raw_cols),
+        "profiledColumns": len(profiled_cols),
+        "columns": column_profiles,
+    }
+
+
+def _safe_int(val) -> int | None:
+    """Convert a value to int, returning None if not possible."""
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
 
 
 @route("GET", "/api/blender/sample")
