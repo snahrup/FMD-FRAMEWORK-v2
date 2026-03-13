@@ -7,7 +7,7 @@ raising a 503.
 """
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import dashboard.app.api.control_plane_db as cpdb
 from dashboard.app.api.router import route, HttpError
@@ -28,7 +28,7 @@ def _build_control_plane() -> dict:
 
     Mirrors the shape of the old _sqlite_control_plane() in server.py.
     """
-    now_utc = datetime.utcnow().isoformat() + "Z"
+    now_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     t0 = time.time()
 
     connections = cpdb.get_connections()
@@ -227,10 +227,25 @@ def _build_execution_matrix() -> list[dict]:
     bronze_view = cpdb.get_bronze_view()
     silver_view = cpdb.get_silver_view()
 
-    # Build status lookup: (LandingzoneEntityId, Layer) -> status row
+    # Build status lookup: (LandingzoneEntityId, normalized_layer) -> status row
+    # Layer values may be lowercase ('landing','bronze','silver') from resync/seed
+    # or PascalCase ('LandingZone','Bronze','Silver') from engine writes.
+    # Normalize to lowercase for consistent lookups.
     status_map: dict = {}
     for s in statuses:
-        key = (s.get("LandingzoneEntityId"), s.get("Layer"))
+        lz_id = s.get("LandingzoneEntityId")
+        layer = (s.get("Layer") or "").lower()
+        # Normalize 'landingzone' -> 'landing' for consistency
+        if layer == "landingzone":
+            layer = "landing"
+        key = (lz_id, layer)
+        # Keep the most recent / most useful status (loaded/succeeded beats not_started)
+        existing = status_map.get(key)
+        if existing:
+            existing_status = (existing.get("Status") or "").lower()
+            new_status = (s.get("Status") or "").lower()
+            if existing_status in ("loaded", "succeeded") and new_status not in ("loaded", "succeeded"):
+                continue  # keep the existing good status
         status_map[key] = s
 
     bronze_by_lz: dict = {}
@@ -252,9 +267,9 @@ def _build_execution_matrix() -> list[dict]:
             continue
         lz_id = int(lz_id)
 
-        lz_status = status_map.get((lz_id, "LandingZone"), {})
-        bronze_status = status_map.get((lz_id, "Bronze"), {})
-        silver_status = status_map.get((lz_id, "Silver"), {})
+        lz_status = status_map.get((lz_id, "landing"), {})
+        bronze_status = status_map.get((lz_id, "bronze"), {})
+        silver_status = status_map.get((lz_id, "silver"), {})
 
         br = bronze_by_lz.get(lz_id, {})
         br_id = br.get("BronzeLayerEntityId")

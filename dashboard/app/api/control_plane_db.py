@@ -8,7 +8,7 @@ delta_ingest.py.
 import sqlite3
 import threading
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 log = logging.getLogger('fmd-control-plane')
@@ -423,7 +423,7 @@ def init_db():
 # ---------------------------------------------------------------------------
 
 def _now():
-    return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 def upsert_connection(row: dict) -> None:
@@ -1106,7 +1106,7 @@ def get_stats() -> dict:
 
 def cleanup_old_data(days: int = 90) -> None:
     """Purge engine_task_log, pipeline_audit, copy_activity_audit older than N days."""
-    cutoff = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
     with _db_lock:
         conn = _get_conn()
         try:

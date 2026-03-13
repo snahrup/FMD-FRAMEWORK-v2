@@ -1,4 +1,4 @@
-"""Data access routes — blender, schema, lakehouse counts.
+"""Data access routes — blender, schema, lakehouse counts, entity status sync.
 
 Security fix applied:
     POST /api/blender/query — SELECT-only enforcement prevents arbitrary DML.
@@ -9,19 +9,243 @@ Covers:
     GET  /api/blender/profile    — column + row-count profile for a lakehouse table
     GET  /api/blender/sample     — sampled rows from a lakehouse table
     POST /api/blender/query      — execute a SELECT-only query against a lakehouse
-    GET  /api/lakehouse-counts   — row counts across all lakehouses
+    GET  /api/lakehouse-counts   — table/file counts from local OneLake mount
+    POST /api/lakehouse-counts/refresh — force-refresh (re-scan filesystem)
+    POST /api/entity-status/sync — derive entity status from OneLake filesystem
     GET  /api/schema             — schema info from SQLite
 """
 import json
 import logging
+import os
+import struct
+import threading
+import time
 import urllib.request
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
 
 log = logging.getLogger("fmd.routes.data_access")
+
+# ---------------------------------------------------------------------------
+# OneLake local mount — the filesystem IS the source of truth
+# ---------------------------------------------------------------------------
+
+_ONELAKE_MOUNT = os.environ.get("ONELAKE_MOUNT_PATH", "")
+
+
+def _get_onelake_mount() -> Path | None:
+    """Return the OneLake mount root or None if not available."""
+    if not _ONELAKE_MOUNT:
+        return None
+    p = Path(_ONELAKE_MOUNT)
+    return p if p.is_dir() else None
+
+
+def _count_from_filesystem() -> dict:
+    """Count tables/files in each lakehouse directly from the local OneLake mount.
+    Uses os.listdir() for speed — no stat() calls, no recursing into table dirs."""
+    mount = _get_onelake_mount()
+    if not mount:
+        return {}
+
+    results: dict = {}
+
+    # LZ: Files/{schema}/{table}.parquet (flat files, no Delta)
+    lz_files_dir = str(mount / "LH_DATA_LANDINGZONE.Lakehouse" / "Files")
+    try:
+        lz_tables = []
+        for schema in os.listdir(lz_files_dir):
+            schema_path = os.path.join(lz_files_dir, schema)
+            if not os.path.isdir(schema_path):
+                continue
+            for fname in os.listdir(schema_path):
+                if fname.endswith(".parquet") and not fname.startswith("X_"):
+                    lz_tables.append({
+                        "schema": schema, "table": fname[:-8], "rowCount": -1,
+                    })
+        results["LH_DATA_LANDINGZONE"] = lz_tables
+    except OSError as e:
+        log.warning("Failed to scan LZ files: %s", e)
+
+    # Bronze + Silver: Tables/{schema}/{table}/ — just list directory names
+    for lh_name in ("LH_BRONZE_LAYER", "LH_SILVER_LAYER"):
+        tables_dir = str(mount / f"{lh_name}.Lakehouse" / "Tables")
+        try:
+            lh_tables = []
+            for schema in os.listdir(tables_dir):
+                schema_path = os.path.join(tables_dir, schema)
+                if not os.path.isdir(schema_path):
+                    continue
+                for table_name in os.listdir(schema_path):
+                    if not table_name.startswith("_"):
+                        lh_tables.append({
+                            "schema": schema, "table": table_name, "rowCount": -1,
+                        })
+            results[lh_name] = lh_tables
+        except OSError as e:
+            log.warning("Failed to scan %s: %s", lh_name, e)
+
+    return results
+
+
+def _build_onelake_table_index() -> dict[str, set[str]]:
+    """Build {layer: set of (namespace, table_name)} from OneLake mount.
+    Uses os.listdir() for speed — avoids stat() and pathlib overhead on virtual FS."""
+    mount = _get_onelake_mount()
+    if not mount:
+        return {}
+
+    index: dict[str, set] = {"landing": set(), "bronze": set(), "silver": set()}
+
+    # LZ: Files/{namespace}/{table}.parquet
+    lz_dir = str(mount / "LH_DATA_LANDINGZONE.Lakehouse" / "Files")
+    try:
+        for ns in os.listdir(lz_dir):
+            ns_path = os.path.join(lz_dir, ns)
+            if not os.path.isdir(ns_path):
+                continue
+            for fname in os.listdir(ns_path):
+                if fname.endswith(".parquet") and not fname.startswith("X_"):
+                    index["landing"].add((ns, fname[:-8]))  # strip .parquet
+    except OSError:
+        pass
+
+    # Bronze/Silver: Tables/{namespace}/{table}/
+    for layer, lh in [("bronze", "LH_BRONZE_LAYER"), ("silver", "LH_SILVER_LAYER")]:
+        tables_dir = str(mount / f"{lh}.Lakehouse" / "Tables")
+        try:
+            for ns in os.listdir(tables_dir):
+                ns_path = os.path.join(tables_dir, ns)
+                if not os.path.isdir(ns_path):
+                    continue
+                for table_name in os.listdir(ns_path):
+                    if not table_name.startswith("_"):
+                        index[layer].add((ns, table_name))
+        except OSError:
+            pass
+
+    return index
+
+
+def sync_entity_status_from_filesystem() -> dict:
+    """Derive entity status from what actually exists on disk in OneLake.
+    If a table/file exists → status = 'loaded'. No Fabric SQL, no sync lag.
+    Uses batch inserts for speed (~1s instead of ~80s)."""
+    file_index = _build_onelake_table_index()
+    if not file_index:
+        return {"error": "OneLake mount not available", "synced": 0}
+
+    # Build datasource namespace mapping: DataSourceId → namespace (e.g., 6 → 'm3')
+    ds_rows = db.query("SELECT DataSourceId, Namespace FROM datasources")
+    ds_namespace = {r["DataSourceId"]: (r.get("Namespace") or "").lower() for r in ds_rows}
+
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    batch: list[tuple] = []  # collect all upserts for batch write
+
+    # LZ entities: check Files/{namespace}/{FileName}
+    lz_entities = db.query(
+        "SELECT LandingzoneEntityId, DataSourceId, SourceName, FileName FROM lz_entities"
+    )
+    for ent in lz_entities:
+        eid = ent["LandingzoneEntityId"]
+        ns = ds_namespace.get(ent["DataSourceId"], "")
+        file_name = ent.get("FileName") or ent.get("SourceName", "")
+        table_name = file_name.replace(".parquet", "") if file_name.endswith(".parquet") else file_name
+        exists = (ns, table_name) in file_index.get("landing", set())
+        batch.append((
+            eid, "landing",
+            "loaded" if exists else "not_started",
+            now_str if exists else None,
+            None, "onelake-filesystem-sync", now_str,
+        ))
+
+    # Bronze entities: check Tables/{namespace}/{Name}/
+    bronze_entities = db.query(
+        "SELECT be.BronzeLayerEntityId, be.LandingzoneEntityId, be.Name, "
+        "le.DataSourceId "
+        "FROM bronze_entities be "
+        "LEFT JOIN lz_entities le ON be.LandingzoneEntityId = le.LandingzoneEntityId"
+    )
+    for ent in bronze_entities:
+        eid = ent["LandingzoneEntityId"]
+        ns = ds_namespace.get(ent.get("DataSourceId"), "")
+        table_name = ent.get("Name", "")
+        exists = (ns, table_name) in file_index.get("bronze", set())
+        batch.append((
+            eid, "bronze",
+            "loaded" if exists else "not_started",
+            now_str if exists else None,
+            None, "onelake-filesystem-sync", now_str,
+        ))
+
+    # Silver entities: check Tables/{namespace}/{Name}/
+    silver_entities = db.query(
+        "SELECT se.SilverLayerEntityId, se.BronzeLayerEntityId, se.Name, "
+        "be.LandingzoneEntityId, le.DataSourceId "
+        "FROM silver_entities se "
+        "LEFT JOIN bronze_entities be ON se.BronzeLayerEntityId = be.BronzeLayerEntityId "
+        "LEFT JOIN lz_entities le ON be.LandingzoneEntityId = le.LandingzoneEntityId"
+    )
+    for ent in silver_entities:
+        eid = ent.get("LandingzoneEntityId")
+        if not eid:
+            continue
+        ns = ds_namespace.get(ent.get("DataSourceId"), "")
+        table_name = ent.get("Name", "")
+        exists = (ns, table_name) in file_index.get("silver", set())
+        batch.append((
+            eid, "silver",
+            "loaded" if exists else "not_started",
+            now_str if exists else None,
+            None, "onelake-filesystem-sync", now_str,
+        ))
+
+    # Batch write to SQLite — one transaction, ~1s
+    import sqlite3
+    try:
+        from dashboard.app.api import control_plane_db as cpdb
+    except ImportError:
+        import control_plane_db as cpdb  # type: ignore
+
+    conn = sqlite3.connect(str(cpdb.DB_PATH))
+    try:
+        conn.execute("BEGIN")
+        # Clean out stale PascalCase rows from old engine writes
+        conn.execute(
+            "DELETE FROM entity_status WHERE Layer IN ('LandingZone', 'Bronze', 'Silver')"
+        )
+        conn.executemany(
+            "INSERT OR REPLACE INTO entity_status "
+            "(LandingzoneEntityId, Layer, Status, LoadEndDateTime, "
+            "ErrorMessage, UpdatedBy, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            batch,
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) "
+            "VALUES ('last_sync', ?, ?)",
+            (now_str, now_str),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    summary = {
+        "synced": len(batch),
+        "onDisk": {
+            "landing": len(file_index.get("landing", set())),
+            "bronze": len(file_index.get("bronze", set())),
+            "silver": len(file_index.get("silver", set())),
+        },
+        "syncedAt": now_str,
+    }
+    log.info("Entity status synced from OneLake filesystem: %s", summary)
+    return summary
 
 # ---------------------------------------------------------------------------
 # Config helpers (lazy)
@@ -35,7 +259,17 @@ def _get_config() -> dict:
     if _CONFIG is None:
         try:
             cfg_path = Path(__file__).parent.parent / "config.json"
-            _CONFIG = json.loads(cfg_path.read_text())
+            raw = json.loads(cfg_path.read_text())
+            # Resolve ${ENV_VAR} placeholders
+            def _resolve(obj):
+                if isinstance(obj, str) and obj.startswith("${") and obj.endswith("}"):
+                    return os.environ.get(obj[2:-1], "")
+                elif isinstance(obj, dict):
+                    return {k: _resolve(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [_resolve(v) for v in obj]
+                return obj
+            _CONFIG = _resolve(raw)
         except Exception:
             _CONFIG = {}
     return _CONFIG
@@ -46,6 +280,8 @@ def _get_fabric_token(scope: str) -> str:
     tenant = cfg.get("fabric", {}).get("tenant_id", "")
     client_id = cfg.get("fabric", {}).get("client_id", "")
     client_secret = cfg.get("fabric", {}).get("client_secret", "")
+    if not tenant or not client_id or not client_secret:
+        raise HttpError("Fabric credentials not configured (check .env)", 503)
     url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
     data = urllib.parse.urlencode({
         "grant_type": "client_credentials",
@@ -58,50 +294,103 @@ def _get_fabric_token(scope: str) -> str:
     return json.loads(resp.read())["access_token"]
 
 
-def _get_lakehouse_connection(lakehouse_name: str):
-    """Return a pyodbc connection to a lakehouse SQL endpoint."""
-    import pyodbc
-    lh = db.query(
-        "SELECT LakehouseGuid, WorkspaceGuid FROM lakehouses WHERE Name = ? LIMIT 1",
-        (lakehouse_name,),
-    )
-    if not lh:
-        raise HttpError(f"Lakehouse '{lakehouse_name}' not found", 404)
+# ---------------------------------------------------------------------------
+# Lakehouse SQL Analytics Endpoint discovery + connection
+# ---------------------------------------------------------------------------
 
-    lh_guid = lh[0]["LakehouseGuid"]
-    ws_guid = lh[0]["WorkspaceGuid"]
+_lakehouse_endpoints: dict = {}   # lakehouse_name → {connectionString, ...}
+_lakehouse_lock = threading.Lock()
+SQL_DRIVER = "ODBC Driver 18 for SQL Server"
 
-    # Use the SQL Analytics Endpoint pattern
+
+def _discover_lakehouse_endpoints() -> dict:
+    """Discover SQL analytics endpoints for all lakehouses via Fabric REST API."""
+    global _lakehouse_endpoints
+    with _lakehouse_lock:
+        if _lakehouse_endpoints:
+            return _lakehouse_endpoints
+
     cfg = _get_config()
-    server = cfg.get("sql", {}).get("server", "")
-    database = cfg.get("sql", {}).get("database", "")
+    ws_id = cfg.get("fabric", {}).get("workspace_data_id", "")
+    if not ws_id:
+        log.warning("No workspace_data_id configured — cannot discover lakehouse endpoints")
+        return {}
 
-    if not server:
-        raise HttpError("SQL endpoint not configured", 503)
+    try:
+        token = _get_fabric_token("https://api.fabric.microsoft.com/.default")
+    except Exception as e:
+        log.warning("Cannot get Fabric token for endpoint discovery: %s", e)
+        return {}
+    headers = {"Authorization": f"Bearer {token}"}
+    url = f"https://api.fabric.microsoft.com/v1/workspaces/{ws_id}/lakehouses"
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        resp = urllib.request.urlopen(req, timeout=15)
+        data = json.loads(resp.read())
+        for lh in data.get("value", []):
+            name = lh.get("displayName", "")
+            props = lh.get("properties", {})
+            sql_props = props.get("sqlEndpointProperties", {})
+            conn_str = sql_props.get("connectionString", "")
+            if conn_str and sql_props.get("provisioningStatus") == "Success":
+                _lakehouse_endpoints[name] = {
+                    "connectionString": conn_str,
+                    "sqlEndpointId": sql_props.get("id", ""),
+                    "lakehouseId": lh.get("id", ""),
+                    "workspaceId": ws_id,
+                }
+                log.info("  Lakehouse SQL endpoint: %s -> %s...", name, conn_str[:50])
+    except urllib.error.HTTPError as e:
+        log.error("Failed to discover lakehouses: %s %s", e.code, e.read().decode()[:200])
+    except Exception as e:
+        log.error("Failed to discover lakehouses: %s", e)
 
-    import struct
-    token = _get_fabric_token("https://analysis.windows.net/powerbi/api/.default")
-    token_bytes = token.encode("utf-16-le")
-    attrs_before = {1256: struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)}
+    return _lakehouse_endpoints
+
+
+def _get_lakehouse_connection(lakehouse_name: str):
+    """Connect to a lakehouse SQL analytics endpoint via pyodbc."""
+    import pyodbc
+    endpoints = _discover_lakehouse_endpoints()
+    ep = endpoints.get(lakehouse_name)
+    if not ep:
+        raise HttpError(
+            f"Lakehouse '{lakehouse_name}' not found. Available: {list(endpoints.keys())}",
+            404,
+        )
+
+    token = _get_fabric_token("https://database.windows.net/.default")
+    token_bytes = token.encode("UTF-16-LE")
+    token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
     conn_str = (
-        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
-        f"SERVER={server};"
-        f"DATABASE={database};"
+        f"DRIVER={{{SQL_DRIVER}}};"
+        f"SERVER={ep['connectionString']};"
+        f"DATABASE={lakehouse_name};"
         f"Encrypt=yes;TrustServerCertificate=no;"
     )
-    return pyodbc.connect(conn_str, attrs_before=attrs_before, timeout=30)
+    return pyodbc.connect(conn_str, attrs_before={1256: token_struct}, timeout=30)
 
 
 def _query_lakehouse(lakehouse_name: str, sql: str) -> list[dict]:
+    """Execute read-only SQL against a lakehouse SQL analytics endpoint."""
     conn = _get_lakehouse_connection(lakehouse_name)
     try:
         cursor = conn.cursor()
         cursor.execute(sql)
-        cols = [c[0] for c in cursor.description] if cursor.description else []
+        if not cursor.description:
+            return []
+        cols = [c[0] for c in cursor.description]
         return [{c: (str(v) if v is not None else None) for c, v in zip(cols, row)}
                 for row in cursor.fetchall()]
     finally:
         conn.close()
+
+
+def invalidate_lakehouse_endpoints():
+    """Force re-discovery on next request (e.g. after workspace changes)."""
+    global _lakehouse_endpoints
+    with _lakehouse_lock:
+        _lakehouse_endpoints = {}
 
 
 def _sanitize(val: str) -> str:
@@ -203,20 +492,135 @@ def get_blender_endpoints(params: dict) -> dict:
     return {lh["Name"]: lh for lh in lakehouses}
 
 
+# ---------------------------------------------------------------------------
+# Lakehouse row counts — live query with in-memory + file cache
+# ---------------------------------------------------------------------------
+
+_lakehouse_counts_cache: dict | None = None
+_lakehouse_counts_cache_ts: float = 0
+_LAKEHOUSE_COUNTS_TTL = 300  # 5 minutes
+
+
+def _count_lakehouse_fabric(lh_name: str) -> tuple[str, list[dict]]:
+    """Query row counts for a single lakehouse via Fabric SQL Analytics Endpoint.
+    Used as FALLBACK when OneLake mount is not available."""
+    try:
+        rows = _query_lakehouse(
+            lh_name,
+            "SELECT s.name AS [schema], t.name AS [table], "
+            "CAST(SUM(p.rows) AS BIGINT) AS row_count "
+            "FROM sys.tables t "
+            "INNER JOIN sys.schemas s ON t.schema_id = s.schema_id "
+            "INNER JOIN sys.partitions p ON t.object_id = p.object_id "
+            "WHERE p.index_id IN (0, 1) "
+            "GROUP BY s.name, t.name "
+            "ORDER BY s.name, t.name",
+        )
+        return lh_name, [
+            {"schema": r["schema"], "table": r["table"], "rowCount": int(r["row_count"] or 0)}
+            for r in rows
+        ]
+    except Exception as e:
+        log.warning("Fabric row count query failed for %s: %s", lh_name, e)
+        return lh_name, []
+
+
+def _get_lakehouse_counts_inner(force_refresh: bool = False) -> dict:
+    """Get table counts. PRIMARY source: local OneLake filesystem.
+    FALLBACK: Fabric SQL Analytics Endpoints (only if mount unavailable)."""
+    global _lakehouse_counts_cache, _lakehouse_counts_cache_ts
+
+    if (
+        not force_refresh
+        and _lakehouse_counts_cache
+        and (time.time() - _lakehouse_counts_cache_ts) < _LAKEHOUSE_COUNTS_TTL
+    ):
+        return {
+            **_lakehouse_counts_cache,
+            "_meta": {
+                "cachedAt": datetime.now(timezone.utc).isoformat(),
+                "fromCache": True,
+                "cacheAgeSec": int(time.time() - _lakehouse_counts_cache_ts),
+            },
+        }
+
+    t_start = time.time()
+
+    # PRIMARY: read from local OneLake mount (instant, always accurate)
+    local_counts = _count_from_filesystem()
+    if local_counts:
+        now_utc = datetime.now(timezone.utc).isoformat()
+        local_counts["_meta"] = {
+            "source": "onelake-filesystem",
+            "cachedAt": now_utc,
+            "fromCache": False,
+            "cacheAgeSec": 0,
+            "queryTimeSec": round(time.time() - t_start, 3),
+            "mountPath": _ONELAKE_MOUNT,
+        }
+        _lakehouse_counts_cache = {k: v for k, v in local_counts.items() if k != "_meta"}
+        _lakehouse_counts_cache_ts = time.time()
+        log.info(
+            "Lakehouse counts from filesystem: LZ=%d, Bronze=%d, Silver=%d in %.3fs",
+            len(local_counts.get("LH_DATA_LANDINGZONE", [])),
+            len(local_counts.get("LH_BRONZE_LAYER", [])),
+            len(local_counts.get("LH_SILVER_LAYER", [])),
+            time.time() - t_start,
+        )
+        return local_counts
+
+    # FALLBACK: Fabric SQL Analytics Endpoints (remote server without OneLake mount)
+    log.info("OneLake mount not available — falling back to Fabric SQL endpoints")
+    try:
+        endpoints = _discover_lakehouse_endpoints()
+    except Exception as e:
+        log.warning("Lakehouse endpoint discovery failed: %s", e)
+        endpoints = {}
+
+    if not endpoints:
+        return {"_meta": {"error": "No OneLake mount and no Fabric endpoints available"}}
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [pool.submit(_count_lakehouse_fabric, lh) for lh in endpoints]
+        results: dict = {}
+        for future in futures:
+            try:
+                name, counts = future.result(timeout=120)
+                results[name] = counts
+            except Exception as e:
+                log.error("Row count future failed: %s", e)
+
+    now_utc = datetime.now(timezone.utc).isoformat()
+    results["_meta"] = {
+        "source": "fabric-sql-endpoint",
+        "cachedAt": now_utc,
+        "fromCache": False,
+        "queryTimeSec": round(time.time() - t_start, 1),
+    }
+    _lakehouse_counts_cache = {k: v for k, v in results.items() if k != "_meta"}
+    _lakehouse_counts_cache_ts = time.time()
+    return results
+
+
 @route("GET", "/api/lakehouse-counts")
 def get_lakehouse_counts(params: dict) -> dict:
-    """Cached row counts per lakehouse table — read from SQLite metrics store."""
-    # In the refactored architecture this returns whatever is in the metrics store.
-    # The background sync populates it; here we just return what's cached.
-    try:
-        import json as _json
-        counts_file = Path(__file__).parent.parent / "lakehouse_counts_cache.json"
-        if counts_file.is_file():
-            raw = _json.loads(counts_file.read_text())
-            return raw.get("counts", raw)
-    except Exception:
-        pass
-    return {}
+    """Table counts from local OneLake mount (primary) or Fabric endpoints (fallback).
+    Cached 5 min. Pass ?force=true to bypass cache."""
+    force = str(params.get("force", "")).lower() in ("true", "1", "yes")
+    return _get_lakehouse_counts_inner(force_refresh=force)
+
+
+@route("POST", "/api/lakehouse-counts/refresh")
+def post_lakehouse_counts_refresh(params: dict) -> dict:
+    """Force-refresh lakehouse counts from filesystem."""
+    return _get_lakehouse_counts_inner(force_refresh=True)
+
+
+@route("POST", "/api/entity-status/sync")
+def post_entity_status_sync(params: dict) -> dict:
+    """Derive entity status from OneLake filesystem and write to SQLite.
+    If a table/file exists on disk → loaded. No Fabric SQL, no sync lag."""
+    return sync_entity_status_from_filesystem()
 
 
 @route("GET", "/api/blender/profile")

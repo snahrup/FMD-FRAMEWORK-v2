@@ -4,6 +4,7 @@ Security fix: ADMIN_PASSWORD must be set AND non-empty. Empty string
 no longer matches empty input (was a bypass vulnerability).
 """
 import os
+import json
 import logging
 
 from dashboard.app.api.router import route, HttpError
@@ -48,7 +49,7 @@ def get_health(params):
 def post_admin_auth(params):
     """Verify admin password."""
     _check_admin_password(params)
-    return {"authenticated": True}
+    return {"ok": True, "authenticated": True}
 
 
 @route("POST", "/api/admin/config")
@@ -77,3 +78,72 @@ def post_admin_config(params):
 def get_admin_config(params):
     rows = db.query("SELECT key, value FROM admin_config")
     return {r["key"]: r["value"] for r in rows}
+
+
+@route("GET", "/api/setup/current-config")
+def get_setup_current_config(params):
+    """Return the current environment config from config.json + DB."""
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
+    try:
+        with open(config_path, "r") as f:
+            raw = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        raw = {}
+
+    fabric = raw.get("fabric", {})
+    engine = raw.get("engine", {})
+
+    # Map config.json into the EnvironmentConfig shape the frontend expects
+    def _ws(ws_id, name=""):
+        return {"id": ws_id, "displayName": name} if ws_id else None
+
+    def _lh(lh_id, name="", ws_id=""):
+        if not lh_id:
+            return None
+        return {"id": lh_id, "displayName": name, "workspaceGuid": ws_id}
+
+    data_ws = fabric.get("workspace_data_id", "")
+    code_ws = fabric.get("workspace_code_id", "")
+
+    # Try to get connection info from DB
+    connections = {}
+    try:
+        rows = db.query("SELECT ConnectionName, ConnectionGuid FROM connections")
+        for r in rows:
+            name = r.get("ConnectionName", "")
+            guid = r.get("ConnectionGuid", "")
+            if name and guid:
+                connections[name] = {"id": guid, "displayName": name}
+    except Exception:
+        pass
+
+    config = {
+        "workspaces": {
+            "data_dev": _ws(data_ws, "INTEGRATION DATA (D)"),
+            "code_dev": _ws(code_ws, "INTEGRATION CODE (D)"),
+            "config": None,
+            "data_prod": None,
+            "code_prod": None,
+        },
+        "lakehouses": {
+            "LH_DATA_LANDINGZONE": _lh(engine.get("lz_lakehouse_id"), "LH_DATA_LANDINGZONE", data_ws),
+            "LH_BRONZE_LAYER": _lh(engine.get("bronze_lakehouse_id"), "LH_BRONZE_LAYER", data_ws),
+            "LH_SILVER_LAYER": _lh(engine.get("silver_lakehouse_id"), "LH_SILVER_LAYER", data_ws),
+        },
+        "connections": connections or {
+            "CON_FMD_FABRIC_SQL": None,
+            "CON_FMD_FABRIC_PIPELINES": None,
+            "CON_FMD_ADF_PIPELINES": None,
+            "CON_FMD_FABRIC_NOTEBOOKS": None,
+        },
+        "notebooks": {
+            "NB_FMD_LOAD_LANDING_BRONZE": _ws(engine.get("notebook_bronze_id"), "NB_FMD_LOAD_LANDING_BRONZE"),
+            "NB_FMD_LOAD_BRONZE_SILVER": _ws(engine.get("notebook_silver_id"), "NB_FMD_LOAD_BRONZE_SILVER"),
+        },
+        "pipelines": {
+            "PL_FMD_LDZ_COPY_SQL": _ws(engine.get("pipeline_copy_sql_id"), "PL_FMD_LDZ_COPY_SQL"),
+        },
+        "database": None,
+    }
+
+    return {"config": config}

@@ -191,6 +191,10 @@ export default function SourceManager() {
   const [loadConfigLoading, setLoadConfigLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeTarget, setAnalyzeTarget] = useState<string | null>(null);
+  const [optimizingAll, setOptimizingAll] = useState(false);
+  const [optimizeAllResult, setOptimizeAllResult] = useState<{ pk: number; wm: number; total: number; incr: number; errors: string[] } | null>(null);
+  const [discoveringAll, setDiscoveringAll] = useState(false);
+  const [discoverResult, setDiscoverResult] = useState<{ sources: number; discovered: number; already: number; registered: number; trimmed: number; errors: string[] } | null>(null);
   const [registering, setRegistering] = useState(false);
   const [pendingUpdates, setPendingUpdates] = useState<Map<number, { isIncremental?: boolean; column?: string }>>(new Map());
   const [savingConfig, setSavingConfig] = useState(false);
@@ -450,6 +454,80 @@ export default function SourceManager() {
     } finally {
       setAnalyzing(false);
       setAnalyzeTarget(null);
+    }
+  };
+
+  const handleOptimizeAll = async () => {
+    setOptimizingAll(true);
+    setOptimizeAllResult(null);
+    setActionStatus({ type: 'loading', message: 'Optimizing ALL entities — connecting to all 5 source databases, discovering PKs and watermarks...' });
+    try {
+      const res = await fetch('/api/engine/optimize-all', { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        setActionStatus({ type: 'error', message: `Optimize All failed: ${err.error || 'Unknown error'}` });
+        return;
+      }
+      const result = await res.json();
+      setOptimizeAllResult({
+        pk: result.pk_discovered || 0,
+        wm: result.watermark_discovered || 0,
+        total: result.final_total || 0,
+        incr: result.final_incremental || 0,
+        errors: result.errors || [],
+      });
+      setActionStatus({
+        type: 'success',
+        message: `Optimization complete: ${result.pk_discovered} PKs discovered, ${result.watermark_discovered} watermark columns found. ${result.final_incremental}/${result.final_total} entities now incremental.${result.errors?.length ? ` (${result.errors.length} connection errors)` : ''}`,
+      });
+      invalidateDigestCache();
+      refreshDigest();
+      await fetchLoadConfig();
+    } catch (e) {
+      setActionStatus({ type: 'error', message: `Optimize All failed: ${e instanceof Error ? e.message : 'Check VPN and server logs'}` });
+    } finally {
+      setOptimizingAll(false);
+    }
+  };
+
+  const handleDiscoverAll = async () => {
+    setDiscoveringAll(true);
+    setDiscoverResult(null);
+    setActionStatus({ type: 'loading', message: 'Discovering tables across all source databases — connecting via VPN, scanning for unregistered tables...' });
+    try {
+      const res = await fetch('/api/source-manager/discover-all', { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        setActionStatus({ type: 'error', message: `Discover All failed: ${err.error || 'Unknown error'}` });
+        return;
+      }
+      const result = await res.json();
+      setDiscoverResult({
+        sources: result.sources_processed || 0,
+        discovered: result.tables_discovered || 0,
+        already: result.already_registered || 0,
+        registered: result.newly_registered || 0,
+        trimmed: result.whitespace_fixed || 0,
+        errors: result.errors || [],
+      });
+      const msgs: string[] = [];
+      msgs.push(`Scanned ${result.sources_processed} sources`);
+      msgs.push(`${result.tables_discovered} tables found`);
+      if (result.newly_registered > 0) msgs.push(`${result.newly_registered} NEW entities registered (LZ+Bronze+Silver)`);
+      if (result.whitespace_fixed > 0) msgs.push(`${result.whitespace_fixed} names trimmed`);
+      if (result.already_registered > 0) msgs.push(`${result.already_registered} already registered`);
+      if (result.errors?.length) msgs.push(`${result.errors.length} errors`);
+      setActionStatus({
+        type: result.newly_registered > 0 ? 'success' : 'success',
+        message: `Discovery complete: ${msgs.join(', ')}.`,
+      });
+      invalidateDigestCache();
+      refreshDigest();
+      await fetchLoadConfig();
+    } catch (e) {
+      setActionStatus({ type: 'error', message: `Discover All failed: ${e instanceof Error ? e.message : 'Check VPN and server logs'}` });
+    } finally {
+      setDiscoveringAll(false);
     }
   };
 
@@ -785,6 +863,22 @@ export default function SourceManager() {
             )}
             {entityViewMode === 'loadConfig' && (
               <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDiscoverAll}
+                  disabled={discoveringAll || optimizingAll}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {discoveringAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+                  Discover &amp; Register
+                </button>
+                <button
+                  onClick={handleOptimizeAll}
+                  disabled={optimizingAll || analyzing || discoveringAll}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {optimizingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                  Optimize All
+                </button>
                 {pendingUpdates.size > 0 && (
                   <button
                     onClick={handleSaveLoadConfig}

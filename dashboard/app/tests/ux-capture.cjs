@@ -6,7 +6,7 @@
 const { chromium } = require('playwright');
 const path = require('path');
 
-const BASE = 'http://127.0.0.1:5173';
+const BASE = 'http://127.0.0.1:8787';
 const OUT = path.resolve(__dirname, '..', '..', '..', 'knowledge', 'ux-audit-screenshots');
 
 const PAGES = [

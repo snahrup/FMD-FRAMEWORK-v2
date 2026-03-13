@@ -618,6 +618,253 @@ def post_register_bronze_silver(params: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Auto-discover & register missing tables across all sources
+# ---------------------------------------------------------------------------
+
+SYSTEM_SCHEMAS = {"sys", "INFORMATION_SCHEMA", "guest", "db_owner", "db_accessadmin",
+                  "db_securityadmin", "db_ddladmin", "db_backupoperator",
+                  "db_datareader", "db_datawriter", "db_denydatareader",
+                  "db_denydatawriter"}
+
+
+@route("POST", "/api/source-manager/discover-all")
+def post_discover_all(params: dict) -> dict:
+    """Connect to every SQL source, find non-empty user tables that are not
+    yet registered, and auto-register them (LZ -> Bronze -> Silver cascade).
+    Also trims leading/trailing whitespace on existing SourceName values."""
+    import pyodbc
+
+    try:
+        from dashboard.app.api import control_plane_db as cpdb
+    except ImportError:
+        import control_plane_db as cpdb  # type: ignore
+
+    SQL_DRIVER = _get_sql_driver()
+
+    # ── 1. Gather source connections ──
+    sources = db.query("""
+        SELECT c.ConnectionId, c.ServerName, c.DatabaseName,
+               ds.DataSourceId, ds.Name AS DSName, ds.Namespace
+        FROM connections c
+        JOIN datasources ds ON ds.ConnectionId = c.ConnectionId
+        WHERE c.Type = 'SQL' AND c.ServerName IS NOT NULL
+        ORDER BY c.Name
+    """)
+
+    if not sources:
+        return {"sources_processed": 0, "tables_discovered": 0,
+                "already_registered": 0, "newly_registered": 0, "whitespace_fixed": 0,
+                "errors": ["No SQL source connections found"]}
+
+    # ── 2. Lakehouse IDs for cascade registration ──
+    lakehouses = cpdb.get_lakehouses()
+    lz_lh = [lh for lh in lakehouses if lh.get("Name") == "LH_DATA_LANDINGZONE"]
+    bronze_lh = [lh for lh in lakehouses if lh.get("Name") == "LH_BRONZE_LAYER"]
+    silver_lh = [lh for lh in lakehouses if lh.get("Name") == "LH_SILVER_LAYER"]
+    lz_lh_id = int(lz_lh[0]["LakehouseId"]) if lz_lh else None
+    bronze_lh_id = int(bronze_lh[0]["LakehouseId"]) if bronze_lh else None
+    silver_lh_id = int(silver_lh[0]["LakehouseId"]) if silver_lh else None
+
+    # ── 3. Build lookup of already-registered entities by (DataSourceId, schema, table) ──
+    all_lz = db.query(
+        "SELECT LandingzoneEntityId, DataSourceId, SourceSchema, SourceName "
+        "FROM lz_entities WHERE IsActive = 1"
+    )
+    registered_set: dict[int, set[tuple[str, str]]] = {}
+    for e in all_lz:
+        ds_id = e["DataSourceId"]
+        schema = (e.get("SourceSchema") or "dbo").strip().lower()
+        table = (e.get("SourceName") or "").strip().lower()
+        registered_set.setdefault(ds_id, set()).add((schema, table))
+
+    # ── 4. Fix whitespace on existing SourceName values ──
+    whitespace_fixed = 0
+    ws_rows = db.query(
+        "SELECT LandingzoneEntityId, SourceName FROM lz_entities "
+        "WHERE SourceName != TRIM(SourceName)"
+    )
+    for wr in ws_rows:
+        trimmed = (wr["SourceName"] or "").strip()
+        if trimmed:
+            db.execute(
+                "UPDATE lz_entities SET SourceName = ?, FileName = ? WHERE LandingzoneEntityId = ?",
+                (trimmed, trimmed, wr["LandingzoneEntityId"]),
+            )
+            whitespace_fixed += 1
+    if whitespace_fixed:
+        log.info("Trimmed whitespace on %d existing entity SourceNames", whitespace_fixed)
+
+    # ── 5. Connect to each source and discover tables ──
+    stats = {
+        "sources_processed": 0,
+        "tables_discovered": 0,
+        "already_registered": 0,
+        "newly_registered": 0,
+        "whitespace_fixed": whitespace_fixed,
+        "errors": [],
+        "source_details": [],
+    }
+
+    # Pre-fetch max IDs for batch allocation
+    existing_lz = cpdb.get_lz_entities()
+    existing_bronze = cpdb.get_bronze_entities()
+    existing_silver = cpdb.get_silver_entities()
+    next_lz_id = max((int(e["LandingzoneEntityId"]) for e in existing_lz), default=0) + 1
+    next_bronze_id = max((int(e["BronzeLayerEntityId"]) for e in existing_bronze), default=0) + 1
+    next_silver_id = max((int(e["SilverLayerEntityId"]) for e in existing_silver), default=0) + 1
+
+    # Discover non-empty user tables query — join sys.tables with sys.partitions
+    DISCOVER_SQL = """
+        SELECT s.name AS [schema], t.name AS [table], SUM(p.rows) AS row_count
+        FROM sys.tables t
+        JOIN sys.schemas s ON t.schema_id = s.schema_id
+        JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id IN (0, 1)
+        WHERE t.type = 'U'
+        GROUP BY s.name, t.name
+        HAVING SUM(p.rows) > 0
+        ORDER BY s.name, t.name
+    """
+
+    for src in sources:
+        ds_id = src["DataSourceId"]
+        server = src["ServerName"]
+        database = src["DatabaseName"]
+        ds_name = src["DSName"]
+
+        log.info("Discover: scanning %s (%s/%s)", ds_name, server, database)
+        src_detail = {"name": ds_name, "server": server, "database": database,
+                      "discovered": 0, "already": 0, "registered": 0, "error": None}
+
+        try:
+            conn_str = (
+                f"DRIVER={{{SQL_DRIVER}}};"
+                f"SERVER={server};"
+                f"DATABASE={database};"
+                f"Trusted_Connection=yes;TrustServerCertificate=yes;"
+                f"Connect Timeout=15;"
+            )
+            src_conn = pyodbc.connect(conn_str, timeout=15)
+        except Exception as e:
+            err_msg = f"{ds_name} ({server}/{database}): {str(e)[:150]}"
+            log.warning("Discover: connection failed — %s", err_msg)
+            stats["errors"].append(err_msg)
+            src_detail["error"] = err_msg
+            stats["source_details"].append(src_detail)
+            continue
+
+        try:
+            cursor = src_conn.cursor()
+            cursor.execute(DISCOVER_SQL)
+            remote_tables = cursor.fetchall()
+            cursor.close()
+        except Exception as e:
+            err_msg = f"{ds_name}: table discovery query failed — {str(e)[:150]}"
+            log.warning("Discover: %s", err_msg)
+            stats["errors"].append(err_msg)
+            src_detail["error"] = err_msg
+            src_conn.close()
+            stats["source_details"].append(src_detail)
+            continue
+
+        stats["sources_processed"] += 1
+        known = registered_set.get(ds_id, set())
+        to_register: list[tuple[str, str]] = []
+
+        for row in remote_tables:
+            schema_name = row[0]
+            table_name = row[1]
+
+            # Skip system schemas
+            if schema_name in SYSTEM_SCHEMAS:
+                continue
+
+            stats["tables_discovered"] += 1
+            src_detail["discovered"] += 1
+            key = (schema_name.lower(), table_name.lower())
+
+            if key in known:
+                stats["already_registered"] += 1
+                src_detail["already"] += 1
+            else:
+                to_register.append((schema_name, table_name))
+
+        # Batch-register missing tables
+        for schema_name, table_name in to_register:
+            try:
+                lz_id = next_lz_id
+                next_lz_id += 1
+
+                cpdb.upsert_lz_entity({
+                    "LandingzoneEntityId": lz_id,
+                    "DataSourceId": ds_id,
+                    "LakehouseId": lz_lh_id,
+                    "SourceSchema": schema_name,
+                    "SourceName": table_name,
+                    "SourceCustomSelect": "",
+                    "FileName": table_name,
+                    "FilePath": f"/{schema_name}/{table_name}.parquet",
+                    "FileType": "parquet",
+                    "IsIncremental": 0,
+                    "IsIncrementalColumn": "",
+                    "CustomNotebookName": "",
+                    "IsActive": 1,
+                })
+
+                # Bronze cascade
+                if bronze_lh_id is not None:
+                    br_id = next_bronze_id
+                    next_bronze_id += 1
+                    cpdb.upsert_bronze_entity({
+                        "BronzeLayerEntityId": br_id,
+                        "LandingzoneEntityId": lz_id,
+                        "LakehouseId": bronze_lh_id,
+                        "Schema_": schema_name,
+                        "Name": table_name,
+                        "PrimaryKeys": "N/A",
+                        "FileType": "Delta",
+                        "IsActive": 1,
+                    })
+
+                    # Silver cascade
+                    if silver_lh_id is not None:
+                        sv_id = next_silver_id
+                        next_silver_id += 1
+                        cpdb.upsert_silver_entity({
+                            "SilverLayerEntityId": sv_id,
+                            "BronzeLayerEntityId": br_id,
+                            "LakehouseId": silver_lh_id,
+                            "Schema_": schema_name,
+                            "Name": table_name,
+                            "FileType": "delta",
+                            "IsActive": 1,
+                        })
+
+                stats["newly_registered"] += 1
+                src_detail["registered"] += 1
+                # Update in-memory known set so dupes within same run are caught
+                known.add((schema_name.lower(), table_name.lower()))
+            except Exception as e:
+                err_msg = f"{ds_name}/{schema_name}.{table_name}: {str(e)[:100]}"
+                log.warning("Discover: registration failed — %s", err_msg)
+                stats["errors"].append(err_msg)
+
+        src_conn.close()
+        stats["source_details"].append(src_detail)
+        log.info("Discover: %s — %d discovered, %d already, %d registered",
+                 ds_name, src_detail["discovered"], src_detail["already"], src_detail["registered"])
+
+    # Queue parquet exports
+    if stats["newly_registered"] > 0 or whitespace_fixed > 0:
+        _queue_export("lz_entities")
+    if stats["newly_registered"] > 0:
+        _queue_export("bronze_entities")
+        _queue_export("silver_entities")
+
+    log.info("Discover-all complete: %s", {k: v for k, v in stats.items() if k != "source_details"})
+    return stats
+
+
+# ---------------------------------------------------------------------------
 # Load optimization
 # ---------------------------------------------------------------------------
 

@@ -25,6 +25,23 @@ import {
   DatabaseZap,
   Database,
   TableProperties,
+  Network,
+  Tags,
+  Library,
+  Microscope,
+  Columns3,
+  BarChart3,
+  RotateCcw,
+  Zap,
+  Target,
+  FileCheck,
+  Eraser,
+  History,
+  Crown,
+  TestTube,
+  Bug,
+  Brain,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -58,6 +75,7 @@ const CORE_GROUPS: NavGroup[] = [
       { icon: ScrollText, label: "Execution Log", href: "/logs" },
       { icon: Play, label: "Pipeline Runner", href: "/runner" },
       { icon: ClipboardCheck, label: "Pipeline Testing", href: "/notebook-debug" },
+      { icon: BarChart3, label: "Load Progress", href: "/load-progress" },
     ],
   },
   {
@@ -73,6 +91,38 @@ const CORE_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "Insights",
+    items: [
+      { icon: Network, label: "Data Lineage", href: "/lineage" },
+      { icon: Tags, label: "Data Classification", href: "/classification" },
+      { icon: Library, label: "Data Catalog", href: "/catalog" },
+      { icon: Microscope, label: "Data Profiler", href: "/profile" },
+      { icon: Columns3, label: "Column Evolution", href: "/columns" },
+      { icon: Microscope, label: "Data Microscope", href: "/microscope" },
+      { icon: GitBranch, label: "Sankey Flow", href: "/sankey" },
+      { icon: RotateCcw, label: "Transformation Replay", href: "/replay" },
+      { icon: Zap, label: "Impact Pulse", href: "/pulse" },
+      { icon: Target, label: "Impact Analysis", href: "/impact" },
+    ],
+  },
+  {
+    label: "Quality",
+    items: [
+      { icon: FileCheck, label: "DQ Scorecard", href: "/labs/dq-scorecard" },
+      { icon: Eraser, label: "Cleansing Rules", href: "/labs/cleansing" },
+      { icon: History, label: "SCD Audit", href: "/labs/scd-audit" },
+      { icon: Crown, label: "Gold MLV Manager", href: "/labs/gold-mlv" },
+    ],
+  },
+  {
+    label: "Testing",
+    items: [
+      { icon: TestTube, label: "Test Audit", href: "/test-audit" },
+      { icon: Bug, label: "Test Swarm", href: "/test-swarm" },
+      { icon: Brain, label: "MRI", href: "/mri" },
+    ],
+  },
+  {
     label: "Admin",
     items: [
       { icon: ShieldCheck, label: "Admin", href: "/admin" },
@@ -80,6 +130,7 @@ const CORE_GROUPS: NavGroup[] = [
       { icon: BookOpen, label: "Notebook Config", href: "/notebook-config" },
       { icon: Server, label: "Environment Setup", href: "/setup" },
       { icon: Database, label: "Database Explorer", href: "/db-explorer" },
+      { icon: Settings, label: "Settings", href: "/settings" },
     ],
   },
 ];

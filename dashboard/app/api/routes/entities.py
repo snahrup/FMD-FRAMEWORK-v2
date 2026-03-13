@@ -78,10 +78,22 @@ def _build_sqlite_entity_digest(
     bronze_view = cpdb.get_bronze_view()
     silver_view = cpdb.get_silver_view()
 
-    # Build status lookup: (LandingzoneEntityId, Layer) -> status row
+    # Build status lookup: (LandingzoneEntityId, normalized_layer) -> status row
+    # Layer values may be lowercase ('landing','bronze','silver') from resync/seed
+    # or PascalCase ('LandingZone','Bronze','Silver') from engine writes.
     status_map: dict = {}
     for s in statuses:
-        key = (s.get("LandingzoneEntityId"), s.get("Layer"))
+        lz_id = s.get("LandingzoneEntityId")
+        layer = (s.get("Layer") or "").lower()
+        if layer == "landingzone":
+            layer = "landing"
+        key = (lz_id, layer)
+        existing = status_map.get(key)
+        if existing:
+            existing_status = (existing.get("Status") or "").lower()
+            new_status = (s.get("Status") or "").lower()
+            if existing_status in ("loaded", "succeeded") and new_status not in ("loaded", "succeeded"):
+                continue
         status_map[key] = s
 
     # Build bronze lookup by LZ ID
@@ -112,9 +124,9 @@ def _build_sqlite_entity_digest(
         if source_filter and ns != source_filter:
             continue
 
-        lz_s = status_map.get((lz_id, "LandingZone"), {})
-        bronze_s = status_map.get((lz_id, "Bronze"), {})
-        silver_s = status_map.get((lz_id, "Silver"), {})
+        lz_s = status_map.get((lz_id, "landing"), {})
+        bronze_s = status_map.get((lz_id, "bronze"), {})
+        silver_s = status_map.get((lz_id, "silver"), {})
 
         lz_status = lz_s.get("Status", "not_started") or "not_started"
         bronze_status = bronze_s.get("Status", "not_started") or "not_started"
@@ -151,7 +163,7 @@ def _build_sqlite_entity_digest(
 
         # Build error info (most recent layer error wins)
         last_error = None
-        for layer_key, layer_name in [("Silver", "silver"), ("Bronze", "bronze"), ("LandingZone", "landing")]:
+        for layer_key, layer_name in [("silver", "silver"), ("bronze", "bronze"), ("landing", "landing")]:
             st = status_map.get((lz_id, layer_key), {})
             if st.get("ErrorMessage"):
                 last_error = {

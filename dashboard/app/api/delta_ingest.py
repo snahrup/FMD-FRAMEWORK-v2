@@ -13,7 +13,7 @@ from dashboard.app.api import db
 
 log = logging.getLogger("fmd.delta_ingest")
 
-ONELAKE_DIR = Path(os.environ.get("ONELAKE_LOCAL_DIR", ""))
+ONELAKE_DIR = Path(os.environ.get("ONELAKE_MOUNT_PATH", ""))
 
 # Map of parquet filename (without extension) -> (SQLite table, primary key column)
 TABLE_MAP = {

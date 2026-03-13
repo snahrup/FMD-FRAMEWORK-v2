@@ -231,3 +231,183 @@ def sse_engine_logs_stream(http_handler, params: dict) -> None:
     """
     from engine.api import _handle_logs_stream  # noqa: PLC2701
     _handle_logs_stream(http_handler)
+
+
+# ---------------------------------------------------------------------------
+# Optimize All — discover PKs + watermarks from source DBs, update SQLite
+# ---------------------------------------------------------------------------
+
+@route("POST", "/api/engine/optimize-all")
+def post_engine_optimize_all(params: dict) -> dict:
+    """Connect to each on-prem source DB, discover PKs and watermarks,
+    classify every entity as incremental or full-load, update SQLite.
+    Requires VPN to reach source servers."""
+    import pyodbc
+    import sqlite3
+    from engine.optimizer import (
+        build_pk_query, build_watermark_query,
+        parse_pk_rows, parse_watermark_rows,
+        classify_entity,
+    )
+    from dashboard.app.api import db
+    try:
+        from dashboard.app.api import control_plane_db as cpdb
+    except ImportError:
+        import control_plane_db as cpdb  # type: ignore
+
+    SQL_DRIVER = "ODBC Driver 18 for SQL Server"
+
+    # Get all source connections
+    sources = db.query("""
+        SELECT c.ConnectionId, c.ServerName, c.DatabaseName,
+               ds.DataSourceId, ds.Name AS DSName, ds.Namespace
+        FROM connections c
+        JOIN datasources ds ON ds.ConnectionId = c.ConnectionId
+        WHERE c.Type = 'SQL' AND c.ServerName IS NOT NULL
+        ORDER BY c.Name
+    """)
+
+    # Get all LZ entities
+    lz_entities = db.query("""
+        SELECT le.LandingzoneEntityId, le.DataSourceId, le.SourceSchema, le.SourceName,
+               le.IsIncremental, le.IsIncrementalColumn
+        FROM lz_entities le WHERE le.IsActive = 1
+    """)
+    entities_by_ds = {}
+    for e in lz_entities:
+        entities_by_ds.setdefault(e["DataSourceId"], []).append(e)
+
+    stats = {
+        "total_entities": len(lz_entities),
+        "pk_discovered": 0,
+        "watermark_discovered": 0,
+        "already_optimized": 0,
+        "errors": [],
+        "sources_processed": [],
+    }
+
+    pk_sql = build_pk_query()
+    wm_sql = build_watermark_query()
+    conn_db = sqlite3.connect(str(cpdb.DB_PATH))
+
+    try:
+        conn_db.execute("BEGIN")
+
+        for src in sources:
+            ds_id = src["DataSourceId"]
+            server = src["ServerName"]
+            database = src["DatabaseName"]
+            ds_name = src["DSName"]
+            entities = entities_by_ds.get(ds_id, [])
+
+            if not entities:
+                continue
+
+            log.info("Optimizing %d entities from %s (%s/%s)", len(entities), ds_name, server, database)
+
+            try:
+                conn_str = (
+                    f"DRIVER={{{SQL_DRIVER}}};"
+                    f"SERVER={server};"
+                    f"DATABASE={database};"
+                    f"Trusted_Connection=yes;TrustServerCertificate=yes;"
+                    f"Connect Timeout=15;"
+                )
+                src_conn = pyodbc.connect(conn_str, timeout=15)
+            except Exception as e:
+                err_msg = f"{ds_name} ({server}/{database}): {str(e)[:100]}"
+                log.warning("Connection failed: %s", err_msg)
+                stats["errors"].append(err_msg)
+                continue
+
+            try:
+                cursor = src_conn.cursor()
+
+                # Bulk PK discovery
+                try:
+                    cursor.execute(pk_sql)
+                    pk_rows = [(r[0], r[1], r[2]) for r in cursor.fetchall()]
+                    pk_map = parse_pk_rows(pk_rows)
+                except Exception as e:
+                    log.warning("PK query failed on %s: %s", ds_name, str(e)[:80])
+                    pk_map = {}
+
+                # Bulk watermark discovery
+                try:
+                    cursor.execute(wm_sql)
+                    wm_rows = [(r[0], r[1], r[2], r[3], r[4]) for r in cursor.fetchall()]
+                    wm_map = parse_watermark_rows(wm_rows)
+                except Exception as e:
+                    log.warning("Watermark query failed on %s: %s", ds_name, str(e)[:80])
+                    wm_map = {}
+
+                cursor.close()
+
+                # Classify and update each entity
+                src_pk = 0
+                src_wm = 0
+                for ent in entities:
+                    schema = ent.get("SourceSchema") or "dbo"
+                    table = ent.get("SourceName", "")
+                    eid = ent["LandingzoneEntityId"]
+                    key = (schema, table)
+
+                    pk_cols = pk_map.get(key, [])
+                    wm_candidates = wm_map.get(key, [])
+
+                    result = classify_entity(
+                        eid, schema, table,
+                        pk_columns=pk_cols,
+                        watermark_candidates=[
+                            {"column": c.column, "type": c.data_type, "is_identity": c.is_identity}
+                            for c in wm_candidates
+                        ],
+                    )
+
+                    # Update bronze PKs
+                    if result.primary_keys:
+                        conn_db.execute(
+                            "UPDATE bronze_entities SET PrimaryKeys = ? "
+                            "WHERE LandingzoneEntityId = ?",
+                            (result.primary_keys, eid),
+                        )
+                        src_pk += 1
+
+                    # Update LZ incremental flag
+                    if result.is_incremental and result.watermark_column:
+                        conn_db.execute(
+                            "UPDATE lz_entities SET IsIncremental = 1, "
+                            "IsIncrementalColumn = ? "
+                            "WHERE LandingzoneEntityId = ?",
+                            (result.watermark_column, eid),
+                        )
+                        src_wm += 1
+
+                stats["pk_discovered"] += src_pk
+                stats["watermark_discovered"] += src_wm
+                stats["sources_processed"].append({
+                    "name": ds_name, "entities": len(entities),
+                    "pks": src_pk, "watermarks": src_wm,
+                })
+                log.info("  %s: %d PKs, %d watermarks from %d entities",
+                         ds_name, src_pk, src_wm, len(entities))
+
+            finally:
+                src_conn.close()
+
+        conn_db.commit()
+    finally:
+        conn_db.close()
+
+    # Recount
+    updated = db.query("""
+        SELECT COUNT(*) as total,
+               SUM(CASE WHEN IsIncremental = 1 THEN 1 ELSE 0 END) as incremental
+        FROM lz_entities
+    """)
+    if updated:
+        stats["final_incremental"] = updated[0].get("incremental", 0)
+        stats["final_total"] = updated[0].get("total", 0)
+
+    log.info("Optimize-all complete: %s", stats)
+    return stats

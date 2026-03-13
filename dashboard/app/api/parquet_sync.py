@@ -45,8 +45,8 @@ EXPORTABLE_TABLES: frozenset[str] = frozenset({
     "engine_task_log",
 })
 
-# Defaults to "" (empty) — no-op when ONELAKE_LOCAL_DIR is not set.
-ONELAKE_DIR: Path = Path(os.environ.get("ONELAKE_LOCAL_DIR", ""))
+# Defaults to "" (empty) — no-op when ONELAKE_MOUNT_PATH is not set.
+ONELAKE_DIR: Path = Path(os.environ.get("ONELAKE_MOUNT_PATH", ""))
 
 # ---------------------------------------------------------------------------
 # Internal state
