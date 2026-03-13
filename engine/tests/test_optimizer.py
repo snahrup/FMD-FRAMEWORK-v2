@@ -100,9 +100,9 @@ class TestWatermarkCandidate:
         c = WatermarkCandidate("CreatedDate", "datetime", 3)
         assert c.qualifies_as_incremental is True
 
-    def test_does_not_qualify_at_priority_4(self):
+    def test_qualifies_at_priority_4(self):
         c = WatermarkCandidate("Id", "int", 4, is_identity=True)
-        assert c.qualifies_as_incremental is False
+        assert c.qualifies_as_incremental is True
 
     def test_does_not_qualify_at_priority_5(self):
         c = WatermarkCandidate("SomeDate", "datetime", 5)
@@ -274,8 +274,8 @@ class TestClassifyEntity:
         assert result.watermark_column is None
         assert len(result.candidates) == 1
 
-    def test_full_load_with_only_identity(self):
-        """An identity column (priority 4) should NOT trigger incremental."""
+    def test_incremental_load_with_identity(self):
+        """An identity column (priority 4) should trigger incremental (MAX_INCREMENTAL_PRIORITY=4)."""
         result = classify_entity(
             entity_id=10,
             schema="dbo",
@@ -284,8 +284,8 @@ class TestClassifyEntity:
                 {"column": "Id", "type": "int", "is_identity": True},
             ],
         )
-        assert result.is_incremental is False
-        assert result.watermark_column is None
+        assert result.is_incremental is True
+        assert result.watermark_column == "Id"
 
     def test_best_watermark_wins(self):
         """When multiple candidates exist, the best priority wins."""
@@ -484,8 +484,8 @@ class TestSqlGeneration:
 # ---------------------------------------------------------------------------
 
 class TestConstants:
-    def test_max_incremental_priority_is_3(self):
-        assert MAX_INCREMENTAL_PRIORITY == 3
+    def test_max_incremental_priority_is_4(self):
+        assert MAX_INCREMENTAL_PRIORITY == 4
 
     def test_datetime_types_complete(self):
         assert "datetime" in DATETIME_TYPES

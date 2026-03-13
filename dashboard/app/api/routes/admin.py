@@ -77,8 +77,69 @@ def post_admin_config(params):
 @route("GET", "/api/admin/config")
 def get_admin_config(params):
     rows = db.query("SELECT key, value FROM admin_config")
-    return {r["key"]: r["value"] for r in rows}
+    result = {}
+    for r in rows:
+        key, val = r["key"], r["value"]
+        # JSON-stored values (e.g. hiddenPages) must be parsed back so the
+        # frontend receives an actual array/object, not a JSON string.
+        if val and val.startswith(("[", "{")):
+            try:
+                val = json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        result[key] = val
+    return result
 
+
+# ---------------------------------------------------------------------------
+# Fabric entity discovery (read from local SQLite mirror)
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/fabric/workspaces")
+def get_fabric_workspaces(params):
+    """Return workspaces in the shape FabricDropdown expects: {id, displayName}."""
+    rows = db.query("SELECT WorkspaceGuid, Name FROM workspaces ORDER BY Name")
+    return {
+        "workspaces": [
+            {"id": r["WorkspaceGuid"], "displayName": r["Name"]}
+            for r in rows
+            if r.get("WorkspaceGuid")
+        ]
+    }
+
+
+@route("GET", "/api/fabric/connections")
+def get_fabric_connections(params):
+    """Return connections in the shape FabricDropdown expects: {id, displayName, type}."""
+    rows = db.query(
+        "SELECT ConnectionGuid, Name, Type FROM connections ORDER BY Name"
+    )
+    return {
+        "connections": [
+            {
+                "id": r["ConnectionGuid"],
+                "displayName": r["Name"],
+                "type": r.get("Type", ""),
+            }
+            for r in rows
+            if r.get("ConnectionGuid")
+        ]
+    }
+
+
+@route("GET", "/api/fabric/security-groups")
+def get_fabric_security_groups(params):
+    """Security groups are not stored locally; return empty list.
+
+    The frontend gracefully handles an empty array — dropdowns simply
+    show no options and the field can be skipped.
+    """
+    return {"groups": []}
+
+
+# ---------------------------------------------------------------------------
+# Setup / environment configuration
+# ---------------------------------------------------------------------------
 
 @route("GET", "/api/setup/current-config")
 def get_setup_current_config(params):
@@ -106,11 +167,12 @@ def get_setup_current_config(params):
     code_ws = fabric.get("workspace_code_id", "")
 
     # Try to get connection info from DB
+    # The connections table uses "Name" (not "ConnectionName") per the schema.
     connections = {}
     try:
-        rows = db.query("SELECT ConnectionName, ConnectionGuid FROM connections")
+        rows = db.query("SELECT Name, ConnectionGuid FROM connections")
         for r in rows:
-            name = r.get("ConnectionName", "")
+            name = r.get("Name", "")
             guid = r.get("ConnectionGuid", "")
             if name and guid:
                 connections[name] = {"id": guid, "displayName": name}

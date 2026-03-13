@@ -223,6 +223,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path, query_params = self._parse()
         if path.startswith("/api/"):
+            # Audit artifacts need raw binary serving (not JSON dispatch)
+            if path.startswith("/api/audit/artifacts/"):
+                parts = path.split("/")
+                # /api/audit/artifacts/{runId}/{testDir}/{fn} => 6 parts
+                if len(parts) >= 6:
+                    from dashboard.app.api.routes.test_audit import serve_audit_artifact
+                    run_id = parts[4]
+                    test_dir = "/".join(parts[5:-1])  # testDir could have slashes
+                    fn = parts[-1]
+                    if serve_audit_artifact(self, run_id, test_dir, fn):
+                        return
+                self._error_response("Artifact not found", 404)
+                return
             if dispatch_sse("GET", path, self, query_params):
                 return
             status, headers, body = dispatch("GET", path, query_params, None)

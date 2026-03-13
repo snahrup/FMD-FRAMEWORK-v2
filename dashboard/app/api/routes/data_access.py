@@ -1,4 +1,4 @@
-"""Data access routes — blender, schema, lakehouse counts, entity status sync.
+"""Data access routes — blender, schema, lakehouse counts, entity status sync, Purview.
 
 Security fix applied:
     POST /api/blender/query — SELECT-only enforcement prevents arbitrary DML.
@@ -12,6 +12,8 @@ Covers:
     GET  /api/lakehouse-counts   — table/file counts from local OneLake mount
     POST /api/lakehouse-counts/refresh — force-refresh (re-scan filesystem)
     POST /api/entity-status/sync — derive entity status from OneLake filesystem
+    GET  /api/purview/status     — Purview integration status (graceful when not configured)
+    GET  /api/purview/search     — search Purview catalog (empty results when unavailable)
     GET  /api/schema             — schema info from SQLite
 """
 import json
@@ -621,6 +623,93 @@ def post_entity_status_sync(params: dict) -> dict:
     """Derive entity status from OneLake filesystem and write to SQLite.
     If a table/file exists on disk → loaded. No Fabric SQL, no sync lag."""
     return sync_entity_status_from_filesystem()
+
+
+# ---------------------------------------------------------------------------
+# Purview integration — graceful degradation when not configured
+# ---------------------------------------------------------------------------
+
+def _get_purview_account() -> str | None:
+    """Return the Purview account name from config, or None if not configured."""
+    cfg = _get_config()
+    account = cfg.get("purview", {}).get("account_name", "")
+    return account if account else None
+
+
+def _purview_search(account_name: str, query: str) -> list[dict]:
+    """Search Purview catalog via REST API. Returns list of matching entities."""
+    try:
+        token = _get_fabric_token("https://purview.azure.net/.default")
+    except Exception as e:
+        log.warning("Cannot get Purview token: %s", e)
+        return []
+
+    url = f"https://{account_name}.purview.azure.com/catalog/api/search/query?api-version=2022-03-01-preview"
+    body = json.dumps({"keywords": query, "limit": 10}).encode()
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        resp = urllib.request.urlopen(req, timeout=15)
+        data = json.loads(resp.read())
+        results = []
+        for item in data.get("value", []):
+            results.append({
+                "name": item.get("name", ""),
+                "qualifiedName": item.get("qualifiedName", ""),
+                "entityType": item.get("entityType", ""),
+                "description": item.get("description", ""),
+                "id": item.get("id", ""),
+            })
+        return results
+    except urllib.error.HTTPError as e:
+        log.warning("Purview search failed: %s %s", e.code, e.read().decode()[:200])
+        return []
+    except Exception as e:
+        log.warning("Purview search failed: %s", e)
+        return []
+
+
+@route("GET", "/api/purview/status")
+def get_purview_status(params: dict) -> dict:
+    """Return Purview integration status. Gracefully returns not_configured
+    when no account name is set."""
+    account = _get_purview_account()
+    if not account:
+        return {"connected": False, "status": "not_configured"}
+
+    # Attempt a lightweight catalog call to verify connectivity
+    try:
+        token = _get_fabric_token("https://purview.azure.net/.default")
+        url = f"https://{account}.purview.azure.com/catalog/api/atlas/v2/types/typedefs/headers?api-version=2022-03-01-preview"
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        resp = urllib.request.urlopen(req, timeout=10)
+        resp.read()
+        return {"connected": True, "status": "connected", "account": account}
+    except Exception as e:
+        log.warning("Purview connectivity check failed: %s", e)
+        return {"connected": False, "status": "unreachable", "account": account, "error": str(e)}
+
+
+@route("GET", "/api/purview/search")
+def get_purview_search(params: dict) -> list:
+    """Search Purview catalog for entities matching query. Returns empty list
+    when Purview is not configured or unavailable."""
+    query = params.get("q", "").strip()
+    if not query:
+        return []
+
+    account = _get_purview_account()
+    if not account:
+        return []
+
+    return _purview_search(account, query)
 
 
 @route("GET", "/api/blender/profile")

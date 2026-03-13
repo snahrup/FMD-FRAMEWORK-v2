@@ -73,9 +73,11 @@ def test_error_intelligence_returns_dict():
     assert status == 200
     result = json.loads(body)
     assert isinstance(result, dict)
-    assert "pipelineFailures" in result
-    assert "notebookFailures" in result
-    assert "serverTime" in result
+    assert "summaries" in result
+    assert "errors" in result
+    assert "totalErrors" in result
+    assert "patternCounts" in result
+    assert "severityCounts" in result
 
 
 def test_dashboard_stats_returns_dict():

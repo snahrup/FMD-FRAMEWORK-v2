@@ -416,8 +416,8 @@ def _handle_status(handler, config: dict) -> None:
             "run_id": str(row.get("RunId", "")),
             "status": str(row.get("Status", "")),
             "mode": str(row.get("Mode", "")),
-            "started_at": str(row.get("StartedAt", "")),
-            "finished_at": str(row.get("EndedAt", "")),
+            "started_at": row.get("StartedAt") or None,
+            "finished_at": row.get("EndedAt") or None,
             "total": _to_int(row.get("TotalEntities")),
             "succeeded": _to_int(row.get("SucceededEntities")),
             "failed": _to_int(row.get("FailedEntities")),
@@ -961,9 +961,21 @@ def _handle_metrics(handler, qs: dict) -> None:
             (f"-{hours_int}",)
         )
 
+        # Map run rows to snake_case matching the frontend MetricsData interface
+        mapped_runs = []
+        if run_metrics:
+            for r in run_metrics:
+                sr = _safe_row(r)
+                mapped_runs.append({
+                    "run_id": sr.get("RunId", ""),
+                    "status": sr.get("Status", "unknown"),
+                    "started_at": sr.get("StartedAt") or None,
+                    "duration_seconds": sr.get("TotalDurationSeconds"),
+                })
+
         handler._json_response({
             "hours": hours_int,
-            "runs": [_safe_row(r) for r in run_metrics] if run_metrics else [],
+            "runs": mapped_runs,
             "layers": [_safe_row(r) for r in layer_metrics] if layer_metrics else [],
             "slowest_entities": [_safe_row(r) for r in slowest] if slowest else [],
             "top_errors": [_safe_row(r) for r in top_errors] if top_errors else [],
@@ -1037,8 +1049,8 @@ def _handle_runs(handler, qs: dict) -> None:
             "run_id": sr.get("RunId", ""),
             "status": sr.get("Status", "unknown"),
             "mode": sr.get("Mode", "run"),
-            "started_at": sr.get("StartedAt", ""),
-            "finished_at": sr.get("EndedAt"),
+            "started_at": sr.get("StartedAt") or None,
+            "finished_at": sr.get("EndedAt") or None,
             "duration_seconds": sr.get("TotalDurationSeconds"),
             "entities_succeeded": sr.get("SucceededEntities", 0),
             "entities_failed": sr.get("FailedEntities", 0),

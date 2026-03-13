@@ -332,24 +332,33 @@ def get_silver_view(params: dict) -> list:
 
 @route("GET", "/api/pipeline-executions")
 def get_pipeline_executions(params: dict) -> list:
+    """Return pipeline execution records from engine_runs.
+
+    engine_runs is the authoritative source for pipeline-level execution
+    history.  Each row represents a full engine run with proper start/end
+    timestamps, status, and aggregated metrics.
+    """
     return db.query(
-        "SELECT PipelineRunGuid AS runId, "
-        "PipelineName AS pipelineName, "
-        "MIN(CASE WHEN LogType LIKE 'Start%' THEN LogDateTime END) AS StartTime, "
-        "MAX(CASE WHEN LogType LIKE 'End%' OR LogType = 'Succeeded' OR LogType = 'Failed' "
-        "  OR LogType = 'Aborted' THEN LogDateTime END) AS EndTime, "
-        "CASE "
-        "  WHEN SUM(CASE WHEN LogType = 'Failed' OR LogType = 'Error' THEN 1 ELSE 0 END) > 0 THEN 'Failed' "
-        "  WHEN SUM(CASE WHEN LogType = 'Succeeded' OR LogType LIKE 'End%' THEN 1 ELSE 0 END) > 0 THEN 'Succeeded' "
-        "  ELSE 'Running' "
-        "END AS Status, "
-        "MAX(CASE WHEN LogType IN ('Failed','Error') THEN LogData END) AS ErrorMessage, "
-        "EntityLayer AS entityLayer, "
-        "MAX(LogData) AS logData "
-        "FROM pipeline_audit "
-        "WHERE PipelineRunGuid IS NOT NULL AND PipelineRunGuid != '' "
-        "GROUP BY PipelineRunGuid, PipelineName "
-        "ORDER BY MIN(LogDateTime) DESC LIMIT 100"
+        "SELECT RunId, "
+        "  'FMD_ENGINE_V3' AS Name, "
+        "  Mode AS PipelineMode, "
+        "  Status, "
+        "  StartedAt AS StartTime, "
+        "  EndedAt AS EndTime, "
+        "  TotalEntities, "
+        "  SucceededEntities, "
+        "  FailedEntities, "
+        "  SkippedEntities, "
+        "  TotalRowsRead, "
+        "  TotalRowsWritten, "
+        "  TotalBytesTransferred, "
+        "  TotalDurationSeconds, "
+        "  Layers, "
+        "  TriggeredBy, "
+        "  ErrorSummary AS ErrorMessage "
+        "FROM engine_runs "
+        "ORDER BY COALESCE(StartedAt, EndedAt, updated_at) DESC "
+        "LIMIT 100"
     )
 
 

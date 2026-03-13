@@ -581,12 +581,30 @@ def upsert_engine_run(row: dict) -> None:
         conn = _get_conn()
         try:
             conn.execute(
-                "INSERT OR REPLACE INTO engine_runs "
+                "INSERT INTO engine_runs "
                 "(RunId, Mode, Status, TotalEntities, SucceededEntities, FailedEntities, "
                 "SkippedEntities, TotalRowsRead, TotalRowsWritten, TotalBytesTransferred, "
                 "TotalDurationSeconds, Layers, EntityFilter, TriggeredBy, ErrorSummary, "
                 "StartedAt, EndedAt, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(RunId) DO UPDATE SET "
+                "Mode              = COALESCE(excluded.Mode, Mode), "
+                "Status            = excluded.Status, "
+                "TotalEntities     = CASE WHEN excluded.TotalEntities > 0 THEN excluded.TotalEntities ELSE TotalEntities END, "
+                "SucceededEntities = CASE WHEN excluded.SucceededEntities > 0 THEN excluded.SucceededEntities ELSE SucceededEntities END, "
+                "FailedEntities    = CASE WHEN excluded.FailedEntities > 0 THEN excluded.FailedEntities ELSE FailedEntities END, "
+                "SkippedEntities   = CASE WHEN excluded.SkippedEntities > 0 THEN excluded.SkippedEntities ELSE SkippedEntities END, "
+                "TotalRowsRead     = CASE WHEN excluded.TotalRowsRead > 0 THEN excluded.TotalRowsRead ELSE TotalRowsRead END, "
+                "TotalRowsWritten  = CASE WHEN excluded.TotalRowsWritten > 0 THEN excluded.TotalRowsWritten ELSE TotalRowsWritten END, "
+                "TotalBytesTransferred = CASE WHEN excluded.TotalBytesTransferred > 0 THEN excluded.TotalBytesTransferred ELSE TotalBytesTransferred END, "
+                "TotalDurationSeconds  = CASE WHEN excluded.TotalDurationSeconds > 0 THEN excluded.TotalDurationSeconds ELSE TotalDurationSeconds END, "
+                "Layers            = COALESCE(excluded.Layers, Layers), "
+                "EntityFilter      = COALESCE(excluded.EntityFilter, EntityFilter), "
+                "TriggeredBy       = COALESCE(excluded.TriggeredBy, TriggeredBy), "
+                "ErrorSummary      = COALESCE(excluded.ErrorSummary, ErrorSummary), "
+                "StartedAt         = COALESCE(excluded.StartedAt, StartedAt), "
+                "EndedAt           = COALESCE(excluded.EndedAt, EndedAt), "
+                "updated_at        = excluded.updated_at",
                 (row.get('RunId'), _v(row.get('Mode')),
                  _v(row.get('Status', 'Unknown')),
                  row.get('TotalEntities', 0), row.get('SucceededEntities', 0),

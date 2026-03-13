@@ -249,8 +249,9 @@ export function useEngineStatus(options: UseEngineStatusOptions = {}) {
         setEngineMetrics(normalizeEngineMetrics(rawMetrics));
         // Normalize engine runs — SQLite path returns PascalCase column names,
         // engine API path returns mapped snake_case.
-        const rawRuns = runsResp?.runs || [];
-        setEngineRuns(rawRuns.map((r: Record<string, unknown>) => ({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rawRuns = (runsResp?.runs || []) as any[];
+        setEngineRuns(rawRuns.map((r): EngineRun => ({
           run_id: Number(r.run_id ?? r.RunId ?? 0),
           started_at: String(r.started_at ?? r.StartedAt ?? r.StartedAtUtc ?? ""),
           ended_at: (r.ended_at ?? r.finished_at ?? r.EndedAt ?? r.CompletedAtUtc ?? null) as string | null,
@@ -258,8 +259,8 @@ export function useEngineStatus(options: UseEngineStatusOptions = {}) {
           total_tasks: Number(r.total_tasks ?? r.TotalEntities ?? 0),
           succeeded: Number(r.succeeded ?? r.entities_succeeded ?? r.SucceededEntities ?? 0),
           failed: Number(r.failed ?? r.entities_failed ?? r.FailedEntities ?? 0),
-          duration_seconds: r.duration_seconds ?? r.TotalDurationSeconds ?? r.ElapsedSeconds ?? null,
-        } as EngineRun)));
+          duration_seconds: (r.duration_seconds ?? r.TotalDurationSeconds ?? r.ElapsedSeconds ?? null) as number | null,
+        })));
         hasLoadedOnce.current = true;
       }
     } catch (e: unknown) {
