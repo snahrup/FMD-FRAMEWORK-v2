@@ -8,6 +8,7 @@ Security fix: build_entity_digest previously allowed SQL injection via an
 f-string source filter.  The filter is now applied in Python after loading
 all entities from SQLite — no SQL string interpolation at all.
 """
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -233,6 +234,55 @@ def _build_sqlite_entity_digest(
             }
         sources[ns]["entities"].append(ent_data)
         sources[ns]["statusCounts"][overall] = sources[ns]["statusCounts"].get(overall, 0) + 1
+
+    # ── Enrich with glossary annotations + quality scores ─────────────────
+    # Both tables may be empty (e.g. on fresh deploy) — any failure is silent.
+    try:
+        enrich_conn = cpdb._get_conn()
+        try:
+            annotations: dict = {}
+            for r in enrich_conn.execute(
+                "SELECT entity_id, business_name, description, domain, tags "
+                "FROM entity_annotations"
+            ).fetchall():
+                annotations[int(r["entity_id"])] = r
+
+            quality: dict = {}
+            for r in enrich_conn.execute(
+                "SELECT entity_id, composite_score, quality_tier FROM quality_scores"
+            ).fetchall():
+                quality[int(r["entity_id"])] = r
+        finally:
+            enrich_conn.close()
+
+        for src in sources.values():
+            for entity in src["entities"]:
+                eid = entity.get("id")
+                if eid is None:
+                    continue
+                try:
+                    eid_int = int(eid)
+                except (TypeError, ValueError):
+                    continue
+
+                ann = annotations.get(eid_int)
+                if ann:
+                    entity["businessName"] = ann["business_name"] or ""
+                    entity["description"]  = ann["description"] or ""
+                    entity["domain"]       = ann["domain"] or ""
+                    raw_tags = ann["tags"]
+                    try:
+                        entity["tags"] = json.loads(raw_tags) if raw_tags else []
+                    except (json.JSONDecodeError, TypeError):
+                        entity["tags"] = []
+
+                qs = quality.get(eid_int)
+                if qs:
+                    entity["qualityScore"] = round(float(qs["composite_score"] or 0), 2)
+                    entity["qualityTier"]  = qs["quality_tier"] or "unclassified"
+
+    except Exception as enrich_exc:
+        log.warning("Failed to enrich entity digest: %s", enrich_exc)
 
     return {
         "sources": list(sources.values()),
