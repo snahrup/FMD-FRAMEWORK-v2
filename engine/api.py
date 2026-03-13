@@ -1072,16 +1072,25 @@ def _handle_validation(handler) -> None:
             ORDER BY d.Name
         """)
 
+        # All layer status queries use entity_status as the single source of truth.
+        # entity_status PK = (LandingzoneEntityId, Layer).
+        # Layer names: 'landing'/'landingzone' (LZ), 'bronze', 'silver'.
+        # Status: 'loaded'/'succeeded' = done, 'failed' = error, 'not_started'/NULL = pending.
+        _LOADED = "LOWER(COALESCE(%s.Status,'')) IN ('loaded','succeeded')"
+        _FAILED = "LOWER(COALESCE(%s.Status,'')) IN ('failed','error')"
+
         # LZ status per source
         lz_status = _db_query("""
             SELECT
                 d.Name AS DataSource,
-                SUM(CASE WHEN ple.IsProcessed = 1 THEN 1 ELSE 0 END) AS LzLoaded,
-                SUM(CASE WHEN ple.IsProcessed = 0 THEN 1 ELSE 0 END) AS LzFailed,
-                SUM(CASE WHEN ple.LandingzoneEntityId IS NULL THEN 1 ELSE 0 END) AS LzNeverAttempted
+                SUM(CASE WHEN """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS LzLoaded,
+                SUM(CASE WHEN """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS LzFailed,
+                SUM(CASE WHEN NOT """ + (_LOADED % "es") + """
+                          AND NOT """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS LzNeverAttempted
             FROM lz_entities e
             JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            LEFT JOIN pipeline_lz_entity ple ON e.LandingzoneEntityId = ple.LandingzoneEntityId
+            LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
+                AND LOWER(es.Layer) IN ('landing', 'landingzone')
             WHERE e.IsActive = 1
             GROUP BY d.Name
             ORDER BY d.Name
@@ -1091,49 +1100,64 @@ def _handle_validation(handler) -> None:
         bronze_status = _db_query("""
             SELECT
                 d.Name AS DataSource,
-                SUM(CASE WHEN pbe.IsProcessed = 1 THEN 1 ELSE 0 END) AS BronzeLoaded,
-                SUM(CASE WHEN pbe.IsProcessed = 0 THEN 1 ELSE 0 END) AS BronzeFailed,
-                SUM(CASE WHEN pbe.BronzeLayerEntityId IS NULL THEN 1 ELSE 0 END) AS BronzeNeverAttempted
+                SUM(CASE WHEN """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS BronzeLoaded,
+                SUM(CASE WHEN """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS BronzeFailed,
+                SUM(CASE WHEN NOT """ + (_LOADED % "es") + """
+                          AND NOT """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS BronzeNeverAttempted
             FROM lz_entities e
             JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            JOIN bronze_entities b ON e.LandingzoneEntityId = b.LandingzoneEntityId
-            LEFT JOIN pipeline_bronze_entity pbe ON b.BronzeLayerEntityId = pbe.BronzeLayerEntityId
+            LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
+                AND LOWER(es.Layer) = 'bronze'
             WHERE e.IsActive = 1
             GROUP BY d.Name
             ORDER BY d.Name
         """)
 
         # Silver status per source
-        try:
-            silver_status = _db_query("""
+        silver_status = _db_query("""
+            SELECT
+                d.Name AS DataSource,
+                SUM(CASE WHEN """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS SilverLoaded,
+                SUM(CASE WHEN """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS SilverFailed,
+                SUM(CASE WHEN NOT """ + (_LOADED % "es") + """
+                          AND NOT """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS SilverNeverAttempted
+            FROM lz_entities e
+            JOIN datasources d ON e.DataSourceId = d.DataSourceId
+            LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
+                AND LOWER(es.Layer) = 'silver'
+            WHERE e.IsActive = 1
+            GROUP BY d.Name
+            ORDER BY d.Name
+        """)
+
+        # Digest: overall per-entity status across all three layers
+        digest = _db_query("""
+            WITH entity_layers AS (
                 SELECT
-                    d.Name AS DataSource,
-                    SUM(CASE WHEN s.IsActive = 1 THEN 1 ELSE 0 END) AS SilverLoaded,
-                    SUM(CASE WHEN s.IsActive = 0 THEN 1 ELSE 0 END) AS SilverFailed,
-                    0 AS SilverNeverAttempted
+                    e.LandingzoneEntityId,
+                    MAX(CASE WHEN LOWER(es.Layer) IN ('landing','landingzone')
+                              AND """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS lz_ok,
+                    MAX(CASE WHEN LOWER(es.Layer) = 'bronze'
+                              AND """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS brz_ok,
+                    MAX(CASE WHEN LOWER(es.Layer) = 'silver'
+                              AND """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS slv_ok
                 FROM lz_entities e
-                JOIN datasources d ON e.DataSourceId = d.DataSourceId
-                JOIN bronze_entities b ON e.LandingzoneEntityId = b.LandingzoneEntityId
-                LEFT JOIN silver_entities s ON b.BronzeLayerEntityId = s.BronzeLayerEntityId
+                LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
                 WHERE e.IsActive = 1
-                GROUP BY d.Name
-                ORDER BY d.Name
-            """)
-        except Exception:
-            silver_status = []
+                GROUP BY e.LandingzoneEntityId
+            )
+            SELECT
+                CASE
+                    WHEN lz_ok = 1 AND brz_ok = 1 AND slv_ok = 1 THEN 'complete'
+                    WHEN lz_ok = 1 OR brz_ok = 1 OR slv_ok = 1 THEN 'partial'
+                    ELSE 'not_started'
+                END AS OverallStatus,
+                COUNT(*) AS EntityCount
+            FROM entity_layers
+            GROUP BY OverallStatus
+        """)
 
-        # Digest summary from entity_status
-        try:
-            digest = _db_query("""
-                SELECT Status AS OverallStatus, COUNT(*) AS EntityCount
-                FROM entity_status
-                GROUP BY Status
-                ORDER BY EntityCount DESC
-            """)
-        except Exception:
-            digest = []
-
-        # Never-attempted entities (limited list for display)
+        # Never-attempted entities (no LZ entity_status row)
         never_attempted = _db_query("""
             SELECT
                 e.LandingzoneEntityId AS EntityId,
@@ -1142,30 +1166,32 @@ def _handle_validation(handler) -> None:
                 e.SourceName
             FROM lz_entities e
             JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            LEFT JOIN pipeline_lz_entity ple ON e.LandingzoneEntityId = ple.LandingzoneEntityId
-            WHERE e.IsActive = 1 AND ple.LandingzoneEntityId IS NULL
+            LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
+                AND LOWER(es.Layer) IN ('landing', 'landingzone')
+            WHERE e.IsActive = 1 AND es.LandingzoneEntityId IS NULL
             ORDER BY d.Name, e.SourceSchema, e.SourceName
             LIMIT 50
         """)
 
-        # Stuck at LZ (loaded LZ but not bronze)
+        # Stuck at LZ (loaded LZ but bronze not loaded)
         stuck_at_lz = _db_query("""
             SELECT
                 d.Name AS DataSource,
                 COUNT(DISTINCT e.LandingzoneEntityId) AS StuckCount
             FROM lz_entities e
             JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            JOIN pipeline_lz_entity ple ON e.LandingzoneEntityId = ple.LandingzoneEntityId
-            JOIN bronze_entities b ON e.LandingzoneEntityId = b.LandingzoneEntityId
-            LEFT JOIN pipeline_bronze_entity pbe ON b.BronzeLayerEntityId = pbe.BronzeLayerEntityId
-            WHERE e.IsActive = 1
-              AND ple.IsProcessed = 1
-              AND (pbe.BronzeLayerEntityId IS NULL OR pbe.IsProcessed = 0)
+            JOIN entity_status es_lz ON e.LandingzoneEntityId = es_lz.LandingzoneEntityId
+                AND LOWER(es_lz.Layer) IN ('landing', 'landingzone')
+                AND """ + (_LOADED % "es_lz") + """
+            LEFT JOIN entity_status es_brz ON e.LandingzoneEntityId = es_brz.LandingzoneEntityId
+                AND LOWER(es_brz.Layer) = 'bronze'
+                AND """ + (_LOADED % "es_brz") + """
+            WHERE e.IsActive = 1 AND es_brz.LandingzoneEntityId IS NULL
             GROUP BY d.Name
             ORDER BY d.Name
         """)
 
-        # Per-entity layer status with silver join
+        # Per-entity layer status (entity_status for all three layers)
         entities = _db_query("""
             SELECT
                 e.LandingzoneEntityId AS EntityId,
@@ -1173,21 +1199,23 @@ def _handle_validation(handler) -> None:
                 e.SourceSchema,
                 e.SourceName,
                 e.IsIncremental,
-                CASE WHEN ple.IsProcessed = 1 THEN 1
-                     WHEN ple.IsProcessed = 0 THEN 0
+                CASE WHEN """ + (_LOADED % "es_lz") + """ THEN 1
+                     WHEN """ + (_FAILED % "es_lz") + """ THEN 0
                      ELSE -1 END AS LzStatus,
-                CASE WHEN pbe.IsProcessed = 1 THEN 1
-                     WHEN pbe.IsProcessed = 0 THEN 0
+                CASE WHEN """ + (_LOADED % "es_brz") + """ THEN 1
+                     WHEN """ + (_FAILED % "es_brz") + """ THEN 0
                      ELSE -1 END AS BronzeStatus,
-                CASE WHEN s.IsActive = 1 THEN 1
-                     WHEN s.IsActive = 0 THEN 0
+                CASE WHEN """ + (_LOADED % "es_slv") + """ THEN 1
+                     WHEN """ + (_FAILED % "es_slv") + """ THEN 0
                      ELSE -1 END AS SilverStatus
             FROM lz_entities e
             JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            LEFT JOIN pipeline_lz_entity ple ON e.LandingzoneEntityId = ple.LandingzoneEntityId
-            LEFT JOIN bronze_entities b ON e.LandingzoneEntityId = b.LandingzoneEntityId
-            LEFT JOIN pipeline_bronze_entity pbe ON b.BronzeLayerEntityId = pbe.BronzeLayerEntityId
-            LEFT JOIN silver_entities s ON b.BronzeLayerEntityId = s.BronzeLayerEntityId
+            LEFT JOIN entity_status es_lz ON e.LandingzoneEntityId = es_lz.LandingzoneEntityId
+                AND LOWER(es_lz.Layer) IN ('landing', 'landingzone')
+            LEFT JOIN entity_status es_brz ON e.LandingzoneEntityId = es_brz.LandingzoneEntityId
+                AND LOWER(es_brz.Layer) = 'bronze'
+            LEFT JOIN entity_status es_slv ON e.LandingzoneEntityId = es_slv.LandingzoneEntityId
+                AND LOWER(es_slv.Layer) = 'silver'
             WHERE e.IsActive = 1
             ORDER BY d.Name, e.SourceSchema, e.SourceName
         """)
