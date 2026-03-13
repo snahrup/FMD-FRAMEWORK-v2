@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -33,54 +33,115 @@ interface HeatmapCell {
   count: number;
 }
 
-// ── Mock classification data (replaced by API when backend is ready) ──
+// ── Classification data from real API ──
 
-function useClassificationData(entities: DigestEntity[]) {
-  return useMemo(() => {
-    // Generate realistic classification estimates based on entity metadata
-    const sources = [...new Set(entities.map((e) => e.source).filter(Boolean))];
-    const totalColumns = entities.length * 15; // avg ~15 columns per entity
+interface BySourceEntry {
+  source: string;
+  total: number;
+  classified: number;
+  piiCount: number;
+  confidentialCount: number;
+}
 
-    // Pattern-based classification simulation
-    // In production this comes from integration.ColumnClassification table
-    const classifiedPct = 0; // 0% until classification engine runs
-    const bySensitivity: Record<SensitivityLevel, number> = {
-      public: 0,
-      internal: 0,
-      confidential: 0,
-      restricted: 0,
-      pii: 0,
-    };
+interface ClassificationData {
+  totalEntities: number;
+  totalColumns: number;
+  classifiedColumns: number;
+  coveragePercent: number;
+  bySensitivity: Record<SensitivityLevel, number>;
+  bySource: BySourceEntry[];
+  heatmap: HeatmapCell[];
+  sources: string[];
+}
 
-    const heatmap: HeatmapCell[] = [];
-    sources.forEach((src) => {
-      SENSITIVITY_ORDER.forEach((level) => {
-        heatmap.push({ source: src, level, count: 0 });
+function _fallback(entities: DigestEntity[]): ClassificationData {
+  const sources = [...new Set(entities.map((e) => e.source).filter(Boolean))];
+  const heatmap: HeatmapCell[] = [];
+  sources.forEach((src) => {
+    SENSITIVITY_ORDER.forEach((level) => {
+      heatmap.push({ source: src, level, count: 0 });
+    });
+  });
+  const bySource: BySourceEntry[] = sources.map((s) => ({
+    source: s,
+    total: entities.filter((e) => e.source === s).length * 15,
+    classified: 0,
+    piiCount: 0,
+    confidentialCount: 0,
+  }));
+  return {
+    totalEntities: entities.length,
+    totalColumns: entities.length * 15,
+    classifiedColumns: 0,
+    coveragePercent: 0,
+    bySensitivity: { public: 0, internal: 0, confidential: 0, restricted: 0, pii: 0 },
+    bySource,
+    heatmap,
+    sources,
+  };
+}
+
+function useClassificationData(entities: DigestEntity[]): ClassificationData {
+  const [data, setData] = useState<ClassificationData | null>(null);
+
+  useEffect(() => {
+    fetch("/api/classification/summary")
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((api) => {
+        // Build heatmap from bySource
+        const bySource: BySourceEntry[] = (api.bySource ?? []).map((s: BySourceEntry) => ({
+          source: s.source,
+          total: s.total ?? 0,
+          classified: s.classified ?? 0,
+          piiCount: s.piiCount ?? 0,
+          confidentialCount: s.confidentialCount ?? 0,
+        }));
+
+        const sources = bySource.map((s) => s.source);
+
+        const heatmap: HeatmapCell[] = [];
+        bySource.forEach((src) => {
+          SENSITIVITY_ORDER.forEach((level) => {
+            let count = 0;
+            if (level === "pii") count = src.piiCount;
+            else if (level === "confidential") count = src.confidentialCount;
+            else if (level === "public") count = Math.max(0, src.total - src.classified);
+            heatmap.push({ source: src.source, level, count });
+          });
+        });
+
+        const bySensitivity: Record<SensitivityLevel, number> = {
+          public: api.bySensitivity?.public ?? 0,
+          internal: api.bySensitivity?.internal ?? 0,
+          confidential: api.bySensitivity?.confidential ?? 0,
+          restricted: api.bySensitivity?.restricted ?? 0,
+          pii: api.bySensitivity?.pii ?? 0,
+        };
+
+        setData({
+          totalEntities: api.totalEntities ?? 0,
+          totalColumns: api.totalColumns ?? 0,
+          classifiedColumns: api.classifiedColumns ?? 0,
+          coveragePercent: api.coveragePercent ?? 0,
+          bySensitivity,
+          bySource,
+          heatmap,
+          sources,
+        });
+      })
+      .catch((err) => {
+        console.warn("Classification summary fetch failed:", err);
+        setData(_fallback(entities));
       });
-    });
+  // Only re-fetch when entities list changes (source list may differ)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entities.length]);
 
-    const bySource = sources.map((s) => {
-      const sourceEntities = entities.filter((e) => e.source === s);
-      return {
-        source: s,
-        entityCount: sourceEntities.length,
-        estimatedColumns: sourceEntities.length * 15,
-        classified: 0,
-        piiCandidates: 0,
-      };
-    });
-
-    return {
-      totalEntities: entities.length,
-      totalColumns,
-      classifiedColumns: 0,
-      coveragePercent: classifiedPct,
-      bySensitivity,
-      bySource,
-      heatmap,
-      sources,
-    };
-  }, [entities]);
+  // While the API call is in flight, use the fallback based on entity digest
+  return data ?? _fallback(entities);
 }
 
 // ── Main Page ──
@@ -203,7 +264,7 @@ export default function DataClassification() {
                         <span style={{ color: getSourceColor(resolveSourceLabel(src.source)) }}>
                           {resolveSourceLabel(src.source)}
                         </span>
-                        <span className="text-muted-foreground ml-1 text-[10px]">({src.entityCount} entities)</span>
+                        <span className="text-muted-foreground ml-1 text-[10px]">({src.total} cols)</span>
                       </td>
                       {SENSITIVITY_ORDER.map((level) => {
                         const cell = classData.heatmap.find((h) => h.source === src.source && h.level === level);
@@ -224,7 +285,7 @@ export default function DataClassification() {
                       })}
                       <td className="text-center py-2 px-3">
                         <div className="inline-block w-10 h-6 rounded text-[10px] leading-6 font-mono bg-muted text-muted-foreground">
-                          {src.estimatedColumns}
+                          {Math.max(0, src.total - src.classified)}
                         </div>
                       </td>
                     </tr>
