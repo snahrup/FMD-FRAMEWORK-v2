@@ -113,6 +113,7 @@ class SilverEntity:
     lakehouse_guid: str = ""            # Silver lakehouse GUID
     workspace_guid: str = ""            # DATA workspace GUID
     bronze_lakehouse_guid: str = ""     # Bronze lakehouse GUID (for reading source Delta)
+    lz_entity_id: int = 0              # LZ entity ID (for entity_status tracking)
     is_active: bool = True
 
     @property

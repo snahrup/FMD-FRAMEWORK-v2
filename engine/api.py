@@ -240,6 +240,25 @@ def _publish_entity_result(run_id: str, entity_id: int, layer: str,
     _SSEHook.publish("entity_result", event)
 
 
+def _write_pipeline_audit_terminal(run_id: str, status: str, reason: str) -> None:
+    """Write a terminal (Aborted/Failed) row to pipeline_audit.
+
+    This ensures the Live Monitor stops showing phantom "Running..." entries
+    for runs that were aborted or failed outside the normal AuditLogger flow.
+    """
+    try:
+        _db_execute(
+            "INSERT INTO pipeline_audit "
+            "(PipelineRunGuid, PipelineName, EntityLayer, TriggerType, LogType, "
+            " LogDateTime, LogData, EntityId) "
+            "VALUES (?, 'FMD_ENGINE_V3', 'all', 'Engine', ?, "
+            " strftime('%Y-%m-%dT%H:%M:%SZ','now'), ?, 0)",
+            (run_id, status, f'{{"action":"run_{status.lower()}","reason":"{reason}"}}')
+        )
+    except Exception as exc:
+        log.warning("Failed to write terminal pipeline_audit for %s: %s", run_id[:8], exc)
+
+
 # ---------------------------------------------------------------------------
 # Startup cleanup
 # ---------------------------------------------------------------------------
@@ -248,9 +267,18 @@ def _cleanup_orphaned_runs() -> None:
     """Mark any InProgress runs as Aborted on engine startup.
 
     When the process crashes or reboots, log_run_end() never fires,
-    leaving runs stuck as InProgress forever.  This cleans them up.
+    leaving runs stuck as InProgress forever.  This cleans them up
+    in BOTH engine_runs and pipeline_audit so the Live Monitor
+    doesn't show phantom "Running..." entries.
     """
     try:
+        # Find orphaned run IDs before updating
+        orphaned = _db_query(
+            "SELECT RunId FROM engine_runs WHERE Status IN ('InProgress', 'running')"
+        )
+        if not orphaned:
+            return
+
         _db_execute(
             "UPDATE engine_runs "
             "SET Status = 'Aborted', "
@@ -258,7 +286,12 @@ def _cleanup_orphaned_runs() -> None:
             "    ErrorSummary = 'Aborted: engine process restarted before completion' "
             "WHERE Status IN ('InProgress', 'running')"
         )
-        log.info("Orphaned InProgress runs cleaned up on startup")
+
+        # Write terminal pipeline_audit rows so Live Monitor stops showing "Running..."
+        for row in orphaned:
+            _write_pipeline_audit_terminal(row["RunId"], "Aborted", "Engine restarted before completion")
+
+        log.info("Cleaned up %d orphaned InProgress runs on startup", len(orphaned))
     except Exception as exc:
         log.warning("Failed to clean up orphaned runs: %s", exc)
 
@@ -533,6 +566,7 @@ def _handle_stop(handler, config: dict) -> None:
                 "WHERE RunId = ? AND Status IN ('InProgress', 'running')",
                 (str(run_id),)
             )
+            _write_pipeline_audit_terminal(str(run_id), "Aborted", "Stopped by user from dashboard")
         except Exception as exc:
             log.warning("Failed to abort run in SQLite on stop: %s", exc)
 
@@ -564,6 +598,10 @@ def _handle_abort_run(handler, body: dict) -> None:
 
     try:
         if abort_all:
+            # Find runs to abort first (for pipeline_audit writes)
+            orphaned = _db_query(
+                "SELECT RunId FROM engine_runs WHERE Status IN ('InProgress', 'running')"
+            )
             _db_execute(
                 "UPDATE engine_runs "
                 "SET Status = 'Aborted', "
@@ -572,12 +610,9 @@ def _handle_abort_run(handler, body: dict) -> None:
                 "        THEN 'Aborted by user' ELSE ErrorSummary END "
                 "WHERE Status IN ('InProgress', 'running')"
             )
-            # Count how many were actually in-progress (approximate — check after)
-            aborted = _db_query(
-                "SELECT COUNT(*) AS cnt FROM engine_runs WHERE Status = 'Aborted' "
-                "AND EndedAt >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-5 seconds')"
-            )
-            count = aborted[0]["cnt"] if aborted else 0
+            count = len(orphaned)
+            for row in orphaned:
+                _write_pipeline_audit_terminal(row["RunId"], "Aborted", "Aborted by user")
         else:
             _db_execute(
                 "UPDATE engine_runs "
@@ -588,6 +623,7 @@ def _handle_abort_run(handler, body: dict) -> None:
                 "WHERE RunId = ?",
                 (str(run_id),)
             )
+            _write_pipeline_audit_terminal(str(run_id), "Aborted", "Aborted by user")
             count = 1
 
         # If the currently active run was aborted, stop the engine too

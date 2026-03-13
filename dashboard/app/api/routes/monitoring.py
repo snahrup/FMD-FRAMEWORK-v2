@@ -85,10 +85,24 @@ def get_live_monitor(params: dict) -> dict:
         lz_total = db.query("SELECT COUNT(*) AS cnt FROM lz_entities")
         brz_total = db.query("SELECT COUNT(*) AS cnt FROM bronze_entities")
         slv_total = db.query("SELECT COUNT(*) AS cnt FROM silver_entities")
+
+        # Processed counts from entity_status (universal tracking table).
+        # Layer names may be lowercase ('landing','bronze','silver') from seed data
+        # or mixed case ('LandingZone','Bronze','Silver') from engine writes.
+        # Status may be 'loaded'/'Succeeded'. Handle both conventions.
+        status_rows = _safe_query(
+            "SELECT LOWER(Layer) AS layer, COUNT(*) AS cnt FROM entity_status "
+            "WHERE LOWER(Status) IN ('succeeded', 'loaded') GROUP BY LOWER(Layer)"
+        )
+        status_map = {r["layer"]: r["cnt"] for r in status_rows} if status_rows else {}
+
         result["counts"] = {
             "lzRegistered": lz_total[0]["cnt"] if lz_total else 0,
             "brzRegistered": brz_total[0]["cnt"] if brz_total else 0,
             "slvRegistered": slv_total[0]["cnt"] if slv_total else 0,
+            "lzProcessed": status_map.get("landing", 0) + status_map.get("landingzone", 0),
+            "brzProcessed": status_map.get("bronze", 0),
+            "slvProcessed": status_map.get("silver", 0),
         }
     except Exception:
         result["counts"] = {}

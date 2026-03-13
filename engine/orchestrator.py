@@ -485,6 +485,7 @@ class LoadOrchestrator:
             SELECT
                 se.SilverLayerEntityId,
                 se.BronzeLayerEntityId,
+                le.LandingzoneEntityId,
                 COALESCE(NULLIF(ds.Namespace, ''), ds.Name) AS Namespace,
                 le.SourceName,
                 be.PrimaryKeys,
@@ -525,6 +526,7 @@ class LoadOrchestrator:
                 lakehouse_guid=row.get("SilverLakehouseGuid", ""),
                 workspace_guid=row.get("WorkspaceGuid", ""),
                 bronze_lakehouse_guid=row.get("BronzeLakehouseGuid", ""),
+                lz_entity_id=int(row.get("LandingzoneEntityId", 0) or 0),
             ))
 
         log.info("Silver worklist: %d entities", len(entities))
@@ -760,12 +762,15 @@ class LoadOrchestrator:
             except Exception as exc:
                 log.error("[%s] Bronze entity %d failed: %s",
                           run_id[:8], entity.bronze_entity_id, exc)
-                results.append(RunResult(
+                result = RunResult(
                     entity_id=entity.bronze_entity_id,
                     layer="bronze",
                     status="failed",
                     error=str(exc),
-                ))
+                )
+                results.append(result)
+            # Track entity status in control plane DB
+            self._audit.mark_bronze_entity_processed(entity, result)
 
         succeeded = sum(1 for r in results if r.status == "succeeded")
         failed = sum(1 for r in results if r.status == "failed")
@@ -805,12 +810,15 @@ class LoadOrchestrator:
             except Exception as exc:
                 log.error("[%s] Silver entity %d failed: %s",
                           run_id[:8], entity.silver_entity_id, exc)
-                results.append(RunResult(
+                result = RunResult(
                     entity_id=entity.silver_entity_id,
                     layer="silver",
                     status="failed",
                     error=str(exc),
-                ))
+                )
+                results.append(result)
+            # Track entity status in control plane DB
+            self._audit.mark_silver_entity_processed(entity, result)
 
         succeeded = sum(1 for r in results if r.status == "succeeded")
         failed = sum(1 for r in results if r.status == "failed")

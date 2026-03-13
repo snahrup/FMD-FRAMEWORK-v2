@@ -943,8 +943,8 @@ def get_pipeline_runs_grouped() -> list[dict]:
                 EntityLayer,
                 TriggerType,
                 MIN(CASE WHEN LogType LIKE 'Start%' OR LogType = 'InProgress' THEN LogDateTime END) AS StartTime,
-                MAX(CASE WHEN LogType LIKE 'End%' OR LogType = 'Succeeded' THEN LogDateTime END) AS EndTime,
-                MAX(CASE WHEN LogType LIKE 'End%' OR LogType = 'Succeeded' THEN LogData     END) AS EndLogData,
+                MAX(CASE WHEN LogType LIKE 'End%' OR LogType = 'Succeeded' OR LogType = 'Failed' OR LogType = 'Aborted' THEN LogDateTime END) AS EndTime,
+                MAX(CASE WHEN LogType LIKE 'End%' OR LogType = 'Succeeded' OR LogType = 'Failed' OR LogType = 'Aborted' THEN LogData     END) AS EndLogData,
                 MAX(CASE WHEN LogType LIKE 'Error%' OR LogType = 'PipelineError' OR LogType = 'Failed' THEN LogData END) AS ErrorData,
                 COUNT(*) AS LogCount
             FROM pipeline_audit

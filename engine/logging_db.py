@@ -299,6 +299,59 @@ class AuditLogger:
                     entity.id, exc,
                 )
 
+    def mark_bronze_entity_processed(self, entity, result) -> None:
+        """Write Bronze entity processing status to SQLite tracking tables."""
+        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        cpdb = _get_cpdb()
+        if not cpdb:
+            return
+        try:
+            cpdb.upsert_entity_status({
+                "LandingzoneEntityId": entity.lz_entity_id,
+                "Layer": "bronze",
+                "Status": "loaded" if result.status == "succeeded" else "failed",
+                "LoadEndDateTime": now_str,
+                "ErrorMessage": result.error or "",
+                "UpdatedBy": "FMD_ENGINE_V3",
+            })
+        except Exception as exc:
+            log.warning("SQLite: Failed to upsert entity_status (Bronze) for entity %d: %s",
+                        entity.bronze_entity_id, exc)
+        try:
+            cpdb.upsert_pipeline_bronze_entity({
+                "BronzeLayerEntityId": entity.bronze_entity_id,
+                "TableName": entity.source_name,
+                "SchemaName": entity.namespace,
+                "InsertDateTime": now_str,
+                "IsProcessed": 1 if result.status == "succeeded" else 0,
+            })
+        except Exception as exc:
+            log.warning("SQLite: Failed to upsert pipeline_bronze_entity for entity %d: %s",
+                        entity.bronze_entity_id, exc)
+
+    def mark_silver_entity_processed(self, entity, result) -> None:
+        """Write Silver entity processing status to SQLite tracking tables."""
+        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        cpdb = _get_cpdb()
+        if not cpdb:
+            return
+        lz_id = getattr(entity, 'lz_entity_id', 0)
+        if not lz_id:
+            log.debug("Silver entity %d has no lz_entity_id, skipping entity_status", entity.silver_entity_id)
+            return
+        try:
+            cpdb.upsert_entity_status({
+                "LandingzoneEntityId": lz_id,
+                "Layer": "silver",
+                "Status": "loaded" if result.status == "succeeded" else "failed",
+                "LoadEndDateTime": now_str,
+                "ErrorMessage": result.error or "",
+                "UpdatedBy": "FMD_ENGINE_V3",
+            })
+        except Exception as exc:
+            log.warning("SQLite: Failed to upsert entity_status (Silver) for entity %d: %s",
+                        entity.silver_entity_id, exc)
+
     def update_watermark(
         self,
         entity: Entity,
