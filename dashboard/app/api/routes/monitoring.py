@@ -56,28 +56,34 @@ def get_live_monitor(params: dict) -> dict:
         minutes = 240
 
     result: dict = {}
+    minutes_param = str(minutes)
 
     # Pipeline execution events (from pipeline_audit)
     result["pipelineEvents"] = _safe_query(
         "SELECT PipelineName, LogType, LogDateTime, LogData, PipelineRunGuid, EntityLayer "
         "FROM pipeline_audit "
-        "ORDER BY LogDateTime DESC LIMIT 50"
+        "WHERE LogDateTime >= datetime('now', '-' || ? || ' minutes') "
+        "ORDER BY LogDateTime DESC LIMIT 50",
+        (minutes_param,)
     )
 
-    # Notebook execution events (engine_task_log is the closest proxy)
+    # Notebook execution events
     result["notebookEvents"] = _safe_query(
-        "SELECT '' AS NotebookName, Status AS LogType, created_at AS LogDateTime, "
-        "ErrorMessage AS LogData, EntityId, Layer AS EntityLayer, RunId AS PipelineRunGuid "
-        "FROM engine_task_log "
-        "ORDER BY created_at DESC LIMIT 200"
+        "SELECT NotebookName, LogType, LogDateTime, LogData, EntityId, EntityLayer, PipelineRunGuid "
+        "FROM notebook_executions "
+        "WHERE LogDateTime >= datetime('now', '-' || ? || ' minutes') "
+        "ORDER BY LogDateTime DESC LIMIT 200",
+        (minutes_param,)
     )
 
     # Copy activity events
     result["copyEvents"] = _safe_query(
-        "SELECT CopyActivityName, CopyActivityParameters AS EntityName, LogType, LogDateTime, "
+        "SELECT CopyActivityName, CopyActivityName AS EntityName, LogType, LogDateTime, "
         "LogData, EntityId, EntityLayer, PipelineRunGuid "
         "FROM copy_activity_audit "
-        "ORDER BY LogDateTime DESC LIMIT 100"
+        "WHERE LogDateTime >= datetime('now', '-' || ? || ' minutes') "
+        "ORDER BY LogDateTime DESC LIMIT 100",
+        (minutes_param,)
     )
 
     # Processing counts from entity tables
@@ -109,18 +115,26 @@ def get_live_monitor(params: dict) -> dict:
 
     # Recently processed Bronze entities
     result["bronzeEntities"] = _safe_query(
-        "SELECT BronzeLayerEntityId, SchemaName, TableName, "
-        "InsertDateTime, IsProcessed, updated_at AS LoadEndDateTime "
-        "FROM pipeline_bronze_entity "
-        "ORDER BY InsertDateTime DESC LIMIT 20"
+        "SELECT be.BronzeLayerEntityId, be.Schema_ AS SchemaName, be.Name AS TableName, "
+        "es.LoadEndDateTime AS InsertDateTime, "
+        "CASE WHEN LOWER(COALESCE(es.Status,'')) IN ('loaded','succeeded') THEN 1 ELSE 0 END AS IsProcessed, "
+        "es.updated_at AS LoadEndDateTime "
+        "FROM entity_status es "
+        "JOIN bronze_entities be ON es.LandingzoneEntityId = be.LandingzoneEntityId "
+        "WHERE LOWER(es.Layer) = 'bronze' "
+        "ORDER BY es.updated_at DESC LIMIT 20"
     )
 
     # Recently processed LZ entities
     result["lzEntities"] = _safe_query(
-        "SELECT LandingzoneEntityId, FilePath, FileName, "
-        "InsertDateTime, IsProcessed, updated_at AS LoadEndDateTime "
-        "FROM pipeline_lz_entity "
-        "ORDER BY InsertDateTime DESC LIMIT 20"
+        "SELECT le.LandingzoneEntityId, le.FilePath, le.FileName, "
+        "es.LoadEndDateTime AS InsertDateTime, "
+        "CASE WHEN LOWER(COALESCE(es.Status,'')) IN ('loaded','succeeded') THEN 1 ELSE 0 END AS IsProcessed, "
+        "es.updated_at AS LoadEndDateTime "
+        "FROM entity_status es "
+        "JOIN lz_entities le ON es.LandingzoneEntityId = le.LandingzoneEntityId "
+        "WHERE LOWER(es.Layer) IN ('landing','landingzone') "
+        "ORDER BY es.updated_at DESC LIMIT 20"
     )
 
     result["serverTime"] = _utcnow_iso()
@@ -134,14 +148,14 @@ def get_live_monitor(params: dict) -> dict:
 @route("GET", "/api/copy-executions")
 def get_copy_executions(params: dict) -> list:
     return _safe_query(
-        "SELECT * FROM CopyActivityExecution ORDER BY CopyActivityExecutionId DESC"
+        "SELECT * FROM copy_activity_audit ORDER BY id DESC"
     )
 
 
 @route("GET", "/api/notebook-executions")
 def get_notebook_executions(params: dict) -> list:
     return _safe_query(
-        "SELECT * FROM NotebookExecution ORDER BY NotebookExecutionId DESC"
+        "SELECT * FROM notebook_executions ORDER BY id DESC"
     )
 
 
@@ -161,7 +175,7 @@ def get_error_intelligence(params: dict) -> dict:
     # Recent pipeline failures
     result["pipelineFailures"] = _safe_query(
         "SELECT PipelineName, LogType, LogDateTime, LogData "
-        "FROM PipelineExecution "
+        "FROM pipeline_audit "
         "WHERE LogType = 'Error' "
         "ORDER BY LogDateTime DESC LIMIT 100"
     )
@@ -169,7 +183,7 @@ def get_error_intelligence(params: dict) -> dict:
     # Failure counts by pipeline
     result["failuresByPipeline"] = _safe_query(
         "SELECT PipelineName, COUNT(*) as failureCount "
-        "FROM PipelineExecution "
+        "FROM pipeline_audit "
         "WHERE LogType = 'Error' "
         "GROUP BY PipelineName "
         "ORDER BY failureCount DESC"
@@ -178,15 +192,15 @@ def get_error_intelligence(params: dict) -> dict:
     # Notebook failures
     result["notebookFailures"] = _safe_query(
         "SELECT NotebookName, LogType, LogDateTime, LogData, EntityId, EntityLayer "
-        "FROM NotebookExecution "
+        "FROM notebook_executions "
         "WHERE LogType = 'Error' "
         "ORDER BY LogDateTime DESC LIMIT 100"
     )
 
     # Copy activity failures
     result["copyFailures"] = _safe_query(
-        "SELECT CopyActivityName, EntityName, LogType, LogDateTime, LogData "
-        "FROM CopyActivityExecution "
+        "SELECT CopyActivityName, CopyActivityName AS EntityName, LogType, LogDateTime, LogData "
+        "FROM copy_activity_audit "
         "WHERE LogType = 'Error' "
         "ORDER BY LogDateTime DESC LIMIT 100"
     )
@@ -203,17 +217,97 @@ def get_error_intelligence(params: dict) -> dict:
 def get_dashboard_stats(params: dict) -> dict:
     """KPI summary for the dashboard overview cards."""
     try:
-        lz = db.query("SELECT COUNT(*) AS cnt FROM LandingzoneEntity WHERE IsActive=1")
-        brz = db.query("SELECT COUNT(*) AS cnt FROM BronzeLayerEntity WHERE IsActive=1")
-        slv = db.query("SELECT COUNT(*) AS cnt FROM SilverLayerEntity WHERE IsActive=1")
+        lz = db.query("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive=1")
+        brz = db.query("SELECT COUNT(*) AS cnt FROM bronze_entities WHERE IsActive=1")
+        slv = db.query("SELECT COUNT(*) AS cnt FROM silver_entities WHERE IsActive=1")
+        conn = db.query("SELECT COUNT(*) AS cnt FROM connections WHERE IsActive=1")
+        ds = db.query("SELECT COUNT(*) AS cnt FROM datasources WHERE IsActive=1")
+        lh = db.query("SELECT COUNT(*) AS cnt FROM lakehouses")
+
+        lz_count = lz[0]["cnt"] if lz else 0
+        brz_count = brz[0]["cnt"] if brz else 0
+        slv_count = slv[0]["cnt"] if slv else 0
+        conn_count = conn[0]["cnt"] if conn else 0
+        ds_count = ds[0]["cnt"] if ds else 0
+        lh_count = lh[0]["cnt"] if lh else 0
+
         return {
-            "lzActiveEntities": lz[0]["cnt"] if lz else 0,
-            "bronzeActiveEntities": brz[0]["cnt"] if brz else 0,
-            "silverActiveEntities": slv[0]["cnt"] if slv else 0,
+            "activeConnections": conn_count,
+            "activeDataSources": ds_count,
+            "activeEntities": lz_count + brz_count + slv_count,
+            "lakehouses": lh_count,
+            "entityBreakdown": {
+                "landing": lz_count,
+                "bronze": brz_count,
+                "silver": slv_count,
+            },
+            # Legacy fields for backward compat
+            "lzActiveEntities": lz_count,
+            "bronzeActiveEntities": brz_count,
+            "silverActiveEntities": slv_count,
         }
     except Exception as e:
         log.warning("get_dashboard_stats failed: %s", e)
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Load Progress
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/load-progress")
+def get_load_progress(params: dict) -> dict:
+    """Entity load progress across all layers."""
+    # Per-source progress
+    sources = _safe_query(
+        "SELECT ds.DataSourceId, ds.Name AS dataSourceName, "
+        "COUNT(DISTINCT le.LandingzoneEntityId) AS totalEntities, "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_lz.Status,'')) IN ('loaded','succeeded') "
+        "  THEN le.LandingzoneEntityId END) AS lzLoaded, "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_br.Status,'')) IN ('loaded','succeeded') "
+        "  THEN le.LandingzoneEntityId END) AS brzLoaded, "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_sv.Status,'')) IN ('loaded','succeeded') "
+        "  THEN le.LandingzoneEntityId END) AS slvLoaded "
+        "FROM lz_entities le "
+        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
+        "LEFT JOIN entity_status es_lz ON le.LandingzoneEntityId = es_lz.LandingzoneEntityId "
+        "  AND LOWER(es_lz.Layer) IN ('landing','landingzone') "
+        "LEFT JOIN entity_status es_br ON le.LandingzoneEntityId = es_br.LandingzoneEntityId "
+        "  AND LOWER(es_br.Layer) = 'bronze' "
+        "LEFT JOIN entity_status es_sv ON le.LandingzoneEntityId = es_sv.LandingzoneEntityId "
+        "  AND LOWER(es_sv.Layer) = 'silver' "
+        "WHERE le.IsActive = 1 "
+        "GROUP BY ds.DataSourceId, ds.Name "
+        "ORDER BY ds.Name"
+    )
+
+    # Recent engine runs
+    runs = _safe_query(
+        "SELECT RunId, Mode, Status, TotalEntities, SucceededEntities, FailedEntities, "
+        "TotalDurationSeconds, StartedAt, EndedAt "
+        "FROM engine_runs ORDER BY StartedAt DESC LIMIT 10"
+    )
+
+    # Overall counts
+    status_rows = _safe_query(
+        "SELECT LOWER(Layer) AS layer, COUNT(*) AS cnt FROM entity_status "
+        "WHERE LOWER(Status) IN ('succeeded', 'loaded') GROUP BY LOWER(Layer)"
+    )
+    status_map = {r["layer"]: r["cnt"] for r in status_rows} if status_rows else {}
+
+    total_lz = _safe_query("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive=1")
+
+    return {
+        "sources": sources,
+        "recentRuns": runs,
+        "overall": {
+            "totalEntities": total_lz[0]["cnt"] if total_lz else 0,
+            "lzLoaded": status_map.get("landing", 0) + status_map.get("landingzone", 0),
+            "brzLoaded": status_map.get("bronze", 0),
+            "slvLoaded": status_map.get("silver", 0),
+        },
+        "serverTime": _utcnow_iso(),
+    }
 
 
 # ---------------------------------------------------------------------------

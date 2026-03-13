@@ -332,7 +332,25 @@ def get_silver_view(params: dict) -> list:
 
 @route("GET", "/api/pipeline-executions")
 def get_pipeline_executions(params: dict) -> list:
-    return db.query("SELECT * FROM pipeline_audit ORDER BY id DESC LIMIT 500")
+    return db.query(
+        "SELECT PipelineRunGuid AS runId, "
+        "PipelineName AS pipelineName, "
+        "MIN(CASE WHEN LogType LIKE 'Start%' THEN LogDateTime END) AS StartTime, "
+        "MAX(CASE WHEN LogType LIKE 'End%' OR LogType = 'Succeeded' OR LogType = 'Failed' "
+        "  OR LogType = 'Aborted' THEN LogDateTime END) AS EndTime, "
+        "CASE "
+        "  WHEN SUM(CASE WHEN LogType = 'Failed' OR LogType = 'Error' THEN 1 ELSE 0 END) > 0 THEN 'Failed' "
+        "  WHEN SUM(CASE WHEN LogType = 'Succeeded' OR LogType LIKE 'End%' THEN 1 ELSE 0 END) > 0 THEN 'Succeeded' "
+        "  ELSE 'Running' "
+        "END AS Status, "
+        "MAX(CASE WHEN LogType IN ('Failed','Error') THEN LogData END) AS ErrorMessage, "
+        "EntityLayer AS entityLayer, "
+        "MAX(LogData) AS logData "
+        "FROM pipeline_audit "
+        "WHERE PipelineRunGuid IS NOT NULL AND PipelineRunGuid != '' "
+        "GROUP BY PipelineRunGuid, PipelineName "
+        "ORDER BY MIN(LogDateTime) DESC LIMIT 100"
+    )
 
 
 @route("GET", "/api/fabric-jobs")
@@ -551,9 +569,17 @@ def get_runner_entities(params: dict) -> list:
     ds_id = int(ds_id_str)
 
     lz_entities = db.query(
-        "SELECT le.LandingzoneEntityId, le.DataSourceId, le.SourceSchema, le.SourceName, "
-        "le.FileName, le.FilePath, le.FileType, le.IsActive, le.IsIncremental, le.IsIncrementalColumn "
+        "SELECT le.LandingzoneEntityId AS lzEntityId, le.DataSourceId AS dataSourceId, "
+        "le.SourceSchema AS sourceSchema, le.SourceName AS sourceName, "
+        "le.FileName AS fileName, le.FilePath AS filePath, le.FileType AS fileType, "
+        "le.IsActive AS lzActive, le.IsIncremental AS isIncremental, "
+        "le.IsIncrementalColumn AS isIncrementalColumn, "
+        "be.BronzeLayerEntityId AS bronzeEntityId, be.IsActive AS bronzeActive, "
+        "be.PrimaryKeys AS primaryKeys, "
+        "se.SilverLayerEntityId AS silverEntityId, se.IsActive AS silverActive "
         "FROM lz_entities le "
+        "LEFT JOIN bronze_entities be ON le.LandingzoneEntityId = be.LandingzoneEntityId "
+        "LEFT JOIN silver_entities se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId "
         "WHERE le.DataSourceId = ? "
         "ORDER BY le.SourceName",
         (ds_id,),

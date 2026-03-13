@@ -751,7 +751,7 @@ def get_connections() -> list[dict]:
     conn = _get_conn()
     try:
         rows = conn.execute(
-            "SELECT ConnectionId, Name, Type, IsActive "
+            "SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName, IsActive "
             "FROM connections ORDER BY Name"
         ).fetchall()
         return [dict(r) for r in rows]

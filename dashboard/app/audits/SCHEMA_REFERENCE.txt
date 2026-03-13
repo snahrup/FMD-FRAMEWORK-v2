@@ -1,0 +1,306 @@
+--- SourceOnboarding ---
+CREATE TABLE SourceOnboarding (
+        OnboardingId  INTEGER PRIMARY KEY AUTOINCREMENT,
+        SourceName    TEXT NOT NULL,
+        StepNumber    INTEGER NOT NULL,
+        StepName      TEXT NOT NULL,
+        Status        TEXT NOT NULL DEFAULT 'pending',
+        ReferenceId   TEXT,
+        Notes         TEXT,
+        CompletedAt   TEXT,
+        CreatedAt     TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        UpdatedAt     TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+        UNIQUE(SourceName, StepNumber)
+    )
+-- rows: 0
+
+--- admin_config ---
+CREATE TABLE admin_config (
+                key        TEXT PRIMARY KEY,
+                value      TEXT,
+                updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 0
+
+--- bronze_entities ---
+CREATE TABLE bronze_entities (
+                BronzeLayerEntityId     INTEGER PRIMARY KEY,
+                LandingzoneEntityId     INTEGER NOT NULL,
+                LakehouseId             INTEGER,
+                Schema_                 TEXT,
+                Name                    TEXT NOT NULL,
+                PrimaryKeys             TEXT,
+                FileType                TEXT DEFAULT 'Delta',
+                IsActive                INTEGER DEFAULT 1,
+                updated_at              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 1666
+
+--- connections ---
+CREATE TABLE connections (
+                ConnectionId    INTEGER PRIMARY KEY,
+                ConnectionGuid  TEXT,
+                Name            TEXT NOT NULL,
+                Type            TEXT,
+                ServerName      TEXT,
+                DatabaseName    TEXT,
+                IsActive        INTEGER DEFAULT 1,
+                updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            , DisplayName TEXT)
+-- rows: 10
+
+--- copy_activity_audit ---
+CREATE TABLE copy_activity_audit (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                PipelineRunGuid         TEXT,
+                CopyActivityName        TEXT,
+                EntityLayer             TEXT,
+                TriggerType             TEXT,
+                LogType                 TEXT,
+                LogDateTime             TEXT,
+                LogData                 TEXT,
+                EntityId                INTEGER,
+                CopyActivityParameters  TEXT,
+                created_at              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 0
+
+--- datasources ---
+CREATE TABLE datasources (
+                DataSourceId    INTEGER PRIMARY KEY,
+                ConnectionId    INTEGER NOT NULL,
+                Name            TEXT NOT NULL,
+                Namespace       TEXT,
+                Type            TEXT,
+                Description     TEXT,
+                IsActive        INTEGER DEFAULT 1,
+                updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            , DisplayName TEXT)
+-- rows: 8
+
+--- engine_runs ---
+CREATE TABLE engine_runs (
+                RunId                   TEXT PRIMARY KEY,
+                Mode                    TEXT,
+                Status                  TEXT NOT NULL,
+                TotalEntities           INTEGER DEFAULT 0,
+                SucceededEntities       INTEGER DEFAULT 0,
+                FailedEntities          INTEGER DEFAULT 0,
+                SkippedEntities         INTEGER DEFAULT 0,
+                TotalRowsRead           INTEGER DEFAULT 0,
+                TotalRowsWritten        INTEGER DEFAULT 0,
+                TotalBytesTransferred   INTEGER DEFAULT 0,
+                TotalDurationSeconds    REAL DEFAULT 0,
+                Layers                  TEXT,
+                EntityFilter            TEXT,
+                TriggeredBy             TEXT,
+                ErrorSummary            TEXT,
+                StartedAt              TEXT,
+                EndedAt                TEXT,
+                updated_at              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 4
+
+--- engine_task_log ---
+CREATE TABLE engine_task_log (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                RunId               TEXT NOT NULL,
+                EntityId            INTEGER NOT NULL,
+                Layer               TEXT,
+                Status              TEXT NOT NULL,
+                SourceServer        TEXT,
+                SourceDatabase      TEXT,
+                SourceTable         TEXT,
+                SourceQuery         TEXT,
+                RowsRead            INTEGER DEFAULT 0,
+                RowsWritten         INTEGER DEFAULT 0,
+                BytesTransferred    INTEGER DEFAULT 0,
+                DurationSeconds     REAL DEFAULT 0,
+                TargetLakehouse     TEXT,
+                TargetPath          TEXT,
+                WatermarkColumn     TEXT,
+                WatermarkBefore     TEXT,
+                WatermarkAfter      TEXT,
+                LoadType            TEXT,
+                ErrorType           TEXT,
+                ErrorMessage        TEXT,
+                ErrorStackTrace     TEXT,
+                ErrorSuggestion     TEXT,
+                LogData             TEXT,
+                created_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 0
+
+--- entity_status ---
+CREATE TABLE entity_status (
+                LandingzoneEntityId     INTEGER NOT NULL,
+                Layer                   TEXT NOT NULL,
+                Status                  TEXT,
+                LoadEndDateTime         TEXT,
+                ErrorMessage            TEXT,
+                UpdatedBy               TEXT,
+                updated_at              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                PRIMARY KEY (LandingzoneEntityId, Layer)
+            )
+-- rows: 4998
+
+--- import_jobs ---
+CREATE TABLE import_jobs (
+                job_id          TEXT PRIMARY KEY,
+                datasource_name TEXT NOT NULL,
+                datasource_id   INTEGER,
+                table_count     INTEGER DEFAULT 0,
+                tables_done     INTEGER DEFAULT 0,
+                phase           TEXT NOT NULL DEFAULT 'registering',
+                progress        INTEGER DEFAULT 0,
+                current_table   TEXT,
+                status          TEXT NOT NULL DEFAULT 'running',
+                started_at      TEXT,
+                finished_at     TEXT,
+                error           TEXT,
+                created_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 0
+
+--- lakehouses ---
+CREATE TABLE lakehouses (
+                LakehouseId     INTEGER PRIMARY KEY,
+                Name            TEXT NOT NULL,
+                WorkspaceGuid   TEXT,
+                LakehouseGuid   TEXT,
+                updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 6
+
+--- lz_entities ---
+CREATE TABLE lz_entities (
+                LandingzoneEntityId INTEGER PRIMARY KEY,
+                DataSourceId        INTEGER NOT NULL,
+                LakehouseId         INTEGER,
+                SourceSchema        TEXT,
+                SourceName          TEXT NOT NULL,
+                SourceCustomSelect  TEXT,
+                FileName            TEXT,
+                FilePath            TEXT,
+                FileType            TEXT DEFAULT 'parquet',
+                IsIncremental       INTEGER DEFAULT 0,
+                IsIncrementalColumn TEXT,
+                CustomNotebookName  TEXT,
+                IsActive            INTEGER DEFAULT 1,
+                updated_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 1666
+
+--- notebook_executions ---
+CREATE TABLE notebook_executions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                NotebookName    TEXT,
+                PipelineRunGuid TEXT,
+                EntityId        INTEGER,
+                EntityLayer     TEXT,
+                LogType         TEXT,
+                LogDateTime     TEXT,
+                LogData         TEXT,
+                Status          TEXT,
+                StartedAt       TEXT,
+                EndedAt         TEXT,
+                created_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 0
+
+--- pipeline_audit ---
+CREATE TABLE pipeline_audit (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                PipelineRunGuid     TEXT,
+                PipelineName        TEXT,
+                EntityLayer         TEXT,
+                TriggerType         TEXT,
+                LogType             TEXT,
+                LogDateTime         TEXT,
+                LogData             TEXT,
+                EntityId            INTEGER,
+                created_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 4
+
+--- pipeline_bronze_entity ---
+CREATE TABLE pipeline_bronze_entity (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                BronzeLayerEntityId     INTEGER NOT NULL,
+                TableName               TEXT,
+                SchemaName              TEXT,
+                InsertDateTime          TEXT,
+                IsProcessed             INTEGER DEFAULT 0,
+                updated_at              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 0
+
+--- pipeline_lz_entity ---
+CREATE TABLE pipeline_lz_entity (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                LandingzoneEntityId     INTEGER NOT NULL,
+                FileName                TEXT,
+                FilePath                TEXT,
+                InsertDateTime          TEXT,
+                IsProcessed             INTEGER DEFAULT 0,
+                updated_at              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 0
+
+--- pipelines ---
+CREATE TABLE pipelines (
+                PipelineId      INTEGER PRIMARY KEY,
+                Name            TEXT NOT NULL,
+                IsActive        INTEGER DEFAULT 1,
+                updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            , PipelineGuid TEXT, WorkspaceGuid TEXT)
+-- rows: 6
+
+--- server_labels ---
+CREATE TABLE server_labels (
+                server      TEXT PRIMARY KEY,
+                label       TEXT NOT NULL,
+                updated_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 0
+
+--- silver_entities ---
+CREATE TABLE silver_entities (
+                SilverLayerEntityId     INTEGER PRIMARY KEY,
+                BronzeLayerEntityId     INTEGER NOT NULL,
+                LakehouseId             INTEGER,
+                Schema_                 TEXT,
+                Name                    TEXT NOT NULL,
+                FileType                TEXT DEFAULT 'delta',
+                IsActive                INTEGER DEFAULT 1,
+                updated_at              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 1666
+
+--- sync_metadata ---
+CREATE TABLE sync_metadata (
+                key         TEXT PRIMARY KEY,
+                value       TEXT,
+                updated_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 1
+
+--- watermarks ---
+CREATE TABLE watermarks (
+                LandingzoneEntityId     INTEGER PRIMARY KEY,
+                LoadValue               TEXT,
+                LastLoadDatetime        TEXT,
+                updated_at              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 0
+
+--- workspaces ---
+CREATE TABLE workspaces (
+                WorkspaceId     INTEGER PRIMARY KEY,
+                WorkspaceGuid   TEXT,
+                Name            TEXT NOT NULL,
+                updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            )
+-- rows: 5
+

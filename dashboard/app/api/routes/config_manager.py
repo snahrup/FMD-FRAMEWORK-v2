@@ -271,7 +271,7 @@ def post_config_update(params: dict) -> dict:
     elif target == "pipeline_db":
         p_id = int(params["pipelineId"])
         if params.get("newGuid"):
-            db.execute("UPDATE pipelines SET PipelineId = ? WHERE PipelineId = ?",
+            db.execute("UPDATE pipelines SET PipelineGuid = ? WHERE PipelineId = ?",
                        (params["newGuid"].strip(), p_id))
         if params.get("newName"):
             db.execute("UPDATE pipelines SET Name = ? WHERE PipelineId = ?",

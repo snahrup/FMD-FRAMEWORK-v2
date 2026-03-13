@@ -212,7 +212,8 @@ def get_lakehouse_counts(params: dict) -> dict:
         import json as _json
         counts_file = Path(__file__).parent.parent / "lakehouse_counts_cache.json"
         if counts_file.is_file():
-            return _json.loads(counts_file.read_text())
+            raw = _json.loads(counts_file.read_text())
+            return raw.get("counts", raw)
     except Exception:
         pass
     return {}
@@ -228,20 +229,28 @@ def get_blender_profile(params: dict) -> dict:
     s = _sanitize(schema)
     t = _sanitize(table)
     try:
-        cols = _query_lakehouse(
+        raw_cols = _query_lakehouse(
             lakehouse,
             f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE "
             f"FROM INFORMATION_SCHEMA.COLUMNS "
             f"WHERE TABLE_SCHEMA = '{s}' AND TABLE_NAME = '{t}' "
             f"ORDER BY ORDINAL_POSITION",
         )
+        cols = [
+            {
+                "name": c.get("COLUMN_NAME", ""),
+                "dataType": c.get("DATA_TYPE", ""),
+                "nullable": c.get("IS_NULLABLE", "YES") == "YES",
+            }
+            for c in raw_cols
+        ]
         try:
             rc = _query_lakehouse(lakehouse, f"SELECT COUNT(*) AS cnt FROM [{s}].[{t}]")
             row_count = int(rc[0]["cnt"]) if rc else -1
         except Exception:
             row_count = -1
         return {"lakehouse": lakehouse, "schema": schema, "table": table,
-                "rowCount": row_count, "columns": cols}
+                "rowCount": row_count, "columnCount": len(cols), "columns": cols}
     except HttpError:
         raise
     except Exception as e:

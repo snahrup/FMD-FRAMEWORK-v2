@@ -44,9 +44,24 @@ def get_health(params):
     return {"status": "ok", "db": str(db.DB_PATH)}
 
 
+@route("POST", "/api/admin/auth")
+def post_admin_auth(params):
+    """Verify admin password."""
+    _check_admin_password(params)
+    return {"authenticated": True}
+
+
 @route("POST", "/api/admin/config")
 def post_admin_config(params):
     _check_admin_password(params)
+    # Support both {key, value} and {hiddenPages} shapes
+    if "hiddenPages" in params:
+        import json as _json
+        db.execute(
+            "INSERT OR REPLACE INTO admin_config (key, value) VALUES (?, ?)",
+            ("hiddenPages", _json.dumps(params["hiddenPages"])),
+        )
+        return {"ok": True, "key": "hiddenPages"}
     key = params.get("key", "")
     value = params.get("value", "")
     if not key:

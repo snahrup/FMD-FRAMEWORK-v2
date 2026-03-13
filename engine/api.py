@@ -416,8 +416,8 @@ def _handle_status(handler, config: dict) -> None:
             "run_id": str(row.get("RunId", "")),
             "status": str(row.get("Status", "")),
             "mode": str(row.get("Mode", "")),
-            "started": str(row.get("StartedAt", "")),
-            "completed": str(row.get("EndedAt", "")),
+            "started_at": str(row.get("StartedAt", "")),
+            "finished_at": str(row.get("EndedAt", "")),
             "total": _to_int(row.get("TotalEntities")),
             "succeeded": _to_int(row.get("SucceededEntities")),
             "failed": _to_int(row.get("FailedEntities")),
@@ -687,33 +687,34 @@ def _handle_logs(handler, qs: dict) -> None:
     offset = int(offset_raw) if str(offset_raw).isdigit() else 0
 
     try:
-        cpdb = _get_cpdb()
-        if cpdb:
-            rows = cpdb.get_engine_task_log(run_id=run_id, entity_id=entity_id)
-            # Apply layer / status filters and pagination in Python
-            if layer:
-                rows = [r for r in rows if (r.get("Layer") or "").lower() == layer.lower()]
-            if status:
-                rows = [r for r in rows if (r.get("Status") or "").lower() == status.lower()]
-            rows = rows[offset: offset + limit]
-        else:
-            sql = "SELECT * FROM engine_task_log WHERE 1=1"
-            params: list = []
-            if run_id:
-                sql += " AND RunId = ?"
-                params.append(run_id)
-            if entity_id is not None:
-                sql += " AND EntityId = ?"
-                params.append(entity_id)
-            if layer:
-                sql += " AND Layer = ?"
-                params.append(layer)
-            if status:
-                sql += " AND Status = ?"
-                params.append(status)
-            sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-            params.extend([limit, offset])
-            rows = _db_query(sql, tuple(params))
+        sql = """
+            SELECT t.id AS TaskId, t.RunId, t.EntityId, t.Layer, t.Status,
+                   t.SourceTable AS SourceName, le.SourceSchema,
+                   ds.Name AS DataSourceName,
+                   t.RowsRead, t.RowsWritten, t.BytesTransferred, t.DurationSeconds,
+                   t.ErrorMessage, t.ErrorSuggestion, t.LoadType,
+                   t.created_at
+            FROM engine_task_log t
+            LEFT JOIN lz_entities le ON t.EntityId = le.LandingzoneEntityId
+            LEFT JOIN datasources ds ON le.DataSourceId = ds.DataSourceId
+            WHERE 1=1
+        """
+        params: list = []
+        if run_id:
+            sql += " AND t.RunId = ?"
+            params.append(run_id)
+        if entity_id is not None:
+            sql += " AND t.EntityId = ?"
+            params.append(entity_id)
+        if layer:
+            sql += " AND t.Layer = ?"
+            params.append(layer)
+        if status:
+            sql += " AND t.Status = ?"
+            params.append(status)
+        sql += " ORDER BY t.created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        rows = _db_query(sql, tuple(params))
 
         safe_rows = [_safe_row(r) for r in rows]
         handler._json_response({"logs": safe_rows, "count": len(safe_rows)})
@@ -1325,14 +1326,15 @@ def _handle_entities(handler, config: dict) -> None:
                 d.Name AS datasource,
                 c.DatabaseName AS source_database,
                 e.IsIncremental AS is_incremental,
-                ple.InsertDateTime AS last_loaded,
-                CASE WHEN ple.IsProcessed = 1 THEN 'loaded'
-                     WHEN ple.IsProcessed = 0 THEN 'failed'
+                es.LoadEndDateTime AS last_loaded,
+                CASE WHEN LOWER(es.Status) IN ('success', 'loaded') THEN 'loaded'
+                     WHEN LOWER(es.Status) IN ('failed', 'error') THEN 'failed'
                      ELSE 'never' END AS lz_status
             FROM lz_entities e
             INNER JOIN datasources d ON e.DataSourceId = d.DataSourceId
             INNER JOIN connections c ON d.ConnectionId = c.ConnectionId
-            LEFT JOIN pipeline_lz_entity ple ON e.LandingzoneEntityId = ple.LandingzoneEntityId
+            LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
+                AND LOWER(es.Layer) IN ('landing', 'landingzone')
             WHERE e.IsActive = 1
             ORDER BY d.Name, e.SourceSchema, e.SourceName
         """)
