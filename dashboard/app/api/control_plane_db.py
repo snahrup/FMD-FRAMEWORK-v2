@@ -318,6 +318,75 @@ def init_db():
                 updated_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );
 
+            -- MDM: column metadata + classification --------------------------------
+
+            CREATE TABLE IF NOT EXISTS column_metadata (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id           INTEGER NOT NULL,
+                layer               TEXT NOT NULL,
+                column_name         TEXT NOT NULL,
+                data_type           TEXT,
+                ordinal_position    INTEGER,
+                is_nullable         INTEGER DEFAULT 1,
+                max_length          INTEGER,
+                numeric_precision   INTEGER,
+                numeric_scale       INTEGER,
+                captured_at         TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                UNIQUE(entity_id, layer, column_name)
+            );
+
+            CREATE TABLE IF NOT EXISTS column_classifications (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id           INTEGER NOT NULL,
+                layer               TEXT NOT NULL,
+                column_name         TEXT NOT NULL,
+                sensitivity_level   TEXT NOT NULL DEFAULT 'public',
+                certification_status TEXT NOT NULL DEFAULT 'none',
+                classified_by       TEXT NOT NULL,
+                confidence          REAL DEFAULT 1.0,
+                pii_entities        TEXT,
+                classified_at       TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                UNIQUE(entity_id, layer, column_name)
+            );
+
+            -- MDM: business glossary + entity annotations --------------------------
+
+            CREATE TABLE IF NOT EXISTS business_glossary (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                term                TEXT NOT NULL UNIQUE,
+                definition          TEXT NOT NULL,
+                category            TEXT,
+                related_systems     TEXT,
+                synonyms            TEXT,
+                source              TEXT,
+                created_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS entity_annotations (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id           INTEGER NOT NULL UNIQUE,
+                business_name       TEXT,
+                description         TEXT,
+                domain              TEXT,
+                tags                TEXT,
+                source              TEXT,
+                updated_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            -- MDM: quality scores --------------------------------------------------
+
+            CREATE TABLE IF NOT EXISTS quality_scores (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id           INTEGER NOT NULL UNIQUE,
+                completeness_score  REAL,
+                freshness_score     REAL,
+                consistency_score   REAL,
+                volume_score        REAL,
+                composite_score     REAL,
+                quality_tier        TEXT,
+                computed_at         TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
             -- indexes ------------------------------------------------------------
 
             CREATE INDEX IF NOT EXISTS idx_lz_datasource   ON lz_entities(DataSourceId);
