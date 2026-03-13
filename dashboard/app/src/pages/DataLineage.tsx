@@ -76,7 +76,7 @@ function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClos
     setLoading(true);
     setFetchError(null);
     try {
-      const res = await fetch(`/api/microscope/${entity.id}`, { signal: controller.signal });
+      const res = await fetch(`/api/lineage/columns/${entity.id}`, { signal: controller.signal });
       if (!res.ok) {
         setFetchError(`API returned ${res.status}`);
         setLoading(false);
