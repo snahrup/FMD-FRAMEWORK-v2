@@ -129,18 +129,18 @@ def _build_sqlite_entity_digest(
         bronze_s = status_map.get((lz_id, "bronze"), {})
         silver_s = status_map.get((lz_id, "silver"), {})
 
-        lz_status = lz_s.get("Status", "not_started") or "not_started"
-        bronze_status = bronze_s.get("Status", "not_started") or "not_started"
-        silver_status = silver_s.get("Status", "not_started") or "not_started"
+        lz_status = (lz_s.get("Status") or "not_started").lower()
+        bronze_status = (bronze_s.get("Status") or "not_started").lower()
+        silver_status = (silver_s.get("Status") or "not_started").lower()
 
         statuses_list = [lz_status, bronze_status, silver_status]
-        if all(s in ("loaded", "complete", "Succeeded") for s in statuses_list):
+        if all(s in ("loaded", "complete", "succeeded") for s in statuses_list):
             overall = "complete"
-        elif any(s in ("error", "Failed", "failed") for s in statuses_list):
+        elif any(s in ("error", "failed") for s in statuses_list):
             overall = "error"
-        elif any(s in ("loaded", "complete", "Succeeded") for s in statuses_list):
+        elif any(s in ("loaded", "complete", "succeeded") for s in statuses_list):
             overall = "partial"
-        elif any(s in ("pending", "InProgress", "running") for s in statuses_list):
+        elif any(s in ("pending", "inprogress", "running") for s in statuses_list):
             overall = "pending"
         else:
             overall = "not_started"
@@ -183,11 +183,11 @@ def _build_sqlite_entity_digest(
             diagnosis = "Pending processing"
         elif overall == "partial":
             loaded = []
-            if lz_status in ("loaded", "complete", "Succeeded"):
+            if lz_status in ("loaded", "complete", "succeeded"):
                 loaded.append("LZ")
-            if bronze_status in ("loaded", "complete", "Succeeded"):
+            if bronze_status in ("loaded", "complete", "succeeded"):
                 loaded.append("Bronze")
-            if silver_status in ("loaded", "complete", "Succeeded"):
+            if silver_status in ("loaded", "complete", "succeeded"):
                 loaded.append("Silver")
             diagnosis = f"Partial: {', '.join(loaded)} loaded"
         else:

@@ -396,8 +396,12 @@ def invalidate_lakehouse_endpoints():
 
 
 def _sanitize(val: str) -> str:
-    """Strip characters dangerous in SQL identifiers."""
-    return "".join(c for c in val if c.isalnum() or c in "-_ ")
+    """Strip characters dangerous in SQL identifiers.
+
+    Allows: alphanumeric, dash, underscore, space, period.
+    Strips: brackets, quotes, semicolons, comment markers, etc.
+    """
+    return "".join(c for c in val if c.isalnum() or c in "-_. ")
 
 
 # ---------------------------------------------------------------------------

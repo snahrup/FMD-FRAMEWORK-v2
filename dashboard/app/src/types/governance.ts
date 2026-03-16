@@ -22,6 +22,12 @@ export interface ColumnClassification {
   description?: string;
   classifiedBy: ClassifiedBy;
   classifiedAt: string;
+  confidence?: number;
+  piiEntities?: string;
+  dataType?: string;
+  sourceSchema?: string;
+  sourceName?: string;
+  source?: string;
 }
 
 // ── Lineage ──

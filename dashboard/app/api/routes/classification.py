@@ -49,7 +49,13 @@ def _run_scan(job_id: str) -> None:
         classify_by_pattern,
         classify_by_presidio,
     )
-    from dashboard.app.api.routes.lineage import _query_lakehouse_columns, _cache_columns
+    try:
+        from dashboard.app.api.routes.lineage import _query_lakehouse_columns, _cache_columns
+    except ImportError as ie:
+        log.warning("Cannot import lineage helpers (pyodbc unavailable?): %s — "
+                     "schema capture will be skipped, running pattern-only classification", ie)
+        _query_lakehouse_columns = None  # type: ignore
+        _cache_columns = None  # type: ignore
 
     try:
         # ── Phase 1: capture schemas ──────────────────────────────────────────
@@ -69,7 +75,7 @@ def _run_scan(job_id: str) -> None:
             LEFT JOIN lakehouses lh ON e.LakehouseId = lh.LakehouseId
             WHERE e.IsActive = 1
               AND es.Status = 'loaded'
-              AND es.Layer = 'landing'
+              AND es.Layer IN ('landing', 'landingzone')
             ORDER BY e.LandingzoneEntityId
             """
         )
@@ -77,27 +83,30 @@ def _run_scan(job_id: str) -> None:
         total = len(loaded_rows)
         _update_job(detail=f"Found {total} loaded entities")
 
-        for i, row in enumerate(loaded_rows):
-            entity_id = int(row["entity_id"])
-            schema = row["SourceSchema"] or "dbo"
-            table = row["SourceName"] or ""
-            lh_name = row["lz_lakehouse"] or ""
+        if _query_lakehouse_columns is None:
+            _update_job(progress=30, detail="Schema capture skipped (pyodbc unavailable)")
+        else:
+            for i, row in enumerate(loaded_rows):
+                entity_id = int(row["entity_id"])
+                schema = row["SourceSchema"] or "dbo"
+                table = row["SourceName"] or ""
+                lh_name = row["lz_lakehouse"] or ""
 
-            if not table or not lh_name:
-                continue
+                if not table or not lh_name:
+                    continue
 
-            pct = 5 + int((i / max(total, 1)) * 25)
-            _update_job(progress=pct, detail=f"Capturing schema: {schema}.{table}")
+                pct = 5 + int((i / max(total, 1)) * 25)
+                _update_job(progress=pct, detail=f"Capturing schema: {schema}.{table}")
 
-            try:
-                cols = _query_lakehouse_columns(lh_name, schema, table)
-                if cols:
-                    _cache_columns(entity_id, "landing", cols)
-            except Exception as exc:
-                log.debug("Schema capture failed for entity %d (%s.%s): %s",
-                          entity_id, schema, table, exc)
+                try:
+                    cols = _query_lakehouse_columns(lh_name, schema, table)
+                    if cols:
+                        _cache_columns(entity_id, "landing", cols)
+                except Exception as exc:
+                    log.debug("Schema capture failed for entity %d (%s.%s): %s",
+                              entity_id, schema, table, exc)
 
-        _update_job(progress=30, detail="Schema capture complete")
+            _update_job(progress=30, detail="Schema capture complete")
 
         # ── Phase 2: pattern classification ───────────────────────────────────
         _update_job(phase="classifying_patterns", progress=35,
@@ -150,23 +159,23 @@ def post_classification_scan(params: dict) -> dict:
     """Trigger a background classification scan.  Returns the job ID immediately."""
     with _scan_lock:
         current_phase = _scan_job.get("phase", "idle")
+        if current_phase not in ("idle", "complete", "failed"):
+            return {"jobId": _scan_job.get("jobId"), "status": "already_running",
+                    "phase": current_phase}
 
-    if current_phase not in ("idle", "complete", "failed"):
-        return {"jobId": _scan_job.get("jobId"), "status": "already_running",
-                "phase": current_phase}
-
-    job_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    _update_job(
-        jobId=job_id,
-        phase="starting",
-        progress=0,
-        detail="Scan queued",
-        started_at=now,
-        finished_at=None,
-        error=None,
-        result=None,
-    )
+        # Claim the job inside the same lock to prevent TOCTOU race
+        job_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        _scan_job.update(
+            jobId=job_id,
+            phase="starting",
+            progress=0,
+            detail="Scan queued",
+            started_at=now,
+            finished_at=None,
+            error=None,
+            result=None,
+        )
 
     t = threading.Thread(target=_run_scan, args=(job_id,), daemon=True)
     t.start()
@@ -271,7 +280,11 @@ def get_classification_data(params: dict) -> dict:
             JOIN lz_entities e ON cc.entity_id = e.LandingzoneEntityId
             JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
             {where_sql}
-            ORDER BY cc.sensitivity_level DESC, ds.Namespace, e.SourceName, cc.column_name
+            ORDER BY CASE cc.sensitivity_level
+                         WHEN 'pii' THEN 1 WHEN 'restricted' THEN 2
+                         WHEN 'confidential' THEN 3 WHEN 'internal' THEN 4
+                         ELSE 5 END,
+                     ds.Namespace, e.SourceName, cc.column_name
             LIMIT ? OFFSET ?
             """,
             bind + [size, offset],

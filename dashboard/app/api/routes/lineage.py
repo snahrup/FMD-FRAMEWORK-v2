@@ -292,11 +292,12 @@ def get_lineage_columns(params: dict) -> dict:
     bronze_lh = _lh_name(bronze.get("LakehouseId")) if bronze else ""
     silver_lh = _lh_name(silver.get("LakehouseId")) if silver else ""
 
-    # Bronze/Silver schema + table names (framework uses SourceSchema/SourceName)
-    bronze_schema = lz.get("SourceSchema") or "dbo"
-    bronze_table = lz.get("SourceName") or table
-    silver_schema = lz.get("SourceSchema") or "dbo"
-    silver_table = lz.get("SourceName") or table
+    # Bronze/Silver use their own Schema_/Name which may differ from source
+    # (e.g., bronze uses datasource Namespace as schema: "mes.MITMAS" not "dbo.MITMAS")
+    bronze_schema = (bronze.get("Schema_") or lz.get("SourceSchema") or "dbo") if bronze else "dbo"
+    bronze_table = (bronze.get("Name") or lz.get("SourceName") or table) if bronze else table
+    silver_schema = (silver.get("Schema_") or lz.get("SourceSchema") or "dbo") if silver else "dbo"
+    silver_table = (silver.get("Name") or lz.get("SourceName") or table) if silver else table
 
     # 5. Fetch columns per layer
     not_loaded = {"columns": [], "status": "not_loaded"}

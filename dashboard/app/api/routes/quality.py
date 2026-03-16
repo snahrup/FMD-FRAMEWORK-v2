@@ -67,6 +67,8 @@ def get_quality_scores(params: dict) -> dict:
             f"""
             SELECT COUNT(*) AS cnt
             FROM quality_scores qs
+            JOIN lz_entities e  ON qs.entity_id = e.LandingzoneEntityId
+            JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
             {where_sql}
             """,
             bind,

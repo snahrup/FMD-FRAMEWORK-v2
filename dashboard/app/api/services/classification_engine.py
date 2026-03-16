@@ -159,95 +159,93 @@ def classify_by_presidio(entity_id: int | None = None) -> dict:
     errors = 0
 
     try:
-        # Get string columns from column_metadata
-        if entity_id is not None:
-            rows = conn.execute(
-                "SELECT cm.entity_id, cm.layer, cm.column_name, cm.data_type, "
-                "       e.SourceSchema, e.SourceName, lh.Name AS lakehouse_name "
-                "FROM column_metadata cm "
-                "JOIN lz_entities e ON cm.entity_id = e.LandingzoneEntityId "
-                "JOIN lakehouses lh ON e.LakehouseId = lh.LakehouseId "
-                "WHERE cm.entity_id = ? AND LOWER(cm.data_type) IN "
-                "('varchar','nvarchar','char','nchar','text')",
-                (entity_id,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT cm.entity_id, cm.layer, cm.column_name, cm.data_type, "
-                "       e.SourceSchema, e.SourceName, lh.Name AS lakehouse_name "
-                "FROM column_metadata cm "
-                "JOIN lz_entities e ON cm.entity_id = e.LandingzoneEntityId "
-                "JOIN lakehouses lh ON e.LakehouseId = lh.LakehouseId "
-                "WHERE LOWER(cm.data_type) IN "
-                "('varchar','nvarchar','char','nchar','text')"
-            ).fetchall()
+        # Get string columns — only from landing layer since source schema/table
+        # names only match the landing lakehouse (bronze/silver use different schemas)
+        base_where = ("cm.entity_id = ? AND " if entity_id is not None else "") + \
+            "cm.layer = 'landing' AND LOWER(cm.data_type) IN " \
+            "('varchar','nvarchar','char','nchar','text')"
+        base_bind = (entity_id,) if entity_id is not None else ()
+        rows = conn.execute(
+            "SELECT cm.entity_id, cm.layer, cm.column_name, cm.data_type, "
+            "       e.SourceSchema, e.SourceName, lh.Name AS lakehouse_name "
+            "FROM column_metadata cm "
+            "JOIN lz_entities e ON cm.entity_id = e.LandingzoneEntityId "
+            "JOIN lakehouses lh ON e.LakehouseId = lh.LakehouseId "
+            f"WHERE {base_where}",
+            base_bind,
+        ).fetchall()
 
+        # Group columns by entity to batch queries per table
+        from collections import defaultdict
+        by_entity: dict[tuple, list[dict]] = defaultdict(list)
         for row in rows:
-            eid = row["entity_id"]
-            layer = row["layer"]
-            col = row["column_name"]
-            schema = row["SourceSchema"] or "dbo"
-            table = row["SourceName"] or ""
-            lh_name = row["lakehouse_name"] or ""
+            key = (row["entity_id"], row["SourceSchema"], row["SourceName"], row["lakehouse_name"])
+            by_entity[key].append(row)
 
+        for (eid, schema, table, lh_name), col_rows in by_entity.items():
             if not lh_name or not table:
                 continue
 
-            # Sample 100 rows
-            try:
+            s_schema = _sanitize(schema or "dbo")
+            s_table = _sanitize(table)
+
+            # Build a single SELECT with all string columns for this table
+            col_names = [row["column_name"] for row in col_rows]
+
+            for col in col_names:
                 s_col = _sanitize(col)
-                s_schema = _sanitize(schema)
-                s_table = _sanitize(table)
-                sample_rows = _query_lakehouse(
-                    lh_name,
-                    f"SELECT TOP 100 [{s_col}] FROM [{s_schema}].[{s_table}] "
-                    f"WHERE [{s_col}] IS NOT NULL",
-                )
-                scanned += 1
-            except Exception as exc:
-                log.debug("presidio sample failed for %s.%s.%s: %s", lh_name, table, col, exc)
-                errors += 1
-                continue
-
-            # Run Presidio on each sampled value
-            pii_found = False
-            pii_entities: list[str] = []
-            for sample in sample_rows:
-                val = list(sample.values())[0] if sample else None
-                if not val or not isinstance(val, str):
-                    continue
                 try:
-                    results = analyzer.analyze(text=val[:500], language="en")
-                    if results:
-                        pii_found = True
-                        for r in results:
-                            if r.entity_type not in pii_entities:
-                                pii_entities.append(r.entity_type)
-                except Exception:
-                    pass
-
-            if pii_found:
-                pii_str = ",".join(pii_entities[:10])
-                try:
-                    conn.execute(
-                        """
-                        INSERT INTO column_classifications
-                            (entity_id, layer, column_name, sensitivity_level,
-                             certification_status, classified_by, confidence,
-                             pii_entities, classified_at)
-                        VALUES (?, ?, ?, 'pii', 'none', 'auto:presidio', 0.9, ?, ?)
-                        ON CONFLICT(entity_id, layer, column_name) DO UPDATE SET
-                            sensitivity_level   = 'pii',
-                            classified_by       = 'auto:presidio',
-                            confidence          = 0.9,
-                            pii_entities        = excluded.pii_entities,
-                            classified_at       = excluded.classified_at
-                        """,
-                        (eid, layer, col, pii_str, now),
+                    sample_rows = _query_lakehouse(
+                        lh_name,
+                        f"SELECT TOP 100 [{s_col}] FROM [{s_schema}].[{s_table}] "
+                        f"WHERE [{s_col}] IS NOT NULL",
                     )
-                    upgraded += 1
+                    scanned += 1
                 except Exception as exc:
-                    log.warning("presidio write failed for %s.%s: %s", eid, col, exc)
+                    log.debug("presidio sample failed for %s.%s.%s: %s", lh_name, table, col, exc)
+                    errors += 1
+                    continue
+
+                # Run Presidio on each sampled value
+                pii_found = False
+                pii_entities: list[str] = []
+                for sample in sample_rows:
+                    val = list(sample.values())[0] if sample else None
+                    if not val or not isinstance(val, str):
+                        continue
+                    try:
+                        results = analyzer.analyze(text=val[:500], language="en")
+                        if results:
+                            pii_found = True
+                            for r in results:
+                                if r.entity_type not in pii_entities:
+                                    pii_entities.append(r.entity_type)
+                    except Exception:
+                        pass
+
+                if pii_found:
+                    pii_str = ",".join(pii_entities[:10])
+                    layer = col_rows[0]["layer"]  # all rows share same layer (landing)
+                    try:
+                        conn.execute(
+                            """
+                            INSERT INTO column_classifications
+                                (entity_id, layer, column_name, sensitivity_level,
+                                 certification_status, classified_by, confidence,
+                                 pii_entities, classified_at)
+                            VALUES (?, ?, ?, 'pii', 'none', 'auto:presidio', 0.9, ?, ?)
+                            ON CONFLICT(entity_id, layer, column_name) DO UPDATE SET
+                                sensitivity_level   = 'pii',
+                                classified_by       = 'auto:presidio',
+                                confidence          = 0.9,
+                                pii_entities        = excluded.pii_entities,
+                                classified_at       = excluded.classified_at
+                            """,
+                            (eid, layer, col, pii_str, now),
+                        )
+                        upgraded += 1
+                    except Exception as exc:
+                        log.warning("presidio write failed for %s.%s: %s", eid, col, exc)
 
         conn.commit()
 
@@ -304,8 +302,11 @@ def get_classification_summary() -> dict:
             if lvl in by_sensitivity:
                 by_sensitivity[lvl] = int(r["n"])
 
-        classified_cols = total_cols - by_sensitivity["public"]
-        coverage = round(classified_cols / total_cols * 100, 1) if total_cols > 0 else 0.0
+        # classifiedColumns = count of columns actually in column_classifications
+        # that have a non-public sensitivity level
+        total_classified = sum(by_sensitivity.values())
+        classified_cols = total_classified - by_sensitivity["public"]
+        coverage = round(total_classified / total_cols * 100, 1) if total_cols > 0 else 0.0
 
         # By certification
         cert_rows = conn.execute(

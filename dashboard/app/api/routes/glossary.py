@@ -234,13 +234,8 @@ def seed_glossary(params: dict) -> dict:
 
     cmd = [sys.executable, str(script_path)]
 
-    knowledge_path = (params.get("knowledgePath") or "").strip()
-    if knowledge_path:
-        cmd += ["--knowledge-path", knowledge_path]
-
-    db_path_override = (params.get("dbPath") or "").strip()
-    if db_path_override:
-        cmd += ["--db-path", db_path_override]
+    # Ignore user-supplied paths — always use defaults to prevent path traversal.
+    # The seed script uses sensible defaults (sibling knowledge repo + control plane DB).
 
     try:
         result = subprocess.run(

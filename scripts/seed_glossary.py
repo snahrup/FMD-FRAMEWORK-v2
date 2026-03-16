@@ -82,9 +82,15 @@ def seed_glossary_terms(conn: sqlite3.Connection, kb_path: Path) -> int:
 
         conn.execute(
             """
-            INSERT OR REPLACE INTO business_glossary
+            INSERT INTO business_glossary
                 (term, definition, category, related_systems, synonyms, source)
             VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(term) DO UPDATE SET
+                definition      = excluded.definition,
+                category        = excluded.category,
+                related_systems = excluded.related_systems,
+                synonyms        = excluded.synonyms,
+                source          = excluded.source
             """,
             (
                 term,
@@ -136,9 +142,15 @@ def seed_systems(conn: sqlite3.Connection, kb_path: Path) -> int:
 
         conn.execute(
             """
-            INSERT OR REPLACE INTO business_glossary
+            INSERT INTO business_glossary
                 (term, definition, category, related_systems, synonyms, source)
             VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(term) DO UPDATE SET
+                definition      = excluded.definition,
+                category        = excluded.category,
+                related_systems = excluded.related_systems,
+                synonyms        = excluded.synonyms,
+                source          = excluded.source
             """,
             (
                 term,
@@ -183,9 +195,15 @@ def seed_identifiers(conn: sqlite3.Connection, kb_path: Path) -> int:
 
         conn.execute(
             """
-            INSERT OR REPLACE INTO business_glossary
+            INSERT INTO business_glossary
                 (term, definition, category, related_systems, synonyms, source)
             VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(term) DO UPDATE SET
+                definition      = excluded.definition,
+                category        = excluded.category,
+                related_systems = excluded.related_systems,
+                synonyms        = excluded.synonyms,
+                source          = excluded.source
             """,
             (
                 term,
@@ -283,9 +301,15 @@ def seed_entity_annotations(conn: sqlite3.Connection, kb_path: Path) -> int:
 
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO entity_annotations
+                    INSERT INTO entity_annotations
                         (entity_id, business_name, description, domain, tags, source)
                     VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(entity_id) DO UPDATE SET
+                        business_name = excluded.business_name,
+                        description   = excluded.description,
+                        domain        = excluded.domain,
+                        tags          = excluded.tags,
+                        source        = excluded.source
                     """,
                     (
                         entity_id,
