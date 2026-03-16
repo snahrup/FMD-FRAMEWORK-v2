@@ -1,7 +1,9 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { BackgroundTaskProvider } from '@/contexts/BackgroundTaskContext'
+import { PersonaProvider, usePersona } from '@/contexts/PersonaContext'
 import { AppLayout } from '@/components/layout/AppLayout'
 import ExecutionMatrix from '@/pages/ExecutionMatrix'
+import BusinessOverview from '@/pages/BusinessOverview'
 import EngineControl from '@/pages/EngineControl'
 import ErrorIntelligence from '@/pages/ErrorIntelligence'
 import AdminGateway from '@/pages/AdminGateway'
@@ -42,12 +44,21 @@ import ImpactAnalysis from '@/pages/ImpactAnalysis'
 import DatabaseExplorer from '@/pages/DatabaseExplorer'
 import DataManager from '@/pages/DataManager'
 
+/** Redirect "/" to the persona-appropriate landing page */
+function HomeLanding() {
+  const { isBusiness } = usePersona();
+  return <Navigate to={isBusiness ? "/overview" : "/matrix"} replace />;
+}
+
 function App() {
   return (
+    <PersonaProvider>
     <BackgroundTaskProvider>
     <AppLayout>
       <Routes>
-        <Route path="/" element={<ExecutionMatrix />} />
+        <Route path="/" element={<HomeLanding />} />
+        <Route path="/overview" element={<BusinessOverview />} />
+        <Route path="/matrix" element={<ExecutionMatrix />} />
         <Route path="/engine" element={<EngineControl />} />
         <Route path="/control" element={<ControlPlane />} />
         <Route path="/logs" element={<ExecutionLog />} />
@@ -92,6 +103,7 @@ function App() {
       </Routes>
     </AppLayout>
     </BackgroundTaskProvider>
+    </PersonaProvider>
   )
 }
 

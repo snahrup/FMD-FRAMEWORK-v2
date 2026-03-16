@@ -50,6 +50,16 @@ import { DeploymentOverlay } from "@/components/DeploymentOverlay";
 import { BackgroundTaskToast } from "@/components/BackgroundTaskToast";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { getHiddenPages } from "@/lib/pageVisibility";
+import { usePersona } from "@/contexts/PersonaContext";
+import {
+  LayoutDashboard,
+  Bell,
+  BookOpen as BookOpenIcon,
+  HelpCircle,
+  FileText,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 
 interface NavItem {
   icon: LucideIcon;
@@ -66,7 +76,7 @@ const CORE_GROUPS: NavGroup[] = [
   {
     label: "Operations",
     items: [
-      { icon: Grid3X3, label: "Execution Matrix", href: "/" },
+      { icon: Grid3X3, label: "Execution Matrix", href: "/matrix" },
       { icon: Cog, label: "Engine Control", href: "/engine" },
       { icon: Sparkles, label: "Validation", href: "/validation" },
       { icon: Radio, label: "Live Monitor", href: "/live" },
@@ -135,8 +145,24 @@ const CORE_GROUPS: NavGroup[] = [
   },
 ];
 
+// Business Portal navigation — focused set for non-technical users
+const BUSINESS_GROUPS: NavGroup[] = [
+  {
+    label: "Portal",
+    items: [
+      { icon: LayoutDashboard, label: "Overview", href: "/overview" },
+      { icon: Bell, label: "Alerts", href: "/errors" },
+      { icon: Cable, label: "Data Sources", href: "/sources" },
+      { icon: Library, label: "Catalog", href: "/catalog" },
+      { icon: FileText, label: "Data Quality", href: "/labs/dq-scorecard" },
+      { icon: HelpCircle, label: "Glossary", href: "/catalog" },
+    ],
+  },
+];
+
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const { persona, isBusiness, togglePersona } = usePersona();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [hiddenPages, setHiddenPages] = useState<string[]>([]);
@@ -159,14 +185,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     getHiddenPages().then(setHiddenPages);
   }, []);
 
-  // Build sidebar groups filtered by hiddenPages.
-  // Labs pages (Coming Soon stubs) are excluded from nav — routes still work via direct URL.
+  // Build sidebar groups filtered by persona + hiddenPages.
+  // Business mode shows the focused Business Portal nav.
+  // Engineering mode shows the full CORE_GROUPS with hidden-page filtering.
   const sidebarGroups = useMemo(() => {
-    return CORE_GROUPS.map((g) => ({
+    const groups = isBusiness ? BUSINESS_GROUPS : CORE_GROUPS;
+    return groups.map((g) => ({
       ...g,
       items: g.items.filter((item) => !hiddenPages.includes(item.href)),
     })).filter((g) => g.items.length > 0);
-  }, [hiddenPages]);
+  }, [hiddenPages, isBusiness]);
 
   const sidebarWidth = isCollapsed ? "w-16" : "w-64";
   const mainMargin = isCollapsed ? "md:ml-16" : "md:ml-64";
@@ -181,7 +209,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {!isCollapsed && (
             <div>
               <h1 className="font-display font-semibold text-sm leading-none tracking-tight">FMD Data</h1>
-              <span className="text-[10px] text-sidebar-foreground/60 font-medium tracking-wider uppercase">Pipeline Control</span>
+              <span className="text-[10px] text-sidebar-foreground/60 font-medium tracking-wider uppercase">{isBusiness ? "Business Portal" : "Pipeline Control"}</span>
             </div>
           )}
         </div>
@@ -224,7 +252,26 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </nav>
       </div>
 
-      <div className={cn("mt-auto p-4 border-t border-sidebar-border", isCollapsed && "p-2")}>
+      <div className={cn("mt-auto p-4 border-t border-sidebar-border space-y-2", isCollapsed && "p-2")}>
+        {/* Persona toggle */}
+        <button
+          onClick={togglePersona}
+          className={cn(
+            "flex items-center gap-2 px-3 py-2 rounded-[var(--radius-md)] transition-all text-xs w-full cursor-pointer",
+            isBusiness
+              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
+              : "bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20",
+            isCollapsed && "justify-center px-2"
+          )}
+          title={isBusiness ? "Switch to Engineering Console" : "Switch to Business Portal"}
+        >
+          {isBusiness ? <Eye className="h-4 w-4 flex-shrink-0" /> : <EyeOff className="h-4 w-4 flex-shrink-0" />}
+          {!isCollapsed && (
+            <span className="font-medium">{isBusiness ? "Business" : "Engineering"}</span>
+          )}
+        </button>
+
+        {/* Collapse toggle */}
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
           className={cn(
@@ -283,9 +330,19 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
            <div className="flex items-center gap-2">
              <ThemeToggle />
-             <Button variant="outline" size="sm" className="hidden sm:flex gap-2 h-8 text-xs border-amber-300/50 dark:border-amber-700/50 bg-amber-50/50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100/50 dark:hover:bg-amber-950/30">
-               <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-               <span className="font-semibold">DEV · MVP</span>
+             <Button
+               variant="outline"
+               size="sm"
+               onClick={togglePersona}
+               className={cn(
+                 "hidden sm:flex gap-2 h-8 text-xs cursor-pointer",
+                 isBusiness
+                   ? "border-emerald-300/50 dark:border-emerald-700/50 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100/50 dark:hover:bg-emerald-950/30"
+                   : "border-amber-300/50 dark:border-amber-700/50 bg-amber-50/50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100/50 dark:hover:bg-amber-950/30"
+               )}
+             >
+               <div className={cn("h-2 w-2 rounded-full", isBusiness ? "bg-emerald-500" : "bg-amber-500 animate-pulse")} />
+               <span className="font-semibold">{isBusiness ? "Business" : "Engineering"}</span>
              </Button>
            </div>
         </header>
