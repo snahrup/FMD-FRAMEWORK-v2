@@ -1,14 +1,14 @@
-"""FMD Control Plane DB — SQLite local mirror of Fabric SQL metadata.
+"""FMD Control Plane DB — SQLite single source of truth for FMD metadata.
 
-Replaces the unreliable Fabric SQL Analytics Endpoint as the primary read
-source for the FMD dashboard.  Mirrors integration.*, execution.*, and
-logging.* schemas into a single WAL-mode SQLite file.
+Stores integration.*, execution.*, and logging.* schemas in a single
+WAL-mode SQLite file.  Data is ingested from OneLake Parquet via
+delta_ingest.py.
 """
 
 import sqlite3
 import threading
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 log = logging.getLogger('fmd-control-plane')
@@ -30,7 +30,7 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def _v(val):
-    """Stringify non-None values to match query_sql() behaviour."""
+    """Stringify non-None values so all columns are TEXT (consistent dict rows)."""
     return str(val) if val is not None else None
 
 
@@ -49,6 +49,7 @@ def init_db():
                 ConnectionId    INTEGER PRIMARY KEY,
                 ConnectionGuid  TEXT,
                 Name            TEXT NOT NULL,
+                DisplayName     TEXT,
                 Type            TEXT,
                 ServerName      TEXT,
                 DatabaseName    TEXT,
@@ -60,6 +61,7 @@ def init_db():
                 DataSourceId    INTEGER PRIMARY KEY,
                 ConnectionId    INTEGER NOT NULL,
                 Name            TEXT NOT NULL,
+                DisplayName     TEXT,
                 Namespace       TEXT,
                 Type            TEXT,
                 Description     TEXT,
@@ -85,6 +87,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS pipelines (
                 PipelineId      INTEGER PRIMARY KEY,
                 Name            TEXT NOT NULL,
+                PipelineGuid    TEXT,
+                WorkspaceGuid   TEXT,
                 IsActive        INTEGER DEFAULT 1,
                 updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );
@@ -255,6 +259,134 @@ def init_db():
                 updated_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );
 
+            -- admin config (dashboard settings stored locally) -------------------
+
+            CREATE TABLE IF NOT EXISTS admin_config (
+                key        TEXT PRIMARY KEY,
+                value      TEXT,
+                updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            -- notebook execution log ---------------------------------------------
+            -- Notebook execution log.
+            -- Written by pipeline notebooks (NB_FMD_PROCESSING_*, NB_FMD_LOAD_*).
+
+            CREATE TABLE IF NOT EXISTS notebook_executions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                NotebookName    TEXT,
+                PipelineRunGuid TEXT,
+                EntityId        INTEGER,
+                EntityLayer     TEXT,
+                LogType         TEXT,
+                LogDateTime     TEXT,
+                LogData         TEXT,
+                Status          TEXT,
+                StartedAt       TEXT,
+                EndedAt         TEXT,
+                created_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            -- import job tracking ------------------------------------------------
+            -- Persists the state of source import jobs started via
+            -- POST /api/sources/import so they survive server restarts.
+
+            CREATE TABLE IF NOT EXISTS import_jobs (
+                job_id          TEXT PRIMARY KEY,
+                datasource_name TEXT NOT NULL,
+                datasource_id   INTEGER,
+                table_count     INTEGER DEFAULT 0,
+                tables_done     INTEGER DEFAULT 0,
+                phase           TEXT NOT NULL DEFAULT 'registering',
+                progress        INTEGER DEFAULT 0,
+                current_table   TEXT,
+                status          TEXT NOT NULL DEFAULT 'running',
+                started_at      TEXT,
+                finished_at     TEXT,
+                error           TEXT,
+                created_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            -- server display labels ----------------------------------------------
+            -- User-defined friendly names for SQL Server hostnames shown in the
+            -- SQL Explorer (e.g. "m3-db1" -> "MES").  Complements the
+            -- admin_config approach already used by sql_explorer.py.
+
+            CREATE TABLE IF NOT EXISTS server_labels (
+                server      TEXT PRIMARY KEY,
+                label       TEXT NOT NULL,
+                updated_at  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            -- MDM: column metadata + classification --------------------------------
+
+            CREATE TABLE IF NOT EXISTS column_metadata (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id           INTEGER NOT NULL,
+                layer               TEXT NOT NULL,
+                column_name         TEXT NOT NULL,
+                data_type           TEXT,
+                ordinal_position    INTEGER,
+                is_nullable         INTEGER DEFAULT 1,
+                max_length          INTEGER,
+                numeric_precision   INTEGER,
+                numeric_scale       INTEGER,
+                captured_at         TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                UNIQUE(entity_id, layer, column_name)
+            );
+
+            CREATE TABLE IF NOT EXISTS column_classifications (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id           INTEGER NOT NULL,
+                layer               TEXT NOT NULL,
+                column_name         TEXT NOT NULL,
+                sensitivity_level   TEXT NOT NULL DEFAULT 'public',
+                certification_status TEXT NOT NULL DEFAULT 'none',
+                classified_by       TEXT NOT NULL,
+                confidence          REAL DEFAULT 1.0,
+                pii_entities        TEXT,
+                classified_at       TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                UNIQUE(entity_id, layer, column_name)
+            );
+
+            -- MDM: business glossary + entity annotations --------------------------
+
+            CREATE TABLE IF NOT EXISTS business_glossary (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                term                TEXT NOT NULL UNIQUE,
+                definition          TEXT NOT NULL,
+                category            TEXT,
+                related_systems     TEXT,
+                synonyms            TEXT,
+                source              TEXT,
+                created_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS entity_annotations (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id           INTEGER NOT NULL UNIQUE,
+                business_name       TEXT,
+                description         TEXT,
+                domain              TEXT,
+                tags                TEXT,
+                source              TEXT,
+                updated_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            -- MDM: quality scores --------------------------------------------------
+
+            CREATE TABLE IF NOT EXISTS quality_scores (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id           INTEGER NOT NULL UNIQUE,
+                completeness_score  REAL,
+                freshness_score     REAL,
+                consistency_score   REAL,
+                volume_score        REAL,
+                composite_score     REAL,
+                quality_tier        TEXT,
+                computed_at         TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
             -- indexes ------------------------------------------------------------
 
             CREATE INDEX IF NOT EXISTS idx_lz_datasource   ON lz_entities(DataSourceId);
@@ -270,8 +402,86 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_paudit_run        ON pipeline_audit(PipelineRunGuid);
             CREATE INDEX IF NOT EXISTS idx_caudit_run        ON copy_activity_audit(PipelineRunGuid);
             CREATE INDEX IF NOT EXISTS idx_caudit_entity     ON copy_activity_audit(EntityId);
+            CREATE INDEX IF NOT EXISTS idx_nb_exec_run       ON notebook_executions(PipelineRunGuid);
+            CREATE INDEX IF NOT EXISTS idx_nb_exec_entity    ON notebook_executions(EntityId);
+            CREATE INDEX IF NOT EXISTS idx_import_jobs_status ON import_jobs(status);
         """)
         conn.commit()
+
+        # ── Migrations (idempotent) ──
+        # Add DisplayName column to datasources if missing
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(datasources)").fetchall()}
+        if "DisplayName" not in cols:
+            conn.execute("ALTER TABLE datasources ADD COLUMN DisplayName TEXT")
+            conn.commit()
+            log.info("Migration: added DisplayName column to datasources")
+
+        # Seed DisplayName for existing rows that don't have one yet
+        needs_seed = conn.execute(
+            "SELECT DataSourceId, Name, Namespace, Description FROM datasources "
+            "WHERE DisplayName IS NULL OR DisplayName = ''"
+        ).fetchall()
+        if needs_seed:
+            _DISPLAY_SEEDS = {
+                "MES": "MES",
+                "ETQStagingPRD": "ETQ",
+                "m3fdbprd": "M3 ERP",
+                "DI_PRD_Staging": "M3 Cloud",
+                "optivalive": "Optiva",
+                "LH_DATA_LANDINGZONE": "OneLake Landing Zone",
+                "CUSTOM_NOTEBOOK": "Custom Notebook",
+            }
+            for row in needs_seed:
+                display = _DISPLAY_SEEDS.get(row[1])
+                if not display and row[3]:
+                    # Try to extract label from Description like "M3 Cloud (DI_PRD_Staging on sql2016live)"
+                    desc = row[3]
+                    paren = desc.find("(")
+                    display = desc[:paren].strip() if paren > 0 else desc
+                if not display:
+                    display = row[2] or row[1]  # Namespace or Name fallback
+                conn.execute("UPDATE datasources SET DisplayName = ? WHERE DataSourceId = ?",
+                             (display, row[0]))
+            conn.commit()
+            log.info("Migration: seeded DisplayName for %d datasources", len(needs_seed))
+
+        # Add DisplayName column to connections if missing
+        conn_cols = {r[1] for r in conn.execute("PRAGMA table_info(connections)").fetchall()}
+        if "DisplayName" not in conn_cols:
+            conn.execute("ALTER TABLE connections ADD COLUMN DisplayName TEXT")
+            conn.commit()
+            log.info("Migration: added DisplayName column to connections")
+
+        # Seed DisplayName for connections that don't have one yet
+        conn_needs_seed = conn.execute(
+            "SELECT ConnectionId, Name, ServerName, DatabaseName FROM connections "
+            "WHERE DisplayName IS NULL OR DisplayName = ''"
+        ).fetchall()
+        if conn_needs_seed:
+            _CONN_SEEDS = {
+                "CON_FMD_FABRIC_SQL": "Fabric SQL",
+                "CON_FMD_FABRIC_PIPELINES": "Fabric Pipelines",
+                "CON_FMD_FABRIC_NOTEBOOKS": "Fabric Notebooks",
+                "CON_FMD_NOTEBOOK": "Custom Notebook",
+                "CON_FMD_ONELAKE": "OneLake",
+                "CON_FMD_M3DB1_MES": "MES (m3-db1)",
+                "CON_FMD_M3DB3_ETQSTAGINGPRD": "ETQ (M3-DB3)",
+                "CON_FMD_M3DB1_M3": "M3 ERP (sqllogshipprd)",
+                "CON_FMD_M3DB1_M3CLOUD": "M3 Cloud (sql2016live)",
+                "CON_FMD_SQLOPTIVALIVE_OPTIVALIVE": "Optiva (SQLOptivaLive)",
+            }
+            for row in conn_needs_seed:
+                display = _CONN_SEEDS.get(row[1])
+                if not display:
+                    # Build from server → database
+                    parts = []
+                    if row[2]: parts.append(row[2])
+                    if row[3]: parts.append(row[3])
+                    display = " → ".join(parts) if parts else row[1]
+                conn.execute("UPDATE connections SET DisplayName = ? WHERE ConnectionId = ?",
+                             (display, row[0]))
+            conn.commit()
+            log.info("Migration: seeded DisplayName for %d connections", len(conn_needs_seed))
     finally:
         conn.close()
     log.info(f'Control-plane DB initialized at {DB_PATH}')
@@ -282,7 +492,7 @@ def init_db():
 # ---------------------------------------------------------------------------
 
 def _now():
-    return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 def upsert_connection(row: dict) -> None:
@@ -291,11 +501,12 @@ def upsert_connection(row: dict) -> None:
         try:
             conn.execute(
                 "INSERT OR REPLACE INTO connections "
-                "(ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName, IsActive, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "(ConnectionId, ConnectionGuid, Name, DisplayName, Type, ServerName, DatabaseName, IsActive, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (row.get('ConnectionId'), _v(row.get('ConnectionGuid')),
-                 _v(row.get('Name')), _v(row.get('Type')),
-                 _v(row.get('ServerName')), _v(row.get('DatabaseName')),
+                 _v(row.get('Name')), _v(row.get('DisplayName')),
+                 _v(row.get('Type')), _v(row.get('ServerName')),
+                 _v(row.get('DatabaseName')),
                  row.get('IsActive', 1), _now())
             )
             conn.commit()
@@ -309,11 +520,12 @@ def upsert_datasource(row: dict) -> None:
         try:
             conn.execute(
                 "INSERT OR REPLACE INTO datasources "
-                "(DataSourceId, ConnectionId, Name, Namespace, Type, Description, IsActive, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "(DataSourceId, ConnectionId, Name, DisplayName, Namespace, Type, Description, IsActive, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (row.get('DataSourceId'), row.get('ConnectionId'),
-                 _v(row.get('Name')), _v(row.get('Namespace')),
-                 _v(row.get('Type')), _v(row.get('Description')),
+                 _v(row.get('Name')), _v(row.get('DisplayName')),
+                 _v(row.get('Namespace')), _v(row.get('Type')),
+                 _v(row.get('Description')),
                  row.get('IsActive', 1), _now())
             )
             conn.commit()
@@ -438,12 +650,30 @@ def upsert_engine_run(row: dict) -> None:
         conn = _get_conn()
         try:
             conn.execute(
-                "INSERT OR REPLACE INTO engine_runs "
+                "INSERT INTO engine_runs "
                 "(RunId, Mode, Status, TotalEntities, SucceededEntities, FailedEntities, "
                 "SkippedEntities, TotalRowsRead, TotalRowsWritten, TotalBytesTransferred, "
                 "TotalDurationSeconds, Layers, EntityFilter, TriggeredBy, ErrorSummary, "
                 "StartedAt, EndedAt, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(RunId) DO UPDATE SET "
+                "Mode              = COALESCE(excluded.Mode, Mode), "
+                "Status            = excluded.Status, "
+                "TotalEntities     = CASE WHEN excluded.TotalEntities > 0 THEN excluded.TotalEntities ELSE TotalEntities END, "
+                "SucceededEntities = CASE WHEN excluded.SucceededEntities > 0 THEN excluded.SucceededEntities ELSE SucceededEntities END, "
+                "FailedEntities    = CASE WHEN excluded.FailedEntities > 0 THEN excluded.FailedEntities ELSE FailedEntities END, "
+                "SkippedEntities   = CASE WHEN excluded.SkippedEntities > 0 THEN excluded.SkippedEntities ELSE SkippedEntities END, "
+                "TotalRowsRead     = CASE WHEN excluded.TotalRowsRead > 0 THEN excluded.TotalRowsRead ELSE TotalRowsRead END, "
+                "TotalRowsWritten  = CASE WHEN excluded.TotalRowsWritten > 0 THEN excluded.TotalRowsWritten ELSE TotalRowsWritten END, "
+                "TotalBytesTransferred = CASE WHEN excluded.TotalBytesTransferred > 0 THEN excluded.TotalBytesTransferred ELSE TotalBytesTransferred END, "
+                "TotalDurationSeconds  = CASE WHEN excluded.TotalDurationSeconds > 0 THEN excluded.TotalDurationSeconds ELSE TotalDurationSeconds END, "
+                "Layers            = COALESCE(excluded.Layers, Layers), "
+                "EntityFilter      = COALESCE(excluded.EntityFilter, EntityFilter), "
+                "TriggeredBy       = COALESCE(excluded.TriggeredBy, TriggeredBy), "
+                "ErrorSummary      = COALESCE(excluded.ErrorSummary, ErrorSummary), "
+                "StartedAt         = COALESCE(excluded.StartedAt, StartedAt), "
+                "EndedAt           = COALESCE(excluded.EndedAt, EndedAt), "
+                "updated_at        = excluded.updated_at",
                 (row.get('RunId'), _v(row.get('Mode')),
                  _v(row.get('Status', 'Unknown')),
                  row.get('TotalEntities', 0), row.get('SucceededEntities', 0),
@@ -601,14 +831,14 @@ def insert_copy_activity_audit(row: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Read functions — shapes match what server.py expects from Fabric SQL
+# Read functions — return list[dict] consumed by route handlers
 # ---------------------------------------------------------------------------
 
 def get_connections() -> list[dict]:
     conn = _get_conn()
     try:
         rows = conn.execute(
-            "SELECT ConnectionId, Name, Type, IsActive "
+            "SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName, IsActive "
             "FROM connections ORDER BY Name"
         ).fetchall()
         return [dict(r) for r in rows]
@@ -800,8 +1030,8 @@ def get_pipeline_runs_grouped() -> list[dict]:
                 EntityLayer,
                 TriggerType,
                 MIN(CASE WHEN LogType LIKE 'Start%' OR LogType = 'InProgress' THEN LogDateTime END) AS StartTime,
-                MAX(CASE WHEN LogType LIKE 'End%' OR LogType = 'Succeeded' THEN LogDateTime END) AS EndTime,
-                MAX(CASE WHEN LogType LIKE 'End%' OR LogType = 'Succeeded' THEN LogData     END) AS EndLogData,
+                MAX(CASE WHEN LogType LIKE 'End%' OR LogType = 'Succeeded' OR LogType = 'Failed' OR LogType = 'Aborted' THEN LogDateTime END) AS EndTime,
+                MAX(CASE WHEN LogType LIKE 'End%' OR LogType = 'Succeeded' OR LogType = 'Failed' OR LogType = 'Aborted' THEN LogData     END) AS EndLogData,
                 MAX(CASE WHEN LogType LIKE 'Error%' OR LogType = 'PipelineError' OR LogType = 'Failed' THEN LogData END) AS ErrorData,
                 COUNT(*) AS LogCount
             FROM pipeline_audit
@@ -872,7 +1102,7 @@ def get_source_config() -> list[dict]:
     conn = _get_conn()
     try:
         rows = conn.execute(
-            "SELECT d.DataSourceId, d.Name, d.Namespace, d.Type, d.Description, "
+            "SELECT d.DataSourceId, d.Name, d.DisplayName, d.Namespace, d.Type, d.Description, "
             "       d.IsActive, c.ConnectionId, c.Name AS ConnectionName, "
             "       c.ServerName, c.DatabaseName "
             "FROM datasources d "
@@ -947,7 +1177,8 @@ def get_stats() -> dict:
         'pipeline_lz_entity', 'pipeline_bronze_entity',
         'entity_status', 'watermarks',
         'pipeline_audit', 'copy_activity_audit',
-        'sync_metadata',
+        'sync_metadata', 'admin_config',
+        'notebook_executions', 'import_jobs', 'server_labels',
     ]
     conn = _get_conn()
     try:
@@ -962,7 +1193,7 @@ def get_stats() -> dict:
 
 def cleanup_old_data(days: int = 90) -> None:
     """Purge engine_task_log, pipeline_audit, copy_activity_audit older than N days."""
-    cutoff = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
     with _db_lock:
         conn = _get_conn()
         try:

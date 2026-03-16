@@ -36,17 +36,37 @@ const ALL_PAGES = [
   { href: "/logs", label: "Execution Log", group: "Operations" },
   { href: "/runner", label: "Pipeline Runner", group: "Operations" },
   { href: "/notebook-debug", label: "Pipeline Testing", group: "Operations" },
+  { href: "/load-progress", label: "Load Progress", group: "Operations" },
   { href: "/sources", label: "Source Manager", group: "Data" },
   { href: "/blender", label: "Data Blender", group: "Data" },
   { href: "/flow", label: "Flow Explorer", group: "Data" },
   { href: "/journey", label: "Data Journey", group: "Data" },
   { href: "/counts", label: "Record Counts", group: "Data" },
+  { href: "/data-manager", label: "Data Manager", group: "Data" },
   { href: "/sql-explorer", label: "SQL Explorer", group: "Data" },
+  { href: "/lineage", label: "Data Lineage", group: "Insights" },
+  { href: "/classification", label: "Data Classification", group: "Insights" },
+  { href: "/catalog", label: "Data Catalog", group: "Insights" },
+  { href: "/profile", label: "Data Profiler", group: "Insights" },
+  { href: "/columns", label: "Column Evolution", group: "Insights" },
+  { href: "/microscope", label: "Data Microscope", group: "Insights" },
+  { href: "/sankey", label: "Sankey Flow", group: "Insights" },
+  { href: "/replay", label: "Transformation Replay", group: "Insights" },
+  { href: "/pulse", label: "Impact Pulse", group: "Insights" },
+  { href: "/impact", label: "Impact Analysis", group: "Insights" },
+  { href: "/labs/dq-scorecard", label: "DQ Scorecard", group: "Quality" },
+  { href: "/labs/cleansing", label: "Cleansing Rules", group: "Quality" },
+  { href: "/labs/scd-audit", label: "SCD Audit", group: "Quality" },
+  { href: "/labs/gold-mlv", label: "Gold MLV Manager", group: "Quality" },
+  { href: "/test-audit", label: "Test Audit", group: "Testing" },
+  { href: "/test-swarm", label: "Test Swarm", group: "Testing" },
+  { href: "/mri", label: "MRI", group: "Testing" },
   { href: "/admin", label: "Admin & Governance", group: "Admin" },
   { href: "/config", label: "Config Manager", group: "Admin" },
   { href: "/notebook-config", label: "Notebook Config", group: "Admin" },
   { href: "/settings", label: "Settings", group: "Admin" },
   { href: "/setup", label: "Environment Setup", group: "Admin" },
+  { href: "/db-explorer", label: "Database Explorer", group: "Admin" },
 ];
 
 // ── Tab definitions ──
@@ -72,7 +92,7 @@ function PageVisibilityTab({ password }: { password: string }) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     mountedRef.current = true;

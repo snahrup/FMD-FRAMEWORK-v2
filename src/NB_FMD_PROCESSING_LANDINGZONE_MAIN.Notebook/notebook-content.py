@@ -45,8 +45,6 @@
 
 import uuid
 import requests
-import struct
-import pyodbc
 
 from datetime import datetime, timezone
 from json import loads, dumps
@@ -75,9 +73,6 @@ CustomNotebookName = "NB_FMD_CUSTOM_NOTEBOOK_TEMPLATE"
 TriggerGuid = ""
 TriggerTime = ""
 TriggerType = ""
-
-###############################Logging Parameters###############################
-driver = '{ODBC Driver 18 for SQL Server}'
 
 result_data=''
 
@@ -159,39 +154,29 @@ if not WorkspaceGuid:
 
 # CELL ********************
 
-# Load connection config for EntityStatus updates
-_config_settings = notebookutils.variableLibrary.getLibrary("VAR_CONFIG_FMD")
-_lz_connstring = _config_settings.fmd_fabric_db_connection
-_lz_database = _config_settings.fmd_fabric_db_name
+def _write_audit_to_delta(table_name: str, data: dict):
+    """Write a single audit record to a Delta table in the default lakehouse."""
+    try:
+        from pyspark.sql import SparkSession
+        from datetime import datetime as _dt
+        _spark = SparkSession.builder.getOrCreate()
+        data["created_at"] = _dt.utcnow().isoformat() + "Z"
+        _df = _spark.createDataFrame([data])
+        _df.write.mode("append").format("delta").saveAsTable(table_name)
+    except Exception as _delta_err:
+        print(f"  [WARN] Delta write to {table_name} failed: {_delta_err}")
+
 
 def update_entity_status(entity_id, layer, status, error_msg=None):
-    """Update EntityStatusSummary via sp_UpsertEntityStatus after each entity load."""
+    """Update entity_status Delta table after each entity load (replaces sp_UpsertEntityStatus)."""
     try:
-        _token = notebookutils.credentials.getToken(
-            'https://analysis.windows.net/powerbi/api'
-        ).encode("UTF-16-LE")
-        _token_struct = struct.pack(f'<I{len(_token)}s', len(_token), _token)
-
-        conn = pyodbc.connect(
-            f"DRIVER={{ODBC Driver 18 for SQL Server}};SERVER={_lz_connstring};PORT=1433;DATABASE={_lz_database};",
-            attrs_before={1256: _token_struct},
-            timeout=60
-        )
-        err_param = ""
-        if error_msg:
-            safe_msg = str(error_msg)[:500].replace("'", "''")
-            err_param = f", @ErrorMessage = '{safe_msg}'"
-        sql = (
-            f"EXEC [execution].[sp_UpsertEntityStatus] "
-            f"@LandingzoneEntityId = {entity_id}, "
-            f"@Layer = '{layer}', "
-            f"@Status = '{status}'"
-            f"{err_param}"
-        )
-        with conn.cursor() as cur:
-            cur.execute(sql)
-            conn.commit()
-        conn.close()
+        _write_audit_to_delta("entity_status", {
+            "LandingzoneEntityId": int(entity_id) if entity_id else None,
+            "Layer": layer,
+            "Status": status,
+            "ErrorMessage": str(error_msg)[:500] if error_msg else None,
+            "UpdatedBy": "notebook-lz-processing",
+        })
     except Exception as e:
         print(f"  [WARN] EntityStatus update failed for {entity_id}: {e}")
 
@@ -229,8 +214,7 @@ notebook_params["WorkspaceGuid"] = WorkspaceGuid
 notebook_params["PipelineParentRunGuid"] = PipelineParentRunGuid
 notebook_params["PipelineRunGuid"] = PipelineRunGuid
 notebook_params["NotebookExecutionId"] = NotebookExecutionId
-notebook_params["driver"] = driver
-notebook_params["EntityId"] = EntityId 
+notebook_params["EntityId"] = EntityId
 notebook_params["EntityLayer"] = EntityLayer 
 notebook_params["DataSourceName"] = DataSourceName 
 notebook_params["TargetFilePath"] = TargetFilePath 

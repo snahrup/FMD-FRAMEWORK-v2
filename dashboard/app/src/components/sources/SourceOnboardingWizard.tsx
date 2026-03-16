@@ -414,6 +414,7 @@ export function SourceOnboardingWizard({
         body: JSON.stringify({
           connectionName: connName,
           name: selectedGateway.database,
+          displayName: sourceLabel.trim(),
           namespace,
           type: sourceType,
           description: `${sourceLabel} (${selectedGateway.database} on ${selectedGateway.server.split('.')[0]})`,

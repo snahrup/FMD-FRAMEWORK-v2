@@ -64,26 +64,19 @@ def main():
 
     check("2. SP Authentication", test_auth)
 
-    # ── 3. Fabric SQL ──
-    def test_fabric_sql():
-        from engine.config import load_config
-        from engine.auth import TokenProvider
-        from engine.connections import MetadataDB
-        cfg = load_config()
-        tp = TokenProvider(cfg)
-        db = MetadataDB(cfg, tp)
-        rows = db.query("SELECT COUNT(*) AS cnt FROM integration.LandingzoneEntity WHERE IsActive = 1")
-        cnt = rows[0]["cnt"]
-        assert cnt > 0, f"No active entities found (got {cnt})"
-        log.info("  Active entities: %d", cnt)
+    # ── 3. SQLite Control-Plane DB ──
+    def test_sqlite_db():
+        from dashboard.app.api import db as fmd_db
+        rows = fmd_db.query("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive = 1")
+        cnt = dict(rows[0])["cnt"] if rows else 0
+        assert cnt > 0, f"No active entities in SQLite control-plane DB (got {cnt})"
+        log.info("  Active entities in SQLite: %d", cnt)
 
-    check("3. Fabric SQL Connection", test_fabric_sql)
+    check("3. SQLite Control-Plane DB", test_sqlite_db)
 
     # ── 4. Worklist ──
     def test_worklist():
         from engine.config import load_config
-        from engine.auth import TokenProvider
-        from engine.connections import MetadataDB
         from engine.orchestrator import LoadOrchestrator
         cfg = load_config()
         engine = LoadOrchestrator(cfg)

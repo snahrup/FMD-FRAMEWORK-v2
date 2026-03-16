@@ -2,15 +2,13 @@
 
 Tests cover:
   - build_source_map entity grouping
-  - MetadataDB.execute_proc SQL generation
-  - MetadataDB.query result dict conversion
   - SourceConnection timeout configuration
 """
 
 from unittest.mock import MagicMock, patch
 import pytest
 
-from engine.connections import build_source_map, MetadataDB, SourceConnection
+from engine.connections import build_source_map, SourceConnection
 from engine.models import Entity, EngineConfig
 
 
@@ -94,90 +92,6 @@ class TestBuildSourceMap:
         assert len(result) == 2
         assert ("srv", "db1") in result
         assert ("srv", "db2") in result
-
-
-# ---------------------------------------------------------------------------
-# MetadataDB — execute_proc SQL generation
-# ---------------------------------------------------------------------------
-
-class TestMetadataDBExecuteProc:
-    def test_builds_correct_exec_statement(self):
-        config = _make_config()
-        tp = MagicMock()
-        tp.get_sql_token_struct.return_value = b"\x00"
-        db = MetadataDB(config, tp)
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = None
-        mock_conn.cursor.return_value = mock_cursor
-
-        with patch.object(db, "connect") as mock_connect:
-            mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
-            mock_connect.return_value.__exit__ = MagicMock(return_value=False)
-            db.execute_proc("[execution].[sp_UpsertEntityStatus]", {
-                "LandingzoneEntityId": 42,
-                "Layer": "LandingZone",
-                "Status": "Succeeded",
-            })
-
-        # Check the SQL that was executed
-        call_args = mock_cursor.execute.call_args
-        sql = call_args[0][0]
-        assert "EXEC [execution].[sp_UpsertEntityStatus]" in sql
-        assert "@LandingzoneEntityId=?" in sql
-        assert "@Layer=?" in sql
-        assert "@Status=?" in sql
-
-        # Check parameter values
-        values = call_args[0][1]
-        assert values == (42, "LandingZone", "Succeeded")
-
-
-# ---------------------------------------------------------------------------
-# MetadataDB — query result conversion
-# ---------------------------------------------------------------------------
-
-class TestMetadataDBQuery:
-    def test_converts_rows_to_dicts(self):
-        config = _make_config()
-        tp = MagicMock()
-        db = MetadataDB(config, tp)
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = [("Name",), ("Count",)]
-        mock_cursor.fetchall.return_value = [
-            ("Orders", 100),
-            ("Products", 50),
-        ]
-        mock_conn.cursor.return_value = mock_cursor
-
-        with patch.object(db, "connect") as mock_connect:
-            mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
-            mock_connect.return_value.__exit__ = MagicMock(return_value=False)
-            rows = db.query("SELECT Name, Count FROM tables")
-
-        assert len(rows) == 2
-        assert rows[0] == {"Name": "Orders", "Count": 100}
-        assert rows[1] == {"Name": "Products", "Count": 50}
-
-    def test_empty_result_set(self):
-        config = _make_config()
-        tp = MagicMock()
-        db = MetadataDB(config, tp)
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.description = None
-        mock_conn.cursor.return_value = mock_cursor
-
-        with patch.object(db, "connect") as mock_connect:
-            mock_connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
-            mock_connect.return_value.__exit__ = MagicMock(return_value=False)
-            rows = db.query("SELECT 1 WHERE 1=0")
-
-        assert rows == []
 
 
 # ---------------------------------------------------------------------------

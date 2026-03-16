@@ -8,7 +8,7 @@ import sqlite3
 import json
 import threading
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 log = logging.getLogger('fmd-metrics')
@@ -94,7 +94,7 @@ def record_layer_snapshot(source_system: str, layer: str, entity_count: int,
                           active_count: int = 0, processed_count: int = None,
                           row_count: int = None):
     """Record a point-in-time snapshot of entity counts for a source/layer."""
-    now = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:00Z')  # Round to minute
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:00Z')  # Round to minute
     with _db_lock:
         conn = _get_conn()
         try:
@@ -114,7 +114,7 @@ def record_pipeline_run(run_guid: str, pipeline_name: str, entity_layer: str,
                         duration_sec: float = None, entity_count: int = 0,
                         error_summary: str = None):
     """Record or update a pipeline run."""
-    now = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     with _db_lock:
         conn = _get_conn()
         try:
@@ -137,7 +137,7 @@ def record_health_snapshot(health: str, total_entities: int,
                            pipeline_success_rate: float = 0,
                            recent_errors: list = None):
     """Record an overall health snapshot."""
-    now = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:00Z')
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:00Z')
     with _db_lock:
         conn = _get_conn()
         try:
@@ -157,7 +157,7 @@ def record_health_snapshot(health: str, total_entities: int,
 
 def get_layer_trends(hours: int = 24, source_system: str = None) -> list[dict]:
     """Get layer snapshot trends over the last N hours."""
-    cutoff = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
     conn = _get_conn()
     try:
         if source_system:
@@ -178,7 +178,7 @@ def get_layer_trends(hours: int = 24, source_system: str = None) -> list[dict]:
 
 def get_health_trends(hours: int = 24) -> list[dict]:
     """Get health snapshots over the last N hours."""
-    cutoff = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
     conn = _get_conn()
     try:
         rows = conn.execute(
@@ -214,7 +214,7 @@ def get_recent_pipeline_runs(limit: int = 20) -> list[dict]:
 
 def get_pipeline_success_rate(hours: int = 24) -> dict:
     """Calculate pipeline success rate over the last N hours."""
-    cutoff = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
     conn = _get_conn()
     try:
         row = conn.execute(
@@ -240,7 +240,7 @@ def get_pipeline_success_rate(hours: int = 24) -> dict:
 def record_dq_snapshot(entity_count: int, with_data: int, empty: int,
                        total_rows: int, coverage: float):
     """Record a DQ overview snapshot for trend analysis."""
-    now = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:00Z')
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:00Z')
     with _db_lock:
         conn = _get_conn()
         try:
@@ -268,7 +268,7 @@ def record_dq_snapshot(entity_count: int, with_data: int, empty: int,
 
 def get_dq_snapshots(hours: int = 168) -> list[dict]:
     """Get DQ snapshots over the last N hours (default 7 days)."""
-    cutoff = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')
     conn = _get_conn()
     try:
         rows = conn.execute(
@@ -282,7 +282,7 @@ def get_dq_snapshots(hours: int = 168) -> list[dict]:
 
 def cleanup_old_data(days: int = 30):
     """Remove data older than N days."""
-    cutoff = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
     with _db_lock:
         conn = _get_conn()
         try:

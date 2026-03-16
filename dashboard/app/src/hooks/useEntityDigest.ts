@@ -56,6 +56,13 @@ export interface DigestEntity {
   // Broadened to string for safety against unexpected backend values.
   overall: string;
   connection: EntityConnection | null;
+  // Enrichment fields from glossary annotations + quality scores (optional)
+  businessName?: string;
+  description?: string;
+  domain?: string;
+  tags?: string[];
+  qualityScore?: number;
+  qualityTier?: string;
 }
 
 export interface DigestSourceSummary {

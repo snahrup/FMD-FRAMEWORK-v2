@@ -21,8 +21,8 @@ CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
 CLIENT_SECRET = ""
 FABRIC_API = "https://api.fabric.microsoft.com/v1"
 
-CODE_WS = "146fe38c-f6c3-4e9d-a18c-5c01cad5941e"
-DATA_WS = "a3a180ff-fbc2-48fd-a65f-27ae7bb6709a"
+CODE_WS = "c0366b24-e6f8-4994-b4df-b765ecb5bbf8"
+DATA_WS = "0596d0e7-e036-451d-a967-41a284302e8d"
 
 env_path = os.path.join(os.path.dirname(__file__), "dashboard", "app", "api", ".env")
 if os.path.exists(env_path):

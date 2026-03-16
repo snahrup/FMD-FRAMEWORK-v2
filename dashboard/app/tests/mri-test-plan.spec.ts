@@ -15,7 +15,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 
-const BASE = 'http://127.0.0.1:5173';
+const BASE = 'http://127.0.0.1:8787';
 const API  = 'http://127.0.0.1:8787';
 
 // ─── Helpers ──────────────────────────────────────────────────

@@ -22,7 +22,7 @@ CLIENT = 'ac937c5d-4bdd-438f-be8b-84a850021d2d'
 SECRET = 'Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu'
 TOKEN_URL = f'https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/token'
 SCOPE = 'https://api.fabric.microsoft.com/.default'
-WS_CODE = '146fe38c-f6c3-4e9d-a18c-5c01cad5941e'
+WS_CODE = 'c0366b24-e6f8-4994-b4df-b765ecb5bbf8'
 API_BASE = 'https://api.fabric.microsoft.com/v1'
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -167,14 +167,56 @@ def main():
     for filepath in pipeline_files:
         pipeline_name = get_pipeline_name(filepath)
 
-        # Check if pipeline exists in workspace
+        # Check if pipeline exists in workspace — create if missing
         if pipeline_name not in existing:
-            print(f"  SKIP {pipeline_name}: not found in workspace (would need to create)")
-            results["skipped"].append(pipeline_name)
-            continue
+            print(f"  Creating {pipeline_name}...", end="")
+            try:
+                create_body = {
+                    "displayName": pipeline_name,
+                    "type": "DataPipeline",
+                }
+                create_url = f'{API_BASE}/workspaces/{WS_CODE}/items'
+                status_code, headers, body = api_post_raw(token, create_url, create_body)
+                if status_code in (200, 201):
+                    resp_data = json.loads(body) if body else {}
+                    item_id = resp_data.get("id", "")
+                    existing[pipeline_name] = item_id
+                    print(f" created ({item_id[:8]}...)")
+                elif status_code == 202:
+                    location = headers.get('Location', '')
+                    if location:
+                        ok, msg = poll_async_operation(token, location)
+                        if ok:
+                            # Re-fetch to get ID
+                            items_resp = api_get(token, f'{API_BASE}/workspaces/{WS_CODE}/items?type=DataPipeline')
+                            for item in items_resp.get('value', []):
+                                if item['displayName'] == pipeline_name:
+                                    item_id = item['id']
+                                    existing[pipeline_name] = item_id
+                                    break
+                            print(f" created ({item_id[:8]}...)")
+                        else:
+                            print(f" FAILED to create: {msg}")
+                            results["failed"].append((pipeline_name, msg))
+                            continue
+                    else:
+                        print(f" FAILED: 202 with no Location")
+                        results["failed"].append((pipeline_name, "202 no Location"))
+                        continue
+                else:
+                    err = body.decode() if isinstance(body, bytes) else str(body)
+                    print(f" FAILED: HTTP {status_code} - {err[:200]}")
+                    results["failed"].append((pipeline_name, f"HTTP {status_code}"))
+                    continue
+            except Exception as e:
+                print(f" FAILED: {e}")
+                results["failed"].append((pipeline_name, str(e)))
+                continue
+            time.sleep(1)  # throttle after create
+        else:
+            item_id = existing[pipeline_name]
 
-        item_id = existing[pipeline_name]
-        print(f"  Uploading {pipeline_name} (ID: {item_id})...")
+        print(f"  Uploading {pipeline_name} (ID: {item_id[:12]}...)...", end="")
 
         # Read and base64 encode the pipeline JSON
         try:
@@ -203,13 +245,13 @@ def main():
             status_code, headers, body = api_post_raw(token, update_url, update_body)
 
             if status_code == 200:
-                print(f"    OK (HTTP 200)")
+                print(f" OK")
                 results["success"].append(pipeline_name)
             elif status_code == 202:
                 # Async operation - poll Location header
                 location = headers.get('Location', '')
                 retry_after = headers.get('Retry-After', str(POLL_INTERVAL_SECONDS))
-                print(f"    Accepted (HTTP 202), polling async operation...")
+                print(f" Accepted (202), polling...")
 
                 if location:
                     ok, msg = poll_async_operation(token, location)

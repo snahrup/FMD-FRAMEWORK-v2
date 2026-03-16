@@ -163,6 +163,7 @@
   --border-light: rgba(0, 0, 0, 0.12);
   --border-focus: rgba(0, 0, 0, 0.18);
   --border-subtle: rgba(0, 0, 0, 0.04);
+  --grid-line: rgba(0, 0, 0, 0.03);
 
   /* CDS Semantic — Light */
   --cl-success: #2D8547;
@@ -281,6 +282,7 @@
   --border-light: rgba(108, 106, 96, 0.40);
   --border-focus: rgba(108, 106, 96, 0.50);
   --border-subtle: rgba(108, 106, 96, 0.15);
+  --grid-line: rgba(108, 106, 96, 0.10);
 
   /* CDS Semantic — Dark */
   --cl-success: #5FB87A;
@@ -421,10 +423,17 @@
   /* Cowork-inspired subtle grid background on main content area */
   .cowork-grid {
     background-image:
-      linear-gradient(var(--cl-border) 1px, transparent 1px),
-      linear-gradient(90deg, var(--cl-border) 1px, transparent 1px);
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 48px 48px;
     background-position: -1px -1px;
+  }
+
+  /* Solid section backgrounds so content is readable over the grid */
+  .cowork-grid .section-solid {
+    background: var(--color-card);
+    border: 1px solid var(--cl-border);
+    border-radius: 12px;
   }
 
   h1, h2, h3, h4, h5, h6 {

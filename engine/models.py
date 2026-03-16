@@ -57,6 +57,83 @@ class Entity:
 
 
 # ---------------------------------------------------------------------------
+# Bronze entity — one Delta table in the Bronze lakehouse
+# ---------------------------------------------------------------------------
+
+@dataclass
+class BronzeEntity:
+    """A Bronze layer entity — LZ parquet → Delta table."""
+
+    bronze_entity_id: int
+    lz_entity_id: int
+    namespace: str                      # e.g. "MES", "ETQ", "m3"
+    source_schema: str
+    source_name: str
+    primary_keys: str                   # comma-separated PK column names
+    is_incremental: bool
+    lakehouse_guid: str                 # Bronze lakehouse GUID
+    workspace_guid: str                 # DATA workspace GUID
+    lz_file_name: str                   # e.g. "CUSCONGB.parquet"
+    lz_namespace: str                   # LZ folder (may differ from namespace)
+    lz_lakehouse_guid: str = ""         # LZ lakehouse GUID (for reading source parquet)
+    is_active: bool = True
+
+    @property
+    def delta_table_path(self) -> str:
+        """OneLake path for the Bronze Delta table: {lh}/Tables/{namespace}/{table}."""
+        return f"{self.lakehouse_guid}/Tables/{self.namespace}/{self.source_name}"
+
+    @property
+    def lz_parquet_path(self) -> str:
+        """OneLake path for the LZ source parquet: {lh}/Files/{folder}/{file}."""
+        return f"{self.lz_lakehouse_guid}/Files/{self.lz_namespace}/{self.lz_file_name}"
+
+    @property
+    def pk_columns(self) -> list[str]:
+        """Primary key column names as a list."""
+        if not self.primary_keys or self.primary_keys in ("N/A", ""):
+            return []
+        return [c.strip() for c in self.primary_keys.split(",") if c.strip()]
+
+
+# ---------------------------------------------------------------------------
+# Silver entity — one Delta table in the Silver lakehouse
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SilverEntity:
+    """A Silver layer entity — Bronze Delta → Silver Delta with SCD Type 2."""
+
+    silver_entity_id: int
+    bronze_entity_id: int
+    namespace: str
+    source_name: str
+    primary_keys: str = ""              # inherited from Bronze
+    is_incremental: bool = False
+    lakehouse_guid: str = ""            # Silver lakehouse GUID
+    workspace_guid: str = ""            # DATA workspace GUID
+    bronze_lakehouse_guid: str = ""     # Bronze lakehouse GUID (for reading source Delta)
+    lz_entity_id: int = 0              # LZ entity ID (for entity_status tracking)
+    is_active: bool = True
+
+    @property
+    def delta_table_path(self) -> str:
+        """OneLake path for the Silver Delta table."""
+        return f"{self.lakehouse_guid}/Tables/{self.namespace}/{self.source_name}"
+
+    @property
+    def bronze_delta_path(self) -> str:
+        """OneLake path to read the Bronze Delta table."""
+        return f"{self.bronze_lakehouse_guid}/Tables/{self.namespace}/{self.source_name}"
+
+    @property
+    def pk_columns(self) -> list[str]:
+        if not self.primary_keys or self.primary_keys in ("N/A", ""):
+            return []
+        return [c.strip() for c in self.primary_keys.split(",") if c.strip()]
+
+
+# ---------------------------------------------------------------------------
 # Run result — one per entity per layer
 # ---------------------------------------------------------------------------
 
@@ -175,6 +252,12 @@ class EngineConfig:
 
     # OneLake ADLS endpoint
     onelake_account_url: str = "https://onelake.dfs.fabric.microsoft.com"
+
+    # OneLake Explorer local mount path (filesystem mode — no auth needed)
+    # When set, engine reads/writes via local filesystem instead of ADLS SDK.
+    # OneLake Explorer syncs changes to Fabric automatically.
+    # Example: "C:\\Users\\sasnahrup\\OneLake - Microsoft\\INTEGRATION DATA (D)"
+    onelake_mount_path: str = ""
 
     # Notebook item IDs in CODE workspace (for triggering)
     notebook_bronze_id: str = ""

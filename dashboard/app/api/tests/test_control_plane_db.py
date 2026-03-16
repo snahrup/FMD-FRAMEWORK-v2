@@ -454,8 +454,8 @@ class TestMetricsAndStats:
         assert stats['lz_entities'] == 0
         assert stats['engine_runs'] == 0
         assert stats['sync_metadata'] == 0
-        # All 17 table counts should be present
-        assert len(stats) == 17
+        # All 21 table counts should be present (18 original + 3 new in Task 10)
+        assert len(stats) == 21
 
     def test_get_stats_with_data(self, seeded_db):
         """T-CPDB-018: get_stats returns correct counts for populated database."""
@@ -995,7 +995,7 @@ class TestPerformance:
 
     @pytest.mark.slow
     def test_get_stats_performance(self):
-        """get_stats scanning 17 tables completes in < 0.5s even with data."""
+        """get_stats scanning 21 tables completes in < 0.5s even with data."""
         # Seed some data across multiple tables
         cpdb.bulk_seed('connections', [
             {'ConnectionId': i, 'Name': f'C{i}', 'Type': 'SQL'} for i in range(1, 51)

@@ -159,7 +159,6 @@ class TestIsTransient:
         """Create a LoadOrchestrator with all dependencies mocked."""
         config = _make_config()
         with patch("engine.orchestrator.TokenProvider"), \
-             patch("engine.orchestrator.MetadataDB"), \
              patch("engine.orchestrator.SourceConnection"), \
              patch("engine.orchestrator.DataExtractor"), \
              patch("engine.orchestrator.OneLakeLoader"), \
@@ -204,7 +203,6 @@ class TestBuildPlan:
             notebook_silver_id="silver-nb-id",
         )
         with patch("engine.orchestrator.TokenProvider"), \
-             patch("engine.orchestrator.MetadataDB"), \
              patch("engine.orchestrator.SourceConnection"), \
              patch("engine.orchestrator.DataExtractor"), \
              patch("engine.orchestrator.OneLakeLoader"), \
@@ -315,7 +313,6 @@ class TestOrchestratorState:
     def orchestrator(self):
         config = _make_config()
         with patch("engine.orchestrator.TokenProvider"), \
-             patch("engine.orchestrator.MetadataDB"), \
              patch("engine.orchestrator.SourceConnection"), \
              patch("engine.orchestrator.DataExtractor"), \
              patch("engine.orchestrator.OneLakeLoader"), \

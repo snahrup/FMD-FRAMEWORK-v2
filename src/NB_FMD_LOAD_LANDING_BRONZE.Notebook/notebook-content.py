@@ -316,7 +316,7 @@ def execute_with_outputs(exec_statement, driver, connstring, database, **params)
 
 # MARKDOWN ********************
 
-# ## Define Stored Procedures for Logging
+# ## Define Audit Helpers and Logging Setup
 
 # CELL ********************
 
@@ -324,67 +324,88 @@ def execute_with_outputs(exec_statement, driver, connstring, database, **params)
 TriggerTime = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 notebook_name=  notebookutils.runtime.context['currentNotebookName']
 
-
-UpsertPipelineLandingzoneEntity = (
-    f"[execution].[sp_UpsertPipelineLandingzoneEntity] "
-    f"@Filename = \"{SourceFileName}\", "
-    f"@FilePath = \"{SourceFilePath}\", "
-    f"@IsProcessed = \"True\", "
-    f"@LandingzoneEntityId = \"{LandingzoneEntityId}\""
-)
-
-InsertPipelineBronzeLayerEntity = (
-    f"[execution].[sp_UpsertPipelineBronzeLayerEntity] "
-    f"@SchemaName = \"{TargetSchema}\", "
-    f"@TableName = \"{TargetName}\", "
-    f"@IsProcessed = \"False\", "
-    f"@BronzeLayerEntityId = \"{BronzeLayerEntityId}\""
-)
-
-StartNotebookActivity = (
-    f"[logging].[sp_AuditNotebook] "
-    f"@NotebookGuid = \"{NotebookExecutionId}\", "
-    f"@NotebookName = \"{notebook_name}\", "
-    f"@PipelineRunGuid = \"{PipelineRunGuid}\", "
-    f"@PipelineParentRunGuid = \"{PipelineParentRunGuid}\", "
-    f"@NotebookParameters = \"{TargetName}\", "
-    f"@TriggerType = \"{TriggerType}\", "
-    f"@TriggerGuid = \"{TriggerGuid}\", "
-    f"@TriggerTime = \"{TriggerTime}\", "
-    f"@LogData = '{{\"Action\":\"Start\"}}', "
-    f"@LogType = \"StartNotebookActivity\", "
-    f"@WorkspaceGuid = \"{SourceWorkspace}\", "
-    f"@EntityId = \"{BronzeLayerEntityId}\", "
-    f"@EntityLayer = \"{EntityLayer}\""
-)
-
-EndNotebookActivity = (
-    f"[logging].[sp_AuditNotebook] "
-    f"@NotebookGuid = \"{NotebookExecutionId}\", "
-    f"@NotebookName = \"{notebook_name}\", "
-    f"@PipelineRunGuid = \"{PipelineRunGuid}\", "
-    f"@PipelineParentRunGuid = \"{PipelineParentRunGuid}\", "
-    f"@NotebookParameters = \"{TargetName}\", "
-    f"@TriggerType = \"{TriggerType}\", "
-    f"@TriggerGuid = \"{TriggerGuid}\", "
-    f"@TriggerTime = \"{TriggerTime}\", "
-    f"@LogType = \"EndNotebookActivity\", "
-    f"@WorkspaceGuid = \"{SourceWorkspace}\", "
-    f"@EntityId = \"{BronzeLayerEntityId}\", "
-    f"@EntityLayer = \"{EntityLayer}\""
-)
+# GetCleansingRule still uses pyodbc (read from Fabric SQL metadata DB)
 GetCleansingRule = (
     f"[execution].[sp_GetBronzeCleansingRule] "
     f"@BronzeLayerEntityId = \"{BronzeLayerEntityId}\""
 )
 
-UpsertEntityStatusLoaded = (
-    f"[execution].[sp_UpsertEntityStatus] "
-    f"@LandingzoneEntityId = {LandingzoneEntityId}, "
-    f"@Layer = 'bronze', "
-    f"@Status = 'loaded', "
-    f"@UpdatedBy = 'notebook-bronze'"
-)
+
+def _write_audit_to_delta(table_name: str, data: dict):
+    """Write a single audit record to a Delta table in the default lakehouse."""
+    try:
+        from pyspark.sql import SparkSession as _SparkSession
+        from datetime import datetime as _dt
+        _spark = _SparkSession.builder.getOrCreate()
+        data["created_at"] = _dt.utcnow().isoformat() + "Z"
+        _df = _spark.createDataFrame([data])
+        _df.write.mode("append").format("delta").saveAsTable(table_name)
+    except Exception as _delta_err:
+        print(f"  [WARN] Delta write to {table_name} failed: {_delta_err}")
+
+
+def _audit_notebook_start():
+    """Write StartNotebookActivity to notebook_executions Delta table (replaces sp_AuditNotebook)."""
+    _write_audit_to_delta("notebook_executions", {
+        "NotebookName": notebook_name,
+        "PipelineRunGuid": PipelineRunGuid,
+        "EntityId": int(BronzeLayerEntityId) if BronzeLayerEntityId else None,
+        "EntityLayer": EntityLayer,
+        "LogType": "StartNotebookActivity",
+        "LogDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "LogData": '{"Action":"Start"}',
+        "Status": "Started",
+        "StartedAt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+
+
+def _audit_notebook_end(log_data_dict=None):
+    """Write EndNotebookActivity to notebook_executions Delta table (replaces sp_AuditNotebook)."""
+    _write_audit_to_delta("notebook_executions", {
+        "NotebookName": notebook_name,
+        "PipelineRunGuid": PipelineRunGuid,
+        "EntityId": int(BronzeLayerEntityId) if BronzeLayerEntityId else None,
+        "EntityLayer": EntityLayer,
+        "LogType": "EndNotebookActivity",
+        "LogDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "LogData": json.dumps(log_data_dict) if log_data_dict else None,
+        "Status": "Completed",
+        "EndedAt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+
+
+def _register_lz_entity_processed():
+    """Mark LZ file as processed in pipeline_lz_entity Delta table (replaces sp_UpsertPipelineLandingzoneEntity)."""
+    _write_audit_to_delta("pipeline_lz_entity", {
+        "LandingzoneEntityId": int(LandingzoneEntityId) if LandingzoneEntityId else None,
+        "FileName": SourceFileName,
+        "FilePath": SourceFilePath,
+        "IsProcessed": 1,
+        "InsertDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+
+
+def _register_bronze_entity(is_processed=False):
+    """Write to pipeline_bronze_entity Delta table (replaces sp_UpsertPipelineBronzeLayerEntity)."""
+    _write_audit_to_delta("pipeline_bronze_entity", {
+        "BronzeLayerEntityId": int(BronzeLayerEntityId) if BronzeLayerEntityId else None,
+        "TableName": TargetName,
+        "SchemaName": TargetSchema,
+        "IsProcessed": 1 if is_processed else 0,
+        "InsertDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+
+
+def _upsert_entity_status(status, error_msg=None):
+    """Write to entity_status Delta table (replaces sp_UpsertEntityStatus)."""
+    _write_audit_to_delta("entity_status", {
+        "LandingzoneEntityId": int(LandingzoneEntityId) if LandingzoneEntityId else None,
+        "Layer": "bronze",
+        "Status": status,
+        "ErrorMessage": str(error_msg)[:500] if error_msg else None,
+        "UpdatedBy": "notebook-bronze",
+        "LoadEndDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
 
 # METADATA ********************
 
@@ -400,7 +421,7 @@ UpsertEntityStatusLoaded = (
 # CELL ********************
 
 try:
-    execute_with_outputs(StartNotebookActivity, driver, connstring, database)
+    _audit_notebook_start()
 except Exception as _audit_err:
     print(f"WARNING: StartNotebookActivity audit logging failed: {_audit_err}")
 _processing_error = None  # Global error flag — if set, downstream cells skip and we log the error at exit
@@ -481,7 +502,7 @@ if _processing_error is None:
 
     if not _file_exists:
         print(f"FILE NOT FOUND: {source_changes_data_path}")
-        execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
+        _register_lz_entity_processed()
         TotalRuntime = str((datetime.now() - start_audit_time))
         end_audit_time =  str(datetime.now())
         start_audit_time =str(start_audit_time)
@@ -499,7 +520,7 @@ if _processing_error is None:
 
         }
         }
-        execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
+        _audit_notebook_end(result_data)
 
         notebookutils.notebook.exit("FILE_NOT_FOUND")
 
@@ -960,13 +981,13 @@ if _processing_error is None:
                 }
                 }
 
-            execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
-            execute_with_outputs(InsertPipelineBronzeLayerEntity, driver, connstring, database)
+            _register_lz_entity_processed()
+            _register_bronze_entity(is_processed=True)
             try:
-                execute_with_outputs(UpsertEntityStatusLoaded, driver, connstring, database)
+                _upsert_entity_status("loaded")
             except Exception as _es_err:
                 print(f"  [WARN] EntityStatus update failed: {_es_err}")
-            execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
+            _audit_notebook_end(result_data)
             notebookutils.notebook.exit("OK")
     except Exception as _e:
         _processing_error = f"Delta table read/write failed for {TargetName}: {_e}"
@@ -1071,29 +1092,20 @@ else:
 # CELL ********************
 
 try:
-    execute_with_outputs(UpsertPipelineLandingzoneEntity, driver, connstring, database)
-    execute_with_outputs(InsertPipelineBronzeLayerEntity, driver, connstring, database)
+    _register_lz_entity_processed()
+    _register_bronze_entity(is_processed=True)
     # Update EntityStatus based on processing result
     if _processing_error is not None:
-        _err_safe = str(_processing_error)[:500].replace("'", "''")
-        UpsertEntityStatusError = (
-            f"[execution].[sp_UpsertEntityStatus] "
-            f"@LandingzoneEntityId = {LandingzoneEntityId}, "
-            f"@Layer = 'bronze', "
-            f"@Status = 'not_started', "
-            f"@ErrorMessage = '{_err_safe}', "
-            f"@UpdatedBy = 'notebook-bronze'"
-        )
         try:
-            execute_with_outputs(UpsertEntityStatusError, driver, connstring, database)
+            _upsert_entity_status("not_started", error_msg=_processing_error)
         except Exception as _es_err:
             print(f"  [WARN] EntityStatus error update failed: {_es_err}")
     else:
         try:
-            execute_with_outputs(UpsertEntityStatusLoaded, driver, connstring, database)
+            _upsert_entity_status("loaded")
         except Exception as _es_err:
             print(f"  [WARN] EntityStatus update failed: {_es_err}")
-    execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
+    _audit_notebook_end(result_data)
 except Exception as _log_err:
     print(f"WARNING: Final logging failed for {TargetName}: {_log_err}")
 

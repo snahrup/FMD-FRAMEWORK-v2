@@ -123,6 +123,9 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
         query_timeout=int(engine_section.get("query_timeout", 120)),
         source_sql_driver=engine_section.get("source_sql_driver", "ODBC Driver 18 for SQL Server"),
 
+        # OneLake Explorer local mount path (filesystem mode — no auth needed)
+        onelake_mount_path=engine_section.get("onelake_mount_path", ""),
+
         # Execution mode: "notebook" (Fabric notebooks), "pipeline" (Fabric pipelines), "local" (pyodbc)
         load_method=engine_section.get("load_method", "notebook"),
         pipeline_fallback=engine_section.get("pipeline_fallback", True),

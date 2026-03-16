@@ -242,7 +242,7 @@ export function EntityDrillDown({
               {/* Entity rows */}
               {sorted.map((entity) => {
                 const isExpanded = expandedEntity === entity.id;
-                const overallCfg = STATUS_CONFIG[entity.overall] || STATUS_CONFIG.not_started;
+                const overallCfg = STATUS_CONFIG[entity.overall as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.not_started;
 
                 return (
                   <div key={entity.id} className="border-b border-border/50">
@@ -277,9 +277,9 @@ export function EntityDrillDown({
                         )}
                         {isExpanded ? <ChevronUp className="w-3 h-3 text-muted-foreground flex-shrink-0" /> : <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
                       </div>
-                      <div className="flex justify-center"><LayerDot status={entity.lzStatus} /></div>
-                      <div className="flex justify-center"><LayerDot status={entity.bronzeStatus} /></div>
-                      <div className="flex justify-center"><LayerDot status={entity.silverStatus} /></div>
+                      <div className="flex justify-center"><LayerDot status={entity.lzStatus as keyof typeof LAYER_STATUS} /></div>
+                      <div className="flex justify-center"><LayerDot status={entity.bronzeStatus as keyof typeof LAYER_STATUS} /></div>
+                      <div className="flex justify-center"><LayerDot status={entity.silverStatus as keyof typeof LAYER_STATUS} /></div>
                     </button>
 
                     {/* Expanded detail */}

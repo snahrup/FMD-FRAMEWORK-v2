@@ -309,7 +309,7 @@ def execute_with_outputs(exec_statement, driver, connstring, database, **params)
 
 # MARKDOWN ********************
 
-# ## Define Stored Procedures for Logging
+# ## Define Audit Helpers and Logging Setup
 
 # CELL ********************
 
@@ -317,70 +317,92 @@ def execute_with_outputs(exec_statement, driver, connstring, database, **params)
 TriggerTime = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 notebook_name=  notebookutils.runtime.context['currentNotebookName']
 
-
-UpsertPipelineBronzeLayerEntity = (
-    f"[execution].[sp_UpsertPipelineBronzeLayerEntity] "
-    f"@SchemaName = \"{TargetSchema}\", "
-    f"@TableName = \"{TargetName}\", "
-    f"@IsProcessed = \"True\", "
-    f"@BronzeLayerEntityId = \"{BronzeLayerEntityId}\""
-)
-
-UpsertPipelineSilverLayerEntity = (
-    f"[execution].[sp_UpsertPipelineSilverLayerEntity] "
-    f"@SchemaName = \"{TargetSchema}\", "
-    f"@TableName = \"{TargetName}\", "
-    f"@IsProcessed = \"True\", "
-    f"@SilverLayerEntityId = \"{SilverLayerEntityId}\""
-)
-
-StartNotebookActivity = (
-    f"[logging].[sp_AuditNotebook] "
-    f"@NotebookGuid = \"{NotebookExecutionId}\", "
-    f"@NotebookName = \"{notebook_name}\", "
-    f"@PipelineRunGuid = \"{PipelineRunGuid}\", "
-    f"@PipelineParentRunGuid = \"{PipelineParentRunGuid}\", "
-    f"@NotebookParameters = \"{TargetName}\", "
-    f"@TriggerType = \"{TriggerType}\", "
-    f"@TriggerGuid = \"{TriggerGuid}\", "
-    f"@TriggerTime = \"{TriggerTime}\", "
-    f"@LogData = '{{\"Action\":\"Start\"}}', "
-    f"@LogType = \"StartNotebookActivity\", "
-    f"@WorkspaceGuid = \"{SourceWorkspace}\", "
-    f"@EntityId = \"{BronzeLayerEntityId}\", "
-    f"@EntityLayer = \"{EntityLayer}\""
-)
-
-EndNotebookActivity = (
-    f"[logging].[sp_AuditNotebook] "
-    f"@NotebookGuid = \"{NotebookExecutionId}\", "
-    f"@NotebookName = \"{notebook_name}\", "
-    f"@PipelineRunGuid = \"{PipelineRunGuid}\", "
-    f"@PipelineParentRunGuid = \"{PipelineParentRunGuid}\", "
-    f"@NotebookParameters = \"{TargetName}\", "
-    f"@TriggerType = \"{TriggerType}\", "
-    f"@TriggerGuid = \"{TriggerGuid}\", "
-    f"@TriggerTime = \"{TriggerTime}\", "
-    f"@LogType = \"EndNotebookActivity\", "
-    f"@WorkspaceGuid = \"{SourceWorkspace}\", "
-    f"@EntityId = \"{BronzeLayerEntityId}\", "
-    f"@EntityLayer = \"{EntityLayer}\""
-)
+# GetCleansingRule still uses pyodbc (read from Fabric SQL metadata DB)
 GetCleansingRule = (
     f"[execution].[sp_GetSilverCleansingRule] "
     f"@SilverLayerEntityId = \"{SilverLayerEntityId}\""
 )
 
-# EntityStatus update — uses BronzeLayerEntityId as the entity key since
-# LandingzoneEntityId is not passed to the Silver notebook. The stored proc
-# resolves the entity chain internally via BronzeLayerEntityId -> LandingzoneEntityId.
-UpsertEntityStatusLoaded = (
-    f"[execution].[sp_UpsertEntityStatus] "
-    f"@LandingzoneEntityId = {BronzeLayerEntityId}, "
-    f"@Layer = 'silver', "
-    f"@Status = 'loaded', "
-    f"@UpdatedBy = 'notebook-silver'"
-)
+
+def _write_audit_to_delta(table_name: str, data: dict):
+    """Write a single audit record to a Delta table in the default lakehouse."""
+    try:
+        from pyspark.sql import SparkSession as _SparkSession
+        from datetime import datetime as _dt
+        _spark = _SparkSession.builder.getOrCreate()
+        data["created_at"] = _dt.utcnow().isoformat() + "Z"
+        _df = _spark.createDataFrame([data])
+        _df.write.mode("append").format("delta").saveAsTable(table_name)
+    except Exception as _delta_err:
+        print(f"  [WARN] Delta write to {table_name} failed: {_delta_err}")
+
+
+def _audit_notebook_start():
+    """Write StartNotebookActivity to notebook_executions Delta table (replaces sp_AuditNotebook)."""
+    _write_audit_to_delta("notebook_executions", {
+        "NotebookName": notebook_name,
+        "PipelineRunGuid": PipelineRunGuid,
+        "EntityId": int(BronzeLayerEntityId) if BronzeLayerEntityId else None,
+        "EntityLayer": EntityLayer,
+        "LogType": "StartNotebookActivity",
+        "LogDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "LogData": '{"Action":"Start"}',
+        "Status": "Started",
+        "StartedAt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+
+
+def _audit_notebook_end(log_data_dict=None):
+    """Write EndNotebookActivity to notebook_executions Delta table (replaces sp_AuditNotebook)."""
+    _write_audit_to_delta("notebook_executions", {
+        "NotebookName": notebook_name,
+        "PipelineRunGuid": PipelineRunGuid,
+        "EntityId": int(BronzeLayerEntityId) if BronzeLayerEntityId else None,
+        "EntityLayer": EntityLayer,
+        "LogType": "EndNotebookActivity",
+        "LogDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "LogData": json.dumps(log_data_dict) if log_data_dict else None,
+        "Status": "Completed",
+        "EndedAt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+
+
+def _register_bronze_entity_processed():
+    """Write to pipeline_bronze_entity Delta table (replaces sp_UpsertPipelineBronzeLayerEntity)."""
+    _write_audit_to_delta("pipeline_bronze_entity", {
+        "BronzeLayerEntityId": int(BronzeLayerEntityId) if BronzeLayerEntityId else None,
+        "TableName": TargetName,
+        "SchemaName": TargetSchema,
+        "IsProcessed": 1,
+        "InsertDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+
+
+def _register_silver_entity_processed():
+    """Write to pipeline_bronze_entity with layer=silver (replaces sp_UpsertPipelineSilverLayerEntity).
+    Note: pipeline_bronze_entity is reused for silver tracking; no separate silver pipeline table exists.
+    """
+    _write_audit_to_delta("pipeline_bronze_entity", {
+        "BronzeLayerEntityId": int(SilverLayerEntityId) if SilverLayerEntityId else None,
+        "TableName": TargetName,
+        "SchemaName": TargetSchema,
+        "IsProcessed": 1,
+        "InsertDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+
+
+def _upsert_entity_status_silver(status, error_msg=None):
+    """Write to entity_status Delta table for silver layer (replaces sp_UpsertEntityStatus).
+    Uses BronzeLayerEntityId as the entity key — the entity chain is resolved downstream.
+    """
+    _write_audit_to_delta("entity_status", {
+        "LandingzoneEntityId": int(BronzeLayerEntityId) if BronzeLayerEntityId else None,
+        "Layer": "silver",
+        "Status": status,
+        "ErrorMessage": str(error_msg)[:500] if error_msg else None,
+        "UpdatedBy": "notebook-silver",
+        "LoadEndDateTime": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
 
 # METADATA ********************
 
@@ -392,7 +414,7 @@ UpsertEntityStatusLoaded = (
 # CELL ********************
 
 try:
-    execute_with_outputs(StartNotebookActivity, driver, connstring, database)
+    _audit_notebook_start()
 except Exception as _audit_err:
     print(f"WARNING: StartNotebookActivity audit logging failed: {_audit_err}")
 _processing_error = None  # Global error flag — if set, downstream cells skip and we log the error at exit
@@ -836,13 +858,13 @@ if _processing_error is None:
                 }
                 }
 
-            execute_with_outputs(UpsertPipelineBronzeLayerEntity, driver, connstring, database)
-            execute_with_outputs(UpsertPipelineSilverLayerEntity, driver, connstring, database)
+            _register_bronze_entity_processed()
+            _register_silver_entity_processed()
             try:
-                execute_with_outputs(UpsertEntityStatusLoaded, driver, connstring, database)
+                _upsert_entity_status_silver("loaded")
             except Exception as _es_err:
                 print(f"  [WARN] EntityStatus update failed: {_es_err}")
-            execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
+            _audit_notebook_end(result_data)
 
             notebookutils.notebook.exit("OK")
     except Exception as _e:
@@ -1163,13 +1185,13 @@ if _processing_error is None:
 # CELL ********************
 
 if _processing_error is None:
-    execute_with_outputs(UpsertPipelineBronzeLayerEntity, driver, connstring, database)
-    execute_with_outputs(UpsertPipelineSilverLayerEntity, driver, connstring, database)
+    _register_bronze_entity_processed()
+    _register_silver_entity_processed()
     try:
-        execute_with_outputs(UpsertEntityStatusLoaded, driver, connstring, database)
+        _upsert_entity_status_silver("loaded")
     except Exception as _es_err:
         print(f"  [WARN] EntityStatus update failed: {_es_err}")
-    execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(result_data))
+    _audit_notebook_end(result_data)
 
 # METADATA ********************
 
@@ -1185,7 +1207,7 @@ if _processing_error is None:
 # CELL ********************
 
 if _processing_error is not None:
-    # ── ERROR PATH: write failure to SQL so dashboard sees it ──
+    # ── ERROR PATH: write failure to Delta so dashboard sees it ──
     print(f"SILVER NOTEBOOK FAILED: {_processing_error}")
     try:
         end_audit_time = str(datetime.now())
@@ -1204,22 +1226,13 @@ if _processing_error is not None:
             }
         }
         # Write error status so dashboard EntityDigest shows failure
-        _err_safe = str(_processing_error)[:500].replace("'", "''")
-        UpsertEntityStatusError = (
-            f"[execution].[sp_UpsertEntityStatus] "
-            f"@LandingzoneEntityId = {BronzeLayerEntityId}, "
-            f"@Layer = 'silver', "
-            f"@Status = 'not_started', "
-            f"@ErrorMessage = '{_err_safe}', "
-            f"@UpdatedBy = 'notebook-silver'"
-        )
         try:
-            execute_with_outputs(UpsertEntityStatusError, driver, connstring, database)
+            _upsert_entity_status_silver("not_started", error_msg=_processing_error)
         except Exception as _es_err:
             print(f"  [WARN] EntityStatus error update failed: {_es_err}")
-        execute_with_outputs(EndNotebookActivity, driver, connstring, database, LogData=json.dumps(error_result))
+        _audit_notebook_end(error_result)
     except Exception as _exit_err:
-        print(f"  [WARN] Error-path SQL writes failed: {_exit_err}")
+        print(f"  [WARN] Error-path Delta writes failed: {_exit_err}")
     notebookutils.notebook.exit(f"ERROR: {_processing_error[:200]}")
 else:
     notebookutils.notebook.exit("OK")

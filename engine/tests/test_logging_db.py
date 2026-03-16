@@ -1,16 +1,14 @@
-"""Unit tests for engine/logging_db.py — dual-write to SQLite + Fabric SQL.
+"""Unit tests for engine/logging_db.py — SQLite-only writes via control_plane_db.
 
 Tests verify that:
-  1. Every sp_UpsertEntityStatus call also writes to local SQLite
-  2. Every sp_UpsertEngineRun call also writes to local SQLite
-  3. SQLite is PRIMARY (must succeed), Fabric SQL is SECONDARY (best-effort)
-  4. SQLite failures are logged but don't crash the engine
-  5. Fabric SQL failures don't block SQLite writes
+  1. Every write call goes to SQLite via control_plane_db
+  2. SQLite failures are logged but don't crash the engine
+  3. No Fabric SQL calls are made
 """
 
 import logging
 from datetime import datetime
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 from engine.logging_db import AuditLogger, _get_cpdb
@@ -38,13 +36,6 @@ def _make_entity(**overrides) -> Entity:
     )
     defaults.update(overrides)
     return Entity(**defaults)
-
-
-def _make_mock_db():
-    db = MagicMock()
-    db.execute_proc = MagicMock(return_value=[])
-    db.execute = MagicMock()
-    return db
 
 
 def _make_mock_cpdb():
@@ -96,16 +87,23 @@ def test_classify_error_other():
 
 
 # ---------------------------------------------------------------------------
-# Dual-write: _write_engine_run
+# AuditLogger construction
 # ---------------------------------------------------------------------------
 
-class TestWriteEngineRunDualWrite:
-    """Test that _write_engine_run writes to both SQLite and Fabric SQL."""
+def test_audit_logger_takes_no_args():
+    audit = AuditLogger()
+    assert audit is not None
 
-    def test_writes_to_sqlite_and_fabric(self):
-        mock_db = _make_mock_db()
+
+# ---------------------------------------------------------------------------
+# _write_engine_run
+# ---------------------------------------------------------------------------
+
+class TestWriteEngineRun:
+
+    def test_writes_to_sqlite(self):
         mock_cpdb = _make_mock_cpdb()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit._write_engine_run(
@@ -117,7 +115,6 @@ class TestWriteEngineRunDualWrite:
                 triggered_by="dashboard",
             )
 
-        # SQLite was called
         mock_cpdb.upsert_engine_run.assert_called_once()
         row = mock_cpdb.upsert_engine_run.call_args[0][0]
         assert row["RunId"] == "test-run-id"
@@ -128,15 +125,9 @@ class TestWriteEngineRunDualWrite:
         assert row["TriggeredBy"] == "dashboard"
         assert "StartedAt" in row  # InProgress sets StartedAt
 
-        # Fabric SQL was also called
-        mock_db.execute_proc.assert_called_once()
-        args = mock_db.execute_proc.call_args
-        assert "[execution].[sp_UpsertEngineRun]" in args[0][0]
-
     def test_sets_ended_at_for_succeeded(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit._write_engine_run(
@@ -152,9 +143,8 @@ class TestWriteEngineRunDualWrite:
         assert "StartedAt" not in row
 
     def test_sets_ended_at_for_failed(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit._write_engine_run(
@@ -167,11 +157,10 @@ class TestWriteEngineRunDualWrite:
         row = mock_cpdb.upsert_engine_run.call_args[0][0]
         assert "EndedAt" in row
 
-    def test_sqlite_failure_does_not_block_fabric(self):
-        mock_db = _make_mock_db()
+    def test_sqlite_failure_is_swallowed(self):
         mock_cpdb = _make_mock_cpdb()
         mock_cpdb.upsert_engine_run.side_effect = Exception("SQLite lock")
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             # Should not raise
@@ -179,49 +168,26 @@ class TestWriteEngineRunDualWrite:
                 run_id="run-err", mode="run", status="InProgress"
             )
 
-        # Fabric SQL still called despite SQLite failure
-        mock_db.execute_proc.assert_called_once()
-
-    def test_fabric_failure_is_swallowed(self):
-        mock_db = _make_mock_db()
-        mock_db.execute_proc.side_effect = Exception("Fabric timeout")
-        mock_cpdb = _make_mock_cpdb()
-        audit = AuditLogger(mock_db)
-
-        with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
-            # Should not raise
-            audit._write_engine_run(
-                run_id="run-fab", mode="run", status="InProgress"
-            )
-
-        # SQLite still succeeded
-        mock_cpdb.upsert_engine_run.assert_called_once()
-
-    def test_no_cpdb_skips_sqlite(self):
-        mock_db = _make_mock_db()
-        audit = AuditLogger(mock_db)
+    def test_no_cpdb_is_silent(self):
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=None):
+            # Should not raise even with no cpdb
             audit._write_engine_run(
                 run_id="run-no-sqlite", mode="run", status="InProgress"
             )
 
-        # Fabric SQL still called
-        mock_db.execute_proc.assert_called_once()
-
 
 # ---------------------------------------------------------------------------
-# Dual-write: mark_entity_loaded (sp_UpsertEntityStatus)
+# mark_entity_loaded
 # ---------------------------------------------------------------------------
 
-class TestMarkEntityLoadedDualWrite:
-    """Test that mark_entity_loaded writes to both SQLite and Fabric SQL."""
+class TestMarkEntityLoaded:
 
     def test_writes_entity_status_to_sqlite(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
         entity = _make_entity()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit.mark_entity_loaded(entity, "MES/dbo_Orders", "dbo_Orders_123.parquet")
@@ -241,55 +207,37 @@ class TestMarkEntityLoadedDualWrite:
         assert lz_row["FileName"] == "dbo_Orders_123.parquet"
         assert lz_row["FilePath"] == "MES/dbo_Orders"
 
-    def test_writes_to_fabric_sql(self):
-        mock_db = _make_mock_db()
-        mock_cpdb = _make_mock_cpdb()
-        entity = _make_entity()
-        audit = AuditLogger(mock_db)
-
-        with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
-            audit.mark_entity_loaded(entity, "path", "file")
-
-        # Two Fabric SQL proc calls: sp_UpsertPipelineLandingzoneEntity + sp_UpsertEntityStatus
-        assert mock_db.execute_proc.call_count == 2
-
-    def test_sqlite_failure_does_not_block_fabric(self):
-        mock_db = _make_mock_db()
+    def test_sqlite_failure_is_swallowed(self):
         mock_cpdb = _make_mock_cpdb()
         mock_cpdb.upsert_entity_status.side_effect = Exception("Disk full")
         mock_cpdb.upsert_pipeline_lz_entity.side_effect = Exception("Disk full")
         entity = _make_entity()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
+            # Should not raise
             audit.mark_entity_loaded(entity, "path", "file")
 
-        # Fabric SQL still called
-        assert mock_db.execute_proc.call_count == 2
-
-    def test_no_cpdb_still_writes_fabric(self):
-        mock_db = _make_mock_db()
+    def test_no_cpdb_is_silent(self):
         entity = _make_entity()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=None):
+            # Should not raise
             audit.mark_entity_loaded(entity, "path", "file")
 
-        assert mock_db.execute_proc.call_count == 2
-
 
 # ---------------------------------------------------------------------------
-# Dual-write: _write_engine_task_log
+# _write_engine_task_log
 # ---------------------------------------------------------------------------
 
-class TestWriteEngineTaskLogDualWrite:
+class TestWriteEngineTaskLog:
 
-    def test_writes_to_both(self):
-        mock_db = _make_mock_db()
+    def test_writes_to_sqlite(self):
         mock_cpdb = _make_mock_cpdb()
         entity = _make_entity()
         result = RunResult(entity_id=42, layer="landing", status="succeeded", rows_read=1000)
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit._write_engine_task_log("run-1", entity, result, "log json")
@@ -303,14 +251,11 @@ class TestWriteEngineTaskLogDualWrite:
         assert row["LoadType"] == "full"
         assert row["ErrorType"] == ""
 
-        mock_db.execute_proc.assert_called_once()
-
     def test_incremental_load_type(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
         entity = _make_entity(is_incremental=True, last_load_value="2024-01-01")
         result = RunResult(entity_id=42, layer="landing", status="succeeded")
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit._write_engine_task_log("run-1", entity, result)
@@ -319,14 +264,13 @@ class TestWriteEngineTaskLogDualWrite:
         assert row["LoadType"] == "incremental"
 
     def test_error_classification(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
         entity = _make_entity()
         result = RunResult(
             entity_id=42, layer="landing", status="failed",
             error="Connection timeout after 120s",
         )
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit._write_engine_task_log("run-1", entity, result)
@@ -336,15 +280,14 @@ class TestWriteEngineTaskLogDualWrite:
 
 
 # ---------------------------------------------------------------------------
-# Dual-write: _write_pipeline_audit
+# _write_pipeline_audit
 # ---------------------------------------------------------------------------
 
-class TestWritePipelineAuditDualWrite:
+class TestWritePipelineAudit:
 
-    def test_writes_to_both(self):
-        mock_db = _make_mock_db()
+    def test_writes_to_sqlite(self):
         mock_cpdb = _make_mock_cpdb()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit._write_pipeline_audit("run-1", "FMD_ENGINE_V3", "InProgress", "{}")
@@ -355,19 +298,26 @@ class TestWritePipelineAuditDualWrite:
         assert row["PipelineName"] == "FMD_ENGINE_V3"
         assert row["LogType"] == "InProgress"
 
-        mock_db.execute_proc.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# Dual-write: _write_copy_audit
-# ---------------------------------------------------------------------------
-
-class TestWriteCopyAuditDualWrite:
-
-    def test_writes_to_both(self):
-        mock_db = _make_mock_db()
+    def test_no_fabric_sql_calls(self):
         mock_cpdb = _make_mock_cpdb()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
+
+        with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
+            audit._write_pipeline_audit("run-1", "FMD_ENGINE_V3", "InProgress", "{}")
+
+        # Verify no attribute resembling Fabric SQL exists on the audit object
+        assert not hasattr(audit, "_db")
+
+
+# ---------------------------------------------------------------------------
+# _write_copy_audit
+# ---------------------------------------------------------------------------
+
+class TestWriteCopyAudit:
+
+    def test_writes_to_sqlite(self):
+        mock_cpdb = _make_mock_cpdb()
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit._write_copy_audit(
@@ -381,20 +331,17 @@ class TestWriteCopyAuditDualWrite:
         assert row["EntityId"] == 42
         assert row["LogType"] == "succeeded"
 
-        mock_db.execute_proc.assert_called_once()
-
 
 # ---------------------------------------------------------------------------
-# Dual-write: update_watermark
+# update_watermark
 # ---------------------------------------------------------------------------
 
-class TestUpdateWatermarkDualWrite:
+class TestUpdateWatermark:
 
-    def test_writes_to_both(self):
-        mock_db = _make_mock_db()
+    def test_writes_to_sqlite(self):
         mock_cpdb = _make_mock_cpdb()
         entity = _make_entity(last_load_value="2024-01-01")
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit.update_watermark(entity, "2024-06-15")
@@ -404,41 +351,43 @@ class TestUpdateWatermarkDualWrite:
         assert args[0] == 42  # entity_id
         assert args[1] == "2024-06-15"  # new_value
 
-        mock_db.execute.assert_called_once()
-
     def test_skips_if_no_change(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
         entity = _make_entity(last_load_value="2024-01-01")
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit.update_watermark(entity, "2024-01-01")  # same value
 
         mock_cpdb.upsert_watermark.assert_not_called()
-        mock_db.execute.assert_not_called()
 
     def test_skips_if_empty(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
         entity = _make_entity()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit.update_watermark(entity, "")
 
         mock_cpdb.upsert_watermark.assert_not_called()
-        mock_db.execute.assert_not_called()
 
     def test_skips_if_none(self):
-        mock_db = _make_mock_db()
+        mock_cpdb = _make_mock_cpdb()
         entity = _make_entity()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
-        with patch("engine.logging_db._get_cpdb", return_value=None):
+        with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit.update_watermark(entity, None)
 
-        mock_db.execute.assert_not_called()
+        mock_cpdb.upsert_watermark.assert_not_called()
+
+    def test_no_cpdb_is_silent(self):
+        entity = _make_entity(last_load_value="2024-01-01")
+        audit = AuditLogger()
+
+        with patch("engine.logging_db._get_cpdb", return_value=None):
+            # Should not raise
+            audit.update_watermark(entity, "2024-06-15")
 
 
 # ---------------------------------------------------------------------------
@@ -447,10 +396,9 @@ class TestUpdateWatermarkDualWrite:
 
 class TestLogRunLifecycle:
 
-    def test_log_run_start_calls_both_writers(self):
-        mock_db = _make_mock_db()
+    def test_log_run_start_calls_sqlite_writers(self):
         mock_cpdb = _make_mock_cpdb()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit.log_run_start("run-1", "run", 100, ["landing", "bronze"], "dashboard")
@@ -460,9 +408,8 @@ class TestLogRunLifecycle:
         assert mock_cpdb.insert_pipeline_audit.call_count == 1
 
     def test_log_run_end_writes_summary(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         results = [
             RunResult(entity_id=1, layer="landing", status="succeeded", rows_read=100),
@@ -478,9 +425,8 @@ class TestLogRunLifecycle:
         assert row["TotalEntities"] == 3
 
     def test_log_run_end_succeeded_when_no_failures(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         results = [
             RunResult(entity_id=1, layer="landing", status="succeeded", rows_read=100),
@@ -494,9 +440,8 @@ class TestLogRunLifecycle:
         assert row["Status"] == "Succeeded"
 
     def test_log_run_error_writes_failure(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit.log_run_error("run-1", ValueError("Something broke"))
@@ -513,11 +458,10 @@ class TestLogRunLifecycle:
 class TestLogEntityResult:
 
     def test_writes_copy_audit_and_task_log(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
         entity = _make_entity()
         result = RunResult(entity_id=42, layer="landing", status="succeeded", rows_read=500)
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit.log_entity_result("run-1", entity, result)
@@ -526,14 +470,13 @@ class TestLogEntityResult:
         mock_cpdb.insert_engine_task_log.assert_called_once()
 
     def test_error_entity_result_has_error_info(self):
-        mock_db = _make_mock_db()
         mock_cpdb = _make_mock_cpdb()
         entity = _make_entity()
         result = RunResult(
             entity_id=42, layer="landing", status="failed",
             error="Connection refused", error_suggestion="Check VPN",
         )
-        audit = AuditLogger(mock_db)
+        audit = AuditLogger()
 
         with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
             audit.log_entity_result("run-1", entity, result)

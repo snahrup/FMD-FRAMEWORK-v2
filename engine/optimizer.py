@@ -65,7 +65,10 @@ DATETIME_TYPES = frozenset({
 BINARY_WATERMARK_TYPES = frozenset({"timestamp", "rowversion"})
 
 # Maximum priority for a column to qualify as incremental
-MAX_INCREMENTAL_PRIORITY = 3
+# Priority 2: Modified/Updated datetime (best)
+# Priority 3: Created datetime (good)
+# Priority 4: Identity column (usable — nearly every table has one)
+MAX_INCREMENTAL_PRIORITY = 4
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +389,137 @@ def classify_entity(
             result.is_incremental = True
 
     return result
+
+
+def auto_optimize(source_conn, entities, cpdb_execute, cpdb_query) -> dict:
+    """Auto-discover PKs and watermarks for entities missing them.
+
+    Connects to each on-prem source, runs bulk discovery queries, and
+    updates both the in-memory entity objects and the local SQLite DB.
+    This is the "zero manual steps" integration point — called by the
+    orchestrator before the LZ extract phase.
+
+    Parameters
+    ----------
+    source_conn : SourceConnection
+        Connection manager for on-prem sources.
+    entities : list
+        Entity objects from the worklist. Modified in-place.
+    cpdb_execute : callable
+        Execute SQL against local control-plane SQLite.
+    cpdb_query : callable
+        Query SQL against local control-plane SQLite.
+
+    Returns
+    -------
+    dict with counts: {'pk_discovered': N, 'watermark_discovered': N, 'skipped': N, 'errors': N}
+    """
+    import logging as _log
+    _logger = _log.getLogger("fmd.optimizer")
+
+    # Find entities needing optimization
+    needs_pk = [e for e in entities if not e.primary_keys]
+    needs_wm = [e for e in entities if not e.watermark_column]
+
+    need_ids = {e.id for e in needs_pk} | {e.id for e in needs_wm}
+    if not need_ids:
+        _logger.info("All %d entities already optimized — skipping discovery", len(entities))
+        return {"pk_discovered": 0, "watermark_discovered": 0, "skipped": 0, "errors": 0}
+
+    _logger.info("Auto-optimizing %d/%d entities (need PK: %d, need watermark: %d)",
+                 len(need_ids), len(entities), len(needs_pk), len(needs_wm))
+
+    # Group entities by (server, database) to batch queries
+    by_source: dict = {}
+    entity_map = {e.id: e for e in entities}
+    for eid in need_ids:
+        e = entity_map[eid]
+        key = (e.source_server, e.source_database)
+        by_source.setdefault(key, []).append(e)
+
+    stats = {"pk_discovered": 0, "watermark_discovered": 0, "skipped": 0, "errors": 0}
+    pk_sql = build_pk_query()
+    wm_sql = build_watermark_query()
+
+    for (server, database), group in by_source.items():
+        if not server or not database:
+            stats["skipped"] += len(group)
+            continue
+
+        try:
+            with source_conn.connect(server, database, timeout=20) as conn:
+                cursor = conn.cursor()
+
+                # Bulk PK discovery — one query gets all PKs in the database
+                try:
+                    cursor.execute(pk_sql)
+                    pk_rows = [(r[0], r[1], r[2]) for r in cursor.fetchall()]
+                    pk_map_local = parse_pk_rows(pk_rows)
+                except Exception as exc:
+                    _logger.warning("PK bulk query failed on %s/%s: %s", server, database, str(exc)[:80])
+                    pk_map_local = {}
+
+                # Bulk watermark discovery
+                try:
+                    cursor.execute(wm_sql)
+                    wm_rows = [(r[0], r[1], r[2], r[3], r[4]) for r in cursor.fetchall()]
+                    wm_map_local = parse_watermark_rows(wm_rows)
+                except Exception as exc:
+                    _logger.warning("Watermark bulk query failed on %s/%s: %s", server, database, str(exc)[:80])
+                    wm_map_local = {}
+
+                cursor.close()
+
+                # Apply results to entities
+                for entity in group:
+                    schema = entity.source_schema or "dbo"
+                    table = entity.source_name
+                    key = (schema, table)
+
+                    # PK
+                    if not entity.primary_keys:
+                        pk_cols = pk_map_local.get(key, [])
+                        if pk_cols:
+                            pk_str = format_primary_keys(pk_cols)
+                            entity.primary_keys = pk_str
+                            try:
+                                cpdb_execute(
+                                    "UPDATE bronze_entities SET PrimaryKeys = ? "
+                                    "WHERE LandingzoneEntityId = ?",
+                                    (pk_str, entity.id),
+                                )
+                            except Exception:
+                                pass
+                            stats["pk_discovered"] += 1
+
+                    # Watermark
+                    if not entity.watermark_column:
+                        candidates = wm_map_local.get(key, [])
+                        if candidates and candidates[0].qualifies_as_incremental:
+                            best = candidates[0]
+                            entity.watermark_column = best.column
+                            entity.is_incremental = True
+                            try:
+                                cpdb_execute(
+                                    "UPDATE lz_entities SET IsIncremental = 1, "
+                                    "IsIncrementalColumn = ? "
+                                    "WHERE LandingzoneEntityId = ?",
+                                    (best.column, entity.id),
+                                )
+                            except Exception:
+                                pass
+                            stats["watermark_discovered"] += 1
+
+        except Exception as exc:
+            _logger.warning("Failed to connect to %s/%s for optimization: %s",
+                            server, database, str(exc)[:100])
+            stats["errors"] += 1
+            stats["skipped"] += len(group)
+
+    _logger.info("Auto-optimization done: %d PKs, %d watermarks discovered, %d skipped, %d errors",
+                 stats["pk_discovered"], stats["watermark_discovered"],
+                 stats["skipped"], stats["errors"])
+    return stats
 
 
 def optimize_entities(
