@@ -83,7 +83,7 @@ Provenance is tracked at **two levels** — the system derives the display state
 1. `gs_extracted_entities.provenance` → phases 1-3
 2. `gs_canonical_entities.status = 'approved'` WHERE `root_id = canonical_root_id` AND `is_current = 1` → phase 4
 3. `EXISTS(gs_gold_specs WHERE canonical_root_id = X AND is_current = 1)` → phase 5
-4. `gs_gold_specs.status = 'validated'` → phase 6
+4. `gs_gold_specs.status = 'validated'` WHERE `canonical_root_id = X AND is_current = 1` → phase 6
 5. `EXISTS(gs_catalog_entries WHERE spec_root_id = Y AND is_current = 1 AND deleted_at IS NULL AND status = 'current')` → phase 7
 
 **Performance note:** Provenance derivation uses a single batch query with LEFT JOINs returning all entities for the current page — NOT per-row subqueries. For high-traffic pages, consider a materialized `derived_provenance_phase` (integer 1-7) on `gs_extracted_entities` updated by application-layer hooks when downstream objects change status.
@@ -482,6 +482,7 @@ All actions logged in audit log.
 ### New Imports Against Resolved Clusters
 
 When a new specimen is imported and duplicate detection finds matches against an already-resolved cluster:
+- Only clusters with `status IN ('resolved', 'pending_steward')` are eligible for `re_review` — dismissed clusters are excluded from the re-match pool
 - The resolved cluster status changes to `re_review` (not undone)
 - The new entity is added to the cluster as a tentative member
 - The canonical entity linked to this cluster gets a `⚠ New source` notification badge
@@ -491,8 +492,9 @@ When a new specimen is imported and duplicate detection finds matches against an
 ### Column Decision Behavior on Split
 
 When a cluster is split into sub-clusters:
-- Column decisions explicitly set by a user are preserved on the sub-cluster whose member set includes the relevant columns
-- Auto-defaulted decisions are recalculated based on the new member composition
+- `gs_cluster_column_decisions` rows are deep-copied to each sub-cluster, filtering to columns present in that sub-cluster's member set
+- User-set decisions are preserved; auto-defaulted decisions are recalculated based on the new member composition
+- Original cluster's decisions are retained for audit trail
 - Sub-clusters reference `parent_cluster_id` for traceability
 
 ### Column Reconciliation
@@ -775,6 +777,8 @@ Endorsement is a separate attribute:
 
 ### Publish Action
 
+**Catalog versioning invariant:** Republishing after spec version change creates a new `version` row under the same `root_id`. The `root_id` of a catalog entry is immutable after creation. Previous versions are set to `status = 'superseded'`.
+
 **Certify & Publish** button:
 1. Writes all metadata to `gs_catalog_entries` table
 2. Updates provenance to Cataloged (gold thread)
@@ -835,7 +839,7 @@ CREATE UNIQUE INDEX uq_spec_one_current ON gs_gold_specs(root_id) WHERE is_curre
 CREATE UNIQUE INDEX uq_catalog_one_current ON gs_catalog_entries(root_id) WHERE is_current = 1;
 ```
 
-**`root_id` generation:** On first insert (version=1), use `INSERT ... RETURNING id` and set `root_id = id` in the same transaction.
+**`root_id` generation:** On first insert (version=1), use a two-step transaction: (1) `INSERT INTO ... (..., root_id) VALUES(..., 0) RETURNING id`, (2) `UPDATE ... SET root_id = id WHERE id = ?`. Both steps in the same `BEGIN IMMEDIATE` transaction. The `root_id NOT NULL` constraint is satisfied by the temporary `0` value which is immediately corrected.
 
 **Version creation deep-copy:** When a new version is created for `gs_canonical_entities`, all `gs_canonical_columns` rows MUST be deep-copied with the new `canonical_id` using `INSERT INTO ... SELECT` (single statement, not row-by-row). Same principle for any child rows tied to a versioned parent. Consider `max_versions_retained` config (e.g., 10) with oldest non-current versions prunable.
 
@@ -1178,6 +1182,9 @@ CREATE TABLE gs_validation_runs (
     waiver          TEXT,                   -- JSON: {reason, approver_identity, timestamp, review_date}
     -- Waivers are VERSION-SCOPED. A new spec version requires a new waiver if the same
     -- critical rule fails. Waivers do NOT carry forward across versions.
+    -- SOFT-DELETE: Validation runs for soft-deleted specs are filtered by joining
+    -- gs_gold_specs WHERE root_id = spec_root_id. If ALL versions are soft-deleted,
+    -- the runs are considered inaccessible (filtered out of API responses).
     superseded      BOOLEAN DEFAULT 0
 );
 
