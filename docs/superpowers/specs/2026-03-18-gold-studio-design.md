@@ -72,6 +72,22 @@ Imported  Extracted  Clustered  Canonicalized  Gold Drafted  Validated  Cataloge
 | → Validated | All critical validation rules pass + user confirms (or waiver filed) | Human |
 | → Cataloged | All required catalog fields populated + user clicks Certify & Publish | Human |
 
+### Provenance Propagation Model
+
+Provenance is tracked at **two levels** — the system derives the display state:
+
+- **Extracted entities** (in `gs_extracted_entities.provenance`): Track phases 1-3 (Imported → Extracted → Clustered). These are **directly stored**.
+- **Phases 4-7** (Canonicalized → Gold Drafted → Validated → Cataloged): Derived at query time from the linked canonical entity's status, Gold spec existence/status, and catalog entry existence. Extracted entity provenance stops at `clustered`.
+
+**Provenance rendering on the Ledger** derives the full 7-phase thread by joining:
+1. `gs_extracted_entities.provenance` → phases 1-3
+2. `gs_canonical_entities.status = 'approved'` WHERE `root_id = canonical_root_id` AND `is_current = 1` → phase 4
+3. `EXISTS(gs_gold_specs WHERE canonical_root_id = X AND is_current = 1)` → phase 5
+4. `gs_gold_specs.status = 'validated'` → phase 6
+5. `EXISTS(gs_catalog_entries WHERE spec_root_id = Y AND is_current = 1 AND deleted_at IS NULL)` → phase 7
+
+**Invariant:** Specimen `job_state` and entity `provenance` are independent tracks. The UI must handle all combinations (e.g., `job_state=parse_warning` with some entities at `provenance=extracted` and others at `provenance=imported`). The spec explicitly documents this as expected behavior — partial extraction success creates mixed states.
+
 ### Terminal State Visual
 
 When an entity reaches Cataloged, the entire thread transitions to gold (gold dots, gold connecting line). This is the visual payoff — scannable at a glance across a table of entities.
@@ -252,6 +268,19 @@ Each file type has a dedicated parser. All parsers produce a normalized output c
 
 **v2 (not in v1):** XMLA/TOM-based model interrogation via endpoint.
 
+**Parser Security Requirements (mandatory for all parsers):**
+
+| Parser | Threat | Mitigation |
+|---|---|---|
+| `pbix_parser.py` | ZIP bomb / decompression bomb | Max decompressed size 500 MB, max 10,000 entries, max 3 nesting levels. Streaming decompression with running size check. Reject before full extraction. |
+| `rdl_parser.py` | XML External Entity (XXE) injection | Use `defusedxml` — disable DTD processing, external entity resolution, and XInclude. Never parse with stdlib `xml.etree` directly. |
+| `bim_parser.py` | Malicious JSON (deep nesting, huge strings) | Max file size 50 MB, JSON parse with depth limit (100 levels). All extracted field values HTML-escaped before storage. |
+| `pbip_parser.py` | Directory traversal via symlinks / `../` | Resolve all paths, validate they remain within upload boundary. Reject symlinks. Normalize paths before reading. |
+| `sql_parser.py` | Stored XSS via pasted SQL | SQL is parsed statically only (FROM/JOIN extraction). **Pasted SQL is NEVER forwarded to any execution context.** Schema discovery for pasted SQL uses only catalog lookups on extracted table references. |
+| All parsers | Oversized input | Max upload size: 200 MB per file. Reject at HTTP layer before buffering. |
+
+**File name sanitization:** Uploaded filenames are NEVER used for storage paths. Only `specimen_id` determines the directory. Original filename stored in DB metadata only. All path construction validated to remain under storage root.
+
 **Parser modules** (`dashboard/app/api/parsers/`):
 
 | Module | File Types | Extraction Method |
@@ -293,7 +322,15 @@ After extraction, for every referenced source table, the system resolves schema 
 
 Returns column names, data types, nullable, PK indicators.
 
-**Connection resolution:** Maps source references to existing FMD connections via `config.json`. Supports multi-source per specimen:
+**Schema Discovery Security (mandatory):**
+
+- **Identifier validation:** All table/schema/database names extracted from parsed artifacts MUST be validated as legal SQL identifiers (alphanumeric, underscore, dot, brackets only) before use in any query. Reject identifiers containing `;`, `--`, `/*`, `xp_`, `EXEC`, or other dangerous patterns.
+- **Bracket escaping:** All identifiers passed to queries use `QUOTENAME()`-style bracket escaping. Never concatenate raw identifier strings into SQL.
+- **Pasted SQL isolation:** SQL pasted by users is NEVER passed to `sp_describe_first_result_set` or any execution context. Schema discovery for pasted SQL extracts table references via static parsing, then uses catalog queries (method 3) on those table names only.
+- **Connection timeout:** 10s connect timeout, 30s query timeout per table. Max 3 retries with exponential backoff for VPN failures.
+- **Connection grouping:** Group schema discovery queries by source database — open one connection per unique source DB and batch all table lookups through it. Use connection pooling within a session.
+
+**Connection resolution:** Maps source references to existing FMD connections via `config.json` **only**. User-supplied connection strings are never accepted — all connections must resolve to pre-registered entries. Source binding `workspace` and `item_id` values validated against known Fabric workspace IDs. Supports multi-source per specimen:
 
 - Multiple SQL databases
 - Fabric Lakehouses and Warehouses
@@ -311,6 +348,22 @@ Extraction, schema discovery, bulk import, and validation are all **asynchronous
 2. Job runs in FastAPI background task
 3. `GET /jobs/{job_id}` → poll for status + results
 4. Optional: WebSocket event on completion (v2)
+
+**Job safety constraints:**
+
+| Constraint | Value |
+|---|---|
+| Max concurrent jobs (global) | 5 |
+| Max concurrent extraction jobs | 3 |
+| Max concurrent schema discovery jobs | 3 |
+| Extraction timeout | 120 seconds |
+| Schema discovery timeout | 60 seconds per table |
+| Validation run timeout | 300 seconds |
+| Max retry count (schema discovery) | 3 with exponential backoff |
+| Max bulk import batch size | 50 files |
+| Dead letter state | `failed_permanently` after max retries |
+
+Per-session rate limits: max 10 job submissions per minute. Bulk import counts as 1 submission.
 
 ### Post-Extraction Automation
 
@@ -335,6 +388,17 @@ data/gold-studio/specimens/{specimen_id}/
 ```
 
 Raw artifacts stored on disk. Parsed metadata in both JSON (inspection/debugging) and SQLite (API queries). JSON files serve as extraction cache — re-extractable from original without re-uploading.
+
+**Storage constraints:**
+
+| Constraint | Value |
+|---|---|
+| Max upload size per file | 200 MB |
+| Max total storage per division | 5 GB |
+| Disk quota check | Before accepting upload, verify available space |
+| PBIX decompression | Streaming extraction, max 500 MB decompressed |
+| Archival | Originals compressed (gzip) after extraction completes |
+| Retention | No automatic deletion — manual purge via soft-delete specimen |
 
 ---
 
@@ -405,9 +469,27 @@ Clusters display as full-width cards (not table rows). Copper left rail for unre
 
 **Merge With...** — Combine with another cluster. Picker shows other clusters with affinity score.
 
-**Dismiss** — Not the same thing despite surface similarity. Members return to unclustered with audit note.
+**Dismiss** — Not the same thing despite surface similarity. Members' `cluster_id` set to `NULL`, returning them to unclustered. Audit note required.
+
+**Invariant:** `cluster_id IS NOT NULL` implies the entity belongs to a non-dismissed cluster. All resolution actions that remove members (Dismiss, Remove Member, Mark Standalone) MUST set `cluster_id = NULL` on affected entities.
 
 All actions logged in audit log.
+
+### New Imports Against Resolved Clusters
+
+When a new specimen is imported and duplicate detection finds matches against an already-resolved cluster:
+- The resolved cluster status changes to `re_review` (not undone)
+- The new entity is added to the cluster as a tentative member
+- The canonical entity linked to this cluster gets a `⚠ New source` notification badge
+- Column decisions from the original resolution are preserved; only new columns from the new member default to `Review`
+- The steward can confirm (add to existing canonical) or reject (remove tentative member) without re-doing the full reconciliation
+
+### Column Decision Behavior on Split
+
+When a cluster is split into sub-clusters:
+- Column decisions explicitly set by a user are preserved on the sub-cluster whose member set includes the relevant columns
+- Auto-defaulted decisions are recalculated based on the new member composition
+- Sub-clusters reference `parent_cluster_id` for traceability
 
 ### Column Reconciliation
 
@@ -450,7 +532,9 @@ Status (Unresolved / Resolved / Dismissed / Pending Steward / All), Confidence (
 
 `Extracted` → `Clustered` when:
 - Assigned to an approved cluster, OR
-- Explicitly reviewed as standalone
+- Explicitly reviewed as standalone (provenance auto-set to `clustered` as a formality before canonical promotion)
+
+**Standalone promotion:** "Promote to Canonical" on an unclustered entity sets provenance to `clustered` (marking it as "reviewed, determined to be standalone"), then immediately creates a canonical entity — effectively `Extracted → Clustered → Canonicalized` in one action.
 
 Suggestions do not auto-advance. The suggestion is not the decision.
 
@@ -585,6 +669,10 @@ Editing any of these triggers automatic invalidation:
 - Relationship expectations
 - Validation thresholds
 
+**Canonical drift detection:** When a canonical entity is versioned (new columns, grain change, etc.), all Gold specs referencing that `canonical_root_id` where `canonical_version < current canonical version` are automatically flagged as `needs_revalidation`. The specs page shows a `↻ Upstream Changed` badge on affected specs.
+
+**Catalog cascade:** When a Gold spec enters `needs_revalidation`, any `gs_catalog_entries` row referencing that `spec_root_id` with `spec_version < current spec version` has its `status` set to `source_updated`. The Business Portal shows a `⚠ Source Updated` indicator instead of hiding the entry.
+
 Previous validation runs retained but marked as `superseded`. Spec status → `needs_revalidation`.
 
 ### Provenance
@@ -705,11 +793,49 @@ Endorsement is a separate attribute:
 
 ## 10. Backend Architecture
 
-### Database Schema (19 Tables)
+### Security Model
 
-All tables in `fmd_control_plane.db`, prefixed `gs_`. Soft deletes via `deleted_at` column on all user-facing mutable tables (child/append-only tables like `gs_extracted_columns` derive lifecycle from parent). No `ON DELETE CASCADE`. Versioning uses immutable version rows with `root_id` + `version` + `is_current` pattern.
+**Authentication:** All Gold Studio endpoints require the existing dashboard authentication (session-based). No anonymous access.
 
-**Note:** Background jobs (extraction, schema discovery, validation) update `job_state` and `status` columns directly in SQLite, not through API endpoints. The API reads state; background tasks write it.
+**Authorization tiers:**
+
+| Role | Can Do | Cannot Do |
+|---|---|---|
+| Viewer | Browse Ledger, Clusters, Canonical, Specs, Validation | Import, edit, approve, publish |
+| Contributor | Import specimens, edit metadata, resolve clusters, create canonical entities | Approve, publish, file waivers |
+| Approver | All Contributor actions + approve canonical entities, validate specs, file waivers, publish to catalog | — |
+
+**Waiver governance:** Waivers require an authenticated `approver` identity (not free text). The `performed_by` in the audit log is always the authenticated session identity. v2: two-person rule (waiver filer ≠ waiver approver).
+
+**Output encoding:** All user-provided text fields (names, descriptions, SQL, measure expressions) rendered as text content, never as HTML. SQL syntax highlighting uses a library that text-escapes before applying tokens (e.g., Prism.js). CSP headers set on all dashboard responses.
+
+**Soft-delete filtering:** All list and detail endpoints MUST filter `WHERE deleted_at IS NULL` by default. Only the audit log endpoint may include deleted records when `?include_deleted=true` is passed by an Approver.
+
+**Raw artifact downloads:** Require authentication, scoped to user's accessible divisions. Download events logged in audit trail.
+
+### Database Schema (21 Tables)
+
+All tables in `fmd_control_plane.db`, prefixed `gs_`. Soft deletes via `deleted_at` column on all user-facing mutable tables (child/append-only tables like `gs_extracted_columns` derive lifecycle from parent — all queries against child tables MUST join to parent and filter on parent's `deleted_at`). No `ON DELETE CASCADE`.
+
+**Versioning model:** Uses optimistic concurrency with version rows. `root_id` + `version` + `is_current` pattern. **Edits are NOT immutable inserts** — minor metadata edits (description, tags) mutate the current row. Material changes (columns, grain, SQL, keys) create a new version row. The `PUT` endpoint accepts `expected_version` and rejects with 409 Conflict if `MAX(version)` differs (optimistic locking). SQLite partial unique indexes enforce single-current-version invariant:
+
+```sql
+CREATE UNIQUE INDEX uq_canonical_one_current ON gs_canonical_entities(root_id) WHERE is_current = 1;
+CREATE UNIQUE INDEX uq_spec_one_current ON gs_gold_specs(root_id) WHERE is_current = 1;
+CREATE UNIQUE INDEX uq_catalog_one_current ON gs_catalog_entries(root_id) WHERE is_current = 1;
+```
+
+**`root_id` generation:** On first insert (version=1), use `INSERT ... RETURNING id` and set `root_id = id` in the same transaction.
+
+**Version creation deep-copy:** When a new version is created for `gs_canonical_entities`, all `gs_canonical_columns` rows MUST be deep-copied with the new `canonical_id`. Same principle for any child rows tied to a versioned parent.
+
+**Logical FK convention:** References using `root_id` (e.g., `canonical_root_id`, `spec_root_id`) are logical references that survive versioning. They are NOT enforced as SQL FK constraints because `root_id` is not unique across the table. Application-layer integrity checks are required.
+
+**JSON validation:** All JSON TEXT columns use CHECK constraints: `CHECK(column IS NULL OR json_valid(column))`. Array columns additionally check `json_type(column) = 'array'`.
+
+**WAL mode:** Required. Background jobs write status directly to SQLite; API reads concurrently. Batch entity/column inserts per job into single transactions.
+
+**Note:** Background jobs (extraction, schema discovery, validation) update `job_state` and `status` columns directly in SQLite, not through API endpoints. The API reads state; background tasks write it. The `PUT` endpoints on specs check for active validation runs (`status IN ('queued','running')`) and reject edits with 409 Conflict.
 
 #### Specimen Management (3 tables)
 
@@ -734,16 +860,25 @@ CREATE TABLE gs_specimens (
     deleted_at      DATETIME
 );
 
-CREATE TABLE gs_extraction_jobs (
+CREATE TABLE gs_jobs (
     id              INTEGER PRIMARY KEY,
-    specimen_id     INTEGER NOT NULL REFERENCES gs_specimens(id),
+    job_type        TEXT NOT NULL CHECK(job_type IN (
+        'extraction','schema_discovery','bulk_import','validation','cluster_detection'
+    )),
+    specimen_id     INTEGER REFERENCES gs_specimens(id),
+    entity_id       INTEGER REFERENCES gs_extracted_entities(id),
+    spec_id         INTEGER REFERENCES gs_gold_specs(id),
     started_at      DATETIME,
     completed_at    DATETIME,
-    status          TEXT CHECK(status IN ('queued','running','completed','warning','failed')),
+    status          TEXT DEFAULT 'queued' CHECK(status IN (
+        'queued','running','completed','warning','failed','failed_permanently'
+    )),
+    retry_count     INTEGER DEFAULT 0,
+    max_retries     INTEGER DEFAULT 3,
     parser_type     TEXT,
-    warnings        TEXT,                   -- JSON array
-    errors          TEXT,                   -- JSON array
-    metadata        TEXT                    -- JSON: parser stats
+    warnings        TEXT,                   -- JSON array; CHECK(warnings IS NULL OR json_valid(warnings))
+    errors          TEXT,                   -- JSON array; CHECK(errors IS NULL OR json_valid(errors))
+    metadata        TEXT                    -- JSON: parser stats, job-specific context
 );
 
 CREATE TABLE gs_specimen_queries (
@@ -769,11 +904,16 @@ CREATE TABLE gs_extracted_entities (
     schema_name     TEXT,
     source_database TEXT,
     source_system   TEXT,
+    table_type      TEXT DEFAULT 'physical' CHECK(table_type IN (
+        'physical','calculated','import','direct_query','direct_lake'
+    )),
     column_count    INTEGER DEFAULT 0,
     provenance      TEXT DEFAULT 'imported' CHECK(provenance IN (
-        'imported','extracted','clustered','canonicalized',
-        'gold_drafted','validated','cataloged'
+        'imported','extracted','clustered'
     )),
+    -- Note: phases 4-7 (canonicalized through cataloged) are DERIVED at query time
+    -- from linked canonical entity, Gold spec, and catalog entry status.
+    -- Extracted entity provenance stops at 'clustered'.
     cluster_id      INTEGER REFERENCES gs_clusters(id),
     canonical_root_id INTEGER,              -- references gs_canonical_entities.root_id (not id, survives versioning)
     metadata        TEXT,                   -- JSON
@@ -830,7 +970,8 @@ CREATE TABLE gs_source_bindings (
     storage_mode    TEXT CHECK(storage_mode IN ('import','direct_query','direct_lake','dual')),
     metadata        TEXT,
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-    deleted_at      DATETIME
+    deleted_at      DATETIME,
+    CHECK(specimen_id IS NOT NULL OR entity_id IS NOT NULL)
 );
 ```
 
@@ -873,13 +1014,15 @@ CREATE TABLE gs_schema_discovery (
 CREATE TABLE gs_clusters (
     id              INTEGER PRIMARY KEY,
     division        TEXT NOT NULL,
+    parent_cluster_id INTEGER REFERENCES gs_clusters(id),  -- set when split from a parent cluster
     label           TEXT,
     dominant_name   TEXT,
     confidence      INTEGER CHECK(confidence BETWEEN 0 AND 100),
     confidence_breakdown TEXT,              -- JSON: {name_match, column_overlap, query_pattern, penalties}
     status          TEXT DEFAULT 'unresolved' CHECK(status IN (
-        'unresolved','resolved','dismissed','pending_steward'
+        'unresolved','resolved','dismissed','pending_steward','re_review'
     )),
+    -- re_review: new entity matched a resolved cluster; needs incremental review
     resolution      TEXT CHECK(resolution IN ('approved','split','merged','dismissed')),
     resolved_by     TEXT,
     resolved_at     DATETIME,
@@ -892,9 +1035,12 @@ CREATE TABLE gs_cluster_column_decisions (
     id              INTEGER PRIMARY KEY,
     cluster_id      INTEGER NOT NULL REFERENCES gs_clusters(id),
     column_name     TEXT NOT NULL,
+    source_entity_id INTEGER REFERENCES gs_extracted_entities(id),  -- which member's version was chosen
     decision        TEXT NOT NULL CHECK(decision IN ('include','exclude','review')),
     reason          TEXT,
     key_designation TEXT CHECK(key_designation IN ('pk','bk','fk','none')),
+    source_data_type TEXT,                 -- data type from chosen source entity
+    source_expression TEXT,                -- expression from chosen source entity
     decided_by      TEXT,
     decided_at      DATETIME
 );
@@ -982,7 +1128,8 @@ CREATE TABLE gs_gold_specs (
     root_id         INTEGER NOT NULL,
     version         INTEGER NOT NULL DEFAULT 1,
     is_current      BOOLEAN NOT NULL DEFAULT 1,
-    canonical_root_id INTEGER NOT NULL,     -- references gs_canonical_entities.root_id
+    canonical_root_id INTEGER NOT NULL,     -- references gs_canonical_entities.root_id (logical FK)
+    canonical_version INTEGER NOT NULL,    -- version of canonical entity this spec was generated from
     target_name     TEXT NOT NULL,
     object_type     TEXT DEFAULT 'mlv' CHECK(object_type IN ('mlv','view','table')),
     source_sql      TEXT,
@@ -996,7 +1143,8 @@ CREATE TABLE gs_gold_specs (
     status          TEXT DEFAULT 'draft' CHECK(status IN (
         'draft','needs_revalidation','validated'
     )),
-    -- Note: "cataloged" state is derived from existence of gs_catalog_entries row,
+    -- Note: "cataloged" state is derived from existence of gs_catalog_entries row
+    -- WHERE is_current = 1 AND deleted_at IS NULL AND status = 'current'.
     -- not stored here. Avoids dual source of truth.
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -1010,14 +1158,16 @@ CREATE TABLE gs_gold_specs (
 ```sql
 CREATE TABLE gs_validation_runs (
     id              INTEGER PRIMARY KEY,
-    spec_id         INTEGER NOT NULL REFERENCES gs_gold_specs(id),
-    spec_version    INTEGER NOT NULL,
+    spec_root_id    INTEGER NOT NULL,      -- logical FK to gs_gold_specs.root_id (survives versioning)
+    spec_version    INTEGER NOT NULL,       -- version of spec this run was executed against
     started_at      DATETIME,
     completed_at    DATETIME,
     status          TEXT CHECK(status IN ('queued','running','passed','failed','warning')),
     results         TEXT,                   -- JSON: [{rule, type, expected, actual, status}] (NULL while queued/running)
     reconciliation  TEXT,                   -- JSON: legacy vs Gold metrics
-    waiver          TEXT,                   -- JSON: {reason, approver, timestamp, review_date}
+    waiver          TEXT,                   -- JSON: {reason, approver_identity, timestamp, review_date}
+    -- Waivers are VERSION-SCOPED. A new spec version requires a new waiver if the same
+    -- critical rule fails. Waivers do NOT carry forward across versions.
     superseded      BOOLEAN DEFAULT 0
 );
 
@@ -1040,6 +1190,9 @@ CREATE TABLE gs_catalog_entries (
     sensitivity_label TEXT NOT NULL CHECK(sensitivity_label IN (
         'public','internal','confidential','restricted'
     )),
+    status          TEXT DEFAULT 'current' CHECK(status IN ('current','source_updated','superseded')),
+    -- source_updated: referenced spec has been re-versioned since publication
+    -- superseded: replaced by a newer catalog entry version
     endorsement     TEXT DEFAULT 'none' CHECK(endorsement IN ('none','promoted','certified')),
     tags            TEXT,                   -- JSON array
     intended_audience TEXT,
@@ -1071,11 +1224,33 @@ CREATE TABLE gs_audit_log (
     )),
     object_id       INTEGER NOT NULL,
     action          TEXT NOT NULL,
-    previous_value  TEXT,                   -- JSON
-    new_value       TEXT,                   -- JSON
-    performed_by    TEXT,
+    previous_value  TEXT,                   -- JSON (changed fields only, not full snapshots)
+    new_value       TEXT,                   -- JSON (changed fields only, not full snapshots)
+    performed_by    TEXT NOT NULL,          -- authenticated session identity, never free text
     performed_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
     notes           TEXT
+);
+-- INTEGRITY: Audit log is APPEND-ONLY. No UPDATE, no DELETE at application level.
+-- No deleted_at column. Retention: archive entries older than 90 days to separate file.
+CREATE INDEX idx_audit_log_lookup ON gs_audit_log(object_type, object_id, performed_at);
+```
+
+#### Report Field Usage (1 table)
+
+```sql
+-- Tracks which report visuals reference which columns/measures (populated during extraction
+-- where report metadata supports it — PBIX/PBIP have visual-level field references)
+CREATE TABLE gs_report_field_usage (
+    id              INTEGER PRIMARY KEY,
+    specimen_id     INTEGER NOT NULL REFERENCES gs_specimens(id),
+    entity_id       INTEGER REFERENCES gs_extracted_entities(id),
+    visual_id       TEXT,                   -- report visual identifier (from PBIX/PBIP metadata)
+    visual_type     TEXT,                   -- chart, table, card, slicer, etc.
+    page_name       TEXT,                   -- report page name
+    column_name     TEXT,
+    measure_name    TEXT,
+    usage_type      TEXT CHECK(usage_type IN ('axis','value','filter','slicer','tooltip','detail')),
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -1177,8 +1352,8 @@ New module: `dashboard/app/api/routes/gold_studio.py`
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/{id}` | Job status + results |
-| GET | `/` | List recent jobs |
+| GET | `/{id}` | Job status + results (queries `gs_jobs` table) |
+| GET | `/` | List recent jobs (filters: job_type, status, specimen_id) |
 
 #### Audit (`/api/gold-studio/audit`)
 
@@ -1186,7 +1361,23 @@ New module: `dashboard/app/api/routes/gold_studio.py`
 |---|---|---|
 | GET | `/log` | Audit log (filters: object_type, object_id, action, date_range) |
 
-**Total: 53 endpoints.**
+#### Stats (`/api/gold-studio/stats`)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/` | All stats for all pages in single response (10-second in-memory cache) |
+
+#### Report Field Usage (`/api/gold-studio/field-usage`)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/?specimen_id=` | Field usage for a specimen |
+| GET | `/?entity_id=` | Field usage for an entity |
+| GET | `/?column_name=` | Which reports use a specific column (impact analysis) |
+
+**Pagination:** All list endpoints accept `limit` (default 100) and `offset` parameters. Audit log queries REQUIRE pagination.
+
+**Total: 59 endpoints across 21 tables.**
 
 ### Integration Points
 
@@ -1345,7 +1536,10 @@ Consistent across all Gold Studio pages:
 - Catalog publication with governance metadata
 - Audit log
 - Business Portal integration (Data Collections, Datasets views)
-- All 19 SQLite tables + 53 API endpoints
+- All 21 SQLite tables + 59 API endpoints
+- Security model with auth tiers (Viewer / Contributor / Approver)
+- File upload safety (size limits, ZIP bomb protection, XXE protection, path sanitization)
+- Schema discovery SQL injection protection
 
 ### In v2
 
