@@ -13,7 +13,7 @@ Gold Studio is a persistent assay ledger for report artifacts, where every impor
 
 **Product thesis:** Nothing gets lost, everything is traceable.
 
-Gold Studio translates a 6-phase metadata-first methodology (Inventory → Extract → Normalize → Canonical Model → Gold Design → Validate) into a dashboard-native workflow. The system does the heavy lifting — parsing files, discovering schemas, detecting duplicates, generating specs — while the human makes every judgment call.
+Gold Studio translates a 6-phase metadata-first methodology (Inventory → Extract → Normalize → Canonical Model → Gold Design → Validate) plus a governance gate (Catalog Publication) into a dashboard-native workflow with 7 provenance states. The system does the heavy lifting — parsing files, discovering schemas, detecting duplicates, generating specs — while the human makes every judgment call.
 
 ### What Gold Studio Is
 
@@ -705,9 +705,11 @@ Endorsement is a separate attribute:
 
 ## 10. Backend Architecture
 
-### Database Schema (17 Tables)
+### Database Schema (19 Tables)
 
-All tables in `fmd_control_plane.db`, prefixed `gs_`. Soft deletes via `deleted_at` column on all user-facing mutable tables. No `ON DELETE CASCADE`. Versioning uses immutable version rows with `root_id` pattern.
+All tables in `fmd_control_plane.db`, prefixed `gs_`. Soft deletes via `deleted_at` column on all user-facing mutable tables (child/append-only tables like `gs_extracted_columns` derive lifecycle from parent). No `ON DELETE CASCADE`. Versioning uses immutable version rows with `root_id` + `version` + `is_current` pattern.
+
+**Note:** Background jobs (extraction, schema discovery, validation) update `job_state` and `status` columns directly in SQLite, not through API endpoints. The API reads state; background tasks write it.
 
 #### Specimen Management (3 tables)
 
@@ -773,7 +775,7 @@ CREATE TABLE gs_extracted_entities (
         'gold_drafted','validated','cataloged'
     )),
     cluster_id      INTEGER REFERENCES gs_clusters(id),
-    canonical_id    INTEGER REFERENCES gs_canonical_entities(id),
+    canonical_root_id INTEGER,              -- references gs_canonical_entities.root_id (not id, survives versioning)
     metadata        TEXT,                   -- JSON
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted_at      DATETIME
@@ -827,7 +829,8 @@ CREATE TABLE gs_source_bindings (
     partition_name  TEXT,
     storage_mode    TEXT CHECK(storage_mode IN ('import','direct_query','direct_lake','dual')),
     metadata        TEXT,
-    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at      DATETIME
 );
 ```
 
@@ -857,7 +860,7 @@ CREATE TABLE gs_schema_discovery (
     source_table    TEXT NOT NULL,
     discovered_columns TEXT NOT NULL,       -- JSON: [{name, type, nullable, is_pk}]
     discovery_method TEXT CHECK(discovery_method IN (
-        'sp_describe','catalog','top0','fmtonly'
+        'sp_describe','dm_describe','catalog','top0','fmtonly'
     )),
     discovered_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
     connection_id   TEXT
@@ -926,6 +929,30 @@ CREATE TABLE gs_canonical_entities (
 );
 ```
 
+#### Canonical Columns (1 table)
+
+```sql
+-- The approved column set for a canonical entity version
+CREATE TABLE gs_canonical_columns (
+    id              INTEGER PRIMARY KEY,
+    canonical_id    INTEGER NOT NULL REFERENCES gs_canonical_entities(id),
+    canonical_root_id INTEGER NOT NULL,     -- denormalized for query convenience
+    column_name     TEXT NOT NULL,
+    business_name   TEXT,                   -- user-friendly display name
+    data_type       TEXT,
+    nullable        BOOLEAN DEFAULT 1,
+    key_designation TEXT CHECK(key_designation IN ('pk','bk','fk','none')),
+    source_expression TEXT,                 -- lineage to source column
+    classification  TEXT CHECK(classification IN ('public','internal','confidential','restricted','pii')),
+    business_description TEXT,
+    fk_target_root_id INTEGER,             -- if FK, which canonical entity it references
+    fk_target_column TEXT,
+    ordinal         INTEGER,
+    from_cluster_decision_id INTEGER REFERENCES gs_cluster_column_decisions(id),
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
 #### Semantic Definitions (1 table)
 
 ```sql
@@ -967,8 +994,10 @@ CREATE TABLE gs_gold_specs (
     refresh_strategy TEXT CHECK(refresh_strategy IN ('full','incremental','hybrid')),
     validation_rules TEXT,                  -- JSON array
     status          TEXT DEFAULT 'draft' CHECK(status IN (
-        'draft','needs_revalidation','validated','cataloged'
+        'draft','needs_revalidation','validated'
     )),
+    -- Note: "cataloged" state is derived from existence of gs_catalog_entries row,
+    -- not stored here. Avoids dual source of truth.
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted_at      DATETIME,
@@ -986,7 +1015,7 @@ CREATE TABLE gs_validation_runs (
     started_at      DATETIME,
     completed_at    DATETIME,
     status          TEXT CHECK(status IN ('queued','running','passed','failed','warning')),
-    results         TEXT NOT NULL,          -- JSON: [{rule, type, expected, actual, status}]
+    results         TEXT,                   -- JSON: [{rule, type, expected, actual, status}] (NULL while queued/running)
     reconciliation  TEXT,                   -- JSON: legacy vs Gold metrics
     waiver          TEXT,                   -- JSON: {reason, approver, timestamp, review_date}
     superseded      BOOLEAN DEFAULT 0
@@ -995,8 +1024,9 @@ CREATE TABLE gs_validation_runs (
 CREATE TABLE gs_catalog_entries (
     id              INTEGER PRIMARY KEY,
     root_id         INTEGER NOT NULL,
-    revision        INTEGER NOT NULL DEFAULT 1,
+    version         INTEGER NOT NULL DEFAULT 1,
     is_current      BOOLEAN NOT NULL DEFAULT 1,
+    canonical_root_id INTEGER NOT NULL,     -- direct link to canonical entity for traceability
     spec_root_id    INTEGER NOT NULL,
     spec_version    INTEGER NOT NULL,
     display_name    TEXT NOT NULL,
@@ -1027,7 +1057,7 @@ CREATE TABLE gs_catalog_entries (
     published_by    TEXT,
     last_validation_run_id INTEGER REFERENCES gs_validation_runs(id),
     deleted_at      DATETIME,
-    UNIQUE(root_id, revision)
+    UNIQUE(root_id, version)
 );
 ```
 
@@ -1060,6 +1090,7 @@ New module: `dashboard/app/api/routes/gold_studio.py`
 | POST | `/` | Create specimen (file upload or SQL paste) |
 | GET | `/` | List (filters: division, type, steward, job_state) |
 | GET | `/{id}` | Detail + extracted entities + queries |
+| PUT | `/{id}` | Update metadata (name, steward, description, tags, division, source_system) |
 | DELETE | `/{id}` | Soft delete |
 | POST | `/{id}/extract` | Trigger extraction (async job) |
 | GET | `/{id}/queries` | List extracted queries |
@@ -1139,8 +1170,8 @@ New module: `dashboard/app/api/routes/gold_studio.py`
 | POST | `/specs/{id}/publish` | Publish (validates required fields) |
 | GET | `/` | List published entries |
 | GET | `/{id}` | Entry detail |
-| PUT | `/{id}` | Update metadata (new revision) |
-| GET | `/{id}/revisions` | Revision history |
+| PUT | `/{id}` | Update metadata (new version) |
+| GET | `/{id}/versions` | Version history |
 
 #### Jobs (`/api/gold-studio/jobs`)
 
@@ -1155,7 +1186,7 @@ New module: `dashboard/app/api/routes/gold_studio.py`
 |---|---|---|
 | GET | `/log` | Audit log (filters: object_type, object_id, action, date_range) |
 
-**Total: ~40 endpoints.**
+**Total: 53 endpoints.**
 
 ### Integration Points
 
@@ -1247,11 +1278,13 @@ Consistent across all Gold Studio pages:
 |---|---|---|
 | In progress | Copper | `#B45624` |
 | Validated | Operational green | `#3D7C4F` |
-| Gold drafted | Warm gold | `#C2952B` |
+| Gold drafted | Amber-gold | `#D4A017` |
 | Cataloged | Warm gold | `#C2952B` |
 | Pending/queued | Muted stone | `#A8A29E` |
 | Failed | Fault red | `#B93A2A` |
 | Warning | Caution amber | `#C27A1A` |
+
+**Note:** Gold Drafted (`#D4A017`, lighter/brighter) and Cataloged (`#C2952B`, deeper/richer) are visually distinct. Drafted is not done — the brighter tone signals "promising but incomplete."
 
 ---
 
@@ -1312,7 +1345,7 @@ Consistent across all Gold Studio pages:
 - Catalog publication with governance metadata
 - Audit log
 - Business Portal integration (Data Collections, Datasets views)
-- All 17 SQLite tables + ~40 API endpoints
+- All 19 SQLite tables + 53 API endpoints
 
 ### In v2
 
