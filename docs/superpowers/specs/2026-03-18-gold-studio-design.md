@@ -84,7 +84,9 @@ Provenance is tracked at **two levels** — the system derives the display state
 2. `gs_canonical_entities.status = 'approved'` WHERE `root_id = canonical_root_id` AND `is_current = 1` → phase 4
 3. `EXISTS(gs_gold_specs WHERE canonical_root_id = X AND is_current = 1)` → phase 5
 4. `gs_gold_specs.status = 'validated'` → phase 6
-5. `EXISTS(gs_catalog_entries WHERE spec_root_id = Y AND is_current = 1 AND deleted_at IS NULL)` → phase 7
+5. `EXISTS(gs_catalog_entries WHERE spec_root_id = Y AND is_current = 1 AND deleted_at IS NULL AND status = 'current')` → phase 7
+
+**Performance note:** Provenance derivation uses a single batch query with LEFT JOINs returning all entities for the current page — NOT per-row subqueries. For high-traffic pages, consider a materialized `derived_provenance_phase` (integer 1-7) on `gs_extracted_entities` updated by application-layer hooks when downstream objects change status.
 
 **Invariant:** Specimen `job_state` and entity `provenance` are independent tracks. The UI must handle all combinations (e.g., `job_state=parse_warning` with some entities at `provenance=extracted` and others at `provenance=imported`). The spec explicitly documents this as expected behavior — partial extraction success creates mixed states.
 
@@ -325,7 +327,7 @@ Returns column names, data types, nullable, PK indicators.
 **Schema Discovery Security (mandatory):**
 
 - **Identifier validation:** All table/schema/database names extracted from parsed artifacts MUST be validated as legal SQL identifiers (alphanumeric, underscore, dot, brackets only) before use in any query. Reject identifiers containing `;`, `--`, `/*`, `xp_`, `EXEC`, or other dangerous patterns.
-- **Bracket escaping:** All identifiers passed to queries use `QUOTENAME()`-style bracket escaping. Never concatenate raw identifier strings into SQL.
+- **Bracket escaping:** All identifiers passed to queries use server-side `QUOTENAME()` (i.e., `SELECT TOP 0 * FROM QUOTENAME(@schema) + '.' + QUOTENAME(@table)` built via parameterized stored procedure call on the source DB, not Python string interpolation). Never concatenate raw identifier strings into SQL.
 - **Pasted SQL isolation:** SQL pasted by users is NEVER passed to `sp_describe_first_result_set` or any execution context. Schema discovery for pasted SQL extracts table references via static parsing, then uses catalog queries (method 3) on those table names only.
 - **Connection timeout:** 10s connect timeout, 30s query timeout per table. Max 3 retries with exponential backoff for VPN failures.
 - **Connection grouping:** Group schema discovery queries by source database — open one connection per unique source DB and batch all table lookups through it. Use connection pooling within a session.
@@ -423,6 +425,8 @@ Three matching strategies, each producing a confidence score:
 | **Query Pattern** | Similar FROM tables, JOIN patterns, WHERE clauses | Lower |
 
 Scores combine with penalties (e.g., cross-source mismatch: -5) into an aggregate 0-100 confidence.
+
+**Performance:** Pre-compute column signature hashes (sorted column names → hash) at extraction time. Cluster detection uses hash buckets for initial candidate filtering (locality-sensitive hashing), then runs full column overlap only on hash-similar pairs. This avoids O(n²) brute-force comparison for large divisions.
 
 **Confidence is always explainable.** Every cluster card shows a breakdown:
 
@@ -805,13 +809,19 @@ Endorsement is a separate attribute:
 | Contributor | Import specimens, edit metadata, resolve clusters, create canonical entities | Approve, publish, file waivers |
 | Approver | All Contributor actions + approve canonical entities, validate specs, file waivers, publish to catalog | — |
 
-**Waiver governance:** Waivers require an authenticated `approver` identity (not free text). The `performed_by` in the audit log is always the authenticated session identity. v2: two-person rule (waiver filer ≠ waiver approver).
+**Waiver governance:** Waivers require an authenticated `approver` identity (not free text). The `performed_by` in the audit log is always the authenticated session identity. `POST /validation/runs/{id}/waiver` requires Approver role — returns 403 for Viewer and Contributor. v2: two-person rule (waiver filer ≠ waiver approver).
+
+**Optimistic concurrency on governance actions:** All state-transition POST endpoints (`resolve`, `approve`, `publish`, `validate`, `waiver`) require `expected_version` parameter (or `If-Match` header) to prevent race conditions. Returns 409 Conflict if stale.
 
 **Output encoding:** All user-provided text fields (names, descriptions, SQL, measure expressions) rendered as text content, never as HTML. SQL syntax highlighting uses a library that text-escapes before applying tokens (e.g., Prism.js). CSP headers set on all dashboard responses.
 
 **Soft-delete filtering:** All list and detail endpoints MUST filter `WHERE deleted_at IS NULL` by default. Only the audit log endpoint may include deleted records when `?include_deleted=true` is passed by an Approver.
 
-**Raw artifact downloads:** Require authentication, scoped to user's accessible divisions. Download events logged in audit trail.
+**Raw artifact downloads:** Require authentication, scoped to user's accessible divisions. Download events logged in audit trail. `specimen_id` validated as positive integer at route level before any filesystem path construction.
+
+**Audit log scoping:** `GET /api/gold-studio/audit/log` requires `division` as a filter — audit entries are scoped to the querying user's accessible divisions, not globally visible.
+
+**Bulk import:** Uses client-side multi-file `<input type="file" multiple>` element (browser file picker), not server-side folder paths. The server never reads from user-specified filesystem paths.
 
 ### Database Schema (21 Tables)
 
@@ -827,7 +837,7 @@ CREATE UNIQUE INDEX uq_catalog_one_current ON gs_catalog_entries(root_id) WHERE 
 
 **`root_id` generation:** On first insert (version=1), use `INSERT ... RETURNING id` and set `root_id = id` in the same transaction.
 
-**Version creation deep-copy:** When a new version is created for `gs_canonical_entities`, all `gs_canonical_columns` rows MUST be deep-copied with the new `canonical_id`. Same principle for any child rows tied to a versioned parent.
+**Version creation deep-copy:** When a new version is created for `gs_canonical_entities`, all `gs_canonical_columns` rows MUST be deep-copied with the new `canonical_id` using `INSERT INTO ... SELECT` (single statement, not row-by-row). Same principle for any child rows tied to a versioned parent. Consider `max_versions_retained` config (e.g., 10) with oldest non-current versions prunable.
 
 **Logical FK convention:** References using `root_id` (e.g., `canonical_root_id`, `spec_root_id`) are logical references that survive versioning. They are NOT enforced as SQL FK constraints because `root_id` is not unique across the table. Application-layer integrity checks are required.
 
@@ -863,7 +873,7 @@ CREATE TABLE gs_specimens (
 CREATE TABLE gs_jobs (
     id              INTEGER PRIMARY KEY,
     job_type        TEXT NOT NULL CHECK(job_type IN (
-        'extraction','schema_discovery','bulk_import','validation','cluster_detection'
+        'extraction','schema_discovery','bulk_import','validation','cluster_detection','audit_archival'
     )),
     specimen_id     INTEGER REFERENCES gs_specimens(id),
     entity_id       INTEGER REFERENCES gs_extracted_entities(id),
@@ -1231,7 +1241,10 @@ CREATE TABLE gs_audit_log (
     notes           TEXT
 );
 -- INTEGRITY: Audit log is APPEND-ONLY. No UPDATE, no DELETE at application level.
--- No deleted_at column. Retention: archive entries older than 90 days to separate file.
+-- No deleted_at column.
+-- RETENTION: Weekly archival background job (job_type='audit_archival' in gs_jobs)
+-- moves rows older than 90 days to gs_audit_log_archive table or exports to JSON.
+-- Store only changed fields in diffs (not full before/after snapshots) to control growth.
 CREATE INDEX idx_audit_log_lookup ON gs_audit_log(object_type, object_id, performed_at);
 ```
 
@@ -1365,7 +1378,7 @@ New module: `dashboard/app/api/routes/gold_studio.py`
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/` | All stats for all pages in single response (10-second in-memory cache) |
+| GET | `/` | All stats for all pages in single response (30-second in-memory cache) |
 
 #### Report Field Usage (`/api/gold-studio/field-usage`)
 
