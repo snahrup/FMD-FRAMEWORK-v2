@@ -2,6 +2,23 @@
 
 import { cn } from "@/lib/utils";
 
+// Inject keyframe styles once at module scope (not per-render)
+const STYLE_ID = "provenance-thread-styles";
+if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = `
+    @keyframes provenance-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.3); }
+    }
+    .provenance-pulse {
+      animation: provenance-pulse 2s ease-in-out infinite;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 interface ProvenanceThreadProps {
   /** Current phase (1=Imported through 7=Cataloged) */
   phase: 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -110,16 +127,6 @@ export function ProvenanceThread({ phase, size = "sm" }: ProvenanceThreadProps) 
         </div>
       )}
 
-      {/* Pulse animation */}
-      <style>{`
-        @keyframes provenance-pulse {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.3); }
-        }
-        .provenance-pulse {
-          animation: provenance-pulse 2s ease-in-out infinite;
-        }
-      `}</style>
     </div>
   );
 }

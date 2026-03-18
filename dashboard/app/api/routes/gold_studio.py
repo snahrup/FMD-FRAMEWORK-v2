@@ -94,7 +94,22 @@ def _rows_to_list(rows):
 # Stats cache
 # ---------------------------------------------------------------------------
 _stats_cache: dict = {"ts": 0, "data": None}
+_stats_lock = threading.Lock()
 _STATS_TTL = 30  # seconds
+
+
+def _check_expected_version(conn, params, sql: str, bind: tuple, label: str = "entity"):
+    """Optimistic concurrency check.  If the caller supplies expected_version
+    and the current DB version differs, raise 409 Conflict."""
+    expected = params.get("expected_version")
+    if expected is None:
+        return
+    row = conn.execute(sql, bind).fetchone()
+    current = row[0] if row else None
+    if current != int(expected):
+        raise HttpError(
+            "Conflict: %s has been modified (expected version %s, current %s)"
+            % (label, expected, current), 409)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -118,13 +133,15 @@ def gs_create_specimen(params: dict) -> dict:
 
     conn = cpdb._get_conn()
     try:
+        imported_by = (params.get("imported_by") or "api").strip()
         cur = conn.execute(
             """INSERT INTO gs_specimens
-               (name, type, division, source_system, steward, description, tags, file_path, job_state)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')""",
+               (name, type, division, source_system, steward, description, tags, file_path, job_state, imported_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)""",
             (params["name"].strip(), stype, params["division"].strip(),
              params.get("source_system"), params["steward"].strip(),
-             params.get("description"), tags, params.get("file_path")),
+             params.get("description"), tags, params.get("file_path"),
+             imported_by),
         )
         specimen_id = cur.lastrowid
         _audit(conn, "specimen", specimen_id, "created",
@@ -150,16 +167,21 @@ def gs_list_specimens(params: dict) -> dict:
             where.append(f"{col} = ?")
             bind.append(val)
 
+    search = (params.get("search") or params.get("q") or "").strip()
+    if search:
+        where.append("(s.name LIKE ? OR s.description LIKE ?)")
+        bind.extend([f"%{search}%", f"%{search}%"])
+
     where_sql = "WHERE " + " AND ".join(where)
 
     conn = cpdb._get_conn()
     try:
         total = conn.execute(
-            f"SELECT COUNT(*) AS cnt FROM gs_specimens {where_sql}", bind
+            f"SELECT COUNT(*) AS cnt FROM gs_specimens s {where_sql}", bind
         ).fetchone()["cnt"]
         rows = conn.execute(
-            f"""SELECT * FROM gs_specimens {where_sql}
-                ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+            f"""SELECT s.* FROM gs_specimens s {where_sql}
+                ORDER BY s.created_at DESC LIMIT ? OFFSET ?""",
             bind + [limit, offset],
         ).fetchall()
         return {"items": _rows_to_list(rows), "total": total,
@@ -358,12 +380,14 @@ def gs_bulk_import_specimens(params: dict) -> dict:
             tags = sp.get("tags")
             if isinstance(tags, list):
                 tags = json.dumps(tags)
+            imported_by = (sp.get("imported_by") or params.get("imported_by") or "api").strip()
             cur = conn.execute(
                 """INSERT INTO gs_specimens
-                   (name, type, division, source_system, steward, description, tags, file_path, job_state)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')""",
+                   (name, type, division, source_system, steward, description, tags, file_path, job_state, imported_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)""",
                 (name, stype, division, sp.get("source_system"),
-                 steward, sp.get("description"), tags, sp.get("file_path")),
+                 steward, sp.get("description"), tags, sp.get("file_path"),
+                 imported_by),
             )
             created_ids.append(cur.lastrowid)
             _audit(conn, "specimen", cur.lastrowid, "created",
@@ -663,6 +687,15 @@ def gs_resolve_cluster(params: dict) -> dict:
             (cid,)).fetchone()
         if not old:
             raise HttpError("Cluster not found", 404)
+
+        # Optimistic concurrency: check status + updated_at hasn't changed
+        expected = params.get("expected_version")
+        if expected is not None:
+            current_ts = old["updated_at"] or old["created_at"] or ""
+            if str(expected) != str(current_ts):
+                raise HttpError(
+                    "Conflict: cluster has been modified (expected %s, current %s)"
+                    % (expected, current_ts), 409)
 
         status = "dismissed" if action == "dismiss" else "resolved"
         conn.execute(
@@ -1030,6 +1063,12 @@ def gs_update_canonical(params: dict) -> dict:
         if not old:
             raise HttpError("Canonical entity not found", 404)
 
+        # Optimistic concurrency
+        _check_expected_version(
+            conn, params,
+            "SELECT MAX(version) FROM gs_canonical_entities WHERE root_id = ? AND is_current = 1",
+            (old["root_id"],), "canonical entity")
+
         updatable = ("name", "business_description", "domain", "entity_type",
                      "grain", "business_keys", "steward", "source_systems",
                      "source_cluster_ids", "status", "shared_dimensions")
@@ -1112,6 +1151,12 @@ def gs_approve_canonical(params: dict) -> dict:
             (cid,)).fetchone()
         if not row:
             raise HttpError("Canonical entity not found", 404)
+
+        # Optimistic concurrency: check version hasn't changed
+        _check_expected_version(
+            conn, params,
+            "SELECT MAX(version) FROM gs_canonical_entities WHERE root_id = ? AND is_current = 1",
+            (row["root_id"],), "canonical entity")
 
         # Validate required fields
         missing = []
@@ -1475,45 +1520,107 @@ def gs_update_spec(params: dict) -> dict:
         if not old:
             raise HttpError("Gold spec not found", 404)
 
+        # Optimistic concurrency
+        _check_expected_version(
+            conn, params,
+            "SELECT MAX(version) FROM gs_gold_specs WHERE root_id = ? AND is_current = 1",
+            (old["root_id"],), "gold spec")
+
+        # Reject edits during active validation runs (Fix 2)
+        active = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM gs_validation_runs WHERE spec_root_id = ? AND status IN ('queued', 'running')",
+            (old["root_id"],)
+        ).fetchone()["cnt"]
+        if active > 0:
+            raise HttpError("Cannot edit spec while validation is running", 409)
+
         updatable = ("target_name", "object_type", "source_sql",
                      "transformation_rules", "included_columns",
                      "excluded_columns", "relationship_expectations",
                      "downstream_reports", "refresh_strategy",
                      "validation_rules", "status")
-        sets, vals = [], []
-        material = False
         material_fields = {"source_sql", "transformation_rules",
                            "included_columns", "excluded_columns",
                            "refresh_strategy"}
+
+        # Detect which fields are being changed and whether any are material
+        material = False
+        has_changes = False
         for col in updatable:
             if col in params and params[col] is not None:
-                v = params[col]
-                if isinstance(v, (list, dict)):
-                    v = json.dumps(v)
-                sets.append(f"{col} = ?")
-                vals.append(v)
+                has_changes = True
                 if col in material_fields:
                     material = True
 
-        if not sets:
+        if not has_changes:
             raise HttpError("No updatable fields provided", 400)
 
-        # Material changes trigger needs_revalidation
-        if material and old["status"] == "validated":
-            sets.append("status = ?")
-            vals.append("needs_revalidation")
+        if material:
+            # Material change: create a new version row (like gs_update_canonical)
+            conn.execute("BEGIN IMMEDIATE")
+            old_d = _row_to_dict(old)
+            new_version = old_d["version"] + 1
 
-        sets.append("updated_at = CURRENT_TIMESTAMP")
-        vals.append(sid)
-        conn.execute(
-            f"UPDATE gs_gold_specs SET {', '.join(sets)} WHERE id = ?", vals)
-        _audit(conn, "spec", sid, "updated",
-               previous_value=_row_to_dict(old),
-               notes="material_change" if material else None)
-        conn.commit()
-        row = conn.execute("SELECT * FROM gs_gold_specs WHERE id = ?",
-                           (sid,)).fetchone()
-        return _row_to_dict(row)
+            # Collect values, preferring params over old values
+            vals = {}
+            for col in updatable:
+                v = params.get(col, old_d.get(col))
+                if isinstance(v, (list, dict)):
+                    v = json.dumps(v)
+                vals[col] = v
+
+            # Force needs_revalidation on material change
+            if old_d["status"] == "validated":
+                vals["status"] = "needs_revalidation"
+
+            conn.execute(
+                "UPDATE gs_gold_specs SET is_current = 0 WHERE id = ?",
+                (sid,))
+
+            cur = conn.execute(
+                """INSERT INTO gs_gold_specs
+                   (root_id, version, is_current, canonical_root_id, canonical_version,
+                    target_name, object_type, source_sql, transformation_rules,
+                    included_columns, excluded_columns, relationship_expectations,
+                    downstream_reports, refresh_strategy, validation_rules, status)
+                   VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (old_d["root_id"], new_version,
+                 old_d["canonical_root_id"], old_d["canonical_version"],
+                 vals["target_name"], vals["object_type"], vals["source_sql"],
+                 vals["transformation_rules"], vals["included_columns"],
+                 vals["excluded_columns"], vals["relationship_expectations"],
+                 vals["downstream_reports"], vals["refresh_strategy"],
+                 vals["validation_rules"], vals["status"]))
+            new_id = cur.lastrowid
+            _audit(conn, "spec", new_id, "versioned",
+                   previous_value={"version": old_d["version"]},
+                   new_value={"version": new_version},
+                   notes="material_change")
+            conn.commit()
+            row = conn.execute("SELECT * FROM gs_gold_specs WHERE id = ?",
+                               (new_id,)).fetchone()
+            return _row_to_dict(row)
+        else:
+            # Non-material: in-place update
+            sets, vals = [], []
+            for col in updatable:
+                if col in params and params[col] is not None:
+                    v = params[col]
+                    if isinstance(v, (list, dict)):
+                        v = json.dumps(v)
+                    sets.append(f"{col} = ?")
+                    vals.append(v)
+
+            sets.append("updated_at = CURRENT_TIMESTAMP")
+            vals.append(sid)
+            conn.execute(
+                f"UPDATE gs_gold_specs SET {', '.join(sets)} WHERE id = ?", vals)
+            _audit(conn, "spec", sid, "updated",
+                   previous_value=_row_to_dict(old))
+            conn.commit()
+            row = conn.execute("SELECT * FROM gs_gold_specs WHERE id = ?",
+                               (sid,)).fetchone()
+            return _row_to_dict(row)
     finally:
         conn.close()
 
@@ -1530,6 +1637,20 @@ def gs_update_spec_sql(params: dict) -> dict:
             (sid,)).fetchone()
         if not old:
             raise HttpError("Gold spec not found", 404)
+
+        # Optimistic concurrency
+        _check_expected_version(
+            conn, params,
+            "SELECT MAX(version) FROM gs_gold_specs WHERE root_id = ? AND is_current = 1",
+            (old["root_id"],), "gold spec")
+
+        # Reject edits during active validation runs
+        active = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM gs_validation_runs WHERE spec_root_id = ? AND status IN ('queued', 'running')",
+            (old["root_id"],)
+        ).fetchone()["cnt"]
+        if active > 0:
+            raise HttpError("Cannot edit spec while validation is running", 409)
 
         new_status = "needs_revalidation" if old["status"] == "validated" else old["status"]
         conn.execute(
@@ -1629,6 +1750,12 @@ def gs_validate_spec(params: dict) -> dict:
             (sid,)).fetchone()
         if not spec:
             raise HttpError("Gold spec not found", 404)
+
+        # Optimistic concurrency
+        _check_expected_version(
+            conn, params,
+            "SELECT MAX(version) FROM gs_gold_specs WHERE root_id = ? AND is_current = 1",
+            (spec["root_id"],), "gold spec")
 
         # Create validation run
         cur = conn.execute(
@@ -1789,6 +1916,15 @@ def gs_file_waiver(params: dict) -> dict:
         if not run:
             raise HttpError("Validation run not found", 404)
 
+        # Optimistic concurrency: check run hasn't been superseded
+        expected = params.get("expected_version")
+        if expected is not None:
+            current_ts = run["completed_at"] or run["started_at"] or ""
+            if str(expected) != str(current_ts):
+                raise HttpError(
+                    "Conflict: validation run has been modified (expected %s, current %s)"
+                    % (expected, current_ts), 409)
+
         waiver = {
             "reason": params["reason"],
             "approver": params["approver"],
@@ -1860,6 +1996,12 @@ def gs_publish_to_catalog(params: dict) -> dict:
             (sid,)).fetchone()
         if not spec:
             raise HttpError("Gold spec not found", 404)
+
+        # Optimistic concurrency
+        _check_expected_version(
+            conn, params,
+            "SELECT MAX(version) FROM gs_gold_specs WHERE root_id = ? AND is_current = 1",
+            (spec["root_id"],), "gold spec")
 
         # Validate required catalog fields
         required_params = ("display_name", "owner", "sensitivity_label")
@@ -2006,6 +2148,12 @@ def gs_update_catalog_entry(params: dict) -> dict:
             (cid,)).fetchone()
         if not old:
             raise HttpError("Catalog entry not found", 404)
+
+        # Optimistic concurrency
+        _check_expected_version(
+            conn, params,
+            "SELECT MAX(version) FROM gs_catalog_entries WHERE root_id = ? AND is_current = 1",
+            (old["root_id"],), "catalog entry")
 
         old_d = _row_to_dict(old)
         new_version = old_d["version"] + 1
@@ -2159,7 +2307,7 @@ def gs_audit_log(params: dict) -> dict:
 
     division = (params.get("division") or "").strip()
     if division:
-        # Filter by division requires joining through specimens
+        # Filter by division — join through object tables for each type
         where.append("""(
             (object_type = 'specimen' AND object_id IN
                 (SELECT id FROM gs_specimens WHERE division = ?))
@@ -2167,9 +2315,20 @@ def gs_audit_log(params: dict) -> dict:
                 (SELECT e.id FROM gs_extracted_entities e
                  JOIN gs_specimens s ON e.specimen_id = s.id
                  WHERE s.division = ?))
-            OR object_type NOT IN ('specimen', 'entity')
+            OR (object_type = 'cluster' AND object_id IN
+                (SELECT id FROM gs_clusters WHERE division = ?))
+            OR (object_type = 'canonical' AND object_id IN
+                (SELECT id FROM gs_canonical_entities WHERE domain = ?))
+            OR (object_type = 'spec' AND object_id IN
+                (SELECT gs.id FROM gs_gold_specs gs
+                 JOIN gs_canonical_entities ce
+                     ON ce.root_id = gs.canonical_root_id AND ce.is_current = 1
+                 WHERE ce.domain = ?))
+            OR (object_type = 'catalog' AND object_id IN
+                (SELECT id FROM gs_catalog_entries WHERE domain = ?))
+            OR object_type NOT IN ('specimen', 'entity', 'cluster', 'canonical', 'spec', 'catalog')
         )""")
-        bind.extend([division, division])
+        bind.extend([division, division, division, division, division, division])
 
     date_from = (params.get("date_from") or "").strip()
     if date_from:
@@ -2203,63 +2362,64 @@ def gs_audit_log(params: dict) -> dict:
 # 54. GET /api/gold-studio/stats — Aggregate stats (30s cache)
 @route("GET", "/api/gold-studio/stats")
 def gs_stats(params: dict) -> dict:
-    now = _time.time()
-    if _stats_cache["data"] and (now - _stats_cache["ts"]) < _STATS_TTL:
-        return _stats_cache["data"]
+    with _stats_lock:
+        now = _time.time()
+        if _stats_cache["data"] and (now - _stats_cache["ts"]) < _STATS_TTL:
+            return _stats_cache["data"]
 
-    conn = cpdb._get_conn()
-    try:
-        def _count(sql, bind=()):
-            return conn.execute(sql, bind).fetchone()["cnt"]
+        conn = cpdb._get_conn()
+        try:
+            def _count(sql, bind=()):
+                return conn.execute(sql, bind).fetchone()["cnt"]
 
-        specimens = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_specimens WHERE deleted_at IS NULL")
-        tables_extracted = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_extracted_entities WHERE deleted_at IS NULL")
-        columns_cataloged = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_extracted_columns")
-        clusters_total = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_clusters WHERE deleted_at IS NULL")
-        clusters_unresolved = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_clusters WHERE status = 'unresolved' AND deleted_at IS NULL")
-        clusters_resolved = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_clusters WHERE status = 'resolved' AND deleted_at IS NULL")
-        canonical_total = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_canonical_entities WHERE is_current = 1 AND deleted_at IS NULL")
-        canonical_approved = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_canonical_entities WHERE is_current = 1 AND status = 'approved' AND deleted_at IS NULL")
-        gold_specs = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_gold_specs WHERE is_current = 1 AND deleted_at IS NULL")
-        specs_validated = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_gold_specs WHERE is_current = 1 AND status = 'validated' AND deleted_at IS NULL")
-        catalog_published = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_catalog_entries WHERE is_current = 1 AND deleted_at IS NULL")
-        catalog_certified = _count(
-            "SELECT COUNT(*) AS cnt FROM gs_catalog_entries WHERE is_current = 1 AND endorsement = 'certified' AND deleted_at IS NULL")
+            specimens = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_specimens WHERE deleted_at IS NULL")
+            tables_extracted = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_extracted_entities WHERE deleted_at IS NULL")
+            columns_cataloged = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_extracted_columns")
+            clusters_total = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_clusters WHERE deleted_at IS NULL")
+            clusters_unresolved = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_clusters WHERE status = 'unresolved' AND deleted_at IS NULL")
+            clusters_resolved = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_clusters WHERE status = 'resolved' AND deleted_at IS NULL")
+            canonical_total = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_canonical_entities WHERE is_current = 1 AND deleted_at IS NULL")
+            canonical_approved = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_canonical_entities WHERE is_current = 1 AND status = 'approved' AND deleted_at IS NULL")
+            gold_specs = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_gold_specs WHERE is_current = 1 AND deleted_at IS NULL")
+            specs_validated = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_gold_specs WHERE is_current = 1 AND status = 'validated' AND deleted_at IS NULL")
+            catalog_published = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_catalog_entries WHERE is_current = 1 AND deleted_at IS NULL")
+            catalog_certified = _count(
+                "SELECT COUNT(*) AS cnt FROM gs_catalog_entries WHERE is_current = 1 AND endorsement = 'certified' AND deleted_at IS NULL")
 
-        cert_rate = round((catalog_certified / catalog_published * 100), 1) if catalog_published > 0 else 0.0
+            cert_rate = round((catalog_certified / catalog_published * 100), 1) if catalog_published > 0 else 0.0
 
-        data = {
-            "specimens": specimens,
-            "tables_extracted": tables_extracted,
-            "columns_cataloged": columns_cataloged,
-            "clusters_total": clusters_total,
-            "unresolved_clusters": clusters_unresolved,
-            "clusters_resolved": clusters_resolved,
-            "canonical_total": canonical_total,
-            "canonical_approved": canonical_approved,
-            "gold_specs": gold_specs,
-            "specs_validated": specs_validated,
-            "catalog_published": catalog_published,
-            "catalog_certified": catalog_certified,
-            "certification_rate": cert_rate,
-        }
+            data = {
+                "specimens": specimens,
+                "tables_extracted": tables_extracted,
+                "columns_cataloged": columns_cataloged,
+                "clusters_total": clusters_total,
+                "unresolved_clusters": clusters_unresolved,
+                "clusters_resolved": clusters_resolved,
+                "canonical_total": canonical_total,
+                "canonical_approved": canonical_approved,
+                "gold_specs": gold_specs,
+                "specs_validated": specs_validated,
+                "catalog_published": catalog_published,
+                "catalog_certified": catalog_certified,
+                "certification_rate": cert_rate,
+            }
 
-        _stats_cache["data"] = data
-        _stats_cache["ts"] = now
-        return data
-    finally:
-        conn.close()
+            _stats_cache["data"] = data
+            _stats_cache["ts"] = now
+            return data
+        finally:
+            conn.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
