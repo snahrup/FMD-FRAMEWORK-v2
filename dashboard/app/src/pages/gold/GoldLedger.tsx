@@ -600,7 +600,7 @@ function FilterBar({
           maxWidth: 320,
         }}
       >
-        <Search size={15} style={{ color: "var(--bp-ink-muted)", shrink: 0 }} />
+        <Search size={15} style={{ color: "var(--bp-ink-muted)", flexShrink: 0 }} />
         <input
           value={search}
           onChange={(e) => onSearch(e.target.value)}
