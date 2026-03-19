@@ -1,4 +1,4 @@
-// Stats Strip — Hero numbers bar displayed at the top of every Gold Studio page.
+// Stats Strip — Operational counters bar displayed at the top of every Gold Studio page.
 
 import { cn } from "@/lib/utils";
 
@@ -17,9 +17,9 @@ interface StatsStripProps {
 export function StatsStrip({ items }: StatsStripProps) {
   return (
     <div
-      className="sticky z-[9] flex items-center justify-evenly px-6 py-4"
+      className="sticky z-[9] flex items-center justify-center gap-5 px-6 py-2"
       style={{
-        top: 0, // will stack below the GoldStudioLayout sticky header naturally
+        top: 0,
         background: "var(--bp-surface-1)",
         borderBottom: "1px solid var(--bp-border)",
       }}
@@ -27,47 +27,53 @@ export function StatsStrip({ items }: StatsStripProps) {
       {items.map((item, i) => {
         const Wrapper = item.onClick ? "button" : "div";
         return (
-          <Wrapper
-            key={i}
-            className={cn(
-              "flex flex-col items-center gap-1 group",
-              item.onClick && "cursor-pointer"
-            )}
-            {...(item.onClick ? { onClick: item.onClick, type: "button" as const } : {})}
-          >
-            {/* Label */}
-            <span
-              className="font-medium uppercase"
-              style={{
-                fontFamily: "var(--bp-font-body)",
-                fontSize: 11,
-                fontVariantCaps: "all-small-caps",
-                letterSpacing: "0.05em",
-                color: "var(--bp-ink-muted)",
-              }}
-            >
-              {item.label}
-            </span>
-
-            {/* Value */}
-            <span
+          <span key={i} className="contents">
+            <Wrapper
               className={cn(
-                item.onClick &&
-                  "group-hover:underline group-hover:decoration-[var(--bp-copper)] underline-offset-4"
+                "flex items-center gap-1.5 group",
+                item.onClick && "cursor-pointer"
               )}
-              style={{
-                fontFamily: "var(--bp-font-display)",
-                fontSize: 32,
-                letterSpacing: "-0.01em",
-                lineHeight: 1,
-                color: item.highlight
-                  ? "var(--bp-copper)"
-                  : "var(--bp-ink-primary)",
-              }}
+              {...(item.onClick ? { onClick: item.onClick, type: "button" as const } : {})}
             >
-              {item.value}
-            </span>
-          </Wrapper>
+              {/* Label */}
+              <span
+                className="uppercase"
+                style={{
+                  fontFamily: "var(--bp-font-mono)",
+                  fontSize: 10,
+                  letterSpacing: "0.05em",
+                  color: "var(--bp-ink-tertiary)",
+                }}
+              >
+                {item.label}
+              </span>
+
+              {/* Value */}
+              <span
+                className={cn(
+                  "transition-all duration-150",
+                  item.onClick &&
+                    "group-hover:underline group-hover:decoration-[var(--bp-copper)] underline-offset-2"
+                )}
+                style={{
+                  fontFamily: "var(--bp-font-display)",
+                  fontSize: 18,
+                  letterSpacing: "-0.01em",
+                  lineHeight: 1,
+                  color: item.highlight
+                    ? "var(--bp-copper)"
+                    : "var(--bp-ink-primary)",
+                }}
+              >
+                {item.value}
+              </span>
+            </Wrapper>
+
+            {/* Divider between stats */}
+            {i < items.length - 1 && (
+              <span style={{ width: 1, height: 16, background: "var(--bp-border)" }} />
+            )}
+          </span>
         );
       })}
     </div>

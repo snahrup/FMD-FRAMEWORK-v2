@@ -1,38 +1,51 @@
+// Gold Specs — MLV design browser with detail slide-over.
+// Spec: docs/superpowers/specs/2026-03-18-gold-studio-design.md § 8
+
 import { useState, useEffect, useCallback } from "react";
 import { Search } from "lucide-react";
-import { GoldStudioLayout } from "@/components/gold/GoldStudioLayout";
+import { GoldStudioLayout, useGoldToast, useDomainContext } from "@/components/gold/GoldStudioLayout";
 import { StatsStrip } from "@/components/gold/StatsStrip";
 import { SlideOver } from "@/components/gold/SlideOver";
 import { ProvenanceThread } from "@/components/gold/ProvenanceThread";
+import { GoldLoading, GoldNoResults } from "@/components/gold";
 
 const API = "/api/gold-studio";
 
 /* ---------- types ---------- */
 interface GoldSpec {
-  id: string;
+  id: number;
+  root_id?: number;
   name: string;
+  target_name: string;
   type: string;
   domain: string;
+  canonical_name?: string;
+  entity_type?: string;
   source_count: number;
   validation_status: "pass" | "pending" | "failed" | "needs_revalidation";
   phase: 1 | 2 | 3 | 4 | 5 | 6 | 7;
-  version: string;
+  version: number;
   column_count: number;
   refresh_strategy: "Full" | "Incremental" | "Hybrid";
   status: "draft" | "validated" | "needs_revalidation" | "deprecated";
 }
 
 interface SpecDetail extends GoldSpec {
-  target_name: string;
   object_type: string;
   description: string;
+  business_description?: string;
   grain: string;
-  primary_keys: string[];
-  lineage_chain: string[];
+  primary_keys: string | string[];
+  source_sql: string;
+  sql?: string;
+  included_columns?: string;
+  excluded_columns?: string;
+  transformation_rules?: string;
+  downstream_reports?: string;
   last_validated?: string;
-  sql: string;
   columns: SpecColumn[];
   transforms: SpecTransform[];
+  validation_runs?: Array<Record<string, unknown>>;
 }
 
 interface SpecColumn {
@@ -46,9 +59,14 @@ interface SpecColumn {
 }
 
 interface SpecTransform { name: string; description: string; type: string; }
-interface ImpactData { downstream_reports: string[]; semantic_models: string[]; affected_specs: string[]; }
-interface VersionEntry { version: string; created: string; description: string; author: string; }
-interface ValidationRun { date: string; status: "pass" | "fail" | "warning"; critical_fraction: string; warnings: number; }
+interface ImpactData {
+  catalog_entries: Array<Record<string, unknown>>;
+  related_specs: Array<Record<string, unknown>>;
+  downstream_reports: string[];
+  impact_count: number;
+}
+interface VersionEntry { version: number; created_at?: string; created?: string; status?: string; target_name?: string; }
+interface ValidationRun { id?: number; started_at?: string; date?: string; status: string; critical_count?: number; warning_count?: number; critical_fraction?: string; warnings?: number; }
 
 interface Stats { total: number; ready: number; pending: number; needs_reval: number; deprecated: number; }
 
@@ -59,10 +77,10 @@ const STATUS_RAIL: Record<string, string> = {
 };
 
 const VALIDATION_BADGE: Record<string, { label: string; bg: string; color: string; icon: string }> = {
-  pass:                { label: "Pass",         bg: "rgba(61,124,79,0.12)",  color: "var(--bp-operational-green)", icon: "\u2713" },
-  pending:             { label: "Pending",      bg: "rgba(194,122,26,0.12)", color: "var(--bp-caution-amber)",     icon: "\u25CC" },
-  failed:              { label: "Failed",       bg: "rgba(185,58,42,0.12)",  color: "var(--bp-fault-red)",         icon: "\u2717" },
-  needs_revalidation:  { label: "Needs Reval.", bg: "rgba(180,86,36,0.12)",  color: "var(--bp-copper)",            icon: "\u21BB" },
+  pass:                { label: "Pass",         bg: "var(--bp-operational-light)", color: "var(--bp-operational-green)", icon: "\u2713" },
+  pending:             { label: "Pending",      bg: "var(--bp-caution-light)",     color: "var(--bp-caution-amber)",     icon: "\u25CC" },
+  failed:              { label: "Failed",       bg: "var(--bp-fault-light)",       color: "var(--bp-fault-red)",         icon: "\u2717" },
+  needs_revalidation:  { label: "Needs Reval.", bg: "var(--bp-copper-soft)",       color: "var(--bp-copper)",            icon: "\u21BB" },
 };
 
 const DETAIL_TABS = [
@@ -71,19 +89,22 @@ const DETAIL_TABS = [
   { id: "impact", label: "Impact" }, { id: "history", label: "History" },
 ];
 
-const DOMAINS = ["All", "Finance", "Operations", "Supply Chain", "Quality", "Production"];
+const FALLBACK_DOMAINS = ["All", "Finance", "Operations", "Supply Chain", "Quality", "Production"];
 const STATUSES = ["All", "draft", "validated", "needs_revalidation"];
 
 /* ---------- helpers ---------- */
-const f = async <T,>(url: string): Promise<T> => { const r = await fetch(url); return r.json(); };
+const f = async <T,>(url: string): Promise<T> => { const r = await fetch(url); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); };
 const mono = { fontFamily: "var(--bp-font-mono)", fontSize: 11 } as const;
 const body = (sz: number) => ({ fontFamily: "var(--bp-font-body)", fontSize: sz } as const);
 const display = (sz: number) => ({ fontFamily: "var(--bp-font-display)", fontSize: sz } as const);
 
 /* ========== component ========== */
 export default function GoldSpecs() {
+  const { showToast: _showToast } = useGoldToast();
+  const { domainNames } = useDomainContext();
   const [stats, setStats] = useState<Stats>({ total: 0, ready: 0, pending: 0, needs_reval: 0, deprecated: 0 });
   const [specs, setSpecs] = useState<GoldSpec[]>([]);
+  const [loading, setLoading] = useState(true);
   const [domain, setDomain] = useState("All");
   const [status, setStatus] = useState("All");
   const [search, setSearch] = useState("");
@@ -93,24 +114,51 @@ export default function GoldSpecs() {
   const [versions, setVersions] = useState<VersionEntry[]>([]);
   const [runs, setRuns] = useState<ValidationRun[]>([]);
 
+  // Dynamic domain options: prefer context, fall back to data-derived or hardcoded
+  const specDomains = [...new Set(specs.map((s) => s.domain).filter(Boolean))].sort();
+  const domainOptions = domainNames.length > 0
+    ? ["All", ...domainNames]
+    : specDomains.length > 0
+      ? ["All", ...specDomains]
+      : FALLBACK_DOMAINS;
+
   /* fetch list + stats */
   const load = useCallback(() => {
-    const qs = new URLSearchParams();
+    setLoading(true);
+    const qs = new URLSearchParams({ limit: "200" });
     if (domain !== "All") qs.set("domain", domain);
     if (status !== "All") qs.set("status", status);
-    f<GoldSpec[]>(`${API}/specs?${qs}`).then(setSpecs).catch(() => {});
+    // List returns {items, total}
+    f<{ items: GoldSpec[] }>(`${API}/specs?${qs}`).then((r) => {
+      setSpecs((r?.items ?? []).map((s) => ({
+        ...s,
+        name: s.name ?? s.target_name ?? "Unnamed",
+        type: s.type ?? s.entity_type ?? "MLV",
+      })));
+    }).catch(() => {}).finally(() => setLoading(false));
     f<Stats>(`${API}/stats`).then(setStats).catch(() => {});
   }, [domain, status]);
 
   useEffect(load, [load]);
 
   /* fetch detail */
-  const openDetail = useCallback((id: string) => {
+  const openDetail = useCallback((id: number) => {
     setTab("overview");
+    setSelected(null);
+    setImpact(null);
+    setVersions([]);
+    setRuns([]);
     f<SpecDetail>(`${API}/specs/${id}`).then(setSelected).catch(() => {});
+    // Impact returns {catalog_entries, related_specs, downstream_reports}
     f<ImpactData>(`${API}/specs/${id}/impact`).then(setImpact).catch(() => {});
-    f<VersionEntry[]>(`${API}/specs/${id}/versions`).then(setVersions).catch(() => {});
-    f<ValidationRun[]>(`${API}/validation/specs/${id}/runs`).then(setRuns).catch(() => {});
+    // Versions returns {items}
+    f<{ items: VersionEntry[] }>(`${API}/specs/${id}/versions`).then((r) =>
+      setVersions(r?.items ?? [])
+    ).catch(() => {});
+    // Validation runs returns {items}
+    f<{ items: ValidationRun[] }>(`${API}/validation/specs/${id}/runs`).then((r) =>
+      setRuns(r?.items ?? [])
+    ).catch(() => {});
   }, []);
 
   const filtered = specs.filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()));
@@ -127,8 +175,8 @@ export default function GoldSpecs() {
       ]} />
 
       {/* Filter bar */}
-      <div className="flex items-center gap-3 px-6 py-3" style={{ borderBottom: "1px solid var(--bp-border)" }}>
-        <Select label="Domain" value={domain} options={DOMAINS} onChange={setDomain} />
+      <div className="flex items-center gap-2.5 px-6 py-2.5" style={{ borderBottom: "1px solid var(--bp-border)" }}>
+        <Select label="Domain" value={domain} options={domainOptions} onChange={setDomain} />
         <Select label="Status" value={status} options={STATUSES} onChange={setStatus} />
         <div className="relative ml-auto" style={{ width: 220 }}>
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--bp-ink-muted)" }} />
@@ -140,22 +188,25 @@ export default function GoldSpecs() {
         </div>
       </div>
 
+      {/* Loading indicator */}
+      {loading && specs.length === 0 && <GoldLoading />}
+
       {/* Spec table */}
-      <div className="px-6 py-4 space-y-1">
+      <div className="space-y-1" style={{ paddingBottom: 20 }}>
         {filtered.map((s) => {
-          const badge = VALIDATION_BADGE[s.validation_status];
+          const badge = VALIDATION_BADGE[s.validation_status] ?? VALIDATION_BADGE.pending;
           return (
             <button key={s.id} type="button" onClick={() => openDetail(s.id)}
-              className="w-full text-left flex items-center rounded-lg transition-colors hover:bg-black/[0.03] relative overflow-hidden"
+              className="w-full text-left flex items-center rounded-lg transition-colors hover:bg-black/[0.03] bp-row-interactive relative overflow-hidden"
               style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" }}>
               {/* status rail */}
               <span className="absolute left-0 top-0 bottom-0 rounded-l-lg" style={{ width: 3, background: STATUS_RAIL[s.status] ?? "var(--bp-ink-muted)" }} />
 
-              <div className="flex-1 min-w-0 pl-4 pr-3 py-2.5">
+              <div className="flex-1 min-w-0 pl-4 pr-3 py-2">
                 {/* line 1 */}
                 <div className="flex items-center gap-3">
                   <span className="truncate" style={{ ...display(14) }}>{s.name}</span>
-                  <span className="shrink-0 rounded px-1.5 py-0.5" style={{ ...mono, background: "rgba(180,86,36,0.08)", color: "var(--bp-copper)" }}>{s.type}</span>
+                  <span className="shrink-0 rounded px-1.5 py-0.5" style={{ ...mono, background: "var(--bp-copper-soft)", color: "var(--bp-copper)" }}>{s.type}</span>
                   <span className="shrink-0" style={{ ...body(12), color: "var(--bp-ink-secondary)" }}>{s.domain}</span>
                   <span className="shrink-0" style={{ ...body(12), color: "var(--bp-ink-muted)" }}>{s.source_count} source{s.source_count !== 1 ? "s" : ""}</span>
                   <span className="shrink-0 rounded px-1.5 py-0.5 inline-flex items-center gap-1"
@@ -174,9 +225,7 @@ export default function GoldSpecs() {
             </button>
           );
         })}
-        {filtered.length === 0 && (
-          <p className="text-center py-16" style={{ ...body(14), color: "var(--bp-ink-muted)" }}>No specs match your filters.</p>
-        )}
+        {filtered.length === 0 && !loading && <GoldNoResults message="No specs match your filters." />}
       </div>
 
       {/* Detail SlideOver */}
@@ -187,7 +236,7 @@ export default function GoldSpecs() {
         {selected && (
           <>
             {tab === "overview" && <OverviewTab spec={selected} />}
-            {tab === "sql" && <SqlTab sql={selected.sql} />}
+            {tab === "sql" && <SqlTab sql={selected.source_sql ?? selected.sql ?? ""} />}
             {tab === "columns" && <ColumnsTab columns={selected.columns} />}
             {tab === "transforms" && <TransformsTab transforms={selected.transforms} />}
             {tab === "impact" && <ImpactTab data={impact} />}
@@ -199,7 +248,8 @@ export default function GoldSpecs() {
       {/* rotation animation for needs-revalidation icon */}
       <style>{`
         @keyframes reval-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        .needs-reval-spin { display: inline-block; animation: reval-spin 2s linear infinite; }
+        .needs-reval-spin { display: inline-block; animation: reval-spin 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+        .needs-reval-spin:hover { animation-play-state: paused; }
       `}</style>
     </GoldStudioLayout>
   );
@@ -222,28 +272,28 @@ function Select({ label, value, options, onChange }: { label: string; value: str
 
 /* --- Overview --- */
 function OverviewTab({ spec }: { spec: SpecDetail }) {
-  const badge = VALIDATION_BADGE[spec.validation_status];
+  const badge = VALIDATION_BADGE[spec.validation_status] ?? VALIDATION_BADGE.pending;
+  const desc = spec.business_description ?? spec.description ?? "";
+  // Normalize primary_keys — backend may store as JSON string or array
+  const pkeys = Array.isArray(spec.primary_keys) ? spec.primary_keys
+    : typeof spec.primary_keys === "string" ? (() => { try { return JSON.parse(spec.primary_keys); } catch { return [spec.primary_keys]; } })()
+    : [];
   return (
     <div className="space-y-5">
-      <Field label="Target" value={spec.target_name} />
-      <Field label="Object Type" value={spec.object_type} />
-      <Field label="Description" value={spec.description} />
-      <Field label="Grain" value={spec.grain} />
-      <Field label="Primary Keys" value={spec.primary_keys.join(", ")} mono />
-      <div>
-        <Label>Source Lineage</Label>
-        <div className="flex items-center gap-1.5 flex-wrap mt-1">
-          {spec.lineage_chain.map((step, i) => (
-            <span key={i} className="flex items-center gap-1.5">
-              <span className="rounded px-2 py-0.5" style={{ ...body(12), background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-secondary)" }}>{step}</span>
-              {i < spec.lineage_chain.length - 1 && <span style={{ color: "var(--bp-ink-muted)" }}>&rarr;</span>}
-            </span>
-          ))}
+      <Field label="Target" value={spec.target_name ?? spec.name} />
+      <Field label="Object Type" value={spec.object_type ?? "Materialized Lake View"} />
+      {desc && <Field label="Description" value={desc} />}
+      {spec.grain && <Field label="Grain" value={spec.grain} />}
+      {pkeys.length > 0 && <Field label="Primary Keys" value={pkeys.join(", ")} mono />}
+      {spec.canonical_name && (
+        <div>
+          <Label>Source Canonical</Label>
+          <span className="mt-1 rounded px-2 py-0.5 inline-block" style={{ ...body(12), background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-secondary)" }}>{spec.canonical_name}</span>
         </div>
-      </div>
+      )}
       <div className="flex items-center gap-3">
         <Label>Refresh</Label>
-        <span className="rounded px-2 py-0.5" style={{ ...mono, background: "rgba(180,86,36,0.08)", color: "var(--bp-copper)" }}>{spec.refresh_strategy}</span>
+        <span className="rounded px-2 py-0.5" style={{ ...mono, background: "var(--bp-copper-soft)", color: "var(--bp-copper)" }}>{spec.refresh_strategy ?? "Full"}</span>
       </div>
       <div className="flex items-center gap-3">
         <Label>Validation</Label>
@@ -251,6 +301,10 @@ function OverviewTab({ spec }: { spec: SpecDetail }) {
           {badge.icon} {badge.label}
         </span>
         {spec.last_validated && <span style={{ ...body(12), color: "var(--bp-ink-muted)" }}>Last run {spec.last_validated}</span>}
+      </div>
+      <div className="flex items-center gap-3">
+        <Label>Version</Label>
+        <span style={{ ...mono, color: "var(--bp-ink-primary)" }}>v{spec.version ?? 1}</span>
       </div>
     </div>
   );
@@ -303,14 +357,14 @@ function ColumnsTab({ columns }: { columns: SpecColumn[] }) {
       <tbody>
         {columns.map((c) => (
           <tr key={c.name} className={c.included ? "" : "opacity-50"} style={{ borderBottom: "1px solid var(--bp-border)" }}>
-            <td className="py-2 pr-3" style={{ ...mono, textDecoration: c.included ? "none" : "line-through" }} title={c.exclude_reason}>{c.name}</td>
-            <td className="py-2 pr-3" style={mono}>{c.target_name}</td>
-            <td className="py-2 pr-3" style={mono}>{c.data_type}</td>
-            <td className="py-2 pr-3">{c.key_type && <span className="rounded px-1 py-0.5" style={{ ...mono, background: "rgba(180,86,36,0.08)", color: "var(--bp-copper)" }}>{c.key_type}</span>}</td>
-            <td className="py-2 pr-3" style={{ ...mono, color: "var(--bp-ink-secondary)" }}>{c.source_expression}</td>
-            <td className="py-2">{c.included
-              ? <span className="rounded px-1.5 py-0.5" style={{ fontSize: 10, background: "rgba(61,124,79,0.10)", color: "var(--bp-operational-green)" }}>Included</span>
-              : <span className="rounded px-1.5 py-0.5" style={{ fontSize: 10, background: "rgba(185,58,42,0.08)", color: "var(--bp-fault-red)" }} title={c.exclude_reason}>Excluded</span>}
+            <td className="py-1.5 pr-3" style={{ ...mono, textDecoration: c.included ? "none" : "line-through" }} title={c.exclude_reason}>{c.name}</td>
+            <td className="py-1.5 pr-3" style={mono}>{c.target_name}</td>
+            <td className="py-1.5 pr-3" style={mono}>{c.data_type}</td>
+            <td className="py-1.5 pr-3">{c.key_type && <span className="rounded px-1 py-0.5" style={{ ...mono, background: "var(--bp-copper-soft)", color: "var(--bp-copper)" }}>{c.key_type}</span>}</td>
+            <td className="py-1.5 pr-3" style={{ ...mono, color: "var(--bp-ink-secondary)" }}>{c.source_expression}</td>
+            <td className="py-1.5">{c.included
+              ? <span className="rounded px-1.5 py-0.5" style={{ fontSize: 10, background: "var(--bp-operational-light)", color: "var(--bp-operational-green)" }}>Included</span>
+              : <span className="rounded px-1.5 py-0.5" style={{ fontSize: 10, background: "var(--bp-fault-light)", color: "var(--bp-fault-red)" }} title={c.exclude_reason}>Excluded</span>}
             </td>
           </tr>
         ))}
@@ -328,7 +382,7 @@ function TransformsTab({ transforms }: { transforms: SpecTransform[] }) {
         <div key={i} className="rounded-lg p-3" style={{ background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)" }}>
           <div className="flex items-center gap-2">
             <span style={{ ...display(13), color: "var(--bp-ink-primary)" }}>{t.name}</span>
-            <span className="rounded px-1.5 py-0.5" style={{ ...mono, background: "rgba(180,86,36,0.08)", color: "var(--bp-copper)" }}>{t.type}</span>
+            <span className="rounded px-1.5 py-0.5" style={{ ...mono, background: "var(--bp-copper-soft)", color: "var(--bp-copper)" }}>{t.type}</span>
           </div>
           <p className="mt-1" style={{ ...body(12), color: "var(--bp-ink-secondary)" }}>{t.description}</p>
         </div>
@@ -348,7 +402,22 @@ function ImpactTab({ data }: { data: ImpactData | null }) {
         : <ul className="space-y-1">{items.map((it) => <li key={it} className="rounded px-2 py-1" style={{ ...body(12), background: "var(--bp-surface-inset)", color: "var(--bp-ink-secondary)" }}>{it}</li>)}</ul>}
     </div>
   );
-  return <div className="space-y-5"><Section title="Downstream Reports" items={data.downstream_reports} /><Section title="Affected Semantic Models" items={data.semantic_models} /><Section title="Affected Gold Specs" items={data.affected_specs} /></div>;
+  // Backend returns {catalog_entries, related_specs, downstream_reports, impact_count}
+  const relatedNames = (data.related_specs ?? []).map((s: Record<string, unknown>) => String(s.name ?? s.target_name ?? s.id ?? ""));
+  const catalogNames = (data.catalog_entries ?? []).map((c: Record<string, unknown>) => String(c.name ?? c.entry_name ?? c.id ?? ""));
+  return (
+    <div className="space-y-5">
+      <Section title="Downstream Reports" items={data.downstream_reports ?? []} />
+      <Section title="Related Gold Specs" items={relatedNames} />
+      <Section title="Catalog Entries" items={catalogNames} />
+      {data.impact_count != null && (
+        <div>
+          <Label>Total Impact Score</Label>
+          <span className="mt-1 inline-block rounded px-2 py-0.5" style={{ ...mono, background: "var(--bp-copper-soft)", color: "var(--bp-copper)" }}>{data.impact_count}</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* --- History --- */
@@ -361,9 +430,9 @@ function HistoryTab({ versions, runs }: { versions: VersionEntry[]; runs: Valida
           {versions.map((v, i) => (
             <div key={i} className="flex items-center gap-3 rounded px-2 py-1.5" style={{ background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)" }}>
               <span style={{ ...mono, color: "var(--bp-copper)" }}>v{v.version}</span>
-              <span style={{ ...body(12), color: "var(--bp-ink-secondary)", flex: 1 }}>{v.description}</span>
-              <span style={{ ...mono, color: "var(--bp-ink-muted)" }}>{v.created}</span>
-              <span style={{ ...body(11), color: "var(--bp-ink-muted)" }}>{v.author}</span>
+              {v.status && <span className="rounded px-1.5 py-0.5" style={{ ...body(11), background: "var(--bp-surface-inset)", color: "var(--bp-ink-secondary)" }}>{v.status}</span>}
+              <span style={{ ...body(12), color: "var(--bp-ink-secondary)", flex: 1 }}>{v.target_name ?? ""}</span>
+              <span style={{ ...mono, color: "var(--bp-ink-muted)" }}>{v.created_at ?? v.created ?? ""}</span>
             </div>
           ))}
           {!versions.length && <p style={{ ...body(12), color: "var(--bp-ink-muted)" }}>No version history.</p>}
@@ -377,9 +446,9 @@ function HistoryTab({ versions, runs }: { versions: VersionEntry[]; runs: Valida
             return (
               <div key={i} className="flex items-center gap-3 rounded px-2 py-1.5" style={{ background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)" }}>
                 <span className="rounded px-1.5 py-0.5" style={{ ...body(11), background: `color-mix(in srgb, ${c} 12%, transparent)`, color: c }}>{r.status.toUpperCase()}</span>
-                <span style={{ ...mono, color: "var(--bp-ink-muted)" }}>{r.date}</span>
-                <span style={{ ...body(12), color: "var(--bp-ink-secondary)" }}>Critical: {r.critical_fraction}</span>
-                <span style={{ ...body(12), color: "var(--bp-ink-muted)" }}>{r.warnings} warning{r.warnings !== 1 ? "s" : ""}</span>
+                <span style={{ ...mono, color: "var(--bp-ink-muted)" }}>{r.started_at ?? r.date ?? ""}</span>
+                <span style={{ ...body(12), color: "var(--bp-ink-secondary)" }}>Critical: {r.critical_count ?? r.critical_fraction ?? 0}</span>
+                <span style={{ ...body(12), color: "var(--bp-ink-muted)" }}>{r.warning_count ?? r.warnings ?? 0} warning{(r.warning_count ?? r.warnings ?? 0) !== 1 ? "s" : ""}</span>
               </div>
             );
           })}

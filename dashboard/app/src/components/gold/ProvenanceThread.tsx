@@ -24,6 +24,8 @@ interface ProvenanceThreadProps {
   phase: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   /** Size variant */
   size?: "sm" | "md";
+  /** Show phase label tooltip on sm dots */
+  showTooltip?: boolean;
 }
 
 const PHASE_LABELS = [
@@ -36,11 +38,11 @@ const PHASE_LABELS = [
   "Cataloged",
 ] as const;
 
-const GOLD_COMPLETE = "#C2952B";
+const GOLD_COMPLETE = "var(--bp-warm-gold)";
 
-export function ProvenanceThread({ phase, size = "sm" }: ProvenanceThreadProps) {
-  const dotSize = size === "sm" ? 6 : 8;
-  const totalWidth = size === "sm" ? 160 : 200;
+export function ProvenanceThread({ phase, size = "sm", showTooltip = false }: ProvenanceThreadProps) {
+  const dotSize = size === "sm" ? 5 : 7;
+  const totalWidth = size === "sm" ? 140 : 180;
   const isComplete = phase === 7;
 
   return (
@@ -64,6 +66,7 @@ export function ProvenanceThread({ phase, size = "sm" }: ProvenanceThreadProps) 
                   "rounded-full shrink-0",
                   isCurrent && !isComplete && "provenance-pulse"
                 )}
+                title={showTooltip && size === "sm" ? PHASE_LABELS[i] : undefined}
                 style={{
                   width: dotSize,
                   height: dotSize,
@@ -74,7 +77,7 @@ export function ProvenanceThread({ phase, size = "sm" }: ProvenanceThreadProps) 
                         ? "var(--bp-copper)"
                         : "transparent",
                   border: isFuture && !isComplete
-                    ? "1px solid rgba(0,0,0,0.15)"
+                    ? "1.5px solid rgba(0,0,0,0.10)"
                     : "none",
                 }}
               />
@@ -110,8 +113,8 @@ export function ProvenanceThread({ phase, size = "sm" }: ProvenanceThreadProps) 
                 className="text-center leading-tight"
                 style={{
                   fontFamily: "var(--bp-font-mono)",
-                  fontSize: 10,
-                  letterSpacing: "0.03em",
+                  fontSize: 9,
+                  letterSpacing: "0.04em",
                   color: isComplete
                     ? GOLD_COMPLETE
                     : isActive

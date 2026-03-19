@@ -17,6 +17,8 @@ interface SlideOverProps {
   tabs?: SlideOverTab[];
   activeTab?: string;
   onTabChange?: (tabId: string) => void;
+  /** Entity type badges, provenance threads, source labels — rendered between title and tabs */
+  metadata?: ReactNode;
   /** Badges, status indicators, provenance thread */
   headerRight?: ReactNode;
   /** Contextual action button pinned to bottom */
@@ -37,6 +39,7 @@ export function SlideOver({
   onClose,
   title,
   subtitle,
+  metadata,
   tabs,
   activeTab,
   onTabChange,
@@ -94,7 +97,7 @@ export function SlideOver({
       >
         {/* Header */}
         <div
-          className="shrink-0 px-6 pt-5 pb-4"
+          className="shrink-0 px-5 pt-4 pb-3"
           style={{ borderBottom: "1px solid var(--bp-border)" }}
         >
           <div className="flex items-start justify-between gap-4">
@@ -113,8 +116,8 @@ export function SlideOver({
                   className="mt-0.5 truncate"
                   style={{
                     fontFamily: "var(--bp-font-body)",
-                    fontSize: 14,
-                    color: "var(--bp-ink-muted)",
+                    fontSize: 13,
+                    color: "var(--bp-ink-tertiary)",
                   }}
                 >
                   {subtitle}
@@ -126,7 +129,7 @@ export function SlideOver({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md p-1.5 transition-colors hover:bg-black/5"
+                className="rounded-md p-1.5 transition-colors hover:bg-black/[0.04]"
                 style={{ color: "var(--bp-ink-muted)" }}
                 aria-label="Close panel"
               >
@@ -135,9 +138,16 @@ export function SlideOver({
             </div>
           </div>
 
+          {/* Metadata row */}
+          {metadata && (
+            <div className="flex items-center gap-2 flex-wrap mt-2">
+              {metadata}
+            </div>
+          )}
+
           {/* Tab strip */}
           {tabs && tabs.length > 0 && (
-            <nav className="flex gap-1 mt-4 -mb-4">
+            <nav className="flex gap-0.5 mt-3 -mb-3">
               {tabs.map((tab) => {
                 const isActive = tab.id === activeTab;
                 return (
@@ -146,7 +156,7 @@ export function SlideOver({
                     type="button"
                     onClick={() => onTabChange?.(tab.id)}
                     className={cn(
-                      "pb-2.5 px-3 text-center transition-colors relative",
+                      "pb-2 px-2.5 text-center transition-colors relative",
                       isActive
                         ? "text-[var(--bp-copper)]"
                         : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-secondary)]"
@@ -176,12 +186,12 @@ export function SlideOver({
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className="flex-1 overflow-y-auto px-5 py-4" style={{ background: "var(--bp-surface-1)" }}>{children}</div>
 
         {/* Fixed footer */}
         {footer && (
           <div
-            className="shrink-0 px-6 py-4"
+            className="shrink-0 px-5 py-3"
             style={{ borderTop: "1px solid var(--bp-border)" }}
           >
             {footer}

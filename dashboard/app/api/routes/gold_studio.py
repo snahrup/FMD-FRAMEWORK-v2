@@ -1,4 +1,4 @@
-"""Gold Studio API routes — 57 endpoints for the full Gold layer workflow.
+"""Gold Studio API routes — 67 endpoints for the full Gold layer workflow.
 
 Groups:
     1. Specimens (8)      — Import, list, detail, update, delete, extract, queries, bulk
@@ -13,6 +13,8 @@ Groups:
    10. Audit (1)          — Audit log with filters + pagination
    11. Stats (1)          — Cached aggregate stats
    12. Field Usage (1)    — Report field usage
+   13. Domain Workspaces (4) — List, create, update, detail
+   14. Report Recreation Coverage (6) — List, create, detail, update, delete, summary
 
 Data source: SQLite gs_* tables in control plane DB.
 """
@@ -25,6 +27,7 @@ import time as _time
 
 import dashboard.app.api.control_plane_db as cpdb
 from dashboard.app.api.router import route, HttpError
+from dashboard.app.api.parsers.sql_parser import parse_sql
 
 log = logging.getLogger("fmd.routes.gold_studio")
 
@@ -121,9 +124,30 @@ def _check_expected_version(conn, params, sql: str, bind: tuple, label: str = "e
 def gs_create_specimen(params: dict) -> dict:
     _require(params, "name", "type", "division", "steward")
     stype = params["type"].strip().lower()
-    valid_types = ("rdl", "pbix", "pbip", "tmdl", "bim", "sql")
+    valid_types = ("rdl", "pbix", "pbip", "tmdl", "bim", "sql", "excel", "csv", "screenshot", "note", "other")
     if stype not in valid_types:
         raise HttpError(f"type must be one of {valid_types}", 400)
+
+    # ── Source class: auto-derive from artifact type if not explicitly set ──
+    _STRUCTURAL_TYPES = {"rdl", "pbix", "pbip", "tmdl", "bim", "sql"}
+    _SUPPORTING_TYPES = {"excel", "csv"}
+    _CONTEXTUAL_TYPES = {"screenshot", "note"}
+
+    source_class = (params.get("source_class") or "").strip().lower() or None
+    if not source_class:
+        if stype in _STRUCTURAL_TYPES:
+            source_class = "structural"
+        elif stype in _SUPPORTING_TYPES:
+            source_class = "supporting"
+        elif stype in _CONTEXTUAL_TYPES:
+            source_class = "contextual"
+        else:
+            source_class = "supporting"  # 'other' defaults to supporting
+    if source_class not in ("structural", "supporting", "contextual"):
+        raise HttpError("source_class must be structural, supporting, or contextual", 400)
+
+    # ── Job state: structural sources enter parsing queue; others are accepted immediately ──
+    initial_job_state = "queued" if source_class == "structural" else "accepted"
 
     tags = params.get("tags")
     if tags and isinstance(tags, list):
@@ -134,18 +158,32 @@ def gs_create_specimen(params: dict) -> dict:
     conn = cpdb._get_conn()
     try:
         imported_by = (params.get("imported_by") or "api").strip()
+        manual_context = json.dumps(params["manual_context"]) if params.get("manual_context") and isinstance(params["manual_context"], (dict, list)) else params.get("manual_context")
         cur = conn.execute(
             """INSERT INTO gs_specimens
-               (name, type, division, source_system, steward, description, tags, file_path, job_state, imported_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)""",
+               (name, type, division, source_system, steward, description, tags, file_path,
+                job_state, imported_by, source_class, manual_context)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (params["name"].strip(), stype, params["division"].strip(),
              params.get("source_system"), params["steward"].strip(),
              params.get("description"), tags, params.get("file_path"),
-             imported_by),
+             initial_job_state, imported_by, source_class, manual_context),
         )
         specimen_id = cur.lastrowid
         _audit(conn, "specimen", specimen_id, "created",
                new_value={"name": params["name"], "type": stype})
+
+        # Persist raw SQL into gs_specimen_queries if provided
+        raw_query = (params.get("query_text") or "").strip()
+        if raw_query:
+            conn.execute(
+                """INSERT INTO gs_specimen_queries
+                   (specimen_id, query_name, query_text, query_type, source_database, ordinal)
+                   VALUES (?, ?, ?, 'native_sql', ?, 1)""",
+                (specimen_id, params["name"].strip(), raw_query,
+                 params.get("source_database")),
+            )
+
         conn.commit()
         row = conn.execute("SELECT * FROM gs_specimens WHERE id = ?",
                            (specimen_id,)).fetchone()
@@ -161,7 +199,8 @@ def gs_list_specimens(params: dict) -> dict:
     where, bind = ["deleted_at IS NULL"], []
 
     for col, key in [("division", "division"), ("type", "type"),
-                     ("steward", "steward"), ("job_state", "job_state")]:
+                     ("steward", "steward"), ("job_state", "job_state"),
+                     ("source_class", "source_class")]:
         val = (params.get(key) or "").strip()
         if val:
             where.append(f"{col} = ?")
@@ -300,7 +339,7 @@ def gs_extract_specimen(params: dict) -> dict:
     finally:
         conn.close()
 
-    # Background extraction thread
+    # Background extraction thread — calls real SQL parser
     def _run_extraction(job_id_inner, specimen_id):
         cxn = cpdb._get_conn()
         try:
@@ -309,32 +348,195 @@ def gs_extract_specimen(params: dict) -> dict:
                 (job_id_inner,))
             cxn.commit()
 
-            # Simulated extraction — in production this calls the parser engine
             specimen = cxn.execute(
                 "SELECT * FROM gs_specimens WHERE id = ?",
                 (specimen_id,)).fetchone()
-            file_path = specimen["file_path"] if specimen else None
+            if not specimen:
+                raise ValueError(f"Specimen {specimen_id} not found")
 
-            # Mark completed
+            # Gather SQL text from gs_specimen_queries (pasted SQL)
+            # or from file_path (uploaded .sql file)
+            queries = cxn.execute(
+                "SELECT * FROM gs_specimen_queries WHERE specimen_id = ? ORDER BY ordinal",
+                (specimen_id,)).fetchall()
+
+            sql_text = ""
+            source_database = None
+            query_name = specimen["name"]
+
+            if queries:
+                # Pasted SQL — combine all query texts
+                sql_text = "\n;\n".join(q["query_text"] for q in queries if q["query_text"])
+                source_database = queries[0]["source_database"]
+            elif specimen["file_path"]:
+                # Uploaded file — read from disk
+                from pathlib import Path
+                fpath = Path(specimen["file_path"])
+                if fpath.exists() and fpath.suffix.lower() == ".sql":
+                    sql_text = fpath.read_text(encoding="utf-8-sig")
+                else:
+                    raise ValueError(f"File not found or not .sql: {specimen['file_path']}")
+
+            if not sql_text.strip():
+                raise ValueError("No SQL text found for specimen — nothing to parse")
+
+            # ── Call the real SQL parser ──
+            result = parse_sql(sql_text, query_name=query_name, source_database=source_database)
+
+            if result.errors:
+                # Parser returned hard errors — mark as failed
+                cxn.execute(
+                    """UPDATE gs_jobs SET status = 'failed',
+                       completed_at = CURRENT_TIMESTAMP,
+                       errors = ?,
+                       warnings = ?
+                       WHERE id = ?""",
+                    (json.dumps(result.errors),
+                     json.dumps(result.warnings) if result.warnings else None,
+                     job_id_inner))
+                cxn.execute(
+                    "UPDATE gs_specimens SET job_state = 'parse_failed', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (specimen_id,))
+                cxn.commit()
+                log.warning("Extraction job %d failed for specimen %d: %s",
+                            job_id_inner, specimen_id, result.errors)
+                return
+
+            # ── Persist parsed entities ──
+            # Clear any previous extracted data for this specimen (re-extraction)
+            cxn.execute("DELETE FROM gs_extracted_columns WHERE entity_id IN "
+                        "(SELECT id FROM gs_extracted_entities WHERE specimen_id = ?)",
+                        (specimen_id,))
+            cxn.execute("DELETE FROM gs_extracted_relationships WHERE specimen_id = ?",
+                        (specimen_id,))
+            cxn.execute("DELETE FROM gs_extracted_entities WHERE specimen_id = ?",
+                        (specimen_id,))
+
+            # Store queries if not already stored (file upload path)
+            if not queries and result.queries:
+                for i, q in enumerate(result.queries):
+                    cxn.execute(
+                        """INSERT INTO gs_specimen_queries
+                           (specimen_id, query_name, query_text, query_type, source_database, ordinal)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (specimen_id, q.query_name, q.query_text,
+                         q.query_type, q.source_database, i + 1))
+
+            # Insert extracted entities and their columns
+            entity_id_map: dict[str, int] = {}  # entity_name → id (for relationships)
+            for table in result.tables:
+                col_count = sum(1 for c in result.columns) if not table.columns else len(table.columns)
+                # For top-level columns, count only applies to first/primary entity
+                cur = cxn.execute(
+                    """INSERT INTO gs_extracted_entities
+                       (specimen_id, entity_name, schema_name, source_database,
+                        source_system, entity_kind, column_count, provenance)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 'extracted')""",
+                    (specimen_id, table.name, table.schema_name,
+                     table.source_database, table.source_system or specimen["source_system"],
+                     table.entity_kind, col_count))
+                eid = cur.lastrowid
+                entity_id_map[table.name.upper()] = eid
+
+                # Insert entity-level columns if the table carried them
+                for col in table.columns:
+                    cxn.execute(
+                        """INSERT INTO gs_extracted_columns
+                           (entity_id, column_name, data_type, nullable, is_key,
+                            source_expression, is_calculated, ordinal)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (eid, col.column_name, col.data_type, col.nullable,
+                         col.is_key, col.source_expression, col.is_calculated,
+                         col.ordinal))
+
+            # Insert top-level columns (from SELECT clause) — associate with first entity
+            if result.columns and entity_id_map:
+                # Attach to first physical entity, or first entity if no physical
+                physical = [t for t in result.tables if t.entity_kind == "physical"]
+                target_name = (physical[0].name if physical else result.tables[0].name).upper()
+                target_eid = entity_id_map.get(target_name)
+                if target_eid:
+                    # Update the column_count for the target entity
+                    cxn.execute(
+                        "UPDATE gs_extracted_entities SET column_count = ? WHERE id = ?",
+                        (len(result.columns), target_eid))
+                    for col in result.columns:
+                        cxn.execute(
+                            """INSERT INTO gs_extracted_columns
+                               (entity_id, column_name, data_type, nullable, is_key,
+                                source_expression, is_calculated, ordinal)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (target_eid, col.column_name, col.data_type,
+                             col.nullable, col.is_key, col.source_expression,
+                             col.is_calculated, col.ordinal))
+
+            # Insert extracted relationships
+            for rel in result.relationships:
+                from_eid = entity_id_map.get(rel.from_entity.upper())
+                to_eid = entity_id_map.get(rel.to_entity.upper())
+                cxn.execute(
+                    """INSERT INTO gs_extracted_relationships
+                       (specimen_id, from_entity_id, from_column,
+                        to_entity_id, to_entity_name, to_column,
+                        join_type, cardinality, detected_from)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (specimen_id, from_eid, rel.from_column,
+                     to_eid, rel.to_entity, rel.to_column,
+                     rel.join_type, rel.cardinality, rel.detected_from))
+
+            # Insert source bindings
+            for dsref in result.data_source_refs:
+                cxn.execute(
+                    """INSERT INTO gs_source_bindings
+                       (specimen_id, binding_type, source_system,
+                        database_name, schema_name)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (specimen_id, dsref.source_type or "sql_db",
+                     dsref.source_name, dsref.database_name,
+                     dsref.schema_name))
+
+            # ── Update job + specimen status ──
+            has_warnings = bool(result.warnings)
+            job_status = "warning" if has_warnings else "completed"
+            specimen_state = "parse_warning" if has_warnings else "extracted"
+
+            entity_count = len(result.tables)
+            column_count = len(result.columns)
+            rel_count = len(result.relationships)
+
             cxn.execute(
-                """UPDATE gs_jobs SET status = 'completed',
-                   completed_at = CURRENT_TIMESTAMP WHERE id = ?""",
-                (job_id_inner,))
+                """UPDATE gs_jobs SET status = ?,
+                   completed_at = CURRENT_TIMESTAMP,
+                   parser_type = 'sql_parser',
+                   warnings = ?,
+                   metadata = ?
+                   WHERE id = ?""",
+                (job_status,
+                 json.dumps(result.warnings) if result.warnings else None,
+                 json.dumps({"entities": entity_count, "columns": column_count,
+                             "relationships": rel_count}),
+                 job_id_inner))
             cxn.execute(
-                "UPDATE gs_specimens SET job_state = 'extracted', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (specimen_id,))
+                "UPDATE gs_specimens SET job_state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (specimen_state, specimen_id))
             cxn.commit()
-            log.info("Extraction job %d completed for specimen %d",
-                     job_id_inner, specimen_id)
-        except Exception:
+            log.info("Extraction job %d completed for specimen %d: %d entities, %d columns, %d relationships",
+                     job_id_inner, specimen_id, entity_count, column_count, rel_count)
+        except Exception as exc:
             log.exception("Extraction job %d failed", job_id_inner)
-            cxn.execute(
-                "UPDATE gs_jobs SET status = 'failed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (job_id_inner,))
-            cxn.execute(
-                "UPDATE gs_specimens SET job_state = 'parse_failed', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (specimen_id,))
-            cxn.commit()
+            try:
+                cxn.execute(
+                    """UPDATE gs_jobs SET status = 'failed',
+                       completed_at = CURRENT_TIMESTAMP,
+                       errors = ?
+                       WHERE id = ?""",
+                    (json.dumps([str(exc)]), job_id_inner))
+                cxn.execute(
+                    "UPDATE gs_specimens SET job_state = 'parse_failed', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (specimen_id,))
+                cxn.commit()
+            except Exception:
+                log.exception("Failed to update job/specimen status after extraction error")
         finally:
             cxn.close()
 
@@ -674,7 +876,8 @@ def gs_resolve_cluster(params: dict) -> dict:
     cid = _parse_int(params.get("id"), "id", required=True)
     _require(params, "action")
     action = params["action"].strip().lower()
-    valid_actions = ("approve", "split", "merge", "dismiss")
+    valid_actions = ("approve", "split", "merge", "dismiss",
+                     "remove_member", "mark_standalone")
     if action not in valid_actions:
         raise HttpError(f"action must be one of {valid_actions}", 400)
     if action == "dismiss" and not (params.get("notes") or "").strip():
@@ -697,6 +900,32 @@ def gs_resolve_cluster(params: dict) -> dict:
                     "Conflict: cluster has been modified (expected %s, current %s)"
                     % (expected, current_ts), 409)
 
+        # remove_member / mark_standalone modify membership without resolving the cluster
+        if action in ("remove_member", "mark_standalone"):
+            mid = _parse_int(params.get("member_id"), "member_id", required=True)
+            conn.execute(
+                "UPDATE gs_extracted_entities SET cluster_id = NULL WHERE id = ?",
+                (mid,))
+            if action == "mark_standalone":
+                conn.execute(
+                    "UPDATE gs_extracted_entities SET provenance = 'clustered' WHERE id = ?",
+                    (mid,))
+            # Clean up column decisions referencing the removed member
+            conn.execute(
+                "DELETE FROM gs_cluster_column_decisions WHERE cluster_id = ? AND source_entity_id = ?",
+                (cid, mid))
+            if params.get("notes"):
+                conn.execute(
+                    "UPDATE gs_clusters SET notes = COALESCE(?, notes) WHERE id = ?",
+                    (params["notes"], cid))
+            _audit(conn, "cluster", cid, f"resolved:{action}",
+                   new_value={"member_id": mid},
+                   notes=params.get("notes"))
+            conn.commit()
+            row = conn.execute("SELECT * FROM gs_clusters WHERE id = ?",
+                               (cid,)).fetchone()
+            return _row_to_dict(row)
+
         status = "dismissed" if action == "dismiss" else "resolved"
         conn.execute(
             """UPDATE gs_clusters
@@ -711,6 +940,14 @@ def gs_resolve_cluster(params: dict) -> dict:
             conn.execute(
                 """UPDATE gs_extracted_entities
                    SET provenance = 'clustered'
+                   WHERE cluster_id = ? AND deleted_at IS NULL""",
+                (cid,))
+
+        # When dismissed, NULL cluster_id on members — returns them to unclustered
+        if action == "dismiss":
+            conn.execute(
+                """UPDATE gs_extracted_entities
+                   SET cluster_id = NULL
                    WHERE cluster_id = ? AND deleted_at IS NULL""",
                 (cid,))
 
@@ -828,6 +1065,7 @@ def gs_detect_clusters(params: dict) -> dict:
             cxn.commit()
 
             # Duplicate detection: group entities by normalized name within division
+            # Only structural specimens participate in clustering
             entities = cxn.execute(
                 """SELECT e.id, e.entity_name, e.schema_name, e.source_database,
                           e.source_system, e.specimen_id
@@ -835,6 +1073,7 @@ def gs_detect_clusters(params: dict) -> dict:
                    JOIN gs_specimens s ON e.specimen_id = s.id
                    WHERE s.division = ? AND e.deleted_at IS NULL
                      AND e.cluster_id IS NULL
+                     AND s.source_class = 'structural'
                    ORDER BY e.entity_name COLLATE NOCASE""",
                 (div,)).fetchall()
 
@@ -891,15 +1130,19 @@ def gs_unclustered_entities(params: dict) -> dict:
     limit, offset = _paginate(params)
     conn = cpdb._get_conn()
     try:
+        # Only structural entities appear as unclustered candidates
         total = conn.execute(
-            """SELECT COUNT(*) AS cnt FROM gs_extracted_entities
-               WHERE cluster_id IS NULL AND deleted_at IS NULL"""
+            """SELECT COUNT(*) AS cnt FROM gs_extracted_entities e
+               JOIN gs_specimens s ON e.specimen_id = s.id
+               WHERE e.cluster_id IS NULL AND e.deleted_at IS NULL
+                 AND s.source_class = 'structural'"""
         ).fetchone()["cnt"]
         rows = conn.execute(
-            """SELECT e.*, s.name AS specimen_name, s.division
+            """SELECT e.*, s.name AS specimen_name, s.division, s.source_system AS specimen_source
                FROM gs_extracted_entities e
-               LEFT JOIN gs_specimens s ON e.specimen_id = s.id
+               JOIN gs_specimens s ON e.specimen_id = s.id
                WHERE e.cluster_id IS NULL AND e.deleted_at IS NULL
+                 AND s.source_class = 'structural'
                ORDER BY e.entity_name COLLATE NOCASE
                LIMIT ? OFFSET ?""",
             (limit, offset)).fetchall()
@@ -2457,7 +2700,249 @@ def gs_field_usage(params: dict) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Endpoint count verification (57 @route decorators above):
+# GROUP 13: Domain Workspaces (4 endpoints)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# 56. GET /api/gold-studio/domains — List all domain workspaces
+@route("GET", "/api/gold-studio/domains")
+def gs_domains_list(params: dict) -> dict:
+    """List all domain workspaces with readiness state."""
+    conn = cpdb._get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM gs_domain_workspaces ORDER BY name"
+        ).fetchall()
+        return {"domains": _rows_to_list(rows)}
+    finally:
+        conn.close()
+
+
+# 57. POST /api/gold-studio/domains — Create a domain workspace
+@route("POST", "/api/gold-studio/domains")
+def gs_domains_create(params: dict) -> dict:
+    """Create a domain workspace."""
+    _require(params, "name", "display_name")
+    conn = cpdb._get_conn()
+    try:
+        cur = conn.execute(
+            """INSERT INTO gs_domain_workspaces (name, display_name, description)
+               VALUES (?, ?, ?)""",
+            (params["name"], params["display_name"], params.get("description")),
+        )
+        conn.commit()
+        return {"id": cur.lastrowid}
+    finally:
+        conn.close()
+
+
+# 58. PUT /api/gold-studio/domains/{id} — Update domain workspace
+@route("PUT", "/api/gold-studio/domains/{id}")
+def gs_domains_update(params: dict) -> dict:
+    """Update domain workspace metadata or readiness state."""
+    domain_id = _parse_int(params.get("id"), "id", required=True)
+    conn = cpdb._get_conn()
+    try:
+        row = conn.execute("SELECT * FROM gs_domain_workspaces WHERE id = ?", (domain_id,)).fetchone()
+        if not row:
+            raise HttpError("Domain workspace not found", 404)
+        sets, vals = [], []
+        for col in ("display_name", "description", "readiness_state", "source_coverage", "metadata"):
+            if col in params:
+                val = params[col]
+                if isinstance(val, (dict, list)):
+                    val = json.dumps(val)
+                sets.append(f"{col} = ?")
+                vals.append(val)
+        if not sets:
+            raise HttpError("No fields to update", 400)
+        sets.append("updated_at = CURRENT_TIMESTAMP")
+        vals.append(domain_id)
+        conn.execute(f"UPDATE gs_domain_workspaces SET {', '.join(sets)} WHERE id = ?", vals)
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+# 59. GET /api/gold-studio/domains/{id} — Domain detail with aggregated stats
+@route("GET", "/api/gold-studio/domains/{id}")
+def gs_domains_detail(params: dict) -> dict:
+    """Get domain workspace detail with aggregated coverage stats."""
+    domain_id = _parse_int(params.get("id"), "id", required=True)
+    conn = cpdb._get_conn()
+    try:
+        row = conn.execute("SELECT * FROM gs_domain_workspaces WHERE id = ?", (domain_id,)).fetchone()
+        if not row:
+            raise HttpError("Domain workspace not found", 404)
+        domain = _row_to_dict(row)
+        # Aggregate stats for this domain
+        name = domain["name"]
+        domain["specimen_count"] = conn.execute(
+            "SELECT COUNT(*) FROM gs_specimens WHERE division = ? AND deleted_at IS NULL", (name,)
+        ).fetchone()[0]
+        domain["canonical_count"] = conn.execute(
+            "SELECT COUNT(*) FROM gs_canonical_entities WHERE domain = ? AND is_current = 1 AND deleted_at IS NULL", (name,)
+        ).fetchone()[0]
+        domain["report_coverage"] = _rows_to_list(conn.execute(
+            "SELECT id, report_name, coverage_status FROM gs_report_recreation_coverage WHERE domain = ?", (name,)
+        ).fetchall())
+        return domain
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# GROUP 14: Report Recreation Coverage (6 endpoints)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# 60. GET /api/gold-studio/report-coverage/summary — Aggregate summary by domain
+@route("GET", "/api/gold-studio/report-coverage/summary")
+def gs_coverage_summary(params: dict) -> dict:
+    """Aggregate recreation readiness summary by domain."""
+    conn = cpdb._get_conn()
+    try:
+        rows = conn.execute(
+            """SELECT domain, coverage_status, COUNT(*) as count
+               FROM gs_report_recreation_coverage
+               GROUP BY domain, coverage_status
+               ORDER BY domain, coverage_status"""
+        ).fetchall()
+        # Restructure into {domain: {status: count}}
+        summary = {}
+        for r in rows:
+            d = dict(r)
+            domain = d["domain"]
+            if domain not in summary:
+                summary[domain] = {}
+            summary[domain][d["coverage_status"]] = d["count"]
+        return {"summary": summary}
+    finally:
+        conn.close()
+
+
+# 61. GET /api/gold-studio/report-coverage — List report coverage entries
+@route("GET", "/api/gold-studio/report-coverage")
+def gs_coverage_list(params: dict) -> dict:
+    """List report recreation coverage entries, filterable by domain and status."""
+    limit, offset = _paginate(params)
+    conn = cpdb._get_conn()
+    try:
+        where, vals = [], []
+        if params.get("domain"):
+            where.append("domain = ?")
+            vals.append(params["domain"])
+        if params.get("coverage_status"):
+            where.append("coverage_status = ?")
+            vals.append(params["coverage_status"])
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        rows = conn.execute(
+            f"SELECT * FROM gs_report_recreation_coverage{clause} ORDER BY domain, report_name LIMIT ? OFFSET ?",
+            vals + [limit, offset],
+        ).fetchall()
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM gs_report_recreation_coverage{clause}", vals
+        ).fetchone()[0]
+        return {"items": _rows_to_list(rows), "total": total,
+                "limit": limit, "offset": offset}
+    finally:
+        conn.close()
+
+
+# 62. POST /api/gold-studio/report-coverage — Create report coverage entry
+@route("POST", "/api/gold-studio/report-coverage")
+def gs_coverage_create(params: dict) -> dict:
+    """Register a legacy report for recreation tracking."""
+    _require(params, "domain", "report_name")
+    conn = cpdb._get_conn()
+    try:
+        cur = conn.execute(
+            """INSERT INTO gs_report_recreation_coverage
+               (domain, report_name, report_description, report_type, notes, assessed_by)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (params["domain"], params["report_name"], params.get("report_description"),
+             params.get("report_type"), params.get("notes"), params.get("assessed_by")),
+        )
+        conn.commit()
+        _audit(conn, "report_coverage", cur.lastrowid, "created",
+               new_value={"domain": params["domain"], "report_name": params["report_name"]})
+        conn.commit()
+        return {"id": cur.lastrowid}
+    finally:
+        conn.close()
+
+
+# 63. GET /api/gold-studio/report-coverage/{id} — Report coverage detail
+@route("GET", "/api/gold-studio/report-coverage/{id}")
+def gs_coverage_detail(params: dict) -> dict:
+    """Get report recreation coverage detail."""
+    cov_id = _parse_int(params.get("id"), "id", required=True)
+    conn = cpdb._get_conn()
+    try:
+        row = conn.execute("SELECT * FROM gs_report_recreation_coverage WHERE id = ?", (cov_id,)).fetchone()
+        if not row:
+            raise HttpError("Report coverage entry not found", 404)
+        return _row_to_dict(row)
+    finally:
+        conn.close()
+
+
+# 64. PUT /api/gold-studio/report-coverage/{id} — Update report coverage
+@route("PUT", "/api/gold-studio/report-coverage/{id}")
+def gs_coverage_update(params: dict) -> dict:
+    """Update report recreation coverage (status, contributing IDs, unresolved metrics)."""
+    cov_id = _parse_int(params.get("id"), "id", required=True)
+    conn = cpdb._get_conn()
+    try:
+        row = conn.execute("SELECT * FROM gs_report_recreation_coverage WHERE id = ?", (cov_id,)).fetchone()
+        if not row:
+            raise HttpError("Report coverage entry not found", 404)
+        prev = _row_to_dict(row)
+        sets, vals = [], []
+        for col in ("report_name", "report_description", "report_type", "coverage_status",
+                    "contributing_specimen_ids", "contributing_canonical_ids", "contributing_spec_ids",
+                    "unresolved_metrics", "notes", "assessed_by"):
+            if col in params:
+                val = params[col]
+                if isinstance(val, (dict, list)):
+                    val = json.dumps(val)
+                sets.append(f"{col} = ?")
+                vals.append(val)
+        if not sets:
+            raise HttpError("No fields to update", 400)
+        sets.append("updated_at = CURRENT_TIMESTAMP")
+        if "coverage_status" in params:
+            sets.append("assessed_at = CURRENT_TIMESTAMP")
+        vals.append(cov_id)
+        conn.execute(f"UPDATE gs_report_recreation_coverage SET {', '.join(sets)} WHERE id = ?", vals)
+        _audit(conn, "report_coverage", cov_id, "updated",
+               previous_value={"coverage_status": prev["coverage_status"]},
+               new_value={"coverage_status": params.get("coverage_status", prev["coverage_status"])})
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+# 65. DELETE /api/gold-studio/report-coverage/{id} — Delete report coverage
+@route("DELETE", "/api/gold-studio/report-coverage/{id}")
+def gs_coverage_delete(params: dict) -> dict:
+    """Delete a report coverage entry."""
+    cov_id = _parse_int(params.get("id"), "id", required=True)
+    conn = cpdb._get_conn()
+    try:
+        row = conn.execute("SELECT * FROM gs_report_recreation_coverage WHERE id = ?", (cov_id,)).fetchone()
+        if not row:
+            raise HttpError("Report coverage entry not found", 404)
+        conn.execute("DELETE FROM gs_report_recreation_coverage WHERE id = ?", (cov_id,))
+        _audit(conn, "report_coverage", cov_id, "deleted")
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Endpoint count verification (67 @route decorators above):
 #
 #  Group 1 — Specimens:          8  (#1-#8)
 #  Group 2 — Extracted Entities: 5  (#9-#13)
@@ -2471,8 +2956,8 @@ def gs_field_usage(params: dict) -> dict:
 #  Group 10 — Audit:             1  (#53)
 #  Group 11 — Stats:             1  (#54)
 #  Group 12 — Field Usage:       1  (#55)
+#  Group 13 — Domain Workspaces: 4  (#56-#59)
+#  Group 14 — Report Coverage:   6  (#60-#65)
 #                               ──
-#                         Total: 55 route functions → 57 HTTP endpoints
-#                         (endpoints #2 uses one function for GET list,
-#                          but the total distinct @route decorators = 57)
+#                         Total: 65 route functions → 67 HTTP endpoints
 # ═══════════════════════════════════════════════════════════════════════════

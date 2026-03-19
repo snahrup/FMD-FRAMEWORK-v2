@@ -1,36 +1,19 @@
 // Gold Clusters — Entity cluster browser: review, resolve, reconcile columns, promote to canonical.
+// Spec: docs/superpowers/specs/2026-03-18-gold-studio-design.md § 6
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Search } from "lucide-react";
-import { GoldStudioLayout, StatsStrip, SlideOver } from "@/components/gold";
+import { GoldStudioLayout, StatsStrip, SlideOver, useGoldToast, GoldLoading, GoldEmpty, GoldNoResults } from "@/components/gold";
 import { ClusterCard } from "@/components/gold/ClusterCard";
+import type { ClusterData, ClusterMember } from "@/components/gold/ClusterCard";
 import { ColumnReconciliation } from "@/components/gold/ColumnReconciliation";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-interface ClusterSummary {
-  id: number;
-  label: string | null;
-  dominant_name: string | null;
-  confidence: number;
-  confidence_breakdown: string | null;
-  status: string;
-  resolution: string | null;
-  division: string;
-}
-
-interface ClusterMember {
-  id: number;
-  entity_name: string;
-  specimen_name: string;
-  column_count: number;
-  match_type: string;
-}
-
 interface ClusterDetail {
-  cluster: ClusterSummary;
+  cluster: ClusterData;
   members: ClusterMember[];
 }
 
@@ -38,7 +21,7 @@ interface UnclusteredEntity {
   id: number;
   entity_name: string;
   specimen_name: string;
-  source_db: string;
+  specimen_source: string | null;
   column_count: number;
 }
 
@@ -69,6 +52,7 @@ const STATUS_FILTERS = [
   { value: "resolved", label: "Resolved" },
   { value: "dismissed", label: "Dismissed" },
   { value: "pending_steward", label: "Pending Steward" },
+  { value: "re_review", label: "Re-review" },
 ] as const;
 
 const API = "/api/gold-studio";
@@ -78,6 +62,8 @@ const API = "/api/gold-studio";
 /* ------------------------------------------------------------------ */
 
 export default function GoldClusters() {
+  const { showToast } = useGoldToast();
+
   /* State */
   const [stats, setStats] = useState<StatsPayload | null>(null);
   const [clusters, setClusters] = useState<ClusterDetail[]>([]);
@@ -93,6 +79,14 @@ export default function GoldClusters() {
 
   /* Active tab */
   const [activeTab, setActiveTab] = useState<"clusters" | "unclustered">("clusters");
+
+  /* Abort controller for cluster fetches */
+  const clusterAbortRef = useRef<AbortController | null>(null);
+
+  /* Dismiss notes modal */
+  const [dismissTarget, setDismissTarget] = useState<number | null>(null);
+  const [dismissNotes, setDismissNotes] = useState("");
+  const dismissInputRef = useRef<HTMLTextAreaElement>(null);
 
   /* SlideOver for reconciliation */
   const [reconOpen, setReconOpen] = useState(false);
@@ -114,20 +108,47 @@ export default function GoldClusters() {
   }, []);
 
   const fetchClusters = useCallback(async () => {
+    clusterAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    clusterAbortRef.current = ctrl;
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({ limit: "200" });
       if (statusFilter) params.set("status", statusFilter);
-      const res = await fetch(`${API}/clusters?${params}`);
-      if (res.ok) setClusters(await res.json());
-    } catch {
+      const res = await fetch(`${API}/clusters?${params}`, { signal: ctrl.signal });
+      if (!res.ok) return;
+      const body = await res.json();
+      // API returns { items, total, limit, offset } — items are cluster summaries
+      const summaries: ClusterData[] = body.items ?? body;
+      // Hydrate each cluster with its members via detail endpoint
+      const details: ClusterDetail[] = await Promise.all(
+        summaries.map(async (c) => {
+          try {
+            const dRes = await fetch(`${API}/clusters/${c.id}`);
+            if (dRes.ok) {
+              const detail = await dRes.json();
+              return {
+                cluster: { ...c, member_count: detail.members?.length ?? c.member_count },
+                members: detail.members ?? [],
+              };
+            }
+          } catch { /* fallback below */ }
+          return { cluster: c, members: [] };
+        })
+      );
+      if (ctrl.signal.aborted) return;
+      setClusters(details);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
       /* silent */
     }
   }, [statusFilter]);
 
   const fetchUnclustered = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/clusters/unclustered`);
-      if (res.ok) setUnclustered(await res.json());
+      const res = await fetch(`${API}/clusters/unclustered?limit=500`);
+      if (!res.ok) return;
+      const body = await res.json();
+      setUnclustered(body.items ?? body);
     } catch {
       /* silent */
     }
@@ -175,7 +196,7 @@ export default function GoldClusters() {
     return (
       e.entity_name.toLowerCase().includes(q) ||
       e.specimen_name.toLowerCase().includes(q) ||
-      e.source_db.toLowerCase().includes(q)
+      (e.specimen_source ?? "").toLowerCase().includes(q)
     );
   });
 
@@ -184,20 +205,54 @@ export default function GoldClusters() {
   /* ---------------------------------------------------------------- */
 
   const handleResolve = useCallback(
-    async (clusterId: number, action: string) => {
+    async (clusterId: number, action: string, payload?: Record<string, unknown>) => {
       try {
-        await fetch(`${API}/clusters/${clusterId}/resolve`, {
+        const res = await fetch(`${API}/clusters/${clusterId}/resolve`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
+          body: JSON.stringify({ action, ...payload }),
         });
-        await Promise.all([fetchStats(), fetchClusters()]);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await Promise.all([fetchStats(), fetchClusters(), fetchUnclustered()]);
+        showToast("Cluster resolved", "success");
       } catch {
-        /* silent */
+        showToast("Failed to resolve cluster", "error");
       }
     },
-    [fetchStats, fetchClusters]
+    [fetchStats, fetchClusters, fetchUnclustered, showToast]
   );
+
+  const handleLabelChange = useCallback(
+    async (clusterId: number, label: string) => {
+      try {
+        const res = await fetch(`${API}/clusters/${clusterId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await fetchClusters();
+        showToast("Cluster updated", "success");
+      } catch {
+        showToast("Failed to update cluster", "error");
+      }
+    },
+    [fetchClusters, showToast]
+  );
+
+  const handleDismissRequest = useCallback((clusterId: number) => {
+    setDismissTarget(clusterId);
+    setDismissNotes("");
+    // Focus the textarea after render
+    setTimeout(() => dismissInputRef.current?.focus(), 50);
+  }, []);
+
+  const handleDismissConfirm = useCallback(async () => {
+    if (dismissTarget === null || !dismissNotes.trim()) return;
+    await handleResolve(dismissTarget, "dismiss", { notes: dismissNotes.trim() });
+    setDismissTarget(null);
+    setDismissNotes("");
+  }, [dismissTarget, dismissNotes, handleResolve]);
 
   const openReconciliation = useCallback(
     async (clusterId: number) => {
@@ -212,7 +267,7 @@ export default function GoldClusters() {
             entity_name: m.entity_name,
           }))
         );
-        setReconColumns(detail.columns ?? []);
+        setReconColumns(detail.column_decisions ?? detail.columns ?? []);
         setReconOpen(true);
       } catch {
         /* silent */
@@ -227,42 +282,61 @@ export default function GoldClusters() {
     ) => {
       if (reconClusterId === null) return;
       try {
-        await fetch(`${API}/clusters/${reconClusterId}/columns`, {
+        const res = await fetch(`${API}/clusters/${reconClusterId}/columns`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ decisions }),
         });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         setReconOpen(false);
+        setReconColumns([]);
+        setReconMembers([]);
+        setReconClusterId(null);
         await Promise.all([fetchStats(), fetchClusters()]);
+        showToast("Column decisions saved", "success");
       } catch {
-        /* silent */
+        showToast("Failed to save column decisions", "error");
       }
     },
-    [reconClusterId, fetchStats, fetchClusters]
+    [reconClusterId, fetchStats, fetchClusters, showToast]
   );
 
+  // Promote unclustered entity to standalone canonical — opens canonical creation flow
+  // For now, advances provenance to 'clustered' (standalone) so it leaves the unclustered list
   const handlePromote = useCallback(
     async (entityId: number) => {
       try {
-        await fetch(`${API}/clusters/unclustered/${entityId}/promote`, { method: "POST" });
+        // Mark as standalone by setting provenance to 'canonicalized'
+        const res = await fetch(`${API}/entities/${entityId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provenance: "canonicalized" }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         await Promise.all([fetchStats(), fetchUnclustered()]);
+        showToast("Entity promoted", "success");
       } catch {
-        /* silent */
+        showToast("Failed to promote entity", "error");
       }
     },
-    [fetchStats, fetchUnclustered]
+    [fetchStats, fetchUnclustered, showToast]
   );
 
+  // Soft-delete unclustered entity — removes from consideration
   const handleIgnore = useCallback(
     async (entityId: number) => {
       try {
-        await fetch(`${API}/clusters/unclustered/${entityId}/ignore`, { method: "POST" });
-        await fetchUnclustered();
+        const res = await fetch(`${API}/entities/${entityId}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await Promise.all([fetchStats(), fetchUnclustered()]);
+        showToast("Entity removed", "success");
       } catch {
-        /* silent */
+        showToast("Failed to remove entity", "error");
       }
     },
-    [fetchUnclustered]
+    [fetchStats, fetchUnclustered, showToast]
   );
 
   /* ---------------------------------------------------------------- */
@@ -288,9 +362,9 @@ export default function GoldClusters() {
         />
       )}
 
-      <div className="px-6 py-5">
+      <div style={{ paddingBottom: 20 }}>
         {/* Filter bar */}
-        <div className="flex items-center gap-3 flex-wrap mb-5">
+        <div className="flex items-center gap-2.5 flex-wrap mb-4">
           {/* Status */}
           <select
             value={statusFilter}
@@ -438,36 +512,23 @@ export default function GoldClusters() {
         {activeTab === "clusters" && (
           <div className="space-y-3">
             {loading && !clusters.length && (
-              <p
-                className="text-center py-12"
-                style={{
-                  fontFamily: "var(--bp-font-body)",
-                  fontSize: 14,
-                  color: "var(--bp-ink-muted)",
-                }}
-              >
-                Loading clusters...
-              </p>
+              <GoldLoading rows={4} label="Loading clusters" />
             )}
-            {!loading && filtered.length === 0 && (
-              <p
-                className="text-center py-12"
-                style={{
-                  fontFamily: "var(--bp-font-body)",
-                  fontSize: 14,
-                  color: "var(--bp-ink-muted)",
-                }}
-              >
-                No clusters match your filters.
-              </p>
+            {!loading && clusters.length > 0 && filtered.length === 0 && (
+              <GoldNoResults query={search || undefined} />
+            )}
+            {!loading && clusters.length === 0 && (
+              <GoldEmpty noun="clusters" />
             )}
             {filtered.map((c) => (
               <ClusterCard
                 key={c.cluster.id}
                 cluster={c.cluster}
                 members={c.members}
-                onResolve={(action) => handleResolve(c.cluster.id, action)}
+                onResolve={(action, payload) => handleResolve(c.cluster.id, action, payload)}
                 onConfirmGrouping={() => openReconciliation(c.cluster.id)}
+                onLabelChange={handleLabelChange}
+                onDismiss={handleDismissRequest}
               />
             ))}
           </div>
@@ -489,7 +550,7 @@ export default function GoldClusters() {
                 >
                   <th className="pb-2 pr-4 font-medium">Entity</th>
                   <th className="pb-2 pr-4 font-medium">Specimen</th>
-                  <th className="pb-2 pr-4 font-medium">Source DB</th>
+                  <th className="pb-2 pr-4 font-medium">Source</th>
                   <th className="pb-2 pr-4 font-medium text-right">Columns</th>
                   <th className="pb-2 font-medium text-right">Action</th>
                 </tr>
@@ -504,27 +565,27 @@ export default function GoldClusters() {
                       borderTop: "1px solid var(--bp-border)",
                     }}
                   >
-                    <td className="py-2.5 pr-4">{e.entity_name}</td>
+                    <td className="py-2 pr-4">{e.entity_name}</td>
                     <td
-                      className="py-2.5 pr-4"
+                      className="py-2 pr-4"
                       style={{ fontFamily: "var(--bp-font-mono)", fontSize: 12, color: "var(--bp-ink-secondary)" }}
                     >
                       {e.specimen_name}
                     </td>
-                    <td className="py-2.5 pr-4" style={{ color: "var(--bp-ink-secondary)" }}>
-                      {e.source_db}
+                    <td className="py-2 pr-4" style={{ color: "var(--bp-ink-secondary)" }}>
+                      {e.specimen_source ?? "\u2014"}
                     </td>
-                    <td className="py-2.5 pr-4 text-right" style={{ fontFamily: "var(--bp-font-mono)" }}>
+                    <td className="py-2 pr-4 text-right" style={{ fontFamily: "var(--bp-font-mono)" }}>
                       {e.column_count}
                     </td>
-                    <td className="py-2.5 text-right">
+                    <td className="py-2 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
                           onClick={() => handlePromote(e.id)}
                           className="rounded px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-90"
                           style={{
-                            color: "#fff",
+                            color: "var(--bp-surface-1)",
                             background: "var(--bp-copper)",
                           }}
                         >
@@ -547,16 +608,12 @@ export default function GoldClusters() {
                 ))}
                 {!loading && filteredUnclustered.length === 0 && (
                   <tr>
-                    <td
-                      colSpan={5}
-                      className="py-12 text-center"
-                      style={{
-                        fontFamily: "var(--bp-font-body)",
-                        fontSize: 14,
-                        color: "var(--bp-ink-muted)",
-                      }}
-                    >
-                      All entities are clustered.
+                    <td colSpan={5}>
+                      {search ? (
+                        <GoldNoResults query={search} />
+                      ) : (
+                        <GoldEmpty noun="unclustered entities" />
+                      )}
                     </td>
                   </tr>
                 )}
@@ -565,6 +622,84 @@ export default function GoldClusters() {
           </div>
         )}
       </div>
+
+      {/* Dismiss notes modal — spec requires notes for dismiss action */}
+      {dismissTarget !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.35)" }}
+          onClick={() => setDismissTarget(null)}
+        >
+          <div
+            className="rounded-lg p-5 w-full max-w-md"
+            style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3
+              style={{
+                fontFamily: "var(--bp-font-display)",
+                fontSize: 16,
+                fontWeight: 600,
+                color: "var(--bp-ink-primary)",
+                marginBottom: 12,
+              }}
+            >
+              Dismiss Cluster #{dismissTarget}
+            </h3>
+            <p
+              style={{
+                fontFamily: "var(--bp-font-body)",
+                fontSize: 13,
+                color: "var(--bp-ink-secondary)",
+                marginBottom: 8,
+              }}
+            >
+              Provide a reason for dismissing this cluster. Members will be returned to the unclustered pool.
+            </p>
+            <textarea
+              ref={dismissInputRef}
+              value={dismissNotes}
+              onChange={(e) => setDismissNotes(e.target.value)}
+              rows={3}
+              placeholder="Reason for dismissal..."
+              className="w-full rounded-md px-3 py-2 text-sm outline-none resize-y"
+              style={{
+                fontFamily: "var(--bp-font-body)",
+                color: "var(--bp-ink-primary)",
+                background: "var(--bp-surface-inset)",
+                border: "1px solid var(--bp-border)",
+              }}
+            />
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setDismissTarget(null)}
+                className="rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-black/5"
+                style={{
+                  fontFamily: "var(--bp-font-body)",
+                  color: "var(--bp-ink-muted)",
+                  border: "1px solid var(--bp-border)",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissConfirm}
+                disabled={!dismissNotes.trim()}
+                className="rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:opacity-90 disabled:opacity-40"
+                style={{
+                  fontFamily: "var(--bp-font-body)",
+                  color: "var(--bp-surface-1)",
+                  background: "var(--bp-copper)",
+                }}
+              >
+                Dismiss Cluster
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Column Reconciliation slide-over */}
       <SlideOver
@@ -587,16 +722,7 @@ export default function GoldClusters() {
           />
         )}
         {reconClusterId !== null && reconColumns.length === 0 && (
-          <p
-            className="text-center py-12"
-            style={{
-              fontFamily: "var(--bp-font-body)",
-              fontSize: 14,
-              color: "var(--bp-ink-muted)",
-            }}
-          >
-            No column data available for this cluster.
-          </p>
+          <GoldEmpty noun="column data" />
         )}
       </SlideOver>
     </GoldStudioLayout>

@@ -40,6 +40,7 @@ export interface SpecimenCardProps {
     entity_count?: number;
     column_count?: number;
     provenance_phase?: number;
+    source_class?: string;
   };
   expanded: boolean;
   onToggle: () => void;
@@ -53,19 +54,20 @@ function getRailColor(jobState: string): string {
   switch (jobState) {
     case "extracting":
     case "schema_discovery":
-      return "#B45624"; // copper
+      return "var(--bp-copper)";
     case "extracted":
-      return "#3D7C4F"; // operational green
+    case "accepted":
+      return "var(--bp-operational)";
     case "parse_failed":
-      return "#B93A2A"; // fault red
+      return "var(--bp-fault)";
     case "parse_warning":
-      return "#C27A1A"; // caution amber
+      return "var(--bp-caution)";
     case "needs_connection":
     case "schema_pending":
-      return "#5B7FA3"; // info blue
+      return "var(--bp-lz)";
     case "queued":
     default:
-      return "#A8A29E"; // muted stone
+      return "var(--bp-ink-muted)";
   }
 }
 
@@ -73,14 +75,15 @@ function getRailColor(jobState: string): string {
 
 function JobStateBadge({ state }: { state: string }) {
   const config: Record<string, { bg: string; color: string; label: string; pulse?: boolean }> = {
-    queued: { bg: "rgba(168,162,158,0.12)", color: "#78716C", label: "Queued" },
-    extracting: { bg: "rgba(180,86,36,0.10)", color: "#B45624", label: "Extracting", pulse: true },
-    schema_discovery: { bg: "rgba(180,86,36,0.10)", color: "#B45624", label: "Schema Discovery", pulse: true },
-    extracted: { bg: "rgba(61,124,79,0.10)", color: "#3D7C4F", label: "Extracted" },
-    parse_warning: { bg: "rgba(194,122,26,0.10)", color: "#C27A1A", label: "Parse Warning" },
-    parse_failed: { bg: "rgba(185,58,42,0.10)", color: "#B93A2A", label: "Parse Failed" },
-    needs_connection: { bg: "rgba(91,127,163,0.10)", color: "#5B7FA3", label: "Needs Connection" },
-    schema_pending: { bg: "rgba(168,162,158,0.12)", color: "#78716C", label: "Schema Pending" },
+    queued: { bg: "rgba(168,162,158,0.12)", color: "var(--bp-ink-tertiary)", label: "Queued" },
+    extracting: { bg: "rgba(180,86,36,0.10)", color: "var(--bp-copper)", label: "Extracting", pulse: true },
+    schema_discovery: { bg: "rgba(180,86,36,0.10)", color: "var(--bp-copper)", label: "Schema Discovery", pulse: true },
+    extracted: { bg: "rgba(61,124,79,0.10)", color: "var(--bp-operational)", label: "Extracted" },
+    parse_warning: { bg: "rgba(194,122,26,0.10)", color: "var(--bp-caution)", label: "Parse Warning" },
+    parse_failed: { bg: "rgba(185,58,42,0.10)", color: "var(--bp-fault)", label: "Parse Failed" },
+    needs_connection: { bg: "rgba(91,127,163,0.10)", color: "var(--bp-lz)", label: "Needs Connection" },
+    schema_pending: { bg: "rgba(168,162,158,0.12)", color: "var(--bp-ink-tertiary)", label: "Schema Pending" },
+    accepted: { bg: "rgba(61,124,79,0.10)", color: "var(--bp-operational)", label: "Accepted" },
   };
 
   const c = config[state] ?? config.queued!;
@@ -128,6 +131,29 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
+// ── Source class badge ──
+
+function SourceClassBadge({ sourceClass }: { sourceClass: string }) {
+  if (sourceClass === "structural") return null; // structural uses ProvenanceThread instead
+  const isSupporting = sourceClass === "supporting";
+  return (
+    <span
+      className="inline-flex items-center rounded px-1.5 py-0.5"
+      style={{
+        background: isSupporting ? "rgba(194,122,26,0.08)" : "rgba(168,162,158,0.10)",
+        color: isSupporting ? "var(--bp-caution)" : "var(--bp-ink-tertiary)",
+        fontFamily: "var(--bp-font-mono)",
+        fontSize: 10,
+        fontWeight: 500,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
+      }}
+    >
+      {isSupporting ? "Supporting" : "Contextual"}
+    </span>
+  );
+}
+
 // ── Copy button ──
 
 function CopyButton({ text }: { text: string }) {
@@ -148,7 +174,7 @@ function CopyButton({ text }: { text: string }) {
         handleCopy();
       }}
       className="rounded p-1 transition-colors hover:bg-white/10"
-      style={{ color: copied ? "#3D7C4F" : "#A8A29E" }}
+      style={{ color: copied ? "var(--bp-operational)" : "var(--bp-ink-muted)" }}
       aria-label="Copy SQL"
     >
       {copied ? <Check size={14} /> : <Copy size={14} />}
@@ -171,7 +197,7 @@ function ClusterBadge({ clusterId }: { clusterId: number | null }) {
       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5"
       style={{
         background: resolved ? "rgba(61,124,79,0.10)" : "rgba(194,122,26,0.10)",
-        color: resolved ? "#3D7C4F" : "#C27A1A",
+        color: resolved ? "var(--bp-operational)" : "var(--bp-caution)",
         fontFamily: "var(--bp-font-mono)",
         fontSize: 11,
       }}
@@ -194,11 +220,10 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
 
   return (
     <div
-      className="rounded-lg overflow-hidden transition-shadow"
+      className="rounded-lg overflow-hidden"
       style={{
         background: "var(--bp-surface-1)",
-        border: "1px solid var(--bp-border)",
-        boxShadow: expanded ? "0 2px 8px rgba(0,0,0,0.06)" : "none",
+        border: expanded ? "1px solid var(--bp-border-strong)" : "1px solid var(--bp-border)",
       }}
     >
       {/* Clickable header */}
@@ -218,7 +243,7 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
           }}
         />
 
-        <div className="flex-1 min-w-0 px-4 py-3">
+        <div className="flex-1 min-w-0 px-3.5 py-2.5">
           {/* Line 1: Name + type badge + source + steward + provenance */}
           <div className="flex items-center gap-2.5 flex-wrap">
             <span
@@ -226,7 +251,7 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
               style={{
                 fontFamily: "var(--bp-font-body)",
                 fontWeight: 500,
-                fontSize: 14,
+                fontSize: 13,
                 color: "var(--bp-ink-primary)",
                 maxWidth: 280,
               }}
@@ -258,16 +283,15 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
               {specimen.steward}
             </span>
 
-            {specimen.provenance_phase && (
-              <ProvenanceThread
-                phase={specimen.provenance_phase as 1 | 2 | 3 | 4 | 5 | 6 | 7}
-                size="sm"
-              />
-            )}
+            {specimen.source_class && specimen.source_class !== "structural" ? (
+              <SourceClassBadge sourceClass={specimen.source_class} />
+            ) : specimen.provenance_phase ? (
+              <ProvenanceThread phase={specimen.provenance_phase as 1|2|3|4|5|6|7} size="sm" showTooltip />
+            ) : null}
           </div>
 
           {/* Line 2: Counts + job state badge */}
-          <div className="flex items-center gap-3 mt-1.5">
+          <div className="flex items-center gap-3 mt-1">
             {(specimen.entity_count != null || specimen.column_count != null) && (
               <span
                 style={{
@@ -315,7 +339,7 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
           {/* Inner tabs — only show if there's content in at least one */}
           {(hasTables || hasQueries) && (
             <div
-              className="flex gap-0.5 px-5 pt-3"
+              className="flex gap-0.5 px-4 pt-2.5"
               style={{ borderBottom: "1px solid var(--bp-border)" }}
             >
               {hasTables && (
@@ -395,11 +419,11 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
                       letterSpacing: "0.04em",
                     }}
                   >
-                    <th className="text-left py-2 px-5 font-medium">Entity Name</th>
-                    <th className="text-left py-2 px-3 font-medium">Source DB</th>
-                    <th className="text-right py-2 px-3 font-medium">Cols</th>
-                    <th className="text-left py-2 px-3 font-medium">Cluster</th>
-                    <th className="text-left py-2 px-5 font-medium">Provenance</th>
+                    <th className="text-left py-1.5 px-5 font-medium">Entity Name</th>
+                    <th className="text-left py-1.5 px-3 font-medium">Source DB</th>
+                    <th className="text-right py-1.5 px-3 font-medium">Cols</th>
+                    <th className="text-left py-1.5 px-3 font-medium">Cluster</th>
+                    <th className="text-left py-1.5 px-5 font-medium">Provenance</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -412,13 +436,13 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
                       }}
                     >
                       <td
-                        className="py-2 px-5"
+                        className="py-1.5 px-5"
                         style={{ fontWeight: 500 }}
                       >
                         {ent.entity_name}
                       </td>
                       <td
-                        className="py-2 px-3"
+                        className="py-1.5 px-3"
                         style={{
                           color: "var(--bp-ink-muted)",
                           fontFamily: "var(--bp-font-mono)",
@@ -428,7 +452,7 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
                         {ent.source_database || "—"}
                       </td>
                       <td
-                        className="py-2 px-3 text-right"
+                        className="py-1.5 px-3 text-right"
                         style={{
                           fontFamily: "var(--bp-font-mono)",
                           fontSize: 12,
@@ -437,11 +461,11 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
                       >
                         {ent.column_count}
                       </td>
-                      <td className="py-2 px-3">
+                      <td className="py-1.5 px-3">
                         <ClusterBadge clusterId={ent.cluster_id} />
                       </td>
                       <td
-                        className="py-2 px-5"
+                        className="py-1.5 px-5"
                         style={{
                           fontFamily: "var(--bp-font-mono)",
                           fontSize: 11,
@@ -459,7 +483,7 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
 
           {/* Queries tab content */}
           {activeTab === "queries" && hasQueries && (
-            <div className="flex flex-col gap-3 p-5">
+            <div className="flex flex-col gap-2.5 p-4">
               {queries!.map((q) => (
                 <div key={q.id}>
                   <div className="flex items-center gap-2 mb-1.5">
@@ -500,7 +524,7 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
                   <div
                     className="rounded-md relative group"
                     style={{
-                      background: "#2B2A27",
+                      background: "var(--bp-code-block)",
                       padding: "12px 16px",
                       maxHeight: 200,
                       overflowY: "auto",
@@ -532,7 +556,7 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
           {!hasTables && !hasQueries && (
             <div
               style={{
-                padding: "32px 20px",
+                padding: "24px 16px",
                 textAlign: "center",
                 fontSize: 13,
                 color: "var(--bp-ink-muted)",

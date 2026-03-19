@@ -8,8 +8,8 @@
 // ============================================================================
 
 import { useState, useEffect, useMemo, useCallback, useRef, type ChangeEvent } from "react";
-import { Upload, Code2, FolderUp, ChevronDown, Search, X } from "lucide-react";
-import { GoldStudioLayout, StatsStrip } from "@/components/gold";
+import { Upload, Code2, FolderUp, ChevronDown, Search, X, FileSpreadsheet, StickyNote } from "lucide-react";
+import { GoldStudioLayout, StatsStrip, GoldLoading, GoldEmpty, GoldNoResults } from "@/components/gold";
 import { SpecimenCard } from "@/components/gold/SpecimenCard";
 
 const API = import.meta.env.VITE_API_URL || "";
@@ -40,6 +40,7 @@ interface Specimen {
   entity_count?: number;
   column_count?: number;
   provenance_phase?: number;
+  source_class?: string;
 }
 
 interface ExtractedEntity {
@@ -72,7 +73,7 @@ interface SpecimenDetail {
 
 // ── Modal types ──
 
-type ModalType = "upload" | "paste" | "bulk" | null;
+type ModalType = "upload" | "paste" | "bulk" | "supporting" | "contextual" | null;
 
 // ── Import Action Button ──
 
@@ -106,7 +107,6 @@ function ImportDropdown({ onSelect }: { onSelect: (type: ModalType) => void }) {
           style={{
             background: "var(--bp-surface-1)",
             border: "1px solid var(--bp-border-strong)",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
             minWidth: 180,
           }}
         >
@@ -114,6 +114,26 @@ function ImportDropdown({ onSelect }: { onSelect: (type: ModalType) => void }) {
             { type: "upload" as const, icon: Upload, label: "Upload File" },
             { type: "paste" as const, icon: Code2, label: "Paste SQL" },
             { type: "bulk" as const, icon: FolderUp, label: "Bulk Import" },
+          ].map((item) => (
+            <button
+              key={item.type}
+              type="button"
+              onClick={() => { setOpen(false); onSelect(item.type); }}
+              className="flex items-center gap-2.5 w-full px-4 py-2 text-left transition-colors hover:bg-black/[0.03]"
+              style={{
+                fontFamily: "var(--bp-font-body)",
+                fontSize: 13,
+                color: "var(--bp-ink-primary)",
+              }}
+            >
+              <item.icon size={15} style={{ color: "var(--bp-ink-muted)" }} />
+              {item.label}
+            </button>
+          ))}
+          <div style={{ height: 1, background: "var(--bp-border)", margin: "4px 0" }} />
+          {[
+            { type: "supporting" as const, icon: FileSpreadsheet, label: "Supporting Evidence" },
+            { type: "contextual" as const, icon: StickyNote, label: "Contextual Note" },
           ].map((item) => (
             <button
               key={item.type}
@@ -147,6 +167,7 @@ function UploadFileModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
   const [tags, setTags] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -159,6 +180,7 @@ function UploadFileModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
   const handleSubmit = async () => {
     if (!file || !division || !steward) return;
     setSubmitting(true);
+    setError("");
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -168,8 +190,15 @@ function UploadFileModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
       formData.append("steward", steward);
       if (description) formData.append("description", description);
       if (tags) formData.append("tags", tags);
-      await fetch(`${API}/api/gold-studio/specimens`, { method: "POST", body: formData });
+      const res = await fetch(`${API}/api/gold-studio/specimens`, { method: "POST", body: formData });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const created = await res.json();
+      if (created?.id) {
+        fetch(`${API}/api/gold-studio/specimens/${created.id}/extract`, { method: "POST" }).catch(() => {});
+      }
       onSubmit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setSubmitting(false);
     }
@@ -201,6 +230,10 @@ function UploadFileModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
         />
       </label>
 
+      <div style={{ fontSize: 11, color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-mono)", marginBottom: 12, letterSpacing: "0.03em" }}>
+        Source class: <strong style={{ color: "var(--bp-ink-secondary)" }}>Structural</strong> — parser-driven extraction
+      </div>
+
       <FormField label="Name" value={name} onChange={setName} placeholder="Auto-filled from filename" />
       <FormField label="Division" value={division} onChange={setDivision} required />
       <FormField label="Source System" value={sourceSystem} onChange={setSourceSystem} />
@@ -208,6 +241,7 @@ function UploadFileModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
       <FormField label="Description" value={description} onChange={setDescription} multiline />
       <FormField label="Tags" value={tags} onChange={setTags} placeholder="Comma-separated" />
 
+      {error && <p style={{ color: "var(--bp-fault-red)", fontSize: 12, marginTop: 8, fontFamily: "var(--bp-font-body)" }}>{error}</p>}
       <div className="flex justify-end gap-2 mt-5">
         <button type="button" onClick={onClose} className="bp-btn-secondary" style={{ fontSize: 13, padding: "6px 14px" }}>
           Cancel
@@ -238,12 +272,14 @@ function PasteSqlModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   const handleSubmit = async () => {
     if (!queryName || !queryText) return;
     setSubmitting(true);
+    setError("");
     try {
-      await fetch(`${API}/api/gold-studio/specimens`, {
+      const res = await fetch(`${API}/api/gold-studio/specimens`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -258,7 +294,15 @@ function PasteSqlModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
           tags: tags || null,
         }),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Auto-trigger extraction so specimen doesn't sit at "queued"
+      const created = await res.json();
+      if (created?.id) {
+        fetch(`${API}/api/gold-studio/specimens/${created.id}/extract`, { method: "POST" }).catch(() => {});
+      }
       onSubmit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
     } finally {
       setSubmitting(false);
     }
@@ -266,6 +310,9 @@ function PasteSqlModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
 
   return (
     <ModalShell title="Paste SQL" onClose={onClose} wide>
+      <div style={{ fontSize: 11, color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-mono)", marginBottom: 12, letterSpacing: "0.03em" }}>
+        Source class: <strong style={{ color: "var(--bp-ink-secondary)" }}>Structural</strong> — SQL will be parsed for entities
+      </div>
       {/* SQL editor area */}
       <div className="mb-4">
         <label
@@ -286,7 +333,7 @@ function PasteSqlModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
           placeholder="SELECT ..."
           className="w-full rounded-md resize-none"
           style={{
-            background: "#2B2A27",
+            background: "var(--bp-code-block)",
             color: "#E7E5E0",
             fontFamily: "var(--bp-font-mono)",
             fontSize: 13,
@@ -309,6 +356,7 @@ function PasteSqlModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
       </div>
       <FormField label="Description" value={description} onChange={setDescription} multiline />
 
+      {error && <p style={{ color: "var(--bp-fault-red)", fontSize: 12, marginTop: 8, fontFamily: "var(--bp-font-body)" }}>{error}</p>}
       <div className="flex justify-end gap-2 mt-5">
         <button type="button" onClick={onClose} className="bp-btn-secondary" style={{ fontSize: 13, padding: "6px 14px" }}>
           Cancel
@@ -334,6 +382,7 @@ function BulkImportModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
   const [division, setDivision] = useState("");
   const [steward, setSteward] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   const handleFiles = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) setFiles(Array.from(e.target.files));
@@ -342,13 +391,17 @@ function BulkImportModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
   const handleSubmit = async () => {
     if (files.length === 0 || !division || !steward) return;
     setSubmitting(true);
+    setError("");
     try {
       const formData = new FormData();
       files.forEach((f) => formData.append("files", f));
       formData.append("division", division);
       formData.append("steward", steward);
-      await fetch(`${API}/api/gold-studio/specimens/bulk`, { method: "POST", body: formData });
+      const res = await fetch(`${API}/api/gold-studio/specimens/bulk`, { method: "POST", body: formData });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       onSubmit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
     } finally {
       setSubmitting(false);
     }
@@ -356,6 +409,9 @@ function BulkImportModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
 
   return (
     <ModalShell title="Bulk Import" onClose={onClose}>
+      <div style={{ fontSize: 11, color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-mono)", marginBottom: 12, letterSpacing: "0.03em" }}>
+        Source class: <strong style={{ color: "var(--bp-ink-secondary)" }}>Structural</strong> — parser-driven extraction
+      </div>
       <label
         className="flex flex-col items-center justify-center rounded-lg cursor-pointer transition-colors hover:bg-black/[0.02]"
         style={{
@@ -417,6 +473,7 @@ function BulkImportModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
       <FormField label="Shared Division" value={division} onChange={setDivision} required />
       <FormField label="Shared Steward" value={steward} onChange={setSteward} required />
 
+      {error && <p style={{ color: "var(--bp-fault-red)", fontSize: 12, marginTop: 8, fontFamily: "var(--bp-font-body)" }}>{error}</p>}
       <div className="flex justify-end gap-2 mt-5">
         <button type="button" onClick={onClose} className="bp-btn-secondary" style={{ fontSize: 13, padding: "6px 14px" }}>
           Cancel
@@ -507,7 +564,7 @@ function ModalShell({
       />
       {/* Panel */}
       <div
-        className="fixed z-50 rounded-xl overflow-hidden"
+        className="fixed z-50 rounded-lg overflow-hidden"
         style={{
           top: "50%",
           left: "50%",
@@ -518,18 +575,17 @@ function ModalShell({
           overflowY: "auto",
           background: "var(--bp-surface-1)",
           border: "1px solid var(--bp-border)",
-          boxShadow: "0 16px 48px rgba(0,0,0,0.14)",
         }}
       >
         {/* Header */}
         <div
-          className="flex items-center justify-between px-6 py-4"
+          className="flex items-center justify-between px-5 py-3"
           style={{ borderBottom: "1px solid var(--bp-border)" }}
         >
           <h3
             style={{
               fontFamily: "var(--bp-font-display)",
-              fontSize: 18,
+              fontSize: 16,
               color: "var(--bp-ink-primary)",
             }}
           >
@@ -544,7 +600,7 @@ function ModalShell({
             <X size={16} />
           </button>
         </div>
-        <div className="px-6 py-5">{children}</div>
+        <div className="px-5 py-4">{children}</div>
       </div>
     </>
   );
@@ -580,7 +636,7 @@ function FilterBar({
     fontSize: 13,
     padding: "6px 10px",
     borderRadius: 6,
-    border: "1px solid var(--bp-border-strong)",
+    border: "1px solid var(--bp-border)",
     background: "var(--bp-surface-1)",
     color: "var(--bp-ink-primary)",
     outline: "none",
@@ -593,7 +649,7 @@ function FilterBar({
       <div
         className="flex items-center gap-2 rounded-md"
         style={{
-          border: "1px solid var(--bp-border-strong)",
+          border: "1px solid var(--bp-border)",
           background: "var(--bp-surface-1)",
           padding: "5px 10px",
           flex: "1 1 200px",
@@ -643,7 +699,7 @@ function FilterBar({
       {/* Job State */}
       <select value={jobState} onChange={(e) => onJobState(e.target.value)} style={selectStyle}>
         <option value="">All States</option>
-        {["queued", "extracting", "schema_discovery", "extracted", "parse_warning", "parse_failed", "needs_connection", "schema_pending"].map((s) => (
+        {["queued", "extracting", "schema_discovery", "extracted", "accepted", "parse_warning", "parse_failed", "needs_connection", "schema_pending"].map((s) => (
           <option key={s} value={s}>{s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</option>
         ))}
       </select>
@@ -655,18 +711,7 @@ function FilterBar({
 
 function EntityTable({ entities }: { entities: ExtractedEntity[] }) {
   if (entities.length === 0) {
-    return (
-      <div
-        style={{
-          padding: "48px 20px",
-          textAlign: "center",
-          fontSize: 14,
-          color: "var(--bp-ink-muted)",
-        }}
-      >
-        No extracted entities yet. Import specimens to get started.
-      </div>
-    );
+    return <GoldEmpty noun="extracted entities" />;
   }
 
   return (
@@ -775,64 +820,142 @@ function EntityTable({ entities }: { entities: ExtractedEntity[] }) {
   );
 }
 
-// ── Skeleton ──
+// ── Supporting Evidence Modal ──
 
-function SpecimenSkeleton() {
+function SupportingEvidenceModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: () => void }) {
+  const [name, setName] = useState("");
+  const [division, setDivision] = useState("");
+  const [steward, setSteward] = useState("");
+  const [description, setDescription] = useState("");
+  const [relatedReport, setRelatedReport] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) { setFile(f); if (!name) setName(f.name.replace(/\.[^.]+$/, "")); }
+  };
+
+  const handleSubmit = async () => {
+    if (!file || !division || !steward) return;
+    setSubmitting(true); setError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("name", name || file.name.replace(/\.[^.]+$/, ""));
+      formData.append("division", division);
+      formData.append("steward", steward);
+      formData.append("source_class", "supporting");
+      if (description) formData.append("description", description);
+      if (relatedReport) formData.append("related_report", relatedReport);
+      const res = await fetch(`${API}/api/gold-studio/specimens`, { method: "POST", body: formData });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      onSubmit();
+    } catch (err) { setError(err instanceof Error ? err.message : "Upload failed"); }
+    finally { setSubmitting(false); }
+  };
+
   return (
-    <div className="flex flex-col gap-3">
-      {[0, 1, 2, 3, 4].map((i) => (
-        <div
-          key={i}
-          className="rounded-lg"
-          style={{
-            background: "var(--bp-surface-1)",
-            border: "1px solid var(--bp-border)",
-            padding: "14px 16px",
-          }}
-        >
-          <div className="flex items-center gap-3 mb-2">
-            <div
-              className="rounded"
-              style={{
-                width: 160,
-                height: 14,
-                background: "var(--bp-surface-inset)",
-                animation: "bp-skeleton-shimmer 2s ease-in-out infinite",
-              }}
-            />
-            <div
-              className="rounded"
-              style={{
-                width: 40,
-                height: 14,
-                background: "var(--bp-surface-inset)",
-                animation: "bp-skeleton-shimmer 2s ease-in-out infinite",
-              }}
-            />
-          </div>
-          <div className="flex items-center gap-3">
-            <div
-              className="rounded"
-              style={{
-                width: 80,
-                height: 12,
-                background: "var(--bp-surface-inset)",
-                animation: "bp-skeleton-shimmer 2s ease-in-out infinite",
-              }}
-            />
-            <div
-              className="rounded-full"
-              style={{
-                width: 60,
-                height: 18,
-                background: "var(--bp-surface-inset)",
-                animation: "bp-skeleton-shimmer 2s ease-in-out infinite",
-              }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
+    <ModalShell title="Supporting Evidence" onClose={onClose}>
+      <div style={{ fontSize: 11, color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-mono)", marginBottom: 12, letterSpacing: "0.03em" }}>
+        Source class: <strong style={{ color: "var(--bp-caution)" }}>Supporting</strong> — reference material, not parsed
+      </div>
+      <label className="flex flex-col items-center justify-center rounded-lg cursor-pointer transition-colors hover:bg-black/[0.02]"
+        style={{ border: "2px dashed var(--bp-border-strong)", padding: "24px 20px", marginBottom: 16 }}>
+        <FileSpreadsheet size={24} style={{ color: "var(--bp-ink-muted)", marginBottom: 8 }} />
+        <span style={{ fontSize: 13, color: "var(--bp-ink-secondary)", marginBottom: 2 }}>
+          {file ? file.name : "Drop Excel, CSV, or mapping file"}
+        </span>
+        <span style={{ fontSize: 11, color: "var(--bp-ink-muted)" }}>Accepted: .xlsx, .csv, .xls</span>
+        <input type="file" accept=".xlsx,.csv,.xls" onChange={handleFile} className="hidden" />
+      </label>
+      <FormField label="Name" value={name} onChange={setName} placeholder="Auto-filled from filename" />
+      <FormField label="Division" value={division} onChange={setDivision} required />
+      <FormField label="Steward" value={steward} onChange={setSteward} required />
+      <FormField label="Description" value={description} onChange={setDescription} multiline />
+      <FormField label="Related Report" value={relatedReport} onChange={setRelatedReport} placeholder="Which report does this support?" />
+      {error && <p style={{ color: "var(--bp-fault-red)", fontSize: 12, marginTop: 8, fontFamily: "var(--bp-font-body)" }}>{error}</p>}
+      <div className="flex justify-end gap-2 mt-5">
+        <button type="button" onClick={onClose} className="bp-btn-secondary" style={{ fontSize: 13, padding: "6px 14px" }}>Cancel</button>
+        <button type="button" onClick={handleSubmit} disabled={!file || !division || !steward || submitting} className="bp-btn-primary"
+          style={{ fontSize: 13, padding: "6px 14px", opacity: (!file || !division || !steward || submitting) ? 0.5 : 1 }}>
+          {submitting ? "Uploading..." : "Add Evidence"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ── Contextual Note Modal ──
+
+function ContextualNoteModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: () => void }) {
+  const [name, setName] = useState("");
+  const [division, setDivision] = useState("");
+  const [steward, setSteward] = useState("");
+  const [noteText, setNoteText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) { setFile(f); if (!name) setName(f.name.replace(/\.[^.]+$/, "")); }
+  };
+
+  const handleSubmit = async () => {
+    if ((!file && !noteText) || !division || !steward) return;
+    setSubmitting(true); setError("");
+    try {
+      const formData = new FormData();
+      if (file) formData.append("file", file);
+      formData.append("name", name || (file ? file.name.replace(/\.[^.]+$/, "") : "Contextual Note"));
+      formData.append("type", file ? "screenshot" : "note");
+      formData.append("division", division);
+      formData.append("steward", steward);
+      formData.append("source_class", "contextual");
+      if (noteText) formData.append("description", noteText);
+      const res = await fetch(`${API}/api/gold-studio/specimens`, { method: "POST", body: formData });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      onSubmit();
+    } catch (err) { setError(err instanceof Error ? err.message : "Upload failed"); }
+    finally { setSubmitting(false); }
+  };
+
+  return (
+    <ModalShell title="Contextual Note" onClose={onClose}>
+      <div style={{ fontSize: 11, color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-mono)", marginBottom: 12, letterSpacing: "0.03em" }}>
+        Source class: <strong style={{ color: "var(--bp-ink-muted)" }}>Contextual</strong> — interpretive evidence only
+      </div>
+      <label className="flex flex-col items-center justify-center rounded-lg cursor-pointer transition-colors hover:bg-black/[0.02]"
+        style={{ border: "2px dashed var(--bp-border-strong)", padding: "24px 20px", marginBottom: 16 }}>
+        <StickyNote size={24} style={{ color: "var(--bp-ink-muted)", marginBottom: 8 }} />
+        <span style={{ fontSize: 13, color: "var(--bp-ink-secondary)", marginBottom: 2 }}>
+          {file ? file.name : "Drop screenshot or image (optional)"}
+        </span>
+        <span style={{ fontSize: 11, color: "var(--bp-ink-muted)" }}>Accepted: .png, .jpg, .pdf, .gif</span>
+        <input type="file" accept=".png,.jpg,.jpeg,.gif,.pdf" onChange={handleFile} className="hidden" />
+      </label>
+      <div className="mb-3">
+        <label style={{ display: "block", fontFamily: "var(--bp-font-body)", fontSize: 12, fontWeight: 500, color: "var(--bp-ink-secondary)", marginBottom: 4 }}>
+          Note / Context *
+        </label>
+        <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
+          placeholder="Describe what this evidence shows, what report it relates to, and any caveats..."
+          className="w-full rounded-md" style={{ fontFamily: "var(--bp-font-body)", fontSize: 13, padding: "8px 10px", minHeight: 100, resize: "vertical", border: "1px solid var(--bp-border)", background: "var(--bp-surface-inset)" }} />
+      </div>
+      <FormField label="Name" value={name} onChange={setName} placeholder="Brief title for this evidence" />
+      <FormField label="Division" value={division} onChange={setDivision} required />
+      <FormField label="Steward" value={steward} onChange={setSteward} required />
+      {error && <p style={{ color: "var(--bp-fault-red)", fontSize: 12, marginTop: 8, fontFamily: "var(--bp-font-body)" }}>{error}</p>}
+      <div className="flex justify-end gap-2 mt-5">
+        <button type="button" onClick={onClose} className="bp-btn-secondary" style={{ fontSize: 13, padding: "6px 14px" }}>Cancel</button>
+        <button type="button" onClick={handleSubmit} disabled={(!file && !noteText) || !division || !steward || submitting} className="bp-btn-primary"
+          style={{ fontSize: 13, padding: "6px 14px", opacity: ((!file && !noteText) || !division || !steward || submitting) ? 0.5 : 1 }}>
+          {submitting ? "Saving..." : "Add Note"}
+        </button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -1017,13 +1140,13 @@ export default function GoldLedger() {
       <StatsStrip items={statsItems} />
 
       {/* Content area */}
-      <div style={{ padding: "20px 24px 40px" }}>
+      <div style={{ paddingBottom: 40 }}>
         {/* View toggle + filter bar */}
         <div className="flex items-center justify-between gap-4 mb-5 flex-wrap">
           {/* View toggle */}
           <div
             className="inline-flex rounded-md overflow-hidden"
-            style={{ border: "1px solid var(--bp-border-strong)" }}
+            style={{ border: "1px solid var(--bp-border)" }}
           >
             {(["specimen", "entity"] as const).map((v) => (
               <button
@@ -1037,7 +1160,7 @@ export default function GoldLedger() {
                   fontWeight: 500,
                   background: view === v ? "var(--bp-copper)" : "var(--bp-surface-1)",
                   color: view === v ? "#fff" : "var(--bp-ink-secondary)",
-                  borderRight: v === "specimen" ? "1px solid var(--bp-border-strong)" : "none",
+                  borderRight: v === "specimen" ? "1px solid var(--bp-border)" : "none",
                 }}
               >
                 {v === "specimen" ? "By Specimen" : "By Extracted Entity"}
@@ -1062,44 +1185,12 @@ export default function GoldLedger() {
 
         {/* Main content */}
         {loading ? (
-          <SpecimenSkeleton />
+          <GoldLoading rows={5} label="Loading specimens" />
         ) : view === "specimen" ? (
           filtered.length === 0 ? (
-            <div
-              className="rounded-lg"
-              style={{
-                background: "var(--bp-surface-1)",
-                border: "1px solid var(--bp-border)",
-                padding: "64px 20px",
-                textAlign: "center",
-              }}
-            >
-              <div
-                style={{
-                  fontFamily: "var(--bp-font-display)",
-                  fontSize: 20,
-                  color: "var(--bp-ink-primary)",
-                  marginBottom: 8,
-                }}
-              >
-                {specimens.length === 0 ? "No specimens yet" : "No matching specimens"}
-              </div>
-              <p style={{ fontSize: 14, color: "var(--bp-ink-muted)", maxWidth: 400, margin: "0 auto" }}>
-                {specimens.length === 0
-                  ? "Import report definitions, BI models, or SQL queries to start building your Gold layer."
-                  : "Try adjusting your filters or search terms."}
-              </p>
-              {specimens.length === 0 && (
-                <button
-                  type="button"
-                  onClick={() => setModal("upload")}
-                  className="bp-btn-primary mt-5"
-                  style={{ fontSize: 13, padding: "8px 20px" }}
-                >
-                  Import Your First Specimen
-                </button>
-              )}
-            </div>
+            specimens.length === 0
+              ? <GoldEmpty noun="specimens" action={{ label: "Import Your First Specimen", onClick: () => setModal("upload") }} />
+              : <GoldNoResults query={search || undefined} />
           ) : (
             <div className="flex flex-col gap-2.5">
               {filtered.map((sp) => {
@@ -1139,6 +1230,8 @@ export default function GoldLedger() {
       {modal === "upload" && <UploadFileModal onClose={() => setModal(null)} onSubmit={handleImportDone} />}
       {modal === "paste" && <PasteSqlModal onClose={() => setModal(null)} onSubmit={handleImportDone} />}
       {modal === "bulk" && <BulkImportModal onClose={() => setModal(null)} onSubmit={handleImportDone} />}
+      {modal === "supporting" && <SupportingEvidenceModal onClose={() => setModal(null)} onSubmit={handleImportDone} />}
+      {modal === "contextual" && <ContextualNoteModal onClose={() => setModal(null)} onSubmit={handleImportDone} />}
     </GoldStudioLayout>
   );
 }
