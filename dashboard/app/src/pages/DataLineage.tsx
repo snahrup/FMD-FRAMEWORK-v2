@@ -46,7 +46,7 @@ function ColumnLineageRow({ col, layers }: { col: string; layers: MedallionLayer
               )}
               style={present ? { color: layerDef?.color, backgroundColor: `${layerDef?.color}15`, border: `1px solid ${layerDef?.color}40` } : { backgroundColor: "var(--bp-surface-inset)", color: "var(--bp-ink-muted)", opacity: 0.3, border: "1px solid transparent" }}
             >
-              {present ? (isSystem && isOrigin ? "NEW" : "\u2713") : "—"}
+              {present ? (isSystem && isOrigin ? "NEW" : "\u2713") : "\u2014"}
             </div>
           </div>
         );
@@ -200,7 +200,7 @@ function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClos
               ))}
             </div>
             <div className="text-[11px]" style={{ color: "var(--bp-ink-secondary)" }}>
-                Rows: {"—"}
+                Rows: \u2014
               </div>
           </div>
         ) : (
@@ -280,37 +280,37 @@ export default function DataLineage() {
           <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }} className="flex items-center gap-2">
             <GitBranch className="h-7 w-7" style={{ color: "var(--bp-copper)" }} /> Data Lineage
           </h1>
-          <p className="text-sm mt-1.5" style={{ color: "var(--bp-ink-secondary)" }}>
-            Trace entity data flow across the medallion architecture — Source {"→"} Landing Zone {"→"} Bronze {"→"} Silver {"→"} Gold
+          <p className="text-sm mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
+            Trace entity data flow across the medallion architecture — Source &rarr; Landing Zone &rarr; Bronze &rarr; Silver &rarr; Gold
           </p>
         </div>
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-3 grid-cols-5">
+      <KpiRow>
         <KpiCard label="Total Entities" value={formatRowCount(totalEntities)} icon={Database} iconColor="text-[var(--bp-ink-muted)]" />
         <KpiCard label="Landing Zone" value={formatRowCount(withLz)} icon={HardDrive} iconColor="text-[var(--bp-ink-muted)]" subtitle={`${totalEntities ? ((withLz / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
         <KpiCard label="Bronze" value={formatRowCount(withBronze)} icon={Table2} iconColor="text-[#9A4A1F]" subtitle={`${totalEntities ? ((withBronze / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
         <KpiCard label="Silver" value={formatRowCount(withSilver)} icon={Sparkles} iconColor="text-[#475569]" subtitle={`${totalEntities ? ((withSilver / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
-        <KpiCard label="Full Chain" value={formatRowCount(fullChain)} icon={Crown} iconColor="text-[var(--bp-operational)]" subtitle={"Source \u2192 Silver complete"} />
-      </div>
+        <KpiCard label="Full Chain" value={formatRowCount(fullChain)} icon={Crown} iconColor="text-[var(--bp-operational)]" subtitle="Source \u2192 Silver complete" />
+      </KpiRow>
 
       {/* Filters */}
-      <div className="flex gap-4 items-center">
+      <div className="flex gap-3 items-center">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />
           <Input
             placeholder="Search entities..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-9 text-sm"
+            className="pl-9 h-8 text-sm"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
           <Button
             variant={sourceFilter === "all" ? "default" : "outline"}
             size="sm"
-            className="text-xs h-8 px-3"
+            className="text-xs h-7"
             onClick={() => setSourceFilter("all")}
           >
             All Sources
@@ -320,7 +320,7 @@ export default function DataLineage() {
               key={s}
               variant={sourceFilter === s ? "default" : "outline"}
               size="sm"
-              className="text-xs h-8 px-3"
+              className="text-xs h-7"
               onClick={() => setSourceFilter(s)}
               style={sourceFilter === s ? { backgroundColor: getSourceColor(resolveSourceLabel(s)) } : undefined}
             >
@@ -330,66 +330,56 @@ export default function DataLineage() {
         </div>
       </div>
 
-      {/* Result count */}
-      {!digestLoading && (
-        <div className="text-[12px] -mt-2" style={{ color: "var(--bp-ink-muted)" }}>
-          Showing {filtered.length.toLocaleString()} of {totalEntities.toLocaleString()} entities
-        </div>
-      )}
-
       {/* Main content */}
       <div className={cn("grid gap-4", selectedEntity ? "grid-cols-[1fr_420px]" : "grid-cols-1")}>
         {/* Entity list */}
         <Card style={{ backgroundColor: "var(--bp-surface-1)" }}>
           <CardContent className="p-0">
             <div className="max-h-[calc(100vh-340px)] overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-10" style={{ backgroundColor: "var(--bp-surface-1)", borderBottom: "2px solid var(--bp-border)" }}>
-                  <tr className="text-[11px] uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>
-                    <th className="text-left py-3 px-4 font-semibold">Entity</th>
-                    <th className="text-left py-3 px-4 font-semibold">Source</th>
-                    <th className="text-center py-3 px-3 font-semibold">LZ</th>
-                    <th className="text-center py-3 px-3 font-semibold">Bronze</th>
-                    <th className="text-center py-3 px-3 font-semibold">Silver</th>
-                    <th className="text-center py-3 px-3 font-semibold">Gold</th>
-                    <th className="text-right py-3 px-4 font-semibold">Rows</th>
+              <table className="w-full text-sm" style={{ fontFamily: "var(--bp-font-mono)" }}>
+                <thead className="sticky top-0 z-10" style={{ backgroundColor: "var(--bp-surface-1)", borderBottom: "1px solid var(--bp-border)" }}>
+                  <tr className="text-[10px] uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>
+                    <th className="text-left py-2 px-3 font-medium">Entity</th>
+                    <th className="text-left py-2 px-3 font-medium">Source</th>
+                    <th className="text-center py-2 px-2 font-medium">LZ</th>
+                    <th className="text-center py-2 px-2 font-medium">Bronze</th>
+                    <th className="text-center py-2 px-2 font-medium">Silver</th>
+                    <th className="text-center py-2 px-2 font-medium">Gold</th>
+                    <th className="text-right py-2 px-3 font-medium">Rows</th>
                   </tr>
                 </thead>
                 <tbody>
                   {digestLoading ? (
-                    <tr><td colSpan={7} className="text-center py-12 text-sm" style={{ color: "var(--bp-ink-secondary)" }}>Loading entities...</td></tr>
+                    <tr><td colSpan={7} className="text-center py-8" style={{ color: "var(--bp-ink-secondary)" }}>Loading entities...</td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={7} className="text-center py-12 text-sm" style={{ color: "var(--bp-ink-secondary)" }}>No entities found</td></tr>
+                    <tr><td colSpan={7} className="text-center py-8" style={{ color: "var(--bp-ink-secondary)" }}>No entities found</td></tr>
                   ) : (
-                    filtered.map((e, i) => {
+                    filtered.map((e) => {
                       const isSelected = selectedEntity?.id === e.id;
                       return (
                         <tr
                           key={e.id}
-                          className="cursor-pointer transition-colors hover:bg-[var(--bp-surface-inset)]"
+                          className="cursor-pointer transition-colors"
                           style={{
-                            borderBottom: "1px solid var(--bp-border)",
-                            ...(isSelected ? { backgroundColor: "var(--bp-surface-inset)", boxShadow: "inset 3px 0 0 var(--bp-copper)" } : {}),
-                            ...(i % 2 === 0 && !isSelected ? { backgroundColor: "rgba(0,0,0,0.015)" } : {}),
+                            borderBottom: "1px solid rgba(0,0,0,0.04)",
+                            ...(isSelected ? { backgroundColor: "var(--bp-surface-inset)", borderLeft: "2px solid var(--bp-copper)" } : {}),
                           }}
                           onClick={() => setSelectedEntity(isSelected ? null : e)}
                         >
-                          <td className="py-2.5 px-4">
-                            <div className="text-[13px] font-medium" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)" }}>{e.tableName}</div>
-                            <div className="text-[11px] mt-0.5" style={{ color: "var(--bp-ink-muted)" }}>{e.sourceSchema}</div>
+                          <td className="py-1.5 px-3">
+                            <div className="text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)" }}>{e.tableName}</div>
+                            <div className="text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>{e.sourceSchema}</div>
                           </td>
-                          <td className="py-2.5 px-4">
-                            <span className="text-[11px] px-2 py-1 rounded-md font-semibold" style={{ color: getSourceColor(resolveSourceLabel(e.source)), backgroundColor: `${getSourceColor(resolveSourceLabel(e.source))}18` }}>
+                          <td className="py-1.5 px-3">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: getSourceColor(resolveSourceLabel(e.source)), backgroundColor: `${getSourceColor(resolveSourceLabel(e.source))}15` }}>
                               {resolveSourceLabel(e.source)}
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 text-center"><StatusBadge status={e.lzStatus || "none"} size="md" showIcon /></td>
-                          <td className="py-2.5 px-3 text-center"><StatusBadge status={e.bronzeStatus || "none"} size="md" showIcon /></td>
-                          <td className="py-2.5 px-3 text-center"><StatusBadge status={e.silverStatus || "none"} size="md" showIcon /></td>
-                          <td className="py-2.5 px-3 text-center">
-                            <span className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>{"—"}</span>
-                          </td>
-                          <td className="py-2.5 px-4 text-right text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-muted)" }}>{"—"}</td>
+                          <td className="py-1.5 px-2 text-center"><StatusBadge status={e.lzStatus || "none"} size="sm" showIcon={false} /></td>
+                          <td className="py-1.5 px-2 text-center"><StatusBadge status={e.bronzeStatus || "none"} size="sm" showIcon={false} /></td>
+                          <td className="py-1.5 px-2 text-center"><StatusBadge status={e.silverStatus || "none"} size="sm" showIcon={false} /></td>
+                          <td className="py-1.5 px-2 text-center"><StatusBadge status="none" size="sm" showIcon={false} label="\u2014" /></td>
+                          <td className="py-1.5 px-3 text-right text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-muted)" }}>\u2014</td>
                         </tr>
                       );
                     })
