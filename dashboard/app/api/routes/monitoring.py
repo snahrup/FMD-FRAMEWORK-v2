@@ -418,15 +418,15 @@ def get_error_intelligence(params: dict) -> dict:
             "errorType": cat,
         })
 
-    # Entity status errors (entities stuck in failed state)
+    # Entity task errors (entities stuck in failed state — from engine_task_log)
     es_errors = _safe_query(
-        "SELECT es.LandingzoneEntityId, es.Layer, es.Status, es.ErrorMessage, "
-        "es.updated_at, le.SourceName, le.SourceSchema "
-        "FROM entity_status es "
-        "LEFT JOIN lz_entities le ON es.LandingzoneEntityId = le.LandingzoneEntityId "
-        "WHERE LOWER(es.Status) = 'failed' AND es.ErrorMessage IS NOT NULL "
-        "AND es.ErrorMessage != '' "
-        "ORDER BY es.updated_at DESC LIMIT 200"
+        "SELECT etl.EntityId, etl.Layer, etl.Status, etl.ErrorMessage, "
+        "etl.created_at, le.SourceName, le.SourceSchema "
+        "FROM engine_task_log etl "
+        "LEFT JOIN lz_entities le ON etl.EntityId = le.LandingzoneEntityId "
+        "WHERE etl.Status = 'failed' AND etl.ErrorMessage IS NOT NULL "
+        "AND etl.ErrorMessage != '' "
+        "ORDER BY etl.created_at DESC LIMIT 200"
     )
     for row in es_errors:
         raw = row.get("ErrorMessage") or ""
@@ -435,11 +435,11 @@ def get_error_intelligence(params: dict) -> dict:
         if row.get("SourceSchema"):
             entity_name = row["SourceSchema"] + "." + entity_name
         errors.append({
-            "id": f"es-{row.get('LandingzoneEntityId', '')}-{row.get('Layer', '')}",
-            "source": "entity_status",
-            "pipelineName": f"Entity Status ({row.get('Layer', '')})",
+            "id": f"etl-{row.get('EntityId', '')}-{row.get('Layer', '')}",
+            "source": "engine_task_log",
+            "pipelineName": f"Entity Task ({row.get('Layer', '')})",
             "workspaceName": "",
-            "startTime": row.get("updated_at") or "",
+            "startTime": row.get("created_at") or "",
             "endTime": "",
             "rawError": raw,
             "category": cat,
@@ -573,21 +573,28 @@ def get_load_progress(params: dict) -> dict:
     """Entity load progress across all layers."""
     # Per-source progress
     sources = _safe_query(
+        "WITH latest_task AS ("
+        "  SELECT EntityId, Layer, Status, "
+        "  ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn "
+        "  FROM engine_task_log"
+        "), latest AS ("
+        "  SELECT EntityId, Layer, Status FROM latest_task WHERE rn = 1"
+        ") "
         "SELECT ds.DataSourceId, ds.Name AS dataSourceName, "
         "COUNT(DISTINCT le.LandingzoneEntityId) AS totalEntities, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_lz.Status,'')) IN ('loaded','succeeded') "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_lz.Status,'')) = 'succeeded' "
         "  THEN le.LandingzoneEntityId END) AS lzLoaded, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_br.Status,'')) IN ('loaded','succeeded') "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_br.Status,'')) = 'succeeded' "
         "  THEN le.LandingzoneEntityId END) AS brzLoaded, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_sv.Status,'')) IN ('loaded','succeeded') "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_sv.Status,'')) = 'succeeded' "
         "  THEN le.LandingzoneEntityId END) AS slvLoaded "
         "FROM lz_entities le "
         "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
-        "LEFT JOIN entity_status es_lz ON le.LandingzoneEntityId = es_lz.LandingzoneEntityId "
+        "LEFT JOIN latest es_lz ON le.LandingzoneEntityId = es_lz.EntityId "
         "  AND LOWER(es_lz.Layer) IN ('landing','landingzone') "
-        "LEFT JOIN entity_status es_br ON le.LandingzoneEntityId = es_br.LandingzoneEntityId "
+        "LEFT JOIN latest es_br ON le.LandingzoneEntityId = es_br.EntityId "
         "  AND LOWER(es_br.Layer) = 'bronze' "
-        "LEFT JOIN entity_status es_sv ON le.LandingzoneEntityId = es_sv.LandingzoneEntityId "
+        "LEFT JOIN latest es_sv ON le.LandingzoneEntityId = es_sv.EntityId "
         "  AND LOWER(es_sv.Layer) = 'silver' "
         "WHERE le.IsActive = 1 "
         "GROUP BY ds.DataSourceId, ds.Name "
@@ -603,8 +610,8 @@ def get_load_progress(params: dict) -> dict:
 
     # Overall counts
     status_rows = _safe_query(
-        "SELECT LOWER(Layer) AS layer, COUNT(*) AS cnt FROM entity_status "
-        "WHERE LOWER(Status) IN ('succeeded', 'loaded') GROUP BY LOWER(Layer)"
+        "SELECT LOWER(Layer) AS layer, COUNT(DISTINCT EntityId) AS cnt FROM engine_task_log "
+        "WHERE Status = 'succeeded' GROUP BY LOWER(Layer)"
     )
     status_map = {r["layer"]: r["cnt"] for r in status_rows} if status_rows else {}
 
@@ -644,10 +651,10 @@ def get_executive_dashboard(params: dict) -> dict:
     brz_count = brz_total[0]["cnt"] if brz_total else 0
     slv_count = slv_total[0]["cnt"] if slv_total else 0
 
-    # --- Loaded counts from entity_status ---
+    # --- Loaded counts from engine_task_log ---
     status_rows = _safe_query(
-        "SELECT LOWER(Layer) AS layer, COUNT(*) AS cnt FROM entity_status "
-        "WHERE LOWER(Status) IN ('succeeded', 'loaded') GROUP BY LOWER(Layer)"
+        "SELECT LOWER(Layer) AS layer, COUNT(DISTINCT EntityId) AS cnt FROM engine_task_log "
+        "WHERE Status = 'succeeded' GROUP BY LOWER(Layer)"
     )
     sm = {r["layer"]: r["cnt"] for r in status_rows} if status_rows else {}
     lz_loaded = sm.get("landing", 0) + sm.get("landingzone", 0)
@@ -671,22 +678,29 @@ def get_executive_dashboard(params: dict) -> dict:
 
     # --- Per-source breakdown ---
     source_rows = _safe_query(
+        "WITH latest_task AS ("
+        "  SELECT EntityId, Layer, Status, "
+        "  ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn "
+        "  FROM engine_task_log"
+        "), latest AS ("
+        "  SELECT EntityId, Layer, Status FROM latest_task WHERE rn = 1"
+        ") "
         "SELECT ds.Name AS name, ds.Namespace AS namespace, "
         "COUNT(DISTINCT le.LandingzoneEntityId) AS entityCount, "
         "COUNT(DISTINCT CASE WHEN le.IsActive=1 THEN le.LandingzoneEntityId END) AS activeLz, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_lz.Status,'')) IN ('loaded','succeeded') "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_lz.Status,'')) = 'succeeded' "
         "  THEN le.LandingzoneEntityId END) AS lzLoaded, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_br.Status,'')) IN ('loaded','succeeded') "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_br.Status,'')) = 'succeeded' "
         "  THEN le.LandingzoneEntityId END) AS brzLoaded, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_sv.Status,'')) IN ('loaded','succeeded') "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_sv.Status,'')) = 'succeeded' "
         "  THEN le.LandingzoneEntityId END) AS slvLoaded "
         "FROM datasources ds "
         "LEFT JOIN lz_entities le ON le.DataSourceId = ds.DataSourceId AND le.IsActive=1 "
-        "LEFT JOIN entity_status es_lz ON le.LandingzoneEntityId = es_lz.LandingzoneEntityId "
+        "LEFT JOIN latest es_lz ON le.LandingzoneEntityId = es_lz.EntityId "
         "  AND LOWER(es_lz.Layer) IN ('landing','landingzone') "
-        "LEFT JOIN entity_status es_br ON le.LandingzoneEntityId = es_br.LandingzoneEntityId "
+        "LEFT JOIN latest es_br ON le.LandingzoneEntityId = es_br.EntityId "
         "  AND LOWER(es_br.Layer) = 'bronze' "
-        "LEFT JOIN entity_status es_sv ON le.LandingzoneEntityId = es_sv.LandingzoneEntityId "
+        "LEFT JOIN latest es_sv ON le.LandingzoneEntityId = es_sv.EntityId "
         "  AND LOWER(es_sv.Layer) = 'silver' "
         "WHERE ds.IsActive=1 "
         "GROUP BY ds.DataSourceId, ds.Name, ds.Namespace "
