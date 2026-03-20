@@ -35,7 +35,7 @@ export interface StatusPieChartProps {
   className?: string;
 }
 
-const DEFAULT_COLORS = ["#10b981", "#ef4444", "#71717a"];
+const DEFAULT_COLORS = ["#3D7C4F", "#B93A2A", "#A8A29E"];
 
 export function StatusPieChart({
   data,
@@ -82,13 +82,13 @@ export function StatusPieChart({
           {showTooltip && (
             <Tooltip
               contentStyle={{
-                backgroundColor: "#1a1a2e",
-                border: "1px solid #333",
+                backgroundColor: "#FEFDFB",
+                border: "1px solid rgba(0,0,0,0.08)",
                 borderRadius: "8px",
                 fontSize: "12px",
               }}
-              labelStyle={{ color: "#eaeaea", fontWeight: 600 }}
-              itemStyle={{ color: "#a0a0a0" }}
+              labelStyle={{ color: "#1C1917", fontWeight: 600 }}
+              itemStyle={{ color: "#57534E" }}
             />
           )}
         </RechartsPieChart>

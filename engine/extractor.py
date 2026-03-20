@@ -25,7 +25,11 @@ from engine.models import EngineConfig, Entity, RunResult, LogEnvelope
 log = logging.getLogger("fmd.extractor")
 
 # Column types that cannot be compared as varchar — exclude from watermark reads
-_BINARY_TYPE_NAMES = frozenset({"timestamp", "rowversion", "binary", "varbinary", "image"})
+# FIXED: CRITICAL BUG #8 — Extended list to include geometry, geography, xml, hierarchyid, sql_variant
+_BINARY_TYPE_NAMES = frozenset({
+    "timestamp", "rowversion", "binary", "varbinary", "image",
+    "geometry", "geography", "xml", "hierarchyid", "sql_variant"
+})
 
 
 class DataExtractor:
@@ -74,7 +78,7 @@ class DataExtractor:
                 error_suggestion="Check integration.LandingzoneEntity.SourceName — it's blank or whitespace-only.",
             )
 
-        query = entity.build_source_query()
+        query, params = entity.build_source_query()
         log.info(
             "[%s] Extracting entity %d: %s.%s from %s/%s (incremental=%s)",
             run_id[:8] if run_id else "?",
@@ -91,7 +95,7 @@ class DataExtractor:
                 entity.source_server, entity.source_database
             ) as conn:
                 cursor = conn.cursor()
-                cursor.execute(query)
+                cursor.execute(query, params)
 
                 if not cursor.description:
                     elapsed = time.perf_counter() - t0
@@ -136,6 +140,29 @@ class DataExtractor:
 
                 if rows_read == 0:
                     elapsed = time.perf_counter() - t0
+
+                    # FIXED: CRITICAL BUG #10 — Distinguish empty table from missing table
+                    # If we got here, the query executed successfully but returned 0 rows
+                    # This is legitimate for incremental loads (no new data since last watermark)
+                    # OR for empty source tables (which is also OK)
+                    # Log this for operator awareness
+                    if entity.is_incremental:
+                        log.info(
+                            "[%s] Entity %d (incremental): Query returned 0 rows "
+                            "(no data since watermark %s)",
+                            run_id[:8] if run_id else "?",
+                            entity.id,
+                            entity.last_load_value,
+                        )
+                    else:
+                        log.warning(
+                            "[%s] Entity %d (full load): Query returned 0 rows "
+                            "(table may be empty). Verify table exists: %s",
+                            run_id[:8] if run_id else "?",
+                            entity.id,
+                            entity.qualified_name,
+                        )
+
                     return None, RunResult(
                         entity_id=entity.id,
                         layer="landing",
@@ -145,6 +172,11 @@ class DataExtractor:
                         duration_seconds=round(elapsed, 2),
                         watermark_before=entity.last_load_value,
                         watermark_after=entity.last_load_value,
+                        error_suggestion=(
+                            "No rows extracted. "
+                            "For incremental loads this is OK (no new data since last watermark). "
+                            "For full loads, verify the source table is not empty."
+                        ),
                     )
 
                 # Build Polars DataFrame — handle type coercion gracefully
@@ -234,8 +266,9 @@ class DataExtractor:
         for name in col_names:
             try:
                 series_list.append(pl.Series(name, col_data[name]))
-            except Exception:
+            except Exception as e:
                 # Type conflict — stringify everything
+                log.debug("Polars type inference failed for column %s, stringifying: %s", name, e)
                 series_list.append(
                     pl.Series(name, [str(v) if v is not None else None for v in col_data[name]])
                 )
@@ -261,7 +294,8 @@ class DataExtractor:
             if max_val is None:
                 return entity.last_load_value
             return str(max_val)
-        except Exception:
+        except Exception as e:
+            log.warning("Failed to compute watermark for entity %d column %s: %s", entity.id, wm_col, e)
             return entity.last_load_value
 
     @staticmethod
@@ -290,7 +324,8 @@ class DataExtractor:
         if "timeout" in msg_lower:
             return (
                 f"Query timed out on {entity.qualified_name}. "
-                "Consider adding an index on the watermark column, or increasing copy_timeout_seconds."
+                "Consider adding an index on the watermark column, increasing query_timeout (currently config-level), "
+                "or switching to incremental loads for this table."
             )
 
         if "out of memory" in msg_lower or "memory" in msg_lower:

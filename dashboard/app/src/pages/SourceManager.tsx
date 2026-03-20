@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Database,
   Server,
@@ -29,6 +29,7 @@ import {
   Settings2,
   Layers,
   TrendingUp,
+  GitBranch,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SourceOnboardingWizard } from '@/components/sources/SourceOnboardingWizard';
@@ -147,6 +148,9 @@ function digestToRegistered(d: DigestEntity): RegisteredEntity {
 }
 
 export default function SourceManager() {
+  const [searchParams] = useSearchParams();
+  const deepLinkHandled = useRef(false);
+
   // ── Entity data from digest hook (replaces /api/entities fetch) ──
   const {
     allEntities: digestEntities,
@@ -211,6 +215,17 @@ export default function SourceManager() {
       setSourcesInitialized(true);
     }
   }, [registeredEntities, sourcesInitialized]);
+
+  // Deep-link: auto-filter to source when arriving via ?source=X (from FlowExplorer)
+  useEffect(() => {
+    if (deepLinkHandled.current) return;
+    const sourceParam = searchParams.get('source');
+    if (!sourceParam || registeredEntities.length === 0) return;
+    deepLinkHandled.current = true;
+    // Set search to filter to this source, and ensure it's expanded
+    setSearchTerm(sourceParam);
+    setExpandedSources(prev => new Set(prev).add(sourceParam));
+  }, [searchParams, registeredEntities]);
 
   const toggleSource = (sourceName: string) => {
     setExpandedSources(prev => {
@@ -684,7 +699,7 @@ export default function SourceManager() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center max-w-md">
-          <AlertTriangle className="h-8 w-8 text-amber-500 mx-auto mb-4" />
+          <AlertTriangle className="h-8 w-8 text-[var(--bp-caution)] mx-auto mb-4" />
           <p className="text-foreground font-medium mb-2">API Server Not Running</p>
           <p className="text-sm text-muted-foreground mb-4">{error}</p>
           <div className="bg-muted rounded-lg p-4 text-left">
@@ -701,12 +716,12 @@ export default function SourceManager() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-8 py-8 max-w-[1280px] mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">Source Manager</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="font-semibold tracking-tight" style={{ fontFamily: "var(--bp-font-display)", fontSize: 32, color: "var(--bp-ink-primary)" }}>Source Manager</h1>
+          <p className="mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
             Register gateway connections, configure data sources, and manage landing zone entities
           </p>
         </div>
@@ -723,23 +738,23 @@ export default function SourceManager() {
       {actionStatus && (
         <div className={`rounded-lg p-4 flex items-center justify-between ${
           actionStatus.type === 'success'
-            ? 'bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800'
+            ? 'bg-[var(--bp-operational-light)] border border-[rgba(61,124,79,0.2)]'
             : actionStatus.type === 'loading'
-            ? 'bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800'
-            : 'bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800'
+            ? 'bg-[var(--bp-copper-light)] border border-[rgba(180,86,36,0.2)]'
+            : 'bg-[var(--bp-fault-light)] border border-[rgba(185,58,42,0.2)]'
         }`}>
           <div className="flex items-center gap-3">
             {actionStatus.type === 'success' ? (
-              <CheckCircle className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              <CheckCircle className="h-5 w-5 text-[var(--bp-operational)]" />
             ) : actionStatus.type === 'loading' ? (
-              <Loader2 className="h-5 w-5 text-blue-600 dark:text-blue-400 animate-spin" />
+              <Loader2 className="h-5 w-5 text-[var(--bp-copper)] animate-spin" />
             ) : (
-              <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+              <AlertTriangle className="h-5 w-5 text-[var(--bp-fault)]" />
             )}
             <p className={`text-sm font-medium ${
-              actionStatus.type === 'success' ? 'text-emerald-700 dark:text-emerald-300'
-              : actionStatus.type === 'loading' ? 'text-blue-700 dark:text-blue-300'
-              : 'text-red-700 dark:text-red-300'
+              actionStatus.type === 'success' ? 'text-[var(--bp-operational)]'
+              : actionStatus.type === 'loading' ? 'text-[var(--bp-copper)]'
+              : 'text-[var(--bp-fault)]'
             }`}>{actionStatus.message}</p>
           </div>
           {actionStatus.type !== 'loading' && (
@@ -753,14 +768,14 @@ export default function SourceManager() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
-              <Database className="w-4 h-4 text-purple-400" />
+              <Database className="w-4 h-4 text-[var(--bp-ink-secondary)]" />
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Data Sources</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold tabular-nums text-foreground">{registeredDataSources.length}</div>
+            <div className="text-2xl font-bold" style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-ink-primary)" }}>{registeredDataSources.length}</div>
             <div className="text-[10px] text-muted-foreground mt-1">
-              <span className="text-purple-400 font-medium">{externalSources.length}</span> external SQL · {registeredDataSources.length - externalSources.length} internal
+              <span className="text-[var(--bp-ink-secondary)] font-medium">{externalSources.length}</span> external SQL · {registeredDataSources.length - externalSources.length} internal
             </div>
           </CardContent>
         </Card>
@@ -768,12 +783,12 @@ export default function SourceManager() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
-              <TableProperties className="w-4 h-4 text-amber-400" />
+              <TableProperties className="w-4 h-4 text-[var(--bp-caution)]" />
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Entities</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold tabular-nums text-foreground">{registeredEntities.length}</div>
+            <div className="text-2xl font-bold" style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-ink-primary)" }}>{registeredEntities.length}</div>
             <div className="text-[10px] text-muted-foreground mt-1">
               {registeredEntities.filter(e => e.IsActive === 'True').length} active · {registeredEntities.filter(e => e.IsActive !== 'True').length} inactive
             </div>
@@ -783,12 +798,12 @@ export default function SourceManager() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-blue-400" />
+              <TrendingUp className="w-4 h-4 text-[var(--bp-copper)]" />
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Incremental</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold tabular-nums text-foreground">{incrementalCount}</div>
+            <div className="text-2xl font-bold" style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-ink-primary)" }}>{incrementalCount}</div>
             <div className="text-[10px] text-muted-foreground mt-1">
               {fullCount} full load · {registeredEntities.length > 0 ? Math.round((incrementalCount / (incrementalCount + fullCount || 1)) * 100) : 0}% optimized
             </div>
@@ -798,14 +813,14 @@ export default function SourceManager() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
-              <Cable className="w-4 h-4 text-emerald-400" />
+              <Cable className="w-4 h-4 text-[var(--bp-operational)]" />
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Connections</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold tabular-nums text-foreground">{gatewayConnections.length}</div>
+            <div className="text-2xl font-bold" style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-ink-primary)" }}>{gatewayConnections.length}</div>
             <div className="text-[10px] text-muted-foreground mt-1">
-              <span className="text-emerald-400 font-medium">{registeredCount}</span> registered · {gatewayConnections.length - registeredCount} available
+              <span className="text-[var(--bp-operational)] font-medium">{registeredCount}</span> registered · {gatewayConnections.length - registeredCount} available
             </div>
           </CardContent>
         </Card>
@@ -866,7 +881,7 @@ export default function SourceManager() {
                 <button
                   onClick={handleDiscoverAll}
                   disabled={discoveringAll || optimizingAll}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[var(--bp-caution)] hover:bg-[#A86917] text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {discoveringAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
                   Discover &amp; Register
@@ -874,7 +889,7 @@ export default function SourceManager() {
                 <button
                   onClick={handleOptimizeAll}
                   disabled={optimizingAll || analyzing || discoveringAll}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[var(--bp-copper)] hover:bg-[var(--bp-copper-hover)] text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {optimizingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
                   Optimize All
@@ -883,7 +898,7 @@ export default function SourceManager() {
                   <button
                     onClick={handleSaveLoadConfig}
                     disabled={savingConfig}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[var(--bp-operational)] hover:bg-[#357044] text-white rounded-lg transition-colors disabled:opacity-50"
                   >
                     {savingConfig ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
                     Apply Changes ({pendingUpdates.size})
@@ -941,9 +956,19 @@ export default function SourceManager() {
                           {entities.length} table{entities.length !== 1 ? 's' : ''}
                         </span>
                       </div>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 font-medium">
-                        {activeCount} active
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--bp-operational-light)] text-[var(--bp-operational)] font-medium">
+                          {activeCount} active
+                        </span>
+                        <Link
+                          to={`/flow-explorer?source=${encodeURIComponent(sourceName)}`}
+                          className="p-1 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+                          title="View in Flow Explorer"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <GitBranch className="w-3.5 h-3.5" />
+                        </Link>
+                      </div>
                     </button>
                   </div>
 
@@ -985,7 +1010,7 @@ export default function SourceManager() {
                                 <td className="py-2.5 px-3">
                                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                                     entity.IsIncremental === 'True'
-                                      ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400'
+                                      ? 'bg-[var(--bp-copper-light)] text-[var(--bp-copper)]'
                                       : 'bg-muted text-muted-foreground'
                                   }`}>
                                     {entity.IsIncremental === 'True' ? 'Incremental' : 'Full'}
@@ -994,8 +1019,8 @@ export default function SourceManager() {
                                 <td className="py-2.5 px-3">
                                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                                     entity.IsActive === 'True'
-                                      ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400'
-                                      : 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400'
+                                      ? 'bg-[var(--bp-operational-light)] text-[var(--bp-operational)]'
+                                      : 'bg-[var(--bp-fault-light)] text-[var(--bp-fault)]'
                                   }`}>
                                     {entity.IsActive === 'True' ? 'Active' : 'Inactive'}
                                   </span>
@@ -1003,16 +1028,24 @@ export default function SourceManager() {
                                 <td className="py-2.5 px-3 text-right">
                                   <div className="flex items-center justify-end gap-1">
                                     <Link
-                                      to={`/journey?entity=${entity.LandingzoneEntityId}`}
+                                      to={`/journey?entity=${encodeURIComponent(String(entity.LandingzoneEntityId))}`}
                                       className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary"
                                       title={`View data journey for ${entity.SourceSchema}.${entity.SourceName}`}
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       <Route className="w-3.5 h-3.5" />
                                     </Link>
+                                    <Link
+                                      to={`/flow-explorer?source=${encodeURIComponent(entity.DataSourceName || '')}&table=${encodeURIComponent(entity.SourceName)}`}
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary"
+                                      title={`View in Flow Explorer`}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <GitBranch className="w-3.5 h-3.5" />
+                                    </Link>
                                     <button
                                       onClick={(e) => { e.stopPropagation(); openDeleteModal(entity); }}
-                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-500"
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-[var(--bp-fault-light)] text-muted-foreground hover:text-[var(--bp-fault)]"
                                       title={`Delete ${entity.SourceSchema}.${entity.SourceName}`}
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
@@ -1041,7 +1074,7 @@ export default function SourceManager() {
             <div className="flex items-center justify-between bg-muted rounded-lg border border-border p-3">
               <div className="flex items-center gap-4 text-sm">
                 <span className="text-foreground font-medium">{loadConfigData.length} entities</span>
-                <span className="text-blue-500 dark:text-blue-400 flex items-center gap-1">
+                <span className="text-[var(--bp-copper)] flex items-center gap-1">
                   <TrendingUp className="w-3.5 h-3.5" />
                   {incrementalCount} incremental
                 </span>
@@ -1049,7 +1082,7 @@ export default function SourceManager() {
                   <ArrowUpDown className="w-3.5 h-3.5" />
                   {fullCount} full load
                 </span>
-                <span className="text-emerald-500 dark:text-emerald-400 flex items-center gap-1">
+                <span className="text-[var(--bp-operational)] flex items-center gap-1">
                   <Layers className="w-3.5 h-3.5" />
                   {bronzeRegistered} Bronze / {silverRegistered} Silver
                 </span>
@@ -1082,7 +1115,7 @@ export default function SourceManager() {
                     <button
                       onClick={() => handleAnalyzeSource(dsId)}
                       disabled={analyzing}
-                      className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50"
+                      className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-[var(--bp-copper)] hover:bg-[var(--bp-copper-hover)] text-white transition-colors disabled:opacity-50"
                       title="Scan source tables for PKs, watermark columns, and row counts"
                     >
                       {analyzing && analyzeTarget === String(dsId) ? (
@@ -1145,7 +1178,7 @@ export default function SourceManager() {
                               const wmCol = pending?.column ?? entity.watermarkColumn ?? '';
                               const hasPending = pending !== undefined;
                               return (
-                                <tr key={entity.entityId} className={`border-t border-border/50 last:border-0 hover:bg-muted/50 transition-colors ${hasPending ? 'bg-amber-50/5' : ''}`}>
+                                <tr key={entity.entityId} className={`border-t border-border/50 last:border-0 hover:bg-muted/50 transition-colors ${hasPending ? 'bg-[var(--bp-caution-light)]' : ''}`}>
                                   <td className="py-2 px-3 font-mono text-foreground text-xs">
                                     {entity.schema}.{entity.table}
                                   </td>
@@ -1176,14 +1209,14 @@ export default function SourceManager() {
                                   </td>
                                   <td className="py-2 px-3 text-center">
                                     {entity.bronzeEntityId != null ? (
-                                      <CheckCircle className="w-4 h-4 text-emerald-500 inline-block" />
+                                      <CheckCircle className="w-4 h-4 text-[var(--bp-operational)] inline-block" />
                                     ) : (
                                       <Circle className="w-4 h-4 text-muted-foreground/40 inline-block" />
                                     )}
                                   </td>
                                   <td className="py-2 px-3 text-center">
                                     {entity.silverEntityId != null ? (
-                                      <CheckCircle className="w-4 h-4 text-emerald-500 inline-block" />
+                                      <CheckCircle className="w-4 h-4 text-[var(--bp-operational)] inline-block" />
                                     ) : (
                                       <Circle className="w-4 h-4 text-muted-foreground/40 inline-block" />
                                     )}
@@ -1220,7 +1253,7 @@ export default function SourceManager() {
           </button>
           <button
             onClick={openBulkDeleteModal}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-[#FEFDFB] bg-[var(--bp-fault)] hover:bg-[#A03324] rounded-lg transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" />
             Delete Selected
@@ -1231,14 +1264,14 @@ export default function SourceManager() {
       {/* ── Delete Confirmation Modal ── */}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !deleting && setDeleteTarget(null)} />
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" role="button" tabIndex={0} onClick={() => !deleting && setDeleteTarget(null)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!deleting) setDeleteTarget(null); } }} />
           <div className="relative bg-background border border-border rounded-xl shadow-2xl p-6 max-w-lg w-full mx-4">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30">
-                <Trash2 className="w-5 h-5 text-red-500" />
+              <div className="p-2 rounded-lg bg-[var(--bp-fault-light)]">
+                <Trash2 className="w-5 h-5 text-[var(--bp-fault)]" />
               </div>
               <div>
-                <h3 className="font-bold text-foreground">Delete Entity</h3>
+                <h3 style={{ fontFamily: "var(--bp-font-body)", fontWeight: 700, color: "var(--bp-ink-primary)" }}>Delete Entity</h3>
                 <p className="text-xs text-muted-foreground">This will remove data across all layers</p>
               </div>
             </div>
@@ -1251,8 +1284,8 @@ export default function SourceManager() {
               </p>
             </div>
             {/* Cascade Impact */}
-            <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg border border-amber-200/50 dark:border-amber-800/30 mb-4">
-              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-2 uppercase tracking-wider">Cascade Impact</p>
+            <div className="p-3 bg-[var(--bp-caution-light)] rounded-lg border border-[rgba(194,122,26,0.2)] mb-4">
+              <p className="text-xs font-semibold text-[var(--bp-caution)] mb-2 uppercase tracking-wider">Cascade Impact</p>
               {loadingImpact ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="w-3 h-3 animate-spin" /> Checking linked entities...
@@ -1260,12 +1293,12 @@ export default function SourceManager() {
               ) : cascadeImpact ? (
                 <div className="space-y-1.5 text-xs">
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-blue-400" />
+                    <span className="w-2 h-2 rounded-full bg-[var(--bp-copper)]" />
                     <span className="text-foreground font-medium">Landing Zone:</span>
                     <span className="text-muted-foreground">{cascadeImpact.landing.length} table{cascadeImpact.landing.length !== 1 ? 's' : ''} + parquet files</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-orange-400" />
+                    <span className="w-2 h-2 rounded-full bg-[var(--bp-caution)]" />
                     <span className="text-foreground font-medium">Bronze:</span>
                     <span className="text-muted-foreground">
                       {cascadeImpact.bronze.length > 0
@@ -1274,7 +1307,7 @@ export default function SourceManager() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-purple-400" />
+                    <span className="w-2 h-2 rounded-full bg-[var(--bp-ink-secondary)]" />
                     <span className="text-foreground font-medium">Silver:</span>
                     <span className="text-muted-foreground">
                       {cascadeImpact.silver.length > 0
@@ -1298,7 +1331,7 @@ export default function SourceManager() {
               <button
                 onClick={handleDeleteEntity}
                 disabled={deleting}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-70"
+                className="px-4 py-2 text-sm font-medium text-[#FEFDFB] bg-[var(--bp-fault)] hover:bg-[#A03324] rounded-lg transition-colors flex items-center gap-2 disabled:opacity-70"
               >
                 {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                 {deleting ? 'Deleting...' : 'Delete All'}
@@ -1311,14 +1344,14 @@ export default function SourceManager() {
       {/* ── Bulk Delete Confirmation Modal ── */}
       {showBulkConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !deleting && setShowBulkConfirm(false)} />
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" role="button" tabIndex={0} onClick={() => !deleting && setShowBulkConfirm(false)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!deleting) setShowBulkConfirm(false); } }} />
           <div className="relative bg-background border border-border rounded-xl shadow-2xl p-6 max-w-lg w-full mx-4">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30">
-                <Trash2 className="w-5 h-5 text-red-500" />
+              <div className="p-2 rounded-lg bg-[var(--bp-fault-light)]">
+                <Trash2 className="w-5 h-5 text-[var(--bp-fault)]" />
               </div>
               <div>
-                <h3 className="font-bold text-foreground">Delete {selectedIds.size} {selectedIds.size === 1 ? 'Entity' : 'Entities'}</h3>
+                <h3 style={{ fontFamily: "var(--bp-font-body)", fontWeight: 700, color: "var(--bp-ink-primary)" }}>Delete {selectedIds.size} {selectedIds.size === 1 ? 'Entity' : 'Entities'}</h3>
                 <p className="text-xs text-muted-foreground">This will remove data across all layers</p>
               </div>
             </div>
@@ -1327,7 +1360,7 @@ export default function SourceManager() {
               <ul className="space-y-1">
                 {selectedEntitiesList.map(e => (
                   <li key={e.LandingzoneEntityId} className="text-xs text-muted-foreground flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--bp-fault)] shrink-0" />
                     <span className="font-mono">{e.SourceSchema}.{e.SourceName}</span>
                     <span className="text-muted-foreground/60">({friendlyLabel(e.DataSourceName)})</span>
                   </li>
@@ -1335,8 +1368,8 @@ export default function SourceManager() {
               </ul>
             </div>
             {/* Cascade Impact */}
-            <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg border border-amber-200/50 dark:border-amber-800/30 mb-4">
-              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-2 uppercase tracking-wider">Cascade Impact</p>
+            <div className="p-3 bg-[var(--bp-caution-light)] rounded-lg border border-[rgba(194,122,26,0.2)] mb-4">
+              <p className="text-xs font-semibold text-[var(--bp-caution)] mb-2 uppercase tracking-wider">Cascade Impact</p>
               {loadingImpact ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="w-3 h-3 animate-spin" /> Checking linked entities...
@@ -1344,12 +1377,12 @@ export default function SourceManager() {
               ) : cascadeImpact ? (
                 <div className="space-y-1.5 text-xs">
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-blue-400" />
+                    <span className="w-2 h-2 rounded-full bg-[var(--bp-copper)]" />
                     <span className="text-foreground font-medium">Landing Zone:</span>
                     <span className="text-muted-foreground">{cascadeImpact.landing.length} table{cascadeImpact.landing.length !== 1 ? 's' : ''} + parquet files</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-orange-400" />
+                    <span className="w-2 h-2 rounded-full bg-[var(--bp-caution)]" />
                     <span className="text-foreground font-medium">Bronze:</span>
                     <span className="text-muted-foreground">
                       {cascadeImpact.bronze.length > 0
@@ -1358,7 +1391,7 @@ export default function SourceManager() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-purple-400" />
+                    <span className="w-2 h-2 rounded-full bg-[var(--bp-ink-secondary)]" />
                     <span className="text-foreground font-medium">Silver:</span>
                     <span className="text-muted-foreground">
                       {cascadeImpact.silver.length > 0
@@ -1382,7 +1415,7 @@ export default function SourceManager() {
               <button
                 onClick={handleBulkDelete}
                 disabled={deleting}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-70"
+                className="px-4 py-2 text-sm font-medium text-[#FEFDFB] bg-[var(--bp-fault)] hover:bg-[#A03324] rounded-lg transition-colors flex items-center gap-2 disabled:opacity-70"
               >
                 {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                 {deleting ? 'Deleting...' : `Delete All ${selectedIds.size}`}
@@ -1393,7 +1426,7 @@ export default function SourceManager() {
       )}
 
       {/* Gateway Connections — collapsed by default */}
-      <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 rounded-xl border border-slate-200/50 dark:border-slate-800/30 shadow-sm">
+      <div className="rounded-xl border" style={{ background: 'var(--bp-surface-1)', borderColor: 'var(--bp-border)' }}>
         <button
           onClick={() => setGatewayExpanded(!gatewayExpanded)}
           className="w-full flex items-center justify-between p-5 hover:bg-muted/50 transition-colors text-left rounded-xl"
@@ -1401,7 +1434,7 @@ export default function SourceManager() {
           <div className="flex items-center gap-3">
             <Cable className="w-5 h-5 text-muted-foreground" />
             <div>
-              <h2 className="text-sm font-semibold text-foreground">Gateway Connections</h2>
+              <h2 style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, fontSize: 18, color: "var(--bp-ink-primary)" }}>Gateway Connections</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {registeredCount} registered · {gatewayConnections.length} total — on-premises SQL via PowerBIGateway
               </p>
@@ -1446,7 +1479,7 @@ export default function SourceManager() {
                       <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2">
                           {regConn ? (
-                            <CheckCircle className="h-5 w-5 text-emerald-500" />
+                            <CheckCircle className="h-5 w-5 text-[var(--bp-operational)]" />
                           ) : (
                             <Circle className="h-5 w-5 text-muted-foreground/40" />
                           )}
@@ -1463,7 +1496,7 @@ export default function SourceManager() {
                         <div className="text-right">
                           <span className={`text-xs px-2 py-1 rounded-full font-medium ${
                             regConn
-                              ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400'
+                              ? 'bg-[var(--bp-operational-light)] text-[var(--bp-operational)]'
                               : 'bg-muted text-muted-foreground'
                           }`}>
                             {regConn ? 'Registered' : 'Available'}
@@ -1506,7 +1539,7 @@ export default function SourceManager() {
                               <p className="text-muted-foreground text-xs uppercase tracking-wider">FMD Framework Name</p>
                               <div className="relative group">
                                 <Info className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help" />
-                                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 p-3 bg-popover text-popover-foreground text-xs rounded-lg border border-border shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50">
+                                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 p-3 bg-popover text-popover-foreground text-xs rounded-lg border border-border opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50">
                                   <p className="font-medium mb-1">Naming convention: CON_FMD_{'{SERVER}'}_{'{SOURCE}'}</p>
                                   <ul className="space-y-1 text-muted-foreground">
                                     <li><span className="font-mono text-foreground">CON_FMD</span> — prefix for all framework connections</li>
@@ -1517,7 +1550,7 @@ export default function SourceManager() {
                                 </div>
                               </div>
                             </div>
-                            <code className="text-sm font-mono text-emerald-600 dark:text-emerald-400">{regConn.Name}</code>
+                            <code className="text-sm font-mono text-[var(--bp-operational)]">{regConn.Name}</code>
 
                             {connDataSources.length > 0 && (
                               <div className="mt-3">
@@ -1525,15 +1558,15 @@ export default function SourceManager() {
                                 <div className="space-y-2">
                                   {connDataSources.map(ds => (
                                     <div key={ds.DataSourceId} className="flex items-center gap-3 bg-card border border-border rounded-lg p-3">
-                                      <Database className="h-4 w-4 text-purple-500" />
+                                      <Database className="h-4 w-4 text-[var(--bp-ink-secondary)]" />
                                       <div>
                                         <p className="text-sm font-medium text-foreground">{ds.Name}</p>
                                         <p className="text-xs text-muted-foreground">Namespace: {ds.Namespace} · Type: {ds.Type} · {ds.Description}</p>
                                       </div>
                                       <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${
                                         ds.IsActive === 'True'
-                                          ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400'
-                                          : 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400'
+                                          ? 'bg-[var(--bp-operational-light)] text-[var(--bp-operational)]'
+                                          : 'bg-[var(--bp-fault-light)] text-[var(--bp-fault)]'
                                       }`}>{ds.IsActive === 'True' ? 'Active' : 'Inactive'}</span>
                                     </div>
                                   ))}

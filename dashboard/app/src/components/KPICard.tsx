@@ -43,7 +43,7 @@ export function KPICard({
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2">
           <span className={cn("w-4 h-4", iconColor)}>{icon}</span>
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+          <span style={{ fontSize: "12px", fontWeight: 500, color: "#78716C", textTransform: "uppercase" as const, letterSpacing: "0.5px" }}>
             {label}
           </span>
         </CardTitle>
@@ -52,16 +52,17 @@ export function KPICard({
         <div className="flex items-center gap-3">
           <div
             className={cn(
-              "text-2xl font-bold tabular-nums",
-              valueColor || "text-foreground"
+              "tabular-nums",
+              valueColor
             )}
+            style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: "'tnum'", fontSize: "32px", fontWeight: 500, color: valueColor ? undefined : "#1C1917" }}
           >
             {value}
           </div>
           {inline}
         </div>
         {detail && (
-          <div className="text-[10px] text-muted-foreground mt-1">{detail}</div>
+          <div className="mt-1" style={{ fontSize: "13px", color: "#78716C" }}>{detail}</div>
         )}
       </CardContent>
     </Card>

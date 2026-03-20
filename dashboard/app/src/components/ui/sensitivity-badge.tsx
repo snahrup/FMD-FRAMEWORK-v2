@@ -6,11 +6,11 @@ import type { LucideIcon } from "lucide-react";
 // ── Sensitivity Level Badge ──
 
 const SENSITIVITY_CONFIG: Record<SensitivityLevel, { label: string; icon: LucideIcon; color: string; bg: string; border: string }> = {
-  public:       { label: "Public",       icon: Globe,       color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-800/50" },
-  internal:     { label: "Internal",     icon: Building,    color: "text-blue-600 dark:text-blue-400",       bg: "bg-blue-50 dark:bg-blue-950/30",       border: "border-blue-200 dark:border-blue-800/50" },
-  confidential: { label: "Confidential", icon: Lock,        color: "text-amber-600 dark:text-amber-400",     bg: "bg-amber-50 dark:bg-amber-950/30",     border: "border-amber-200 dark:border-amber-800/50" },
-  restricted:   { label: "Restricted",   icon: ShieldAlert, color: "text-red-600 dark:text-red-400",         bg: "bg-red-50 dark:bg-red-950/30",         border: "border-red-200 dark:border-red-800/50" },
-  pii:          { label: "PII",          icon: UserX,       color: "text-rose-600 dark:text-rose-400",       bg: "bg-rose-50 dark:bg-rose-950/30",       border: "border-rose-200 dark:border-rose-800/50" },
+  public:       { label: "Public",       icon: Globe,       color: "text-[#3D7C4F]",  bg: "bg-[#E7F3EB]",  border: "border-[#3D7C4F]/30" },
+  internal:     { label: "Internal",     icon: Building,    color: "text-[#B45624]",  bg: "bg-[#F4E8DF]",  border: "border-[#B45624]/30" },
+  confidential: { label: "Confidential", icon: Lock,        color: "text-[#C27A1A]",  bg: "bg-[#FDF3E3]",  border: "border-[#C27A1A]/30" },
+  restricted:   { label: "Restricted",   icon: ShieldAlert, color: "text-[#B93A2A]",  bg: "bg-[#FBEAE8]",  border: "border-[#B93A2A]/30" },
+  pii:          { label: "PII",          icon: UserX,       color: "text-[#B93A2A]",  bg: "bg-[#FBEAE8]",  border: "border-[#B93A2A]/30" },
 };
 
 interface SensitivityBadgeProps {
@@ -34,11 +34,11 @@ export function SensitivityBadge({ level, className, showIcon = true }: Sensitiv
 // ── Certification Status Badge ──
 
 const CERT_CONFIG: Record<CertificationStatus, { label: string; color: string; bg: string; border: string }> = {
-  certified:  { label: "Certified",  color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-800/50" },
-  pending:    { label: "Pending",    color: "text-amber-600 dark:text-amber-400",     bg: "bg-amber-50 dark:bg-amber-950/30",     border: "border-amber-200 dark:border-amber-800/50" },
-  draft:      { label: "Draft",      color: "text-blue-600 dark:text-blue-400",       bg: "bg-blue-50 dark:bg-blue-950/30",       border: "border-blue-200 dark:border-blue-800/50" },
-  deprecated: { label: "Deprecated", color: "text-slate-500 dark:text-slate-400",     bg: "bg-slate-50 dark:bg-slate-950/30",     border: "border-slate-200 dark:border-slate-800/50" },
-  none:       { label: "Unclassified",color:"text-slate-500 dark:text-slate-400",     bg: "bg-slate-50 dark:bg-slate-950/30",     border: "border-slate-200 dark:border-slate-800/50" },
+  certified:  { label: "Certified",   color: "text-[#3D7C4F]",  bg: "bg-[#E7F3EB]",  border: "border-[#3D7C4F]/30" },
+  pending:    { label: "Pending",     color: "text-[#C27A1A]",  bg: "bg-[#FDF3E3]",  border: "border-[#C27A1A]/30" },
+  draft:      { label: "Draft",       color: "text-[#B45624]",  bg: "bg-[#F4E8DF]",  border: "border-[#B45624]/30" },
+  deprecated: { label: "Deprecated",  color: "text-[#A8A29E]",  bg: "bg-[#EDEAE4]",  border: "border-[#A8A29E]/30" },
+  none:       { label: "Unclassified",color: "text-[#A8A29E]",  bg: "bg-[#EDEAE4]",  border: "border-[#A8A29E]/30" },
 };
 
 interface CertificationBadgeProps {

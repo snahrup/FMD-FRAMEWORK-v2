@@ -68,7 +68,7 @@ export function SourceBreakdownCards({ sources, className = "" }: SourceBreakdow
 
               {/* Mini stats */}
               <div className="flex gap-3 text-[10px] pt-1">
-                <span className="text-emerald-400 tabular-nums">{src.withData} loaded</span>
+                <span className="text-[#3D7C4F] tabular-nums">{src.withData} loaded</span>
                 <span className="text-muted-foreground tabular-nums">{src.empty} empty</span>
               </div>
 

@@ -25,17 +25,17 @@ export function WorkspaceStep({ workspaces, capacityId, onChange }: WorkspaceSte
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <FolderOpen className="h-4 w-4 text-amber-400" />
-        <h3 className="text-sm font-semibold">Select or Create Workspaces</h3>
+        <FolderOpen className="h-4 w-4" style={{ color: 'var(--bp-copper)' }} />
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>Select or Create Workspaces</h3>
       </div>
-      <p className="text-xs text-muted-foreground leading-relaxed">
+      <p className="text-xs leading-relaxed" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
         FMD uses 5 workspaces to separate code from data and dev from prod.
         Select existing workspaces or create new ones with the standard naming convention.
       </p>
 
       <div className="space-y-3">
         {WORKSPACE_FIELDS.map((field) => (
-          <div key={field.key} className="rounded-md border border-border/40 bg-card p-3">
+          <div key={field.key} className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
             <FabricDropdown
               label={field.label}
               endpoint="/fabric/workspaces"
@@ -53,7 +53,7 @@ export function WorkspaceStep({ workspaces, capacityId, onChange }: WorkspaceSte
       </div>
 
       {!capacityId && (
-        <p className="text-[10px] text-amber-400/80 italic">
+        <p className="text-[10px] italic" style={{ color: 'var(--bp-caution)' }}>
           Select a capacity in Step 1 to enable workspace creation.
         </p>
       )}

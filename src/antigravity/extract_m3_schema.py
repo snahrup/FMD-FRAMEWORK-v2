@@ -8,9 +8,9 @@ from urllib.error import HTTPError
 
 TENANT_ID = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
 CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
-SECRET = "Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu"
+SECRET = os.environ["FABRIC_CLIENT_SECRET"]
 
-def get_token(scope="https://database.windows.net/.default"):
+def get_token(scope="https://analysis.windows.net/powerbi/api/.default"):
     data = urllib.parse.urlencode({
         "client_id": CLIENT_ID,
         "client_secret": SECRET,
@@ -28,8 +28,8 @@ def main():
     # Connection string for M3 ERP database
     server = 'm3-db1'
     database = 'm3fdbprd'
-    username = 'UsrSQLRead'
-    password = 'Ku7T@hoqFDmDPqG4deMgrrxQ9'
+    username = os.environ.get("SQL_READ_USERNAME", "UsrSQLRead")
+    password = os.environ.get("SQL_READ_PASSWORD", "")
     
     # Needs TrustServerCertificate=yes since it's an internal server
     conn_str = f'DRIVER={{ODBC Driver 18 for SQL Server}};SERVER={server};DATABASE={database};UID={username};PWD={password};TrustServerCertificate=yes'

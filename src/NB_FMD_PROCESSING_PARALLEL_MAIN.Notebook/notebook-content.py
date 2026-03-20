@@ -210,7 +210,7 @@ nb_exists = False
 try:
     notebookutils.notebook.get(nb_name)
     nb_exists = True
-except:
+except Exception:  # intentionally silenced — checking notebook existence
     nb_exists = False
 
 print("=" * 50)
@@ -340,6 +340,10 @@ if (len(path_data) == 1
     _layer = _signal["layer"]
     _count = _signal.get("count", "?")
 
+    # Validate stored procedure name to prevent SQL injection
+    if not re.match(r'^[\w.\[\]]+$', _proc):
+        raise ValueError(f"FETCH_FROM_SQL: Invalid stored procedure name: {_proc!r}")
+
     print(f"FETCH_FROM_SQL: {_layer} layer — fetching {_count} entities directly from SQL...")
 
     _config = notebookutils.variableLibrary.getLibrary("VAR_CONFIG_FMD")
@@ -447,7 +451,7 @@ if _chunking_active:
             if isinstance(chunk_exit, str):
                 try:
                     chunk_exit = loads(chunk_exit)
-                except:
+                except (ValueError, TypeError):
                     chunk_exit = {"succeeded": len(chunk), "failed": 0, "failures": []}
             total_succeeded += chunk_exit.get("succeeded", 0)
             total_failed += chunk_exit.get("failed", 0)
@@ -516,7 +520,7 @@ def safe_sort_key(pair):
     try:
         ts = extract_ts_from_name(name)
         return (ts, name)
-    except:
+    except (ValueError, AttributeError):
         return (datetime.max, name) # malformed filename → also at end
 
 largest_group_size = 1

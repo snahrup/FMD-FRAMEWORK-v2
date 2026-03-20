@@ -240,7 +240,7 @@ token = resp["access_token"]
 ### SQL Auth Scope is NOT What You Expect
 
 **CORRECT scope**: `https://analysis.windows.net/powerbi/api/.default`
-**WRONG scope**: `https://database.windows.net/.default`
+**WRONG scope**: `https://analysis.windows.net/powerbi/api/.default`
 
 Using the wrong scope gets you a valid token that Fabric SQL rejects silently. This is a Fabric-specific quirk -- the SQL Database in Fabric is part of the Power BI API surface, NOT the Azure SQL surface. Every blog post and Stack Overflow answer will tell you to use `database.windows.net`. They are wrong for Fabric.
 

@@ -38,7 +38,7 @@ def _queue_export(table: str):
         from dashboard.app.api.parquet_sync import queue_export
         queue_export(table)
     except (ImportError, Exception):
-        pass
+        log.debug("Parquet export queue unavailable for table %s", table)
 
 # ---------------------------------------------------------------------------
 # Config helpers (lazy)
@@ -53,7 +53,8 @@ def _get_config() -> dict:
         try:
             cfg_path = Path(__file__).parent.parent / "config.json"
             _CONFIG = json.loads(cfg_path.read_text())
-        except Exception:
+        except Exception as e:
+            log.warning("Failed to load config.json: %s", e)
             _CONFIG = {}
     return _CONFIG
 
@@ -322,7 +323,8 @@ def get_onboarding_sources(params: dict) -> list:
             "ReferenceId, Notes, CompletedAt, CreatedAt, UpdatedAt "
             "FROM SourceOnboarding ORDER BY SourceName, StepNumber"
         )
-    except Exception:
+    except Exception as e:
+        log.warning("Failed to query SourceOnboarding: %s", e)
         return []
 
     sources: dict = {}
@@ -503,7 +505,7 @@ def sse_import_stream(http_handler, params: dict) -> None:
             if job.phase in ("complete", "failed"):
                 break
     except (BrokenPipeError, ConnectionResetError):
-        pass
+        pass  # intentionally suppressed: client disconnected from SSE stream
 
 
 # ---------------------------------------------------------------------------
@@ -637,6 +639,7 @@ def post_discover_all(params: dict) -> dict:
     try:
         from dashboard.app.api import control_plane_db as cpdb
     except ImportError:
+        log.debug("control_plane_db not found via package import, trying direct import")
         import control_plane_db as cpdb  # type: ignore
 
     SQL_DRIVER = _get_sql_driver()

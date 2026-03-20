@@ -41,9 +41,12 @@ Usage::
     print(result.watermark_column)  # "ModifiedDate"
 """
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
+
+_logger = logging.getLogger("fmd.optimizer")
 
 
 # ---------------------------------------------------------------------------
@@ -488,8 +491,8 @@ def auto_optimize(source_conn, entities, cpdb_execute, cpdb_query) -> dict:
                                     "WHERE LandingzoneEntityId = ?",
                                     (pk_str, entity.id),
                                 )
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                _logger.warning("Failed to persist PK for entity %d: %s", entity.id, e)
                             stats["pk_discovered"] += 1
 
                     # Watermark
@@ -506,8 +509,8 @@ def auto_optimize(source_conn, entities, cpdb_execute, cpdb_query) -> dict:
                                     "WHERE LandingzoneEntityId = ?",
                                     (best.column, entity.id),
                                 )
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                _logger.warning("Failed to persist watermark for entity %d: %s", entity.id, e)
                             stats["watermark_discovered"] += 1
 
         except Exception as exc:

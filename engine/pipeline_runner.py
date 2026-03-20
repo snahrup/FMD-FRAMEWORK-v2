@@ -132,7 +132,7 @@ class FabricPipelineRunner:
             "ConnectionGuid": entity.connection_guid,
             "SourceSchema": entity.source_schema,
             "SourceName": entity.source_name,
-            "SourceDataRetrieval": entity.build_source_query(),
+            "SourceDataRetrieval": entity.build_source_query_display(),
             "DatasourceName": entity.source_database,
             "WorkspaceGuid": entity.workspace_guid,
             "TargetLakehouseGuid": entity.lakehouse_guid,
@@ -257,8 +257,8 @@ class FabricPipelineRunner:
         try:
             urllib.request.urlopen(req, timeout=10)
             log.info("Pipeline run %s cancelled", job_id[:8])
-        except Exception:
-            pass  # Best-effort
+        except Exception as e:
+            log.warning("Failed to cancel pipeline run %s: %s", job_id[:8], e)
 
     @staticmethod
     def _extract_job_id(resp) -> Optional[str]:

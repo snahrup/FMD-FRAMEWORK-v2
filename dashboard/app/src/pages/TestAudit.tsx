@@ -369,44 +369,43 @@ function aUrl(runId: string, testDir: string, fileName: string): string {
 
 function ScoreBar({ run }: { run: RunSummary }) {
   const passRate = run.total > 0 ? Math.round((run.passed / run.total) * 100) : 0;
-  const ringColor = passRate >= 80 ? "text-emerald-400" : passRate >= 50 ? "text-amber-400" : "text-red-400";
-  const barColor = passRate >= 80 ? "bg-emerald-400" : passRate >= 50 ? "bg-amber-400" : "bg-red-400";
+  const ringColorHex = passRate >= 80 ? "var(--bp-operational)" : passRate >= 50 ? "var(--bp-caution)" : "var(--bp-fault)";
 
   return (
-    <div className="flex items-center gap-6 px-6 py-4 rounded-xl bg-card border border-border/50">
+    <div className="flex items-center gap-6 px-6 py-4 rounded-lg" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
       {/* Pass rate ring */}
       <div className="relative w-16 h-16 shrink-0">
         <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
           <path
             d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-            fill="none" stroke="currentColor" strokeWidth="2.5" className="text-muted/20"
+            fill="none" strokeWidth="2.5" style={{ stroke: 'var(--bp-surface-inset)' }}
           />
           <path
             d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-            fill="none" stroke="currentColor" strokeWidth="3"
-            strokeDasharray={`${passRate}, 100`} strokeLinecap="round" className={ringColor}
+            fill="none" strokeWidth="3"
+            strokeDasharray={`${passRate}, 100`} strokeLinecap="round" style={{ stroke: ringColorHex }}
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className={cn("text-lg font-bold", ringColor)}>{passRate}%</span>
+          <span className="text-lg font-bold" style={{ color: ringColorHex }}>{passRate}%</span>
         </div>
       </div>
 
       {/* Progress bar */}
       <div className="flex-1 space-y-1.5">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <div className="flex items-center justify-between text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>
           <span>{run.runId}</span>
-          <span>{formatTimestamp(run.timestamp)}</span>
+          <span style={{ fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>{formatTimestamp(run.timestamp)}</span>
         </div>
-        <div className="h-2.5 rounded-full bg-muted overflow-hidden flex">
+        <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: 'var(--bp-surface-inset)' }}>
           {run.passed > 0 && run.total > 0 && (
-            <div className="bg-emerald-400 h-full" style={{ width: `${(run.passed / run.total) * 100}%` }} />
+            <div className="h-full" style={{ width: `${(run.passed / run.total) * 100}%`, background: 'var(--bp-operational)' }} />
           )}
           {run.failed > 0 && run.total > 0 && (
-            <div className="bg-red-400 h-full" style={{ width: `${(run.failed / run.total) * 100}%` }} />
+            <div className="h-full" style={{ width: `${(run.failed / run.total) * 100}%`, background: 'var(--bp-fault)' }} />
           )}
           {run.skipped > 0 && run.total > 0 && (
-            <div className="bg-amber-400 h-full" style={{ width: `${(run.skipped / run.total) * 100}%` }} />
+            <div className="h-full" style={{ width: `${(run.skipped / run.total) * 100}%`, background: 'var(--bp-caution)' }} />
           )}
         </div>
       </div>
@@ -414,14 +413,14 @@ function ScoreBar({ run }: { run: RunSummary }) {
       {/* KPI chips */}
       <div className="flex items-center gap-4 shrink-0">
         {[
-          { label: "Total", value: run.total, icon: Monitor, color: "text-blue-400" },
-          { label: "Passed", value: run.passed, icon: CheckCircle2, color: "text-emerald-400" },
-          { label: "Failed", value: run.failed, icon: XCircle, color: "text-red-400" },
-          { label: "Duration", value: formatDuration(run.durationMs), icon: Clock, color: "text-amber-400" },
+          { label: "Total", value: run.total, icon: Monitor, colorHex: "var(--bp-ink-secondary)" },
+          { label: "Passed", value: run.passed, icon: CheckCircle2, colorHex: "var(--bp-operational)" },
+          { label: "Failed", value: run.failed, icon: XCircle, colorHex: "var(--bp-fault)" },
+          { label: "Duration", value: formatDuration(run.durationMs), icon: Clock, colorHex: "var(--bp-caution)" },
         ].map((k) => (
           <div key={k.label} className="text-center">
-            <div className={cn("text-lg font-bold", k.color)}>{k.value}</div>
-            <div className="text-[10px] text-muted-foreground">{k.label}</div>
+            <div className="text-lg font-bold" style={{ color: k.colorHex, fontVariantNumeric: 'tabular-nums' }}>{k.value}</div>
+            <div className="text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>{k.label}</div>
           </div>
         ))}
       </div>
@@ -430,9 +429,9 @@ function ScoreBar({ run }: { run: RunSummary }) {
 }
 
 const CHART_COLORS = {
-  passed: "#34d399",  // emerald-400
-  failed: "#f87171",  // red-400
-  skipped: "#fbbf24", // amber-400
+  passed: "#3D7C4F",  // bp-operational
+  failed: "#B93A2A",  // bp-fault
+  skipped: "#C27A1A", // bp-caution
 };
 
 function TrendChart({ history }: { history: RunSummary[] }) {
@@ -446,9 +445,9 @@ function TrendChart({ history }: { history: RunSummary[] }) {
   }));
 
   return (
-    <Card className="bg-card border-border/50">
+    <Card style={{ background: 'var(--bp-surface-1)', borderColor: 'var(--bp-border)' }}>
       <CardHeader className="pb-1 pt-3 px-4">
-        <CardTitle className="text-xs font-medium text-muted-foreground">Pass/Fail Trend</CardTitle>
+        <CardTitle className="text-xs font-medium" style={{ color: 'var(--bp-ink-tertiary)' }}>Pass/Fail Trend</CardTitle>
       </CardHeader>
       <CardContent className="px-2 pb-2">
         <ResponsiveContainer width="100%" height={160}>
@@ -463,12 +462,12 @@ function TrendChart({ history }: { history: RunSummary[] }) {
                 <stop offset="100%" stopColor={CHART_COLORS.failed} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-            <XAxis dataKey="run" tick={{ fontSize: 9, fill: "#888" }} tickLine={false} axisLine={false} />
-            <YAxis tick={{ fontSize: 9, fill: "#888" }} tickLine={false} axisLine={false} width={25} />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" />
+            <XAxis dataKey="run" tick={{ fontSize: 9, fill: "#78716C" }} tickLine={false} axisLine={false} />
+            <YAxis tick={{ fontSize: 9, fill: "#78716C" }} tickLine={false} axisLine={false} width={25} />
             <Tooltip
-              contentStyle={{ background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 11 }}
-              labelStyle={{ color: "#999", fontSize: 10 }}
+              contentStyle={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)", borderRadius: 8, fontSize: 11, color: "var(--bp-ink-primary)" }}
+              labelStyle={{ color: "var(--bp-ink-tertiary)", fontSize: 10 }}
             />
             <Area type="monotone" dataKey="passed" stroke={CHART_COLORS.passed} fill="url(#passGrad)" strokeWidth={2} />
             <Area type="monotone" dataKey="failed" stroke={CHART_COLORS.failed} fill="url(#failGrad)" strokeWidth={2} />
@@ -487,9 +486,9 @@ function ResultBreakdownChart({ run }: { run: RunSummary }) {
   ].filter(d => d.value > 0);
 
   return (
-    <Card className="bg-card border-border/50">
+    <Card style={{ background: 'var(--bp-surface-1)', borderColor: 'var(--bp-border)' }}>
       <CardHeader className="pb-1 pt-3 px-4">
-        <CardTitle className="text-xs font-medium text-muted-foreground">Result Breakdown</CardTitle>
+        <CardTitle className="text-xs font-medium" style={{ color: 'var(--bp-ink-tertiary)' }}>Result Breakdown</CardTitle>
       </CardHeader>
       <CardContent className="px-2 pb-2 flex items-center">
         <ResponsiveContainer width="50%" height={140}>
@@ -506,7 +505,7 @@ function ResultBreakdownChart({ run }: { run: RunSummary }) {
               ))}
             </Pie>
             <Tooltip
-              contentStyle={{ background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 11 }}
+              contentStyle={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)", borderRadius: 8, fontSize: 11, color: "var(--bp-ink-primary)" }}
             />
           </PieChart>
         </ResponsiveContainer>
@@ -514,8 +513,8 @@ function ResultBreakdownChart({ run }: { run: RunSummary }) {
           {data.map((d) => (
             <div key={d.name} className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
-              <span className="text-xs text-muted-foreground flex-1">{d.name}</span>
-              <span className="text-sm font-bold text-foreground">{d.value}</span>
+              <span className="text-xs flex-1" style={{ color: 'var(--bp-ink-tertiary)' }}>{d.name}</span>
+              <span className="text-sm font-bold" style={{ color: 'var(--bp-ink-primary)' }}>{d.value}</span>
             </div>
           ))}
         </div>
@@ -538,21 +537,21 @@ function TestDurationChart({ run }: { run: RunSummary }) {
   if (data.length === 0) return null;
 
   return (
-    <Card className="bg-card border-border/50">
+    <Card style={{ background: 'var(--bp-surface-1)', borderColor: 'var(--bp-border)' }}>
       <CardHeader className="pb-1 pt-3 px-4">
-        <CardTitle className="text-xs font-medium text-muted-foreground">Slowest Tests (seconds)</CardTitle>
+        <CardTitle className="text-xs font-medium" style={{ color: 'var(--bp-ink-tertiary)' }}>Slowest Tests (seconds)</CardTitle>
       </CardHeader>
       <CardContent className="px-2 pb-2">
         <ResponsiveContainer width="100%" height={160}>
           <BarChart data={data} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
-            <XAxis type="number" tick={{ fontSize: 9, fill: "#888" }} tickLine={false} axisLine={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 9, fill: "#78716C" }} tickLine={false} axisLine={false} />
             <YAxis
               type="category" dataKey="name" width={120}
-              tick={{ fontSize: 9, fill: "#888" }} tickLine={false} axisLine={false}
+              tick={{ fontSize: 9, fill: "#78716C" }} tickLine={false} axisLine={false}
             />
             <Tooltip
-              contentStyle={{ background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 11 }}
+              contentStyle={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)", borderRadius: 8, fontSize: 11, color: "var(--bp-ink-primary)" }}
               formatter={(v: number | undefined) => [`${v ?? 0}s`, "Duration"]}
             />
             <Bar dataKey="duration" radius={[0, 4, 4, 0]}>
@@ -579,16 +578,17 @@ function TraceModal({ open, onClose, traceUrl, testName }: {
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="max-w-[95vw] w-[95vw] h-[90vh] p-0 overflow-hidden">
-        <DialogHeader className="px-4 pt-3 pb-2 border-b border-border/30 flex flex-row items-center gap-3">
-          <FileSearch className="w-4 h-4 text-amber-400 shrink-0" />
+        <DialogHeader className="px-4 pt-3 pb-2 flex flex-row items-center gap-3" style={{ borderBottom: '1px solid var(--bp-border-subtle)' }}>
+          <FileSearch className="w-4 h-4 shrink-0" style={{ color: 'var(--bp-caution)' }} />
           <div className="flex-1 min-w-0">
             <DialogTitle className="text-sm font-medium truncate">{testName}</DialogTitle>
-            <DialogDescription className="text-[10px] text-muted-foreground">Playwright Trace Viewer</DialogDescription>
+            <DialogDescription className="text-[10px]" style={{ color: 'var(--bp-ink-tertiary)' }}>Playwright Trace Viewer</DialogDescription>
           </div>
           <a
             href={traceUrl}
             download
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-accent/50"
+            className="inline-flex items-center gap-1 text-xs transition-colors px-2 py-1 rounded-md"
+            style={{ color: 'var(--bp-ink-tertiary)' }}
             onClick={(e) => e.stopPropagation()}
           >
             <Download className="w-3 h-3" /> .zip
@@ -611,12 +611,12 @@ function TraceModal({ open, onClose, traceUrl, testName }: {
               onClick={() => setActivated(true)}
             >
               <div className="relative group">
-                <div className="w-24 h-24 rounded-full bg-amber-500/20 flex items-center justify-center backdrop-blur-sm border border-amber-500/30 group-hover:bg-amber-500/30 group-hover:scale-110 transition-all duration-300">
-                  <Play className="w-10 h-10 text-amber-400 ml-1 group-hover:text-amber-300 transition-colors" />
+                <div className="w-24 h-24 rounded-full bg-[var(--bp-caution-light)] flex items-center justify-center backdrop-blur-sm border border-[var(--bp-caution)] group-hover:bg-[var(--bp-caution-light)] group-hover:scale-110 transition-all duration-300">
+                  <Play className="w-10 h-10 text-[var(--bp-caution)] ml-1 group-hover:text-[var(--bp-caution)] transition-colors" />
                 </div>
-                <div className="absolute inset-0 w-24 h-24 rounded-full animate-ping bg-amber-500/10 pointer-events-none" />
+                <div className="absolute inset-0 w-24 h-24 rounded-full animate-ping bg-[var(--bp-caution-light)] pointer-events-none" />
               </div>
-              <p className="mt-4 text-sm text-muted-foreground">Click anywhere to load trace</p>
+              <p className="mt-4 text-sm" style={{ color: 'var(--bp-ink-tertiary)' }}>Click anywhere to load trace</p>
             </div>
           )}
         </div>
@@ -631,86 +631,89 @@ function TestCard({ test, runId }: { test: TestResult; runId: string }) {
   const hasArtifacts = !!(test.testDir && (test.screenshot || test.video || test.trace));
   const desc = getTestDescription(test.name);
 
-  const statusColors: Record<string, string> = {
-    passed: "border-l-emerald-400",
-    failed: "border-l-red-400",
-    skipped: "border-l-amber-400",
-    unknown: "border-l-zinc-400",
+  const statusBorderColor: Record<string, string> = {
+    passed: "var(--bp-operational)",
+    failed: "var(--bp-fault)",
+    skipped: "var(--bp-caution)",
+    unknown: "var(--bp-ink-muted)",
   };
-  const statusBg: Record<string, string> = {
-    passed: "bg-emerald-500/8",
-    failed: "bg-red-500/8",
-    skipped: "bg-amber-500/8",
-    unknown: "",
+  const statusBgColor: Record<string, string> = {
+    passed: "var(--bp-operational-light)",
+    failed: "var(--bp-fault-light)",
+    skipped: "var(--bp-caution-light)",
+    unknown: "var(--bp-surface-1)",
   };
 
   return (
-    <div className={cn(
-      "rounded-lg border border-border/40 overflow-hidden transition-all duration-200 border-l-[3px]",
-      statusColors[test.status] || statusColors.unknown,
-      statusBg[test.status] || "",
-    )}>
+    <div
+      className="rounded-lg overflow-hidden transition-all duration-200"
+      style={{
+        border: '1px solid var(--bp-border)',
+        borderLeft: `3px solid ${statusBorderColor[test.status] || statusBorderColor.unknown}`,
+        background: statusBgColor[test.status] || 'transparent',
+      }}
+    >
       {/* Header row */}
       <div
-        className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-accent/30 transition-colors"
+        className="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         {test.status === "passed" ? (
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          <CheckCircle2 className="w-5 h-5 shrink-0" style={{ color: 'var(--bp-operational)' }} />
         ) : test.status === "failed" ? (
-          <XCircle className="w-5 h-5 text-red-400 shrink-0" />
+          <XCircle className="w-5 h-5 shrink-0" style={{ color: 'var(--bp-fault)' }} />
         ) : test.status === "skipped" ? (
-          <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+          <AlertTriangle className="w-5 h-5 shrink-0" style={{ color: 'var(--bp-caution)' }} />
         ) : (
-          <Clock className="w-5 h-5 text-muted-foreground shrink-0" />
+          <Clock className="w-5 h-5 shrink-0" style={{ color: 'var(--bp-ink-muted)' }} />
         )}
 
-        <span className="flex-1 text-sm font-medium text-foreground">{test.name}</span>
+        <span className="flex-1 text-sm font-medium" style={{ color: 'var(--bp-ink-primary)' }}>{test.name}</span>
 
-        <span className="text-xs text-muted-foreground tabular-nums mr-2">
+        <span className="text-xs tabular-nums mr-2" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>
           {test.durationMs > 0 ? formatDuration(test.durationMs) : ""}
         </span>
 
         {hasArtifacts && (
           <div className="flex items-center gap-1.5 mr-2">
-            {test.screenshot && <Image className="w-3.5 h-3.5 text-blue-400/60" />}
-            {test.video && <FileVideo className="w-3.5 h-3.5 text-violet-400/60" />}
-            {test.trace && <FileSearch className="w-3.5 h-3.5 text-amber-400/60" />}
+            {test.screenshot && <Image className="w-3.5 h-3.5 text-[var(--bp-ink-secondary)]" />}
+            {test.video && <FileVideo className="w-3.5 h-3.5 text-[var(--bp-ink-tertiary)]" />}
+            {test.trace && <FileSearch className="w-3.5 h-3.5 text-[var(--bp-caution)]" />}
           </div>
         )}
 
         {hasArtifacts && (
           expanded
-            ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
-            : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+            ? <ChevronUp className="w-4 h-4 shrink-0" style={{ color: 'var(--bp-ink-muted)' }} />
+            : <ChevronDown className="w-4 h-4 shrink-0" style={{ color: 'var(--bp-ink-muted)' }} />
         )}
       </div>
 
       {/* Expanded: 50/50 split — description left, video right */}
       {expanded && hasArtifacts && (
-        <div className="border-t border-border/30 bg-black/5">
+        <div style={{ borderTop: '1px solid var(--bp-border-subtle)', background: 'var(--bp-surface-2)' }}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
             {/* LEFT: Plain English description */}
-            <div className="p-5 border-r border-border/20 overflow-y-auto max-h-[420px] space-y-4">
+            <div className="p-5 overflow-y-auto max-h-[420px] space-y-4" style={{ borderRight: '1px solid var(--bp-border-subtle)' }}>
               {desc ? (
                 <>
                   {/* Scenario */}
                   <div>
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                    <h4 className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--bp-ink-tertiary)' }}>
                       What Was Tested
                     </h4>
-                    <p className="text-sm text-foreground/90 leading-relaxed">{desc.scenario}</p>
+                    <p className="text-sm leading-relaxed" style={{ color: 'var(--bp-ink-primary)' }}>{desc.scenario}</p>
                   </div>
 
                   {/* Actions */}
                   <div>
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                    <h4 className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--bp-ink-tertiary)' }}>
                       What It Did
                     </h4>
                     <ul className="space-y-1">
                       {desc.actions.map((a, i) => (
-                        <li key={i} className="text-sm text-foreground/80 leading-relaxed flex gap-2">
-                          <span className="text-muted-foreground/50 shrink-0 mt-0.5 text-xs">{i + 1}.</span>
+                        <li key={i} className="text-sm leading-relaxed flex gap-2" style={{ color: 'var(--bp-ink-secondary)' }}>
+                          <span className="shrink-0 mt-0.5 text-xs" style={{ color: 'var(--bp-ink-muted)' }}>{i + 1}.</span>
                           <span>{a}</span>
                         </li>
                       ))}
@@ -719,35 +722,35 @@ function TestCard({ test, runId }: { test: TestResult; runId: string }) {
 
                   {/* Expected */}
                   <div>
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                    <h4 className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--bp-ink-tertiary)' }}>
                       What Should Happen
                     </h4>
-                    <p className="text-sm text-foreground/80 leading-relaxed">{desc.expected}</p>
+                    <p className="text-sm leading-relaxed" style={{ color: 'var(--bp-ink-secondary)' }}>{desc.expected}</p>
                   </div>
 
                   {/* Result */}
                   <div>
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                    <h4 className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--bp-ink-tertiary)' }}>
                       Result
                     </h4>
                     {test.status === "passed" ? (
                       <div className="flex items-start gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
-                        <p className="text-sm text-emerald-300/90 leading-relaxed">
+                        <CheckCircle2 className="w-4 h-4 text-[var(--bp-operational)] mt-0.5 shrink-0" />
+                        <p className="text-sm text-[var(--bp-operational)] leading-relaxed">
                           Passed — everything checked out. The numbers matched across pages as expected.
                         </p>
                       </div>
                     ) : test.status === "failed" ? (
                       <div className="flex items-start gap-2">
-                        <XCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-                        <p className="text-sm text-red-300/90 leading-relaxed">
+                        <XCircle className="w-4 h-4 text-[var(--bp-fault)] mt-0.5 shrink-0" />
+                        <p className="text-sm text-[var(--bp-fault)] leading-relaxed">
                           Failed — {desc.failHint}
                         </p>
                       </div>
                     ) : (
                       <div className="flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
-                        <p className="text-sm text-amber-300/90 leading-relaxed">
+                        <AlertTriangle className="w-4 h-4 text-[var(--bp-caution)] mt-0.5 shrink-0" />
+                        <p className="text-sm text-[var(--bp-caution)] leading-relaxed">
                           Skipped or unknown — test didn't run to completion.
                         </p>
                       </div>
@@ -757,11 +760,11 @@ function TestCard({ test, runId }: { test: TestResult; runId: string }) {
               ) : (
                 /* No catalog entry — show generic info */
                 <div className="flex flex-col items-center justify-center h-full text-center py-8">
-                  <AlertTriangle className="w-8 h-8 text-muted-foreground/30 mb-3" />
-                  <p className="text-sm text-muted-foreground">
+                  <AlertTriangle className="w-8 h-8 mb-3" style={{ color: 'var(--bp-ink-muted)', opacity: 0.4 }} />
+                  <p className="text-sm" style={{ color: 'var(--bp-ink-tertiary)' }}>
                     No description available for this test.
                   </p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">
+                  <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-muted)' }}>
                     Test: {test.name}
                   </p>
                 </div>
@@ -769,13 +772,13 @@ function TestCard({ test, runId }: { test: TestResult; runId: string }) {
 
               {/* Trace + download bar inside left panel */}
               {test.trace && test.testDir && (
-                <div className="flex items-center gap-2 pt-3 border-t border-border/20">
-                  <FileSearch className="w-3.5 h-3.5 text-amber-400/70" />
-                  <span className="text-xs text-muted-foreground flex-1">Trace Recording</span>
+                <div className="flex items-center gap-2 pt-3" style={{ borderTop: '1px solid var(--bp-border-subtle)' }}>
+                  <FileSearch className="w-3.5 h-3.5" style={{ color: 'var(--bp-caution)' }} />
+                  <span className="text-xs flex-1" style={{ color: 'var(--bp-ink-tertiary)' }}>Trace Recording</span>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 gap-1 text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+                    className="h-6 gap-1 text-xs text-[var(--bp-caution)] hover:text-[var(--bp-caution)] hover:bg-[var(--bp-caution-light)]"
                     onClick={(e) => { e.stopPropagation(); setTraceOpen(true); }}
                   >
                     <Maximize2 className="w-3 h-3" /> View Trace
@@ -783,7 +786,8 @@ function TestCard({ test, runId }: { test: TestResult; runId: string }) {
                   <a
                     href={aUrl(runId, test.testDir, test.trace)}
                     download
-                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    className="inline-flex items-center gap-1 text-xs transition-colors"
+                    style={{ color: 'var(--bp-ink-tertiary)' }}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Download className="w-3 h-3" />
@@ -797,8 +801,8 @@ function TestCard({ test, runId }: { test: TestResult; runId: string }) {
               {test.video && test.testDir ? (
                 <>
                   <div className="absolute top-2 left-3 z-10 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 backdrop-blur-sm">
-                    <FileVideo className="w-3 h-3 text-violet-300" />
-                    <span className="text-[10px] font-medium text-violet-200">Recording</span>
+                    <FileVideo className="w-3 h-3 text-[var(--bp-ink-tertiary)]" />
+                    <span className="text-[10px] font-medium text-[var(--bp-ink-muted)]">Recording</span>
                   </div>
                   <video
                     src={aUrl(runId, test.testDir, test.video)}
@@ -814,8 +818,8 @@ function TestCard({ test, runId }: { test: TestResult; runId: string }) {
               ) : test.screenshot && test.testDir ? (
                 <>
                   <div className="absolute top-2 left-3 z-10 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 backdrop-blur-sm">
-                    <Image className="w-3 h-3 text-blue-300" />
-                    <span className="text-[10px] font-medium text-blue-200">Screenshot</span>
+                    <Image className="w-3 h-3 text-[var(--bp-ink-tertiary)]" />
+                    <span className="text-[10px] font-medium text-[var(--bp-ink-muted)]">Screenshot</span>
                   </div>
                   <img
                     src={aUrl(runId, test.testDir, test.screenshot)}
@@ -826,7 +830,7 @@ function TestCard({ test, runId }: { test: TestResult; runId: string }) {
                   />
                 </>
               ) : (
-                <div className="flex flex-col items-center gap-2 text-muted-foreground/40 py-12">
+                <div className="flex flex-col items-center gap-2 py-12" style={{ color: 'var(--bp-ink-muted)' }}>
                   <FileVideo className="w-10 h-10" />
                   <span className="text-xs">No recording available</span>
                 </div>
@@ -855,29 +859,28 @@ function RunHistoryRow({ run, isLatest, isSelected, onSelect }: {
   const passRate = run.total > 0 ? Math.round((run.passed / run.total) * 100) : 0;
   return (
     <div
-      className={cn(
-        "flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer transition-all duration-150",
-        "hover:bg-accent/40",
-        isSelected && "bg-primary/10 border border-primary/30",
-        !isSelected && "border border-transparent",
-      )}
+      className="flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer transition-all duration-150"
+      style={{
+        background: isSelected ? 'var(--bp-copper-light)' : 'transparent',
+        border: isSelected ? '1px solid var(--bp-copper)' : '1px solid transparent',
+      }}
       onClick={onSelect}
     >
-      <div className={cn(
-        "w-2 h-2 rounded-full shrink-0",
-        passRate >= 80 ? "bg-emerald-400" : passRate >= 50 ? "bg-amber-400" : "bg-red-400",
-      )} />
-      <span className="text-xs font-mono text-foreground truncate flex-1">{run.runId}</span>
-      <span className="text-[10px] text-muted-foreground shrink-0">{formatTimestamp(run.timestamp)}</span>
-      <div className="flex items-center gap-1 text-[10px] tabular-nums shrink-0">
-        <span className="text-emerald-400">{run.passed}</span>
-        <span className="text-muted-foreground/40">/</span>
-        {run.failed > 0 && <span className="text-red-400">{run.failed}</span>}
-        {run.failed > 0 && <span className="text-muted-foreground/40">/</span>}
-        <span className="text-muted-foreground">{run.total}</span>
+      <div
+        className="w-2 h-2 rounded-full shrink-0"
+        style={{ backgroundColor: passRate >= 80 ? 'var(--bp-operational)' : passRate >= 50 ? 'var(--bp-caution)' : 'var(--bp-fault)' }}
+      />
+      <span className="text-xs truncate flex-1" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }}>{run.runId}</span>
+      <span className="text-[10px] shrink-0" style={{ color: 'var(--bp-ink-tertiary)' }}>{formatTimestamp(run.timestamp)}</span>
+      <div className="flex items-center gap-1 text-[10px] shrink-0" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ color: 'var(--bp-operational)' }}>{run.passed}</span>
+        <span style={{ color: 'var(--bp-ink-muted)' }}>/</span>
+        {run.failed > 0 && <span style={{ color: 'var(--bp-fault)' }}>{run.failed}</span>}
+        {run.failed > 0 && <span style={{ color: 'var(--bp-ink-muted)' }}>/</span>}
+        <span style={{ color: 'var(--bp-ink-tertiary)' }}>{run.total}</span>
       </div>
       {isLatest && (
-        <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary font-medium">NEW</span>
+        <span className="text-[9px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'var(--bp-copper-light)', color: 'var(--bp-copper)' }}>NEW</span>
       )}
     </div>
   );
@@ -947,16 +950,16 @@ export default function TestAudit() {
   const isRunning = auditStatus.status === "running";
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-300">
+    <div className="space-y-4 animate-in fade-in duration-300" style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
       {/* Header — full width */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20">
-            <Activity className="w-5 h-5 text-violet-400" />
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'var(--bp-copper-light)', border: '1px solid var(--bp-copper)' }}>
+            <Activity className="w-5 h-5" style={{ color: 'var(--bp-copper)' }} />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-foreground">Test Audit</h1>
-            <p className="text-xs text-muted-foreground">
+            <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: 32, color: 'var(--bp-ink-primary)', fontWeight: 400, lineHeight: 1.2 }}>Test Audit</h1>
+            <p className="text-xs" style={{ color: 'var(--bp-ink-secondary)' }}>
               Playwright cross-page consistency audit
               {selectedRun && ` — ${selectedRun.tests.length} tests`}
             </p>
@@ -964,9 +967,9 @@ export default function TestAudit() {
         </div>
         <div className="flex items-center gap-2">
           {isRunning && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 animate-pulse">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
-              <span className="text-xs font-medium text-blue-400">Running...</span>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full animate-pulse" style={{ background: 'var(--bp-copper-light)', border: '1px solid var(--bp-copper)' }}>
+              <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: 'var(--bp-copper)' }} />
+              <span className="text-xs font-medium" style={{ color: 'var(--bp-copper)' }}>Running...</span>
             </div>
           )}
           {history.length > 1 && (
@@ -985,7 +988,8 @@ export default function TestAudit() {
             onClick={triggerRun}
             disabled={isRunning || triggering}
             size="sm"
-            className="gap-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white border-0 shadow-lg shadow-violet-500/20"
+            className="gap-1.5 text-white border-0"
+            style={{ background: 'var(--bp-copper)', color: '#fff' }}
           >
             {isRunning ? (
               <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running</>
@@ -1003,20 +1007,20 @@ export default function TestAudit() {
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--bp-ink-muted)' }} />
         </div>
       ) : history.length === 0 ? (
-        <Card className="bg-card border-border/50">
+        <Card style={{ background: 'var(--bp-surface-1)', borderColor: 'var(--bp-border)' }}>
           <CardContent className="py-16 text-center">
-            <Activity className="w-12 h-12 mx-auto mb-4 text-muted-foreground/30" />
-            <h3 className="text-lg font-medium text-foreground mb-2">No audit runs yet</h3>
-            <p className="text-sm text-muted-foreground mb-6">
+            <Activity className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--bp-ink-muted)', opacity: 0.4 }} />
+            <h3 className="text-lg font-medium mb-2" style={{ color: 'var(--bp-ink-primary)' }}>No audit runs yet</h3>
+            <p className="text-sm mb-6" style={{ color: 'var(--bp-ink-tertiary)' }}>
               Click "Run Audit" to execute the Playwright test suite.
             </p>
             <Button
               onClick={triggerRun}
               disabled={isRunning || triggering}
-              className="gap-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white border-0"
+              className="gap-2 text-white border-0 bg-[var(--bp-copper)]"
             >
               <Play className="w-4 h-4" /> Run First Audit
             </Button>
@@ -1026,9 +1030,9 @@ export default function TestAudit() {
         <>
           {/* Run history panel — collapsible, full width */}
           {showHistory && (
-            <Card className="bg-card border-border/50">
+            <Card style={{ background: 'var(--bp-surface-1)', borderColor: 'var(--bp-border)' }}>
               <CardHeader className="pb-2 pt-3 px-4">
-                <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-2">
+                <CardTitle className="text-xs font-medium flex items-center gap-2" style={{ color: 'var(--bp-ink-tertiary)' }}>
                   <History className="w-3.5 h-3.5" /> Previous Runs
                 </CardTitle>
               </CardHeader>

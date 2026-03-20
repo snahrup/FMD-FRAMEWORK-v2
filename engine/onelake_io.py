@@ -366,5 +366,6 @@ class OneLakeIO:
             from deltalake import DeltaTable
             DeltaTable(uri, storage_options=storage_options)
             return True
-        except Exception:
+        except Exception as e:
+            log.debug("Delta table check failed for %s: %s", table_path, e)
             return False

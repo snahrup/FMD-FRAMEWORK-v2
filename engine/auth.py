@@ -16,8 +16,11 @@ Tokens are cached per scope with thread-safe refresh.
 """
 
 import json
+import logging
 import struct
 import threading
+
+log = logging.getLogger("fmd.auth")
 import urllib.parse
 import urllib.request
 from collections import namedtuple
@@ -130,7 +133,8 @@ class TokenProvider:
             try:
                 self.get_token(scope)
                 results[label] = True
-            except Exception:
+            except Exception as e:
+                log.warning("Token validation failed for %s: %s", label, e)
                 results[label] = False
         return results
 
@@ -181,6 +185,7 @@ class _OneLakeCredential:
             try:
                 self.get_token(scope)
                 results[label] = True
-            except Exception:
+            except Exception as e:
+                log.warning("Token validation failed for %s: %s", label, e)
                 results[label] = False
         return results

@@ -171,10 +171,10 @@ function friendlyLayerName(raw: string, technical: boolean): string {
 
 function HealthBadge({ health }: { health: string }) {
   const config: Record<string, { bg: string; text: string; label: string; dot: string }> = {
-    healthy: { bg: "bg-[var(--success-soft)]", text: "text-[var(--cl-success)]", label: "All Systems Operational", dot: "bg-[var(--cl-success)]" },
-    warning: { bg: "bg-[var(--warning-soft)]", text: "text-[var(--cl-warning)]", label: "Attention Needed", dot: "bg-[var(--cl-warning)]" },
-    critical: { bg: "bg-[var(--error-soft)]", text: "text-[var(--cl-error)]", label: "Issues Detected", dot: "bg-[var(--cl-error)]" },
-    setup: { bg: "bg-[var(--info-soft)]", text: "text-[var(--cl-info)]", label: "Initial Setup", dot: "bg-[var(--cl-info)]" },
+    healthy: { bg: "bg-[var(--bp-operational-light)]", text: "text-[var(--bp-operational)]", label: "All Systems Operational", dot: "bg-[var(--bp-operational)]" },
+    warning: { bg: "bg-[var(--bp-caution-light)]", text: "text-[var(--bp-caution)]", label: "Attention Needed", dot: "bg-[var(--bp-caution)]" },
+    critical: { bg: "bg-[var(--bp-fault-light)]", text: "text-[var(--bp-fault)]", label: "Issues Detected", dot: "bg-[var(--bp-fault)]" },
+    setup: { bg: "bg-[var(--bp-copper-light)]", text: "text-[var(--bp-copper)]", label: "Initial Setup", dot: "bg-[var(--bp-copper)]" },
     offline: { bg: "bg-muted", text: "text-muted-foreground", label: "Offline", dot: "bg-muted-foreground" },
   };
   const c = config[health] || config.offline;
@@ -191,11 +191,11 @@ function HealthBadge({ health }: { health: string }) {
 function ProgressBar({ value, max, color = "success" }: { value: number; max: number; color?: string }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
   const colors: Record<string, string> = {
-    success: "bg-[var(--cl-success)]",
-    warning: "bg-[var(--cl-warning)]",
-    info: "bg-[var(--cl-info)]",
+    success: "bg-[var(--bp-operational)]",
+    warning: "bg-[var(--bp-caution)]",
+    info: "bg-[var(--bp-copper)]",
     accent: "bg-primary",
-    error: "bg-[var(--cl-error)]",
+    error: "bg-[var(--bp-fault)]",
   };
   return (
     <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
@@ -272,7 +272,7 @@ function FlowNode({
           <p className="text-xs mt-1">
             <span className={cn(
               "font-semibold",
-              completion >= 95 ? "text-[var(--cl-success)]" : completion >= 80 ? "text-[var(--cl-warning)]" : "text-[var(--cl-error)]"
+              completion >= 95 ? "text-[var(--bp-operational)]" : completion >= 80 ? "text-[var(--bp-caution)]" : "text-[var(--bp-fault)]"
             )}>
               {fmtPct(completion)}
             </span>
@@ -331,7 +331,7 @@ function SourceCard({ source, technical }: { source: Source; technical: boolean 
               {layers.landing.completion !== undefined && layers.landing.completion > 0 && (
                 <span className={cn(
                   "ml-1.5 text-[10px]",
-                  layers.landing.completion >= 95 ? "text-[var(--cl-success)]" : layers.landing.completion >= 50 ? "text-[var(--cl-warning)]" : "text-[var(--cl-error)]"
+                  layers.landing.completion >= 95 ? "text-[var(--bp-operational)]" : layers.landing.completion >= 50 ? "text-[var(--bp-caution)]" : "text-[var(--bp-fault)]"
                 )}>
                   {fmtPct(layers.landing.completion)}
                 </span>
@@ -353,7 +353,7 @@ function SourceCard({ source, technical }: { source: Source; technical: boolean 
               {layers.bronze.completion !== undefined && layers.bronze.completion > 0 && (
                 <span className={cn(
                   "ml-1.5 text-[10px]",
-                  layers.bronze.completion >= 95 ? "text-[var(--cl-success)]" : layers.bronze.completion >= 50 ? "text-[var(--cl-warning)]" : "text-[var(--cl-error)]"
+                  layers.bronze.completion >= 95 ? "text-[var(--bp-operational)]" : layers.bronze.completion >= 50 ? "text-[var(--bp-caution)]" : "text-[var(--bp-fault)]"
                 )}>
                   {fmtPct(layers.bronze.completion)}
                 </span>
@@ -388,9 +388,9 @@ function SourceCard({ source, technical }: { source: Source; technical: boolean 
 
 function ActivityItem({ item, technical }: { item: PipelineActivity; technical: boolean }) {
   const statusConfig: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string }> = {
-    Succeeded: { icon: CheckCircle2, color: "text-[var(--cl-success)]" },
-    Failed: { icon: XCircle, color: "text-[var(--cl-error)]" },
-    InProgress: { icon: Loader2, color: "text-[var(--cl-info)]" },
+    Succeeded: { icon: CheckCircle2, color: "text-[var(--bp-operational)]" },
+    Failed: { icon: XCircle, color: "text-[var(--bp-fault)]" },
+    InProgress: { icon: Loader2, color: "text-[var(--bp-copper)]" },
   };
   const cfg = statusConfig[item.status] || { icon: Info, color: "text-muted-foreground" };
   const Icon = cfg.icon;
@@ -468,7 +468,7 @@ export default function ExecutiveDashboard() {
   if (error && !data) {
     return (
       <div className="flex flex-col items-center justify-center h-96 gap-4">
-        <XCircle className="h-12 w-12 text-[var(--cl-error)]" />
+        <XCircle className="h-12 w-12 text-[var(--bp-fault)]" />
         <p className="text-muted-foreground">Could not load dashboard data</p>
         <button
           onClick={fetchData}
@@ -499,11 +499,11 @@ export default function ExecutiveDashboard() {
   }));
 
   return (
-    <div className="space-y-6" style={{ contain: "layout style" }}>
+    <div className="space-y-6" style={{ contain: "layout style", padding: "32px", maxWidth: "1280px" }}>
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Data Pipeline Overview</h1>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>Data Pipeline Overview</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {data.dataSources} data sources &middot; {fmtNum(overview.totalEntities)} entities &middot; Updated {timeAgo(data.timestamp)}
           </p>
@@ -515,7 +515,7 @@ export default function ExecutiveDashboard() {
             className={cn(
               "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer border",
               technical
-                ? "bg-[var(--warning-soft)] border-[var(--cl-warning)]/30 text-[var(--cl-warning)]"
+                ? "bg-[var(--bp-caution-light)] border-[var(--bp-border)] text-[var(--bp-caution)]"
                 : "bg-card border-border/50 text-muted-foreground hover:text-foreground"
             )}
             title={technical ? "Showing technical names" : "Showing business names"}
@@ -550,14 +550,14 @@ export default function ExecutiveDashboard() {
           value={fmtPct(layers.bronze.completion ?? 0)}
           subtitle={`${fmtNum(layers.bronze.loaded ?? 0)} of ${fmtNum(layers.bronze.total)} entities loaded`}
           icon={Layers}
-          color="bg-[var(--cl-success)]"
+          color="bg-[var(--bp-operational)]"
         />
         <StatCard
           label={technical ? "Silver Processing" : "Data Cleansed"}
           value={fmtPct(layers.silver.completion ?? 0)}
           subtitle={`${fmtNum(layers.silver.loaded ?? 0)} of ${fmtNum(layers.silver.total)} entities loaded`}
           icon={HardDrive}
-          color="bg-[var(--cl-accent)]"
+          color="bg-[var(--bp-copper)]"
         />
         <StatCard
           label="Pipeline Success"
@@ -567,14 +567,14 @@ export default function ExecutiveDashboard() {
             : "No recent runs"
           }
           icon={Activity}
-          color={pipelineHealth.failed > 0 ? "bg-[var(--cl-warning)]" : "bg-[var(--cl-success)]"}
+          color={pipelineHealth.failed > 0 ? "bg-[var(--bp-caution)]" : "bg-[var(--bp-operational)]"}
         />
       </div>
 
       {/* ── Data Flow Pipeline ── */}
       <div className="bg-card backdrop-blur-sm border border-border/50 rounded-xl p-6">
         <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
-          <Zap className="h-4 w-4 text-[#AE5630]" />
+          <Zap className="h-4 w-4 text-[var(--bp-copper)]" />
           Data Flow
         </h2>
         <div className="flex items-stretch gap-0">
@@ -584,7 +584,7 @@ export default function ExecutiveDashboard() {
             total={layers.landing.total}
             rows={overview.rowCounts.landing}
             completion={layers.landing.completion}
-            color="bg-[var(--cl-info)]"
+            color="bg-[var(--bp-copper)]"
           />
           <FlowNode
             label={technical ? "Bronze Layer" : "Raw Data"}
@@ -592,7 +592,7 @@ export default function ExecutiveDashboard() {
             total={layers.bronze.total}
             rows={overview.rowCounts.bronze}
             completion={layers.bronze.completion}
-            color="bg-[var(--cl-warning)]"
+            color="bg-[var(--bp-caution)]"
           />
           <FlowNode
             label={technical ? "Silver Layer" : "Clean Data"}
@@ -600,7 +600,7 @@ export default function ExecutiveDashboard() {
             total={layers.silver.total}
             rows={overview.rowCounts.silver}
             completion={layers.silver.completion}
-            color="bg-[var(--cl-success)]"
+            color="bg-[var(--bp-operational)]"
             isLast
           />
         </div>
@@ -611,7 +611,7 @@ export default function ExecutiveDashboard() {
         {/* Sources */}
         <div className="lg:col-span-2">
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
-            <Database className="h-4 w-4 text-[var(--cl-info)]" />
+            <Database className="h-4 w-4 text-[var(--bp-copper)]" />
             Source Systems
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -626,7 +626,7 @@ export default function ExecutiveDashboard() {
         {/* Trends */}
         <div>
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-[var(--cl-success)]" />
+            <TrendingUp className="h-4 w-4 text-[var(--bp-operational)]" />
             Trend (24h)
           </h2>
           <div className="bg-card backdrop-blur-sm border border-border/50 rounded-xl p-4">
@@ -635,30 +635,31 @@ export default function ExecutiveDashboard() {
                 <AreaChart data={trendData}>
                   <defs>
                     <linearGradient id="colorBronze" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#5FB87A" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#5FB87A" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#3D7C4F" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#3D7C4F" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="colorSilver" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#AE5630" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#AE5630" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#B45624" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#B45624" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="time" tick={{ fontSize: 10 }} stroke="#666" />
-                  <YAxis tick={{ fontSize: 10 }} stroke="#666" />
+                  <XAxis dataKey="time" tick={{ fontSize: 10 }} stroke="var(--bp-ink-tertiary)" />
+                  <YAxis tick={{ fontSize: 10 }} stroke="var(--bp-ink-tertiary)" />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "var(--bg-surface, #1F1E1B)",
-                      border: "1px solid var(--cl-border, rgba(108,106,96,0.25))",
-                      borderRadius: "var(--radius-md, 8px)",
+                      backgroundColor: "#FEFDFB",
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      borderRadius: "8px",
                       fontSize: "12px",
-                      color: "var(--text-primary, #EEE)",
                     }}
+                    labelStyle={{ color: "#1C1917", fontWeight: 600 }}
+                    itemStyle={{ color: "#57534E" }}
                   />
                   <Area
                     type="monotone"
                     dataKey="bronze"
                     name={technical ? "Bronze" : "Ingested"}
-                    stroke="#5FB87A"
+                    stroke="#3D7C4F"
                     fillOpacity={1}
                     fill="url(#colorBronze)"
                   />
@@ -666,7 +667,7 @@ export default function ExecutiveDashboard() {
                     type="monotone"
                     dataKey="silver"
                     name={technical ? "Silver" : "Cleansed"}
-                    stroke="#AE5630"
+                    stroke="#B45624"
                     fillOpacity={1}
                     fill="url(#colorSilver)"
                   />
@@ -686,7 +687,7 @@ export default function ExecutiveDashboard() {
                 <span className="text-muted-foreground">Pipeline success rate (24h)</span>
                 <span className={cn(
                   "font-semibold",
-                  (trends.pipelineRate?.successRate ?? 0) >= 80 ? "text-[var(--cl-success)]" : "text-[var(--cl-warning)]"
+                  (trends.pipelineRate?.successRate ?? 0) >= 80 ? "text-[var(--bp-operational)]" : "text-[var(--bp-caution)]"
                 )}>
                   {trends.pipelineRate?.total ? fmtPct(trends.pipelineRate.successRate) : "—"}
                 </span>
@@ -708,7 +709,7 @@ export default function ExecutiveDashboard() {
         {/* Activity Timeline */}
         <div className="bg-card backdrop-blur-sm border border-border/50 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-            <Clock className="h-4 w-4 text-[var(--cl-info)]" />
+            <Clock className="h-4 w-4 text-[var(--bp-copper)]" />
             Recent Activity
           </h2>
           {recentActivity.length > 0 ? (
@@ -725,14 +726,14 @@ export default function ExecutiveDashboard() {
         {/* Issues / Attention */}
         <div className="bg-card backdrop-blur-sm border border-border/50 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-[var(--cl-warning)]" />
+            <AlertTriangle className="h-4 w-4 text-[var(--bp-caution)]" />
             Attention Needed
           </h2>
           {issues.length > 0 ? (
             <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
               {issues.map((issue, i) => (
-                <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-[var(--error-soft)] border border-[var(--cl-error)]/10">
-                  <XCircle className="h-4 w-4 text-[var(--cl-error)] mt-0.5 flex-shrink-0" />
+                <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-[var(--bp-fault-light)] border border-[var(--bp-border-subtle)]">
+                  <XCircle className="h-4 w-4 text-[var(--bp-fault)] mt-0.5 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-foreground">
                       {technical ? issue.pipeline : FRIENDLY_PIPELINE_NAMES[issue.pipeline] || issue.pipeline}
@@ -747,7 +748,7 @@ export default function ExecutiveDashboard() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-              <CheckCircle2 className="h-10 w-10 text-[var(--cl-success)]/50 mb-2" />
+              <CheckCircle2 className="h-10 w-10 text-[var(--bp-operational)] opacity-50 mb-2" />
               <p className="text-sm">No issues in the last hour</p>
             </div>
           )}

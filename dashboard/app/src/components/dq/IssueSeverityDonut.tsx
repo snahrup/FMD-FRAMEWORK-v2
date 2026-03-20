@@ -15,9 +15,9 @@ interface IssueSeverityDonutProps {
 }
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: "#ef4444",
-  warning: "#f59e0b",
-  info: "#38bdf8",
+  critical: "#B93A2A",
+  warning: "#C27A1A",
+  info: "#B45624",
 };
 
 const SEVERITY_LABELS: Record<string, string> = {
@@ -48,7 +48,7 @@ export function IssueSeverityDonut({
     return (
       <div className={`flex items-center justify-center ${className}`} style={{ width: size, height: size }}>
         <div className="text-center">
-          <div className="text-lg font-bold text-emerald-400">0</div>
+          <div className="text-lg font-bold text-[#3D7C4F]">0</div>
           <div className="text-[10px] text-muted-foreground">issues</div>
         </div>
       </div>

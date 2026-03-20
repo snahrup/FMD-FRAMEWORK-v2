@@ -21,14 +21,14 @@ export function ColumnQualityBar({
       <div className="flex-1 h-2 rounded-full overflow-hidden bg-muted flex">
         {valid > 0 && (
           <div
-            className="h-full bg-emerald-500 transition-all duration-500"
+            className="h-full bg-[#3D7C4F] transition-all duration-500"
             style={{ width: `${valid}%` }}
             title={`Valid: ${valid.toFixed(1)}%`}
           />
         )}
         {invalid > 0 && (
           <div
-            className="h-full bg-red-500 transition-all duration-500"
+            className="h-full bg-[#B93A2A] transition-all duration-500"
             style={{ width: `${invalid}%` }}
             title={`Invalid: ${invalid.toFixed(1)}%`}
           />

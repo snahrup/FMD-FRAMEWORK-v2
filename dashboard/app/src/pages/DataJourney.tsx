@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
+import StrataBar from "@/components/data/StrataBar";
+import LayerStatusDot, { normalizeStatus } from "@/components/data/LayerStatusDot";
 import {
   Search,
   RefreshCw,
@@ -24,20 +26,22 @@ import {
   Minus,
   BarChart3,
   Columns3,
+  AlertTriangle,
+  Beaker,
 } from "lucide-react";
 
 // ============================================================================
-// CONSTANTS
+// CONSTANTS — BP palette for medallion layers
 // ============================================================================
 
 const API = "/api";
 
 const LAYERS = [
-  { key: "source",  label: "Source",       color: "#64748b", icon: Database,  bg: "bg-slate-500/10",   border: "border-slate-500/30" },
-  { key: "landing", label: "Landing Zone", color: "#3b82f6", icon: HardDrive, bg: "bg-blue-500/10",    border: "border-blue-500/30" },
-  { key: "bronze",  label: "Bronze",       color: "#f59e0b", icon: Table2,    bg: "bg-amber-500/10",   border: "border-amber-500/30" },
-  { key: "silver",  label: "Silver",       color: "#8b5cf6", icon: Sparkles,  bg: "bg-violet-500/10",  border: "border-violet-500/30" },
-  { key: "gold",    label: "Gold",         color: "#10b981", icon: Crown,     bg: "bg-emerald-500/10", border: "border-emerald-500/30" },
+  { key: "source",  label: "Source",       color: "var(--bp-ink-muted)",     hex: "#A8A29E", icon: Database,  bg: "bg-[var(--bp-surface-inset)]", border: "border-[var(--bp-border)]" },
+  { key: "landing", label: "Landing Zone", color: "var(--bp-ink-muted)",     hex: "#A8A29E", icon: HardDrive, bg: "bg-[var(--bp-surface-inset)]", border: "border-[var(--bp-border)]" },
+  { key: "bronze",  label: "Bronze",       color: "#9A4A1F",                hex: "#9A4A1F", icon: Table2,    bg: "bg-[#EDCFBD]",                 border: "border-[var(--bp-border)]" },
+  { key: "silver",  label: "Silver",       color: "#475569",                hex: "#475569", icon: Sparkles,  bg: "bg-[#E2E8F0]",                 border: "border-[var(--bp-border)]" },
+  { key: "gold",    label: "Gold",         color: "var(--bp-operational)",   hex: "#3D7C4F", icon: Crown,     bg: "bg-[var(--bp-operational-light)]", border: "border-[var(--bp-border)]" },
 ];
 
 // ============================================================================
@@ -81,6 +85,7 @@ interface JourneyData {
     entityId: number;
     fileName: string;
     filePath: string;
+    onelakeSchema?: string;
     fileType: string;
     lakehouse: string;
     isIncremental: boolean;
@@ -91,6 +96,7 @@ interface JourneyData {
   bronze: {
     entityId: number;
     schema: string;
+    onelakeSchema?: string;
     name: string;
     primaryKeys: string | null;
     fileType: string;
@@ -102,6 +108,7 @@ interface JourneyData {
   silver: {
     entityId: number;
     schema: string;
+    onelakeSchema?: string;
     name: string;
     fileType: string;
     lakehouse: string;
@@ -124,7 +131,7 @@ async function fetchJson<T>(path: string): Promise<T> {
 }
 
 function fmt(n: number | null | undefined): string {
-  if (n == null) return "—";
+  if (n == null) return "\u2014";
   return n.toLocaleString("en-US");
 }
 
@@ -150,10 +157,9 @@ function LayerTimeline({ data }: { data: JourneyData }) {
   return (
     <div className="flex items-center gap-0 w-full overflow-x-auto py-4 px-2">
       {LAYERS.map((layer, i) => {
-        const reached = i <= maxIdx + 1; // source is always "reached"
-        const Icon = layer.icon;
         const isActive = i <= maxIdx + 1;
         const isCurrent = layer.key === maxLayer;
+        const Icon = layer.icon;
 
         // Per-node stats
         let label2 = "";
@@ -166,10 +172,10 @@ function LayerTimeline({ data }: { data: JourneyData }) {
           label3 = data.landing.fileType;
         } else if (layer.key === "bronze" && data.bronze) {
           label2 = `${data.bronze.schema}.${data.bronze.name}`;
-          label3 = `${fmt(data.bronze.rowCount)} rows · ${data.bronze.columnCount} cols`;
+          label3 = `${fmt(data.bronze.rowCount)} rows \u00b7 ${data.bronze.columnCount} cols`;
         } else if (layer.key === "silver" && data.silver) {
           label2 = `${data.silver.schema}.${data.silver.name}`;
-          label3 = `${fmt(data.silver.rowCount)} rows · ${data.silver.columnCount} cols`;
+          label3 = `${fmt(data.silver.rowCount)} rows \u00b7 ${data.silver.columnCount} cols`;
         }
 
         return (
@@ -183,38 +189,39 @@ function LayerTimeline({ data }: { data: JourneyData }) {
               <div
                 className={`w-10 h-10 rounded-xl flex items-center justify-center border-2 transition-all duration-300 ${
                   isCurrent
-                    ? "ring-2 ring-offset-2 ring-offset-background scale-110"
+                    ? "ring-2 ring-offset-2 scale-110"
                     : ""
                 }`}
                 style={{
-                  borderColor: isActive ? layer.color : "rgba(128,128,128,0.2)",
-                  backgroundColor: isActive ? `${layer.color}15` : "transparent",
-                  ...(isCurrent ? { ringColor: layer.color } : {}),
+                  borderColor: isActive ? layer.hex : "rgba(128,128,128,0.2)",
+                  backgroundColor: isActive ? `${layer.hex}15` : "transparent",
+                  ringColor: isCurrent ? layer.hex : undefined,
+                  ...(isCurrent ? { ringColor: layer.hex, ["--tw-ring-offset-color" as string]: "var(--bp-canvas)" } : {}),
                 }}
               >
                 <Icon
                   className="w-5 h-5"
-                  style={{ color: isActive ? layer.color : "rgba(128,128,128,0.3)" }}
+                  style={{ color: isActive ? layer.hex : "rgba(128,128,128,0.3)" }}
                 />
               </div>
               <span
                 className="text-[10px] font-semibold uppercase tracking-wider"
-                style={{ color: isActive ? layer.color : "rgba(128,128,128,0.3)" }}
+                style={{ color: isActive ? layer.hex : "rgba(128,128,128,0.3)" }}
               >
                 {layer.label}
               </span>
               {label2 && (
-                <span className="text-[10px] font-mono text-muted-foreground truncate max-w-[160px]" title={label2}>
+                <span className="text-[10px] truncate max-w-[160px]" title={label2} style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-secondary)" }}>
                   {label2}
                 </span>
               )}
               {label3 && (
-                <span className="text-[9px] text-muted-foreground/60 truncate max-w-[160px]">
+                <span className="text-[9px] truncate max-w-[160px]" style={{ color: "var(--bp-ink-muted)" }}>
                   {label3}
                 </span>
               )}
               {!isActive && i > 1 && (
-                <span className="text-[9px] text-muted-foreground/30 italic">pending</span>
+                <span className="text-[9px] italic" style={{ color: "var(--bp-ink-muted)", opacity: 0.5 }}>pending</span>
               )}
             </div>
 
@@ -226,7 +233,7 @@ function LayerTimeline({ data }: { data: JourneyData }) {
                   style={{
                     background:
                       i < maxIdx + 1
-                        ? `repeating-linear-gradient(90deg, ${layer.color} 0px, ${layer.color} 6px, transparent 6px, transparent 10px)`
+                        ? `repeating-linear-gradient(90deg, ${layer.hex} 0px, ${layer.hex} 6px, transparent 6px, transparent 10px)`
                         : "repeating-linear-gradient(90deg, rgba(128,128,128,0.15) 0px, rgba(128,128,128,0.15) 4px, transparent 4px, transparent 8px)",
                     backgroundSize: i < maxIdx + 1 ? "16px 2px" : "8px 2px",
                     animation: i < maxIdx + 1 ? "flowDash 1s linear infinite" : "none",
@@ -235,7 +242,7 @@ function LayerTimeline({ data }: { data: JourneyData }) {
                 <ArrowRight
                   className="w-3 h-3 -ml-1 flex-shrink-0"
                   style={{
-                    color: i < maxIdx + 1 ? LAYERS[i + 1].color : "rgba(128,128,128,0.15)",
+                    color: i < maxIdx + 1 ? LAYERS[i + 1].hex : "rgba(128,128,128,0.15)",
                   }}
                 />
               </div>
@@ -264,22 +271,23 @@ function TransitionCard({
 
   return (
     <div
-      className={`rounded-xl border p-4 transition-all duration-300 ${
-        reached
-          ? "bg-card/80 border-border/50"
-          : "bg-card/20 border-border/20 opacity-40"
-      }`}
+      className="rounded-xl p-4 transition-all duration-300"
+      style={{
+        border: reached ? "1px solid var(--bp-border)" : "1px solid rgba(0,0,0,0.04)",
+        backgroundColor: reached ? "var(--bp-surface-1)" : "var(--bp-surface-2)",
+        opacity: reached ? 1 : 0.4,
+      }}
     >
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: fromLayer.color }}>
+        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: fromLayer.hex }}>
           {fromLayer.label}
         </span>
-        <ArrowRight className="w-3 h-3 text-muted-foreground/40" />
-        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: toLayer.color }}>
+        <ArrowRight className="w-3 h-3" style={{ color: "var(--bp-ink-muted)" }} />
+        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: toLayer.hex }}>
           {toLayer.label}
         </span>
       </div>
-      <div className="space-y-2 text-sm text-muted-foreground">{children}</div>
+      <div className="space-y-2 text-sm" style={{ color: "var(--bp-ink-secondary)" }}>{children}</div>
     </div>
   );
 }
@@ -288,24 +296,27 @@ function TransitionCard({
 function Stat({ icon: Icon, label, value, color }: { icon: React.ElementType; label: string; value: string; color?: string }) {
   return (
     <div className="flex items-center gap-2">
-      <Icon className="w-3.5 h-3.5 text-muted-foreground/50" />
-      <span className="text-muted-foreground/70 text-xs">{label}:</span>
-      <span className={`text-xs font-medium ${color || "text-foreground"}`}>{value}</span>
+      <Icon className="w-3.5 h-3.5" style={{ color: "var(--bp-ink-muted)" }} />
+      <span className="text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>{label}:</span>
+      <span className={`text-xs font-medium ${color || ""}`} style={!color ? { color: "var(--bp-ink-primary)" } : undefined}>{value}</span>
     </div>
   );
 }
 
 /** Schema diff status badge */
 function DiffBadge({ status }: { status: string }) {
-  const styles: Record<string, { label: string; cls: string }> = {
-    unchanged: { label: "Match", cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
-    type_changed: { label: "Type Changed", cls: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
-    added_in_silver: { label: "+ Silver", cls: "bg-violet-500/10 text-violet-400 border-violet-500/20" },
-    bronze_only: { label: "Bronze Only", cls: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+  const styles: Record<string, { label: string; bgColor: string; textColor: string; borderColor: string }> = {
+    unchanged:       { label: "Match",         bgColor: "var(--bp-operational-light)", textColor: "var(--bp-operational)", borderColor: "rgba(61,124,79,0.2)" },
+    type_changed:    { label: "Type Changed",  bgColor: "var(--bp-caution-light)",     textColor: "var(--bp-caution)",     borderColor: "rgba(194,122,26,0.2)" },
+    added_in_silver: { label: "+ Silver",      bgColor: "#E2E8F0",                    textColor: "#475569",               borderColor: "rgba(71,85,105,0.2)" },
+    bronze_only:     { label: "Bronze Only",   bgColor: "#EDCFBD",                    textColor: "#9A4A1F",               borderColor: "rgba(154,74,31,0.2)" },
   };
   const s = styles[status] || styles.unchanged;
   return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${s.cls}`}>
+    <span
+      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium"
+      style={{ backgroundColor: s.bgColor, color: s.textColor, border: `1px solid ${s.borderColor}` }}
+    >
       {s.label}
     </span>
   );
@@ -316,24 +327,34 @@ function ProfilePanel({
   lakehouse,
   schema,
   table,
-  layerColor,
+  layer,
 }: {
   lakehouse: string;
   schema: string;
   table: string;
-  layerColor: string;
+  layer: "landing" | "bronze" | "silver";
 }) {
-  const layer = layerColor === "#f59e0b" ? "bronze" : layerColor === "#8b5cf6" ? "silver" : "landing";
-  const profileUrl = `/profile?lakehouse=${encodeURIComponent(lakehouse)}&schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}&layer=${layer}`;
+  const profileUrl = `/profile?lakehouse=${encodeURIComponent(lakehouse)}&schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}&layer=${encodeURIComponent(layer)}`;
+
+  const blenderUrl = `/blender?table=${encodeURIComponent(table)}&schema=${encodeURIComponent(schema)}&layer=${encodeURIComponent(layer)}`;
 
   return (
-    <div className="mt-3">
+    <div className="mt-3 flex items-center gap-2">
       <Link
         to={profileUrl}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border/50 bg-card text-[10px] font-medium text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors"
+        style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", color: "var(--bp-ink-secondary)" }}
       >
         <BarChart3 className="w-3 h-3" />
         Profile Columns
+      </Link>
+      <Link
+        to={blenderUrl}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors"
+        style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", color: "var(--bp-ink-secondary)" }}
+      >
+        <Beaker className="w-3 h-3" />
+        Profile in Blender
       </Link>
     </div>
   );
@@ -387,7 +408,6 @@ export default function DataJourney() {
     if (entityIdParam && /^\d+$/.test(entityIdParam)) {
       loadJourney(parseInt(entityIdParam, 10));
     } else if (tableParam && entities.length > 0) {
-      // Reverse lookup: find entity by table name
       const match = entities.find(
         (e) =>
           e.tableName.toLowerCase() === tableParam.toLowerCase() &&
@@ -425,14 +445,13 @@ export default function DataJourney() {
     );
   }, [entities, searchQuery]);
 
-  // Group entities by source (friendly label)
+  // Group entities by source
   const groupedEntities = useMemo(() => {
     const groups: Record<string, DigestEntity[]> = {};
     filteredEntities.forEach((e) => {
       const key = e.source || "Unknown";
       (groups[key] ||= []).push(e);
     });
-    // Sort groups alphabetically
     return Object.fromEntries(Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)));
   }, [filteredEntities]);
 
@@ -464,15 +483,15 @@ export default function DataJourney() {
   const selectedEntity = entities.find((e) => String(e.id) === entityIdParam);
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="h-full flex flex-col" style={{ backgroundColor: "var(--bp-canvas)" }}>
       {/* Header */}
-      <div className="flex-shrink-0 border-b border-border/50 bg-card px-6 py-4" style={{ zIndex: 100, position: "relative" }}>
+      <div className="flex-shrink-0 px-6 py-4" style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", zIndex: 100, position: "relative" }}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <GitBranch className="w-5 h-5 text-primary" />
-            <h1 className="font-display text-lg font-semibold">Data Journey</h1>
+            <GitBranch className="w-5 h-5" style={{ color: "var(--bp-copper)" }} />
+            <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Data Journey</h1>
             {journey && (
-              <span className="text-muted-foreground text-sm">
+              <span className="text-sm" style={{ color: "var(--bp-ink-secondary)" }}>
                 — {journey.source.namespace || journey.source.dataSourceName}: {journey.landing.fileName || journey.source.name}
               </span>
             )}
@@ -480,7 +499,8 @@ export default function DataJourney() {
           {journey && (
             <button
               onClick={() => loadJourney(journey.entityId)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors"
+              style={{ border: "1px solid var(--bp-border)", color: "var(--bp-ink-secondary)" }}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
               Refresh
@@ -488,18 +508,18 @@ export default function DataJourney() {
           )}
         </div>
 
-        {/* Entity Selector — proper combobox dropdown */}
+        {/* Entity Selector */}
         <div ref={selectorRef} className="relative max-w-2xl">
-          {/* Trigger button / search input */}
           <div
-            className={`flex items-center border rounded-lg transition-colors cursor-pointer ${
-              dropdownOpen
-                ? "border-primary/50 bg-card/80 ring-1 ring-primary/20"
-                : "border-border/50 bg-card hover:border-border"
-            }`}
+            className="flex items-center rounded-lg transition-colors cursor-pointer"
+            style={{
+              border: dropdownOpen ? "1px solid var(--bp-copper)" : "1px solid var(--bp-border)",
+              backgroundColor: dropdownOpen ? "var(--bp-surface-1)" : "var(--bp-surface-1)",
+              ...(dropdownOpen ? { boxShadow: "0 0 0 1px rgba(180,86,36,0.2)" } : {}),
+            }}
             onClick={() => !dropdownOpen && setDropdownOpen(true)}
           >
-            <Search className="w-4 h-4 text-muted-foreground/50 ml-3 flex-shrink-0" />
+            <Search className="w-4 h-4 ml-3 flex-shrink-0" style={{ color: "var(--bp-ink-muted)" }} />
             {dropdownOpen ? (
               <input
                 type="text"
@@ -507,19 +527,20 @@ export default function DataJourney() {
                 placeholder={listLoading ? "Loading entities..." : `Filter ${entities.length} entities...`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-3 py-2.5 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 outline-none"
+                className="w-full px-3 py-2.5 bg-transparent text-sm outline-none"
+                style={{ color: "var(--bp-ink-primary)", fontFamily: "var(--bp-font-body)" }}
               />
             ) : (
               <div className="w-full px-3 py-2.5 text-sm">
                 {selectedEntity ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--bp-copper-light)", color: "var(--bp-copper)", border: "1px solid rgba(180,86,36,0.2)" }}>
                       {selectedEntity.source}
                     </span>
-                    <span className="font-mono text-foreground">{selectedEntity.tableName}</span>
+                    <span style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)" }}>{selectedEntity.tableName}</span>
                   </div>
                 ) : (
-                  <span className="text-muted-foreground/40">Select an entity...</span>
+                  <span style={{ color: "var(--bp-ink-muted)" }}>Select an entity...</span>
                 )}
               </div>
             )}
@@ -532,24 +553,25 @@ export default function DataJourney() {
                   setJourney(null);
                   setSearchQuery("");
                 }}
-                className="mr-2 text-muted-foreground/40 hover:text-muted-foreground"
+                className="mr-2"
+                style={{ color: "var(--bp-ink-muted)" }}
               >
                 <XCircle className="w-4 h-4" />
               </button>
             )}
-            <ChevronDown className={`w-4 h-4 text-muted-foreground/40 mr-3 flex-shrink-0 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
+            <ChevronDown className={`w-4 h-4 mr-3 flex-shrink-0 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} style={{ color: "var(--bp-ink-muted)" }} />
           </div>
 
           {/* Dropdown list */}
           {dropdownOpen && !listLoading && (
-            <div className="absolute z-[200] mt-1 w-full max-h-[60vh] overflow-y-auto rounded-lg border border-border/50 bg-popover shadow-2xl">
+            <div className="absolute z-[200] mt-1 w-full max-h-[60vh] overflow-y-auto rounded-lg shadow-2xl" style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
               {Object.entries(groupedEntities).map(([source, items]) => (
                 <div key={source}>
-                  <div className="sticky top-0 px-3 py-2 bg-muted/80 backdrop-blur-sm border-b border-border/20 flex items-center justify-between">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+                  <div className="sticky top-0 px-3 py-2 backdrop-blur-sm flex items-center justify-between" style={{ backgroundColor: "var(--bp-surface-inset)", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--bp-copper)" }}>
                       {source}
                     </span>
-                    <span className="text-[10px] text-muted-foreground/40">{items.length} entities</span>
+                    <span className="text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>{items.length} entities</span>
                   </div>
                   {items.map((e) => {
                     const idStr = String(e.id);
@@ -557,19 +579,20 @@ export default function DataJourney() {
                       <button
                         key={idStr}
                         onClick={() => selectEntity(idStr)}
-                        className={`w-full text-left px-3 py-2 hover:bg-primary/5 transition-colors flex items-center justify-between gap-2 ${
-                          entityIdParam === idStr ? "bg-primary/10 border-l-2 border-primary" : ""
-                        }`}
+                        className="w-full text-left px-3 py-2 transition-colors flex items-center justify-between gap-2"
+                        style={{
+                          ...(entityIdParam === idStr ? { backgroundColor: "var(--bp-copper-light)", borderLeft: "2px solid var(--bp-copper)" } : {}),
+                        }}
                       >
                         <div className="min-w-0 flex items-center gap-2">
-                          <span className="text-sm font-mono text-foreground truncate">
+                          <span className="text-sm truncate" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)" }}>
                             {e.tableName}
                           </span>
                           {e.sourceSchema !== "dbo" && (
-                            <span className="text-[10px] text-muted-foreground/40 flex-shrink-0">{e.sourceSchema}</span>
+                            <span className="text-[10px] flex-shrink-0" style={{ color: "var(--bp-ink-muted)" }}>{e.sourceSchema}</span>
                           )}
                         </div>
-                        <span className="text-[10px] text-muted-foreground/30 flex-shrink-0">
+                        <span className="text-[10px] flex-shrink-0" style={{ color: "var(--bp-ink-muted)", opacity: 0.5 }}>
                           #{idStr}
                         </span>
                       </button>
@@ -578,7 +601,7 @@ export default function DataJourney() {
                 </div>
               ))}
               {Object.keys(groupedEntities).length === 0 && (
-                <div className="px-3 py-6 text-center text-sm text-muted-foreground/40">
+                <div className="px-3 py-6 text-center text-sm" style={{ color: "var(--bp-ink-muted)" }}>
                   No entities match "{searchQuery}"
                 </div>
               )}
@@ -590,33 +613,114 @@ export default function DataJourney() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {loading && (
-          <div className="flex items-center justify-center h-64 gap-2 text-muted-foreground">
+          <div className="flex items-center justify-center h-64 gap-2" style={{ color: "var(--bp-ink-secondary)" }}>
             <Loader2 className="w-5 h-5 animate-spin" />
             <span className="text-sm">Loading entity journey...</span>
           </div>
         )}
 
         {error && (
-          <div className="flex items-center justify-center h-64 gap-2 text-red-400">
+          <div className="flex items-center justify-center h-64 gap-2" style={{ color: "var(--bp-fault)" }}>
             <XCircle className="w-5 h-5" />
             <span className="text-sm">{error}</span>
           </div>
         )}
 
         {!loading && !error && !journey && (
-          <div className="flex flex-col items-center justify-center h-64 gap-3 text-muted-foreground/40">
+          <div className="flex flex-col items-center justify-center h-64 gap-3" style={{ color: "var(--bp-ink-muted)" }}>
             <GitBranch className="w-10 h-10" />
             <p className="text-sm">Select an entity above to trace its data journey</p>
-            <p className="text-xs">See how your data transforms through Source → Landing → Bronze → Silver → Gold</p>
+            <p className="text-xs">See how your data transforms through Source &rarr; Landing &rarr; Bronze &rarr; Silver &rarr; Gold</p>
           </div>
         )}
 
         {journey && !loading && (
           <div className="p-6 space-y-6 max-w-6xl mx-auto">
             {/* Layer Timeline */}
-            <div className="rounded-xl border border-border/30 bg-card backdrop-blur-sm p-4">
+            <div className="rounded-xl p-4" style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
               <LayerTimeline data={journey} />
             </div>
+
+            {/* Entity Status Strip — StrataBar + pipeline status dots + root cause */}
+            {selectedEntity && (
+              <div className="rounded-xl p-4" style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
+                <div className="flex items-center gap-6">
+                  {/* Strata bar */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
+                        Layer Presence
+                      </span>
+                    </div>
+                    <StrataBar
+                      lz={journey.bronze?.rowCount ?? (journey.landing ? 1 : null)}
+                      bronze={journey.bronze?.rowCount ?? null}
+                      silver={journey.silver?.rowCount ?? null}
+                      mode="count"
+                      size="lg"
+                      showLabels
+                    />
+                  </div>
+
+                  {/* Pipeline status dots */}
+                  <div style={{ flexShrink: 0 }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
+                        Pipeline Status
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <LayerStatusDot status={normalizeStatus(selectedEntity.lzStatus)} size="md" label="LZ" />
+                      <LayerStatusDot status={normalizeStatus(selectedEntity.bronzeStatus)} size="md" label="Bronze" />
+                      <LayerStatusDot status={normalizeStatus(selectedEntity.silverStatus)} size="md" label="Silver" />
+                    </div>
+                  </div>
+
+                  {/* Cross-page links */}
+                  <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                    <Link
+                      to={`/record-counts?search=${encodeURIComponent(selectedEntity.tableName)}`}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors"
+                      style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", color: "var(--bp-ink-secondary)" }}
+                    >
+                      <BarChart3 className="w-3 h-3" /> View Counts
+                    </Link>
+                    <Link
+                      to={`/blender?table=${encodeURIComponent(selectedEntity.tableName)}&schema=${encodeURIComponent(selectedEntity.onelakeSchema || selectedEntity.sourceSchema)}`}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors"
+                      style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", color: "var(--bp-ink-secondary)" }}
+                    >
+                      <Beaker className="w-3 h-3" /> Profile in Blender
+                    </Link>
+                  </div>
+                </div>
+
+                {/* Root cause trace — only show when there's an error */}
+                {selectedEntity.lastError && (
+                  <div className="mt-3 p-3 rounded-lg" style={{ backgroundColor: "var(--bp-fault-light)", border: "1px solid rgba(185,58,42,0.2)" }}>
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--bp-fault)" }} />
+                      <div>
+                        <span className="text-xs font-semibold" style={{ color: "var(--bp-fault)" }}>
+                          Root Cause: {selectedEntity.lastError.layer} layer failure
+                        </span>
+                        <p className="text-xs mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
+                          {selectedEntity.lastError.message}
+                        </p>
+                        <span className="text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>
+                          {selectedEntity.lastError.time ? new Date(selectedEntity.lastError.time).toLocaleString() : ""}
+                        </span>
+                        {selectedEntity.diagnosis && (
+                          <p className="text-xs mt-1 italic" style={{ color: "var(--bp-ink-tertiary)" }}>
+                            Diagnosis: {selectedEntity.diagnosis}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Transition Cards */}
             <div className="grid gap-4">
@@ -624,15 +728,15 @@ export default function DataJourney() {
               <TransitionCard from="source" to="landing" reached={true}>
                 <Stat icon={FileText} label="Load Type" value={journey.landing.isIncremental ? "Incremental" : "Full Load"} />
                 <Stat icon={FileText} label="Format" value={journey.landing.fileType || "PARQUET"} />
-                <Stat icon={FileText} label="Path" value={journey.landing.filePath || "—"} />
+                <Stat icon={FileText} label="Path" value={journey.landing.filePath || "\u2014"} />
                 <Stat icon={Database} label="Connection" value={`${journey.source.connectionName} (${journey.source.connectionType})`} />
                 {journey.landing.isIncremental && journey.landing.incrementalColumn && (
                   <Stat icon={ArrowUpDown} label="Watermark Column" value={journey.landing.incrementalColumn} />
                 )}
                 {journey.landing.customSelect && (
-                  <Stat icon={FileText} label="Custom SQL" value="Yes — custom SELECT query" />
+                  <Stat icon={FileText} label="Custom SQL" value="Yes \u2014 custom SELECT query" />
                 )}
-                <p className="text-xs text-muted-foreground/50 mt-1 italic">
+                <p className="text-xs mt-1 italic" style={{ color: "var(--bp-ink-muted)" }}>
                   Raw data extracted from {journey.source.schema}.{journey.source.name} via {journey.source.connectionType} gateway,
                   saved as {journey.landing.fileType?.toLowerCase() || "parquet"} file in {journey.landing.lakehouse}.
                 </p>
@@ -643,11 +747,11 @@ export default function DataJourney() {
                 {journey.bronze ? (
                   <>
                     <Stat icon={Key} label="Primary Keys" value={journey.bronze.primaryKeys || "None specified"} />
-                    <Stat icon={FileText} label="Format" value={`${journey.landing.fileType} → ${journey.bronze.fileType}`} />
+                    <Stat icon={FileText} label="Format" value={`${journey.landing.fileType} \u2192 ${journey.bronze.fileType}`} />
                     <Stat icon={Columns3} label="Columns" value={`${journey.bronze.columnCount}`} />
                     <Stat icon={BarChart3} label="Row Count" value={fmt(journey.bronze.rowCount)} />
                     <Stat icon={Database} label="Lakehouse" value={journey.bronze.lakehouse} />
-                    <p className="text-xs text-muted-foreground/50 mt-1 italic">
+                    <p className="text-xs mt-1 italic" style={{ color: "var(--bp-ink-muted)" }}>
                       {journey.landing.fileType?.toLowerCase() || "Parquet"} files loaded into Delta table with schema enforcement.
                       {journey.bronze.primaryKeys
                         ? ` Primary key (${journey.bronze.primaryKeys}) used for upsert/merge operations.`
@@ -655,13 +759,13 @@ export default function DataJourney() {
                     </p>
                     <ProfilePanel
                       lakehouse={journey.bronze.lakehouse}
-                      schema={journey.bronze.schema}
+                      schema={journey.bronze.onelakeSchema || journey.bronze.schema}
                       table={journey.bronze.name}
-                      layerColor="#f59e0b"
+                      layer="bronze"
                     />
                   </>
                 ) : (
-                  <p className="text-xs text-muted-foreground/40 italic">
+                  <p className="text-xs italic" style={{ color: "var(--bp-ink-muted)" }}>
                     Not yet loaded to Bronze. Run the Bronze pipeline to transform landing zone files into structured Delta tables.
                   </p>
                 )}
@@ -675,24 +779,24 @@ export default function DataJourney() {
                       <Stat
                         icon={rowDelta >= 0 ? Plus : Minus}
                         label="Row Delta"
-                        value={`${rowDelta >= 0 ? "+" : ""}${fmt(rowDelta)} (${fmt(journey.bronze?.rowCount)} → ${fmt(journey.silver.rowCount)})`}
-                        color={rowDelta === 0 ? "text-emerald-400" : rowDelta < 0 ? "text-amber-400" : "text-blue-400"}
+                        value={`${rowDelta >= 0 ? "+" : ""}${fmt(rowDelta)} (${fmt(journey.bronze?.rowCount)} \u2192 ${fmt(journey.silver.rowCount)})`}
+                        color={rowDelta === 0 ? "text-[var(--bp-operational)]" : rowDelta < 0 ? "text-[var(--bp-caution)]" : "text-[var(--bp-copper)]"}
                       />
                     )}
                     {colDelta !== null && (
                       <Stat
                         icon={Columns3}
                         label="Column Delta"
-                        value={`${colDelta >= 0 ? "+" : ""}${colDelta} (${journey.bronze?.columnCount} → ${journey.silver.columnCount})`}
-                        color={colDelta === 0 ? "text-emerald-400" : "text-violet-400"}
+                        value={`${colDelta >= 0 ? "+" : ""}${colDelta} (${journey.bronze?.columnCount} \u2192 ${journey.silver.columnCount})`}
+                        color={colDelta === 0 ? "text-[var(--bp-operational)]" : "text-[#475569]"}
                       />
                     )}
                     {addedInSilver.length > 0 && (
                       <div className="flex items-start gap-2">
-                        <Plus className="w-3.5 h-3.5 text-violet-400 mt-0.5" />
+                        <Plus className="w-3.5 h-3.5 mt-0.5" style={{ color: "#475569" }} />
                         <div>
-                          <span className="text-xs text-muted-foreground/70">Added in Silver: </span>
-                          <span className="text-xs font-mono text-violet-400">
+                          <span className="text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>Added in Silver: </span>
+                          <span className="text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "#475569" }}>
                             {addedInSilver.map((d) => d.columnName).join(", ")}
                           </span>
                         </div>
@@ -700,10 +804,10 @@ export default function DataJourney() {
                     )}
                     {bronzeOnly.length > 0 && (
                       <div className="flex items-start gap-2">
-                        <Minus className="w-3.5 h-3.5 text-amber-400 mt-0.5" />
+                        <Minus className="w-3.5 h-3.5 mt-0.5" style={{ color: "var(--bp-caution)" }} />
                         <div>
-                          <span className="text-xs text-muted-foreground/70">Dropped from Bronze: </span>
-                          <span className="text-xs font-mono text-amber-400">
+                          <span className="text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>Dropped from Bronze: </span>
+                          <span className="text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-caution)" }}>
                             {bronzeOnly.map((d) => d.columnName).join(", ")}
                           </span>
                         </div>
@@ -711,17 +815,17 @@ export default function DataJourney() {
                     )}
                     {typeChanged.length > 0 && (
                       <div className="flex items-start gap-2">
-                        <ArrowUpDown className="w-3.5 h-3.5 text-amber-400 mt-0.5" />
+                        <ArrowUpDown className="w-3.5 h-3.5 mt-0.5" style={{ color: "var(--bp-caution)" }} />
                         <div>
-                          <span className="text-xs text-muted-foreground/70">Type changes: </span>
-                          <span className="text-xs font-mono text-amber-400">
-                            {typeChanged.map((d) => `${d.columnName} (${d.bronzeType}→${d.silverType})`).join(", ")}
+                          <span className="text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>Type changes: </span>
+                          <span className="text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-caution)" }}>
+                            {typeChanged.map((d) => `${d.columnName} (${d.bronzeType}\u2192${d.silverType})`).join(", ")}
                           </span>
                         </div>
                       </div>
                     )}
                     <Stat icon={Database} label="Lakehouse" value={journey.silver.lakehouse} />
-                    <p className="text-xs text-muted-foreground/50 mt-1 italic">
+                    <p className="text-xs mt-1 italic" style={{ color: "var(--bp-ink-muted)" }}>
                       Data quality rules applied, audit columns added.
                       {rowDelta !== null && rowDelta < 0
                         ? ` ${Math.abs(rowDelta).toLocaleString()} rows removed during cleansing.`
@@ -731,13 +835,13 @@ export default function DataJourney() {
                     </p>
                     <ProfilePanel
                       lakehouse={journey.silver.lakehouse}
-                      schema={journey.silver.schema}
+                      schema={journey.silver.onelakeSchema || journey.silver.schema}
                       table={journey.silver.name}
-                      layerColor="#8b5cf6"
+                      layer="silver"
                     />
                   </>
                 ) : (
-                  <p className="text-xs text-muted-foreground/40 italic">
+                  <p className="text-xs italic" style={{ color: "var(--bp-ink-muted)" }}>
                     {journey.bronze
                       ? "Not yet loaded to Silver. Run the Silver pipeline to apply DQ rules and cleansing."
                       : "Waiting for Bronze layer to be populated first."}
@@ -747,7 +851,7 @@ export default function DataJourney() {
 
               {/* Silver → Gold */}
               <TransitionCard from="silver" to="gold" reached={false}>
-                <p className="text-xs text-muted-foreground/40 italic">
+                <p className="text-xs italic" style={{ color: "var(--bp-ink-muted)" }}>
                   Gold layer (Materialized Lakehouse Views) coming soon. Will contain business-ready dimensional models.
                 </p>
               </TransitionCard>
@@ -755,9 +859,9 @@ export default function DataJourney() {
 
             {/* Schema Diff Table */}
             {(journey.bronze || journey.silver) && journey.schemaDiff.length > 0 && (
-              <div className="rounded-xl border border-border/30 bg-card backdrop-blur-sm overflow-hidden">
+              <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
                 {/* Tabs */}
-                <div className="flex border-b border-border/30 bg-muted">
+                <div className="flex" style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-inset)" }}>
                   {[
                     { key: "diff" as const, label: "Schema Diff", count: journey.schemaDiff.length },
                     ...(journey.bronze ? [{ key: "bronze" as const, label: "Bronze Columns", count: journey.bronze.columnCount }] : []),
@@ -766,14 +870,15 @@ export default function DataJourney() {
                     <button
                       key={tab.key}
                       onClick={() => setDiffTab(tab.key)}
-                      className={`px-4 py-2.5 text-xs font-medium transition-colors border-b-2 ${
+                      className="px-4 py-2.5 text-xs font-medium transition-colors border-b-2"
+                      style={
                         diffTab === tab.key
-                          ? "text-foreground border-primary"
-                          : "text-muted-foreground border-transparent hover:text-foreground"
-                      }`}
+                          ? { color: "var(--bp-ink-primary)", borderColor: "var(--bp-copper)" }
+                          : { color: "var(--bp-ink-secondary)", borderColor: "transparent" }
+                      }
                     >
                       {tab.label}
-                      <span className="ml-1.5 text-muted-foreground/40">({tab.count})</span>
+                      <span className="ml-1.5" style={{ color: "var(--bp-ink-muted)" }}>({tab.count})</span>
                     </button>
                   ))}
                 </div>
@@ -781,40 +886,40 @@ export default function DataJourney() {
                 {/* Diff Table */}
                 {diffTab === "diff" && (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
+                    <table className="w-full text-xs" style={{ fontFamily: "var(--bp-font-mono)" }}>
                       <thead>
-                        <tr className="bg-muted border-b border-border/20">
-                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Column</th>
-                          <th className="text-left px-4 py-2 font-medium text-muted-foreground" style={{ color: "#f59e0b" }}>Bronze Type</th>
-                          <th className="text-left px-4 py-2 font-medium text-muted-foreground" style={{ color: "#8b5cf6" }}>Silver Type</th>
-                          <th className="text-center px-4 py-2 font-medium text-muted-foreground">Status</th>
-                          <th className="text-center px-4 py-2 font-medium text-muted-foreground" style={{ color: "#f59e0b" }}>Nullable (B)</th>
-                          <th className="text-center px-4 py-2 font-medium text-muted-foreground" style={{ color: "#8b5cf6" }}>Nullable (S)</th>
+                        <tr style={{ backgroundColor: "var(--bp-surface-inset)", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                          <th className="text-left px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Column</th>
+                          <th className="text-left px-4 py-2 font-medium" style={{ color: "#9A4A1F" }}>Bronze Type</th>
+                          <th className="text-left px-4 py-2 font-medium" style={{ color: "#475569" }}>Silver Type</th>
+                          <th className="text-center px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Status</th>
+                          <th className="text-center px-4 py-2 font-medium" style={{ color: "#9A4A1F" }}>Nullable (B)</th>
+                          <th className="text-center px-4 py-2 font-medium" style={{ color: "#475569" }}>Nullable (S)</th>
                         </tr>
                       </thead>
                       <tbody>
                         {journey.schemaDiff.map((d) => (
-                          <tr key={d.columnName} className="border-b border-border/10 hover:bg-muted/50">
-                            <td className="px-4 py-2 font-mono text-foreground">{d.columnName}</td>
-                            <td className="px-4 py-2 font-mono text-muted-foreground">{d.bronzeType || "—"}</td>
-                            <td className="px-4 py-2 font-mono text-muted-foreground">{d.silverType || "—"}</td>
+                          <tr key={d.columnName} className="hover:bg-[var(--bp-surface-inset)] transition-colors" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                            <td className="px-4 py-2" style={{ color: "var(--bp-ink-primary)" }}>{d.columnName}</td>
+                            <td className="px-4 py-2" style={{ color: "var(--bp-ink-secondary)" }}>{d.bronzeType || "\u2014"}</td>
+                            <td className="px-4 py-2" style={{ color: "var(--bp-ink-secondary)" }}>{d.silverType || "\u2014"}</td>
                             <td className="px-4 py-2 text-center"><DiffBadge status={d.status} /></td>
                             <td className="px-4 py-2 text-center">
                               {d.bronzeNullable === "YES" ? (
-                                <span className="text-amber-400/60">YES</span>
+                                <span style={{ color: "var(--bp-caution)" }}>YES</span>
                               ) : d.bronzeNullable === "NO" ? (
-                                <span className="text-emerald-400/60">NO</span>
+                                <span style={{ color: "var(--bp-operational)" }}>NO</span>
                               ) : (
-                                <span className="text-muted-foreground/20">—</span>
+                                <span style={{ color: "var(--bp-ink-muted)", opacity: 0.3 }}>\u2014</span>
                               )}
                             </td>
                             <td className="px-4 py-2 text-center">
                               {d.silverNullable === "YES" ? (
-                                <span className="text-amber-400/60">YES</span>
+                                <span style={{ color: "var(--bp-caution)" }}>YES</span>
                               ) : d.silverNullable === "NO" ? (
-                                <span className="text-emerald-400/60">NO</span>
+                                <span style={{ color: "var(--bp-operational)" }}>NO</span>
                               ) : (
-                                <span className="text-muted-foreground/20">—</span>
+                                <span style={{ color: "var(--bp-ink-muted)", opacity: 0.3 }}>\u2014</span>
                               )}
                             </td>
                           </tr>
@@ -827,33 +932,33 @@ export default function DataJourney() {
                 {/* Bronze columns tab */}
                 {diffTab === "bronze" && journey.bronze && (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
+                    <table className="w-full text-xs" style={{ fontFamily: "var(--bp-font-mono)" }}>
                       <thead>
-                        <tr className="bg-muted border-b border-border/20">
-                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">#</th>
-                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Column</th>
-                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Type</th>
-                          <th className="text-center px-4 py-2 font-medium text-muted-foreground">Nullable</th>
-                          <th className="text-right px-4 py-2 font-medium text-muted-foreground">Max Length</th>
-                          <th className="text-right px-4 py-2 font-medium text-muted-foreground">Precision</th>
+                        <tr style={{ backgroundColor: "var(--bp-surface-inset)", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                          <th className="text-left px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>#</th>
+                          <th className="text-left px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Column</th>
+                          <th className="text-left px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Type</th>
+                          <th className="text-center px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Nullable</th>
+                          <th className="text-right px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Max Length</th>
+                          <th className="text-right px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Precision</th>
                         </tr>
                       </thead>
                       <tbody>
                         {journey.bronze.columns.map((c) => (
-                          <tr key={c.COLUMN_NAME} className="border-b border-border/10 hover:bg-muted/50">
-                            <td className="px-4 py-2 text-muted-foreground/40">{c.ORDINAL_POSITION}</td>
-                            <td className="px-4 py-2 font-mono text-foreground">{c.COLUMN_NAME}</td>
-                            <td className="px-4 py-2 font-mono text-muted-foreground">{c.DATA_TYPE}</td>
+                          <tr key={c.COLUMN_NAME} className="hover:bg-[var(--bp-surface-inset)] transition-colors" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                            <td className="px-4 py-2" style={{ color: "var(--bp-ink-muted)" }}>{c.ORDINAL_POSITION}</td>
+                            <td className="px-4 py-2" style={{ color: "var(--bp-ink-primary)" }}>{c.COLUMN_NAME}</td>
+                            <td className="px-4 py-2" style={{ color: "var(--bp-ink-secondary)" }}>{c.DATA_TYPE}</td>
                             <td className="px-4 py-2 text-center">
                               {c.IS_NULLABLE === "YES" ? (
-                                <span className="text-amber-400/60">YES</span>
+                                <span style={{ color: "var(--bp-caution)" }}>YES</span>
                               ) : (
-                                <span className="text-emerald-400/60">NO</span>
+                                <span style={{ color: "var(--bp-operational)" }}>NO</span>
                               )}
                             </td>
-                            <td className="px-4 py-2 text-right text-muted-foreground/60">{c.CHARACTER_MAXIMUM_LENGTH || "—"}</td>
-                            <td className="px-4 py-2 text-right text-muted-foreground/60">
-                              {c.NUMERIC_PRECISION ? `${c.NUMERIC_PRECISION}${c.NUMERIC_SCALE ? `,${c.NUMERIC_SCALE}` : ""}` : "—"}
+                            <td className="px-4 py-2 text-right" style={{ color: "var(--bp-ink-muted)" }}>{c.CHARACTER_MAXIMUM_LENGTH || "\u2014"}</td>
+                            <td className="px-4 py-2 text-right" style={{ color: "var(--bp-ink-muted)" }}>
+                              {c.NUMERIC_PRECISION ? `${c.NUMERIC_PRECISION}${c.NUMERIC_SCALE ? `,${c.NUMERIC_SCALE}` : ""}` : "\u2014"}
                             </td>
                           </tr>
                         ))}
@@ -865,33 +970,33 @@ export default function DataJourney() {
                 {/* Silver columns tab */}
                 {diffTab === "silver" && journey.silver && (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
+                    <table className="w-full text-xs" style={{ fontFamily: "var(--bp-font-mono)" }}>
                       <thead>
-                        <tr className="bg-muted border-b border-border/20">
-                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">#</th>
-                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Column</th>
-                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Type</th>
-                          <th className="text-center px-4 py-2 font-medium text-muted-foreground">Nullable</th>
-                          <th className="text-right px-4 py-2 font-medium text-muted-foreground">Max Length</th>
-                          <th className="text-right px-4 py-2 font-medium text-muted-foreground">Precision</th>
+                        <tr style={{ backgroundColor: "var(--bp-surface-inset)", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                          <th className="text-left px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>#</th>
+                          <th className="text-left px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Column</th>
+                          <th className="text-left px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Type</th>
+                          <th className="text-center px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Nullable</th>
+                          <th className="text-right px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Max Length</th>
+                          <th className="text-right px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Precision</th>
                         </tr>
                       </thead>
                       <tbody>
                         {journey.silver.columns.map((c) => (
-                          <tr key={c.COLUMN_NAME} className="border-b border-border/10 hover:bg-muted/50">
-                            <td className="px-4 py-2 text-muted-foreground/40">{c.ORDINAL_POSITION}</td>
-                            <td className="px-4 py-2 font-mono text-foreground">{c.COLUMN_NAME}</td>
-                            <td className="px-4 py-2 font-mono text-muted-foreground">{c.DATA_TYPE}</td>
+                          <tr key={c.COLUMN_NAME} className="hover:bg-[var(--bp-surface-inset)] transition-colors" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                            <td className="px-4 py-2" style={{ color: "var(--bp-ink-muted)" }}>{c.ORDINAL_POSITION}</td>
+                            <td className="px-4 py-2" style={{ color: "var(--bp-ink-primary)" }}>{c.COLUMN_NAME}</td>
+                            <td className="px-4 py-2" style={{ color: "var(--bp-ink-secondary)" }}>{c.DATA_TYPE}</td>
                             <td className="px-4 py-2 text-center">
                               {c.IS_NULLABLE === "YES" ? (
-                                <span className="text-amber-400/60">YES</span>
+                                <span style={{ color: "var(--bp-caution)" }}>YES</span>
                               ) : (
-                                <span className="text-emerald-400/60">NO</span>
+                                <span style={{ color: "var(--bp-operational)" }}>NO</span>
                               )}
                             </td>
-                            <td className="px-4 py-2 text-right text-muted-foreground/60">{c.CHARACTER_MAXIMUM_LENGTH || "—"}</td>
-                            <td className="px-4 py-2 text-right text-muted-foreground/60">
-                              {c.NUMERIC_PRECISION ? `${c.NUMERIC_PRECISION}${c.NUMERIC_SCALE ? `,${c.NUMERIC_SCALE}` : ""}` : "—"}
+                            <td className="px-4 py-2 text-right" style={{ color: "var(--bp-ink-muted)" }}>{c.CHARACTER_MAXIMUM_LENGTH || "\u2014"}</td>
+                            <td className="px-4 py-2 text-right" style={{ color: "var(--bp-ink-muted)" }}>
+                              {c.NUMERIC_PRECISION ? `${c.NUMERIC_PRECISION}${c.NUMERIC_SCALE ? `,${c.NUMERIC_SCALE}` : ""}` : "\u2014"}
                             </td>
                           </tr>
                         ))}
@@ -904,14 +1009,14 @@ export default function DataJourney() {
 
             {/* Summary footer for LZ-only entities */}
             {!journey.bronze && !journey.silver && (
-              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex items-start gap-3">
-                <Info className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+              <div className="rounded-xl p-4 flex items-start gap-3" style={{ border: "1px solid rgba(180,86,36,0.2)", backgroundColor: "var(--bp-copper-light)" }}>
+                <Info className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "var(--bp-copper)" }} />
                 <div className="text-sm">
-                  <p className="text-blue-400 font-medium">Landing Zone Only</p>
-                  <p className="text-muted-foreground/60 text-xs mt-1">
+                  <p className="font-medium" style={{ color: "var(--bp-copper)" }}>Landing Zone Only</p>
+                  <p className="text-xs mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
                     This entity has been registered but hasn't been processed through the Bronze or Silver pipelines yet.
-                    Run the Landing Zone → Bronze pipeline to see schema and row count details.
-                    Column schemas cannot be read from raw {journey.landing.fileType?.toLowerCase() || "parquet"} files in the landing zone —
+                    Run the Landing Zone &rarr; Bronze pipeline to see schema and row count details.
+                    Column schemas cannot be read from raw {journey.landing.fileType?.toLowerCase() || "parquet"} files in the landing zone &mdash;
                     they'll appear once the data is loaded into a Delta table at the Bronze layer.
                   </p>
                 </div>

@@ -105,7 +105,7 @@ def connect_metadata_db():
     if not server or not database:
         raise RuntimeError("sql_server/sql_database not in config.json")
 
-    sql_token = get_token("https://database.windows.net/.default")
+    sql_token = get_token("https://analysis.windows.net/powerbi/api/.default")
     token_bytes = sql_token.encode("utf-16-le")
     token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
 
@@ -282,8 +282,8 @@ def discover_watermarks(meta_conn, dry_run=False):
                         (pk_str, eid)
                     )
                     meta_cursor.commit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"    [WARN] Failed to update PrimaryKeys for entity {eid}: {e}")
 
             # Determine incremental load strategy
             candidates = wm_map.get(key, [])

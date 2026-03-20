@@ -23,7 +23,7 @@
       "name": "key_vault_client_secret",
       "note": "",
       "type": "String",
-      "value": "Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu"
+      "value": "SET_VIA_DEPLOYMENT_SCRIPT"
     },
     {
       "name": "lakehouse_schema_enabled",

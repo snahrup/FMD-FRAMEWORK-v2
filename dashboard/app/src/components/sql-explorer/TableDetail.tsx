@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { Key, Loader2, ChevronRight, Rows3, Columns3, RefreshCw, Cloud } from 'lucide-react';
+import { Key, Loader2, ChevronRight, Rows3, Columns3, RefreshCw, Cloud, Beaker } from 'lucide-react';
 import type { SelectedTable, TableInfo, TablePreview } from '@/types/sqlExplorer';
 
 interface TableDetailProps {
@@ -83,7 +84,7 @@ export function TableDetail({ table }: TableDetailProps) {
           <span className={cn(
             "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider border flex-shrink-0",
             isLakehouse
-              ? "border-emerald-500/20 text-emerald-500 bg-emerald-500/5"
+              ? "border-[#3D7C4F]/20 text-[#3D7C4F] bg-[#3D7C4F]/5"
               : "border-primary/20 text-primary bg-primary/5"
           )}>
             {isLakehouse ? 'Fabric' : 'Read-Only'}
@@ -91,7 +92,7 @@ export function TableDetail({ table }: TableDetailProps) {
           <nav className="flex items-center gap-1 text-[13px] min-w-0">
             {isLakehouse ? (
               <>
-                <Cloud className="h-3.5 w-3.5 text-emerald-500/60 flex-shrink-0" />
+                <Cloud className="h-3.5 w-3.5 text-[#3D7C4F]/60 flex-shrink-0" />
                 <span className="text-muted-foreground">{table.database}</span>
                 <ChevronRight className="h-3 w-3 flex-shrink-0 text-muted-foreground/30" />
               </>
@@ -110,12 +111,29 @@ export function TableDetail({ table }: TableDetailProps) {
             </span>
           </nav>
         </div>
-        {colInfo && colInfo.rowCount >= 0 && (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-border text-[11px] font-mono text-muted-foreground flex-shrink-0">
-            <Rows3 className="h-3 w-3 text-muted-foreground/60" />
-            {colInfo.rowCount.toLocaleString()} rows
-          </span>
-        )}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Profile in Blender cross-link (lakehouse tables only) */}
+          {isLakehouse && (() => {
+            // Detect layer from lakehouse name
+            const db = (table.database || '').toLowerCase();
+            const detectedLayer = db.includes('silver') ? 'silver' : db.includes('gold') ? 'gold' : db.includes('landing') ? 'landing' : 'bronze';
+            return (
+              <Link
+                to={`/blender?table=${encodeURIComponent(table.table)}&schema=${encodeURIComponent(table.schema)}&layer=${detectedLayer}`}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium transition-colors hover:opacity-80"
+                style={{ border: "1px solid var(--bp-border)", color: "var(--bp-ink-secondary)" }}
+              >
+                <Beaker className="h-3 w-3" /> Profile in Blender
+              </Link>
+            );
+          })()}
+          {colInfo && colInfo.rowCount >= 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-border text-[11px] font-mono text-muted-foreground">
+              <Rows3 className="h-3 w-3 text-muted-foreground/60" />
+              {colInfo.rowCount.toLocaleString()} rows
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -172,6 +190,69 @@ export function TableDetail({ table }: TableDetailProps) {
 
 /* ── Columns Tab ── */
 
+function TypeDistributionStrip({ columns }: { columns: { DATA_TYPE: string }[] }) {
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const col of columns) {
+      const t = (col.DATA_TYPE || 'unknown').toLowerCase();
+      const category =
+        t.includes('int') || t.includes('decimal') || t.includes('float') || t.includes('numeric') || t.includes('bit') || t.includes('money')
+          ? 'numeric'
+          : t.includes('char') || t.includes('text') || t.includes('string')
+            ? 'text'
+            : t.includes('date') || t.includes('time')
+              ? 'datetime'
+              : t.includes('binary') || t.includes('image') || t.includes('varbinary')
+                ? 'binary'
+                : 'other';
+      counts[category] = (counts[category] || 0) + 1;
+    }
+    return counts;
+  }, [columns]);
+
+  const total = columns.length;
+  if (total === 0) return null;
+
+  const categories = [
+    { key: 'text', label: 'Text', color: 'var(--bp-lz, #5B8AB5)' },
+    { key: 'numeric', label: 'Numeric', color: 'var(--bp-bronze, #92400E)' },
+    { key: 'datetime', label: 'Date/Time', color: 'var(--bp-silver, #475569)' },
+    { key: 'binary', label: 'Binary', color: 'var(--bp-ink-muted, #A8A29E)' },
+    { key: 'other', label: 'Other', color: 'var(--bp-caution, #C27A1A)' },
+  ];
+
+  return (
+    <div className="flex items-center gap-3 px-5 py-2 border-b border-border bg-muted/30">
+      <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Types</span>
+      <div className="flex h-2 flex-1 rounded-full overflow-hidden bg-muted">
+        {categories.map(cat => {
+          const count = typeCounts[cat.key] || 0;
+          if (count === 0) return null;
+          return (
+            <div
+              key={cat.key}
+              title={`${cat.label}: ${count} columns (${Math.round((count / total) * 100)}%)`}
+              style={{ width: `${(count / total) * 100}%`, background: cat.color, transition: 'width 300ms ease' }}
+            />
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-2">
+        {categories.map(cat => {
+          const count = typeCounts[cat.key] || 0;
+          if (count === 0) return null;
+          return (
+            <span key={cat.key} className="flex items-center gap-1 text-[9px] text-muted-foreground">
+              <span style={{ width: 6, height: 6, borderRadius: 2, background: cat.color, display: 'inline-block' }} />
+              {cat.label} {count}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ColumnsTab({ info, loading, error }: {
   info: TableInfo | null; loading: boolean; error: string | null;
 }) {
@@ -181,6 +262,8 @@ function ColumnsTab({ info, loading, error }: {
 
   return (
     <div className="overflow-auto h-full">
+      {/* Type distribution fingerprint strip */}
+      <TypeDistributionStrip columns={info.columns} />
       <table className="w-full text-sm">
         <thead className="sticky top-0 z-10">
           <tr className="bg-muted/50 border-b border-border">
@@ -202,22 +285,22 @@ function ColumnsTab({ info, loading, error }: {
               >
                 <td className="px-4 py-2">
                   <div className="flex items-center gap-2">
-                    {isPk && <Key className="h-3 w-3 flex-shrink-0 text-amber-500" />}
+                    {isPk && <Key className="h-3 w-3 flex-shrink-0 text-[#C27A1A]" />}
                     <span className={cn("font-medium", isPk ? "text-foreground" : "text-foreground/80")}>{col.COLUMN_NAME}</span>
                   </div>
                 </td>
                 <td className="px-4 py-2">
                   <span className={cn(
                     "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono",
-                    isPk ? "bg-amber-500/10 text-amber-500" : "bg-muted text-muted-foreground"
+                    isPk ? "bg-[#FDF3E3] text-[#C27A1A]" : "bg-muted text-muted-foreground"
                   )}>
                     {col.DATA_TYPE}
                   </span>
                 </td>
                 <td className="px-4 py-2 text-center">
                   {isPk ? (
-                    <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-amber-500/10">
-                      <Key className="h-2.5 w-2.5 text-amber-500" />
+                    <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-[#FDF3E3]">
+                      <Key className="h-2.5 w-2.5 text-[#C27A1A]" />
                     </span>
                   ) : (
                     <span className="text-muted-foreground/20">-</span>

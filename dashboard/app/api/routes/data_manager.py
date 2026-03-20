@@ -4,6 +4,7 @@ Exposes a curated subset of SQLite tables with human-readable names,
 FK resolution, value formatting, and row-level editing for config tables.
 """
 import logging
+import re
 from datetime import datetime
 
 from dashboard.app.api.router import route, HttpError
@@ -18,7 +19,7 @@ def _queue_export(table: str):
         from dashboard.app.api.parquet_sync import queue_export
         queue_export(table)
     except (ImportError, Exception):
-        pass
+        log.debug("Parquet export queue unavailable for table %s", table)
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +322,7 @@ def _format_value(val, col_type: str):
                     dt = datetime.strptime(val, fmt)
                     return dt.strftime("%b %d, %Y %I:%M %p").replace(" 0", " ")
                 except ValueError:
+                    log.debug("Datetime parse failed for value %r with format %s", val, fmt)
                     continue
         return str(val)
     if col_type == "number":
@@ -330,6 +332,21 @@ def _format_value(val, col_type: str):
         except (ValueError, TypeError, OverflowError):
             return val
     return val
+
+
+def _safe_ident(name: str) -> str:
+    """Validate and bracket-quote a SQL identifier.
+
+    Table and column names cannot use ``?`` parameter placeholders — only
+    values can be parameterized.  This helper guards against injection by
+    rejecting any name that contains characters outside the safe set
+    (alphanumeric, underscore, space) and wrapping the result in brackets.
+    """
+    if not name or not re.fullmatch(r"[\w ]+", name):
+        raise HttpError(f"Invalid SQL identifier: {name!r}", 400)
+    # Escape embedded right-brackets to prevent bracket-escape injection
+    escaped = name.replace("]", "]]")
+    return f"[{escaped}]"
 
 
 def _resolve_fk_cache() -> dict:
@@ -347,11 +364,11 @@ def _resolve_fk_cache() -> dict:
             continue
         pk_col = fk_pk or TABLE_REGISTRY[fk_table]["pk"][0]
         try:
-            rows = db.query(f"SELECT [{pk_col}], [{fk_display}] FROM [{fk_table}]")
+            rows = db.query("SELECT " + _safe_ident(pk_col) + ", " + _safe_ident(fk_display) + " FROM " + _safe_ident(fk_table))
             cache_key = f"{fk_table}.{fk_display}"
             cache[cache_key] = {str(r[pk_col]): r[fk_display] for r in rows}
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Failed to build FK cache for %s: %s", fk_table, e)
     return cache
 
 
@@ -377,9 +394,10 @@ def _get_fk_options(table_name: str) -> dict:
         fk_display = col.get("fk_display", "Name")
         fk_pk = col.get("fk_pk") or TABLE_REGISTRY.get(fk_table, {}).get("pk", ["id"])[0]
         try:
-            rows = db.query(f"SELECT [{fk_pk}], [{fk_display}] FROM [{fk_table}] ORDER BY [{fk_display}]")
+            rows = db.query("SELECT " + _safe_ident(fk_pk) + ", " + _safe_ident(fk_display) + " FROM " + _safe_ident(fk_table) + " ORDER BY " + _safe_ident(fk_display))
             options[col["key"]] = [{"value": r[fk_pk], "label": r[fk_display]} for r in rows]
-        except Exception:
+        except Exception as e:
+            log.debug("Failed to get FK options for %s.%s: %s", fk_table, col["key"], e)
             options[col["key"]] = []
     return options
 
@@ -394,9 +412,10 @@ def list_tables(params):
     result = []
     for table_name, cfg in TABLE_REGISTRY.items():
         try:
-            count_rows = db.query(f"SELECT COUNT(*) as cnt FROM [{table_name}]")
+            count_rows = db.query("SELECT COUNT(*) as cnt FROM " + _safe_ident(table_name))
             row_count = count_rows[0]["cnt"]
-        except Exception:
+        except Exception as e:
+            log.debug("Failed to get row count for table %s: %s", table_name, e)
             row_count = 0
         result.append({
             "name": table_name,
@@ -426,7 +445,7 @@ def get_table_data(params):
         sort_order = "asc"
 
     select_keys = _all_select_keys(table_name)
-    select_clause = ", ".join(f"[{k}]" for k in select_keys)
+    select_clause = ", ".join(_safe_ident(k) for k in select_keys)
 
     # Build WHERE for search
     where_clause = ""
@@ -435,22 +454,22 @@ def get_table_data(params):
         visible = _visible_columns(table_name)
         text_cols = [c["key"] for c in visible if c["type"] in ("text", "fk")]
         if text_cols:
-            conditions = " OR ".join(f"CAST([{c}] AS TEXT) LIKE ?" for c in text_cols)
-            where_clause = f"WHERE ({conditions})"
+            conditions = " OR ".join("CAST(" + _safe_ident(c) + " AS TEXT) LIKE ?" for c in text_cols)
+            where_clause = "WHERE (" + conditions + ")"
             where_params = [f"%{search}%"] * len(text_cols)
 
     # Build ORDER BY
     order_clause = ""
     valid_sort_keys = {c["key"] for c in cfg["columns"]}
     if sort_col and sort_col in valid_sort_keys:
-        order_clause = f"ORDER BY [{sort_col}] {sort_order.upper()}"
+        order_clause = "ORDER BY " + _safe_ident(sort_col) + " " + sort_order.upper()
 
     # Count
-    count_sql = f"SELECT COUNT(*) as cnt FROM [{table_name}] {where_clause}"
+    count_sql = "SELECT COUNT(*) as cnt FROM " + _safe_ident(table_name) + " " + where_clause
     total = db.query(count_sql, tuple(where_params))[0]["cnt"]
 
     # Fetch
-    data_sql = f"SELECT {select_clause} FROM [{table_name}] {where_clause} {order_clause} LIMIT ? OFFSET ?"
+    data_sql = "SELECT " + select_clause + " FROM " + _safe_ident(table_name) + " " + where_clause + " " + order_clause + " LIMIT ? OFFSET ?"
     raw_rows = db.query(data_sql, tuple(where_params) + (per_page, offset))
 
     # FK resolution
@@ -544,7 +563,7 @@ def update_row(params):
             # Validate FK reference exists
             fk_table = col.get("fk_table")
             fk_pk = col.get("fk_pk") or TABLE_REGISTRY.get(fk_table, {}).get("pk", ["id"])[0]
-            exists = db.query(f"SELECT 1 FROM [{fk_table}] WHERE [{fk_pk}] = ?", (val,))
+            exists = db.query("SELECT 1 FROM " + _safe_ident(fk_table) + " WHERE " + _safe_ident(fk_pk) + " = ?", (val,))
             if not exists:
                 raise HttpError(f"Invalid reference: {col['label']} value {val} not found", 400)
 
@@ -552,16 +571,16 @@ def update_row(params):
     set_parts = []
     set_params = []
     for key, val in updates.items():
-        set_parts.append(f"[{key}] = ?")
+        set_parts.append(_safe_ident(key) + " = ?")
         set_params.append(val)
 
     where_parts = []
     where_params = []
     for pk_col, pk_val in pk_vals.items():
-        where_parts.append(f"[{pk_col}] = ?")
+        where_parts.append(_safe_ident(pk_col) + " = ?")
         where_params.append(pk_val)
 
-    sql = f"UPDATE [{table_name}] SET {', '.join(set_parts)} WHERE {' AND '.join(where_parts)}"
+    sql = "UPDATE " + _safe_ident(table_name) + " SET " + ", ".join(set_parts) + " WHERE " + " AND ".join(where_parts)
     db.execute(sql, tuple(set_params + where_params))
 
     # Trigger parquet sync

@@ -37,11 +37,11 @@ import { cn } from "@/lib/utils";
 const API = import.meta.env.VITE_API_URL || "";
 
 const LAYERS = [
-  { key: "source",  label: "Source",       color: "#64748b", activeClass: "bg-slate-500/20 border-slate-500/50 text-slate-400",   icon: Database },
-  { key: "landing", label: "Landing Zone", color: "#3b82f6", activeClass: "bg-blue-500/20 border-blue-500/50 text-blue-400",     icon: HardDrive },
-  { key: "bronze",  label: "Bronze",       color: "#f59e0b", activeClass: "bg-amber-500/20 border-amber-500/50 text-amber-400",  icon: Table2 },
-  { key: "silver",  label: "Silver",       color: "#8b5cf6", activeClass: "bg-violet-500/20 border-violet-500/50 text-violet-400", icon: Sparkles },
-  { key: "gold",    label: "Gold",         color: "#10b981", activeClass: "bg-emerald-500/20 border-emerald-500/50 text-emerald-400", icon: Crown },
+  { key: "source",  label: "Source",       color: "#78716C", icon: Database },
+  { key: "landing", label: "Landing Zone", color: "#B45624", icon: HardDrive },
+  { key: "bronze",  label: "Bronze",       color: "#C27A1A", icon: Table2 },
+  { key: "silver",  label: "Silver",       color: "#3D7C4F", icon: Sparkles },
+  { key: "gold",    label: "Gold",         color: "#57534E", icon: Crown },
 ];
 
 const SYSTEM_COLUMNS = new Set([
@@ -53,48 +53,49 @@ const BRONZE_SYSTEM_COLUMNS = new Set(["HashedPKColumn", "HashedNonKeyColumns", 
 const SILVER_SYSTEM_COLUMNS = new Set(["IsCurrent", "RecordStartDate", "RecordEndDate", "RecordModifiedDate", "IsDeleted", "Action"]);
 
 /** Maps SQL data types to an icon + color for visual distinction in column cards */
-const TYPE_ICON_MAP: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
-  // String types
-  string:    { icon: Type,       color: "text-blue-400",    bg: "bg-blue-500/10" },
-  varchar:   { icon: Type,       color: "text-blue-400",    bg: "bg-blue-500/10" },
-  nvarchar:  { icon: Type,       color: "text-blue-400",    bg: "bg-blue-500/10" },
-  char:      { icon: Type,       color: "text-blue-400",    bg: "bg-blue-500/10" },
-  nchar:     { icon: Type,       color: "text-blue-400",    bg: "bg-blue-500/10" },
-  text:      { icon: Type,       color: "text-blue-400",    bg: "bg-blue-500/10" },
-  ntext:     { icon: Type,       color: "text-blue-400",    bg: "bg-blue-500/10" },
-  // Numeric types
-  int:       { icon: Hash,       color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  bigint:    { icon: Hash,       color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  smallint:  { icon: Hash,       color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  tinyint:   { icon: Hash,       color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  long:      { icon: Hash,       color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  short:     { icon: Hash,       color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  // DateTime types
-  datetime:  { icon: Calendar,   color: "text-purple-400",  bg: "bg-purple-500/10" },
-  datetime2: { icon: Calendar,   color: "text-purple-400",  bg: "bg-purple-500/10" },
-  date:      { icon: Calendar,   color: "text-purple-400",  bg: "bg-purple-500/10" },
-  time:      { icon: Calendar,   color: "text-purple-400",  bg: "bg-purple-500/10" },
-  timestamp: { icon: Calendar,   color: "text-purple-400",  bg: "bg-purple-500/10" },
-  // Decimal / float types
-  decimal:   { icon: CircleDot,  color: "text-orange-400",  bg: "bg-orange-500/10" },
-  numeric:   { icon: CircleDot,  color: "text-orange-400",  bg: "bg-orange-500/10" },
-  float:     { icon: CircleDot,  color: "text-orange-400",  bg: "bg-orange-500/10" },
-  double:    { icon: CircleDot,  color: "text-orange-400",  bg: "bg-orange-500/10" },
-  real:      { icon: CircleDot,  color: "text-orange-400",  bg: "bg-orange-500/10" },
-  money:     { icon: CircleDot,  color: "text-orange-400",  bg: "bg-orange-500/10" },
-  smallmoney:{ icon: CircleDot,  color: "text-orange-400",  bg: "bg-orange-500/10" },
-  // Boolean
-  bit:       { icon: ToggleLeft,  color: "text-pink-400",    bg: "bg-pink-500/10" },
-  boolean:   { icon: ToggleLeft,  color: "text-pink-400",    bg: "bg-pink-500/10" },
-  // Binary
-  binary:    { icon: Binary,     color: "text-gray-400",    bg: "bg-gray-500/10" },
-  varbinary: { icon: Binary,     color: "text-gray-400",    bg: "bg-gray-500/10" },
-  image:     { icon: Binary,     color: "text-gray-400",    bg: "bg-gray-500/10" },
+/** BP-palette type icons: copper for strings, operational for numerics, caution for dates, ink for rest */
+const TYPE_ICON_MAP: Record<string, { icon: React.ElementType; colorHex: string; bgHex: string }> = {
+  // String types — copper
+  string:    { icon: Type,       colorHex: "#B45624", bgHex: "#F4E8DF" },
+  varchar:   { icon: Type,       colorHex: "#B45624", bgHex: "#F4E8DF" },
+  nvarchar:  { icon: Type,       colorHex: "#B45624", bgHex: "#F4E8DF" },
+  char:      { icon: Type,       colorHex: "#B45624", bgHex: "#F4E8DF" },
+  nchar:     { icon: Type,       colorHex: "#B45624", bgHex: "#F4E8DF" },
+  text:      { icon: Type,       colorHex: "#B45624", bgHex: "#F4E8DF" },
+  ntext:     { icon: Type,       colorHex: "#B45624", bgHex: "#F4E8DF" },
+  // Numeric types — operational
+  int:       { icon: Hash,       colorHex: "#3D7C4F", bgHex: "#E7F3EB" },
+  bigint:    { icon: Hash,       colorHex: "#3D7C4F", bgHex: "#E7F3EB" },
+  smallint:  { icon: Hash,       colorHex: "#3D7C4F", bgHex: "#E7F3EB" },
+  tinyint:   { icon: Hash,       colorHex: "#3D7C4F", bgHex: "#E7F3EB" },
+  long:      { icon: Hash,       colorHex: "#3D7C4F", bgHex: "#E7F3EB" },
+  short:     { icon: Hash,       colorHex: "#3D7C4F", bgHex: "#E7F3EB" },
+  // DateTime types — caution
+  datetime:  { icon: Calendar,   colorHex: "#C27A1A", bgHex: "#FDF3E3" },
+  datetime2: { icon: Calendar,   colorHex: "#C27A1A", bgHex: "#FDF3E3" },
+  date:      { icon: Calendar,   colorHex: "#C27A1A", bgHex: "#FDF3E3" },
+  time:      { icon: Calendar,   colorHex: "#C27A1A", bgHex: "#FDF3E3" },
+  timestamp: { icon: Calendar,   colorHex: "#C27A1A", bgHex: "#FDF3E3" },
+  // Decimal / float types — copper-hover (darker)
+  decimal:   { icon: CircleDot,  colorHex: "#9A4A1F", bgHex: "#F4E8DF" },
+  numeric:   { icon: CircleDot,  colorHex: "#9A4A1F", bgHex: "#F4E8DF" },
+  float:     { icon: CircleDot,  colorHex: "#9A4A1F", bgHex: "#F4E8DF" },
+  double:    { icon: CircleDot,  colorHex: "#9A4A1F", bgHex: "#F4E8DF" },
+  real:      { icon: CircleDot,  colorHex: "#9A4A1F", bgHex: "#F4E8DF" },
+  money:     { icon: CircleDot,  colorHex: "#9A4A1F", bgHex: "#F4E8DF" },
+  smallmoney:{ icon: CircleDot,  colorHex: "#9A4A1F", bgHex: "#F4E8DF" },
+  // Boolean — fault
+  bit:       { icon: ToggleLeft,  colorHex: "#B93A2A", bgHex: "#FBEAE8" },
+  boolean:   { icon: ToggleLeft,  colorHex: "#B93A2A", bgHex: "#FBEAE8" },
+  // Binary — ink-muted
+  binary:    { icon: Binary,     colorHex: "#A8A29E", bgHex: "#EDEAE4" },
+  varbinary: { icon: Binary,     colorHex: "#A8A29E", bgHex: "#EDEAE4" },
+  image:     { icon: Binary,     colorHex: "#A8A29E", bgHex: "#EDEAE4" },
 };
 
 function getTypeStyle(dataType: string) {
   const key = (dataType || "").toLowerCase().replace(/\(.*\)/, "").trim();
-  return TYPE_ICON_MAP[key] || { icon: Type, color: "text-muted-foreground", bg: "bg-muted" };
+  return TYPE_ICON_MAP[key] || { icon: Type, colorHex: "#A8A29E", bgHex: "#EDEAE4" };
 }
 
 // ============================================================================
@@ -368,12 +369,11 @@ function LayerStepper({
       {/* Auto-play toggle */}
       <button
         onClick={onToggleAutoPlay}
-        className={cn(
-          "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border cursor-pointer",
-          autoPlaying
-            ? "bg-primary/10 border-primary/30 text-primary"
-            : "bg-card border-border/30 text-muted-foreground hover:text-foreground hover:border-border/50",
-        )}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer"
+        style={autoPlaying
+          ? { background: 'var(--bp-copper-light)', border: '1px solid var(--bp-copper)', color: 'var(--bp-copper)' }
+          : { background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-tertiary)' }
+        }
       >
         {autoPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
         {autoPlaying ? "Pause" : "Auto"}
@@ -393,24 +393,26 @@ function LayerStepper({
               <button
                 onClick={() => !isDisabled && onSelect(i)}
                 disabled={isDisabled}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-lg border transition-all w-full cursor-pointer",
-                  isActive && layer.activeClass,
-                  isCompleted && "bg-card border-border/40 text-foreground",
-                  !isActive && !isCompleted && isReachable && "bg-card border-border/20 text-muted-foreground hover:bg-card/50 hover:border-border/40",
-                  isDisabled && "bg-card/10 border-border/10 text-muted-foreground/30 cursor-not-allowed",
-                )}
+                className="flex items-center gap-2 px-3 py-2 rounded-md transition-all w-full cursor-pointer"
+                style={{
+                  background: isActive ? `${layer.color}12` : 'var(--bp-surface-1)',
+                  border: isActive ? `1px solid ${layer.color}` : '1px solid var(--bp-border-subtle)',
+                  color: isActive ? layer.color : isDisabled ? 'var(--bp-ink-muted)' : 'var(--bp-ink-secondary)',
+                  opacity: isDisabled ? 0.3 : 1,
+                  cursor: isDisabled ? 'not-allowed' : 'pointer',
+                }}
               >
-                <div className={cn(
-                  "w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 border transition-all",
-                  isActive && "border-current",
-                  isCompleted && "bg-emerald-500/20 border-emerald-500/40",
-                  !isActive && !isCompleted && "border-border/30",
-                )}>
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
+                  style={{
+                    border: isActive ? `1px solid ${layer.color}` : isCompleted ? '1px solid var(--bp-operational)' : '1px solid var(--bp-border)',
+                    background: isCompleted ? 'var(--bp-operational-light)' : 'transparent',
+                  }}
+                >
                   {isCompleted ? (
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <Check className="w-3.5 h-3.5" style={{ color: 'var(--bp-operational)' }} />
                   ) : (
-                    <Icon className={cn("w-3.5 h-3.5", isActive ? "" : isDisabled ? "opacity-30" : "opacity-60")} />
+                    <Icon className="w-3.5 h-3.5" style={{ opacity: isActive ? 1 : isDisabled ? 0.3 : 0.6 }} />
                   )}
                 </div>
                 <span className="text-[11px] font-medium truncate hidden sm:block">{layer.label}</span>
@@ -451,7 +453,7 @@ function DiffSummaryBar({
 
   if (!hasChanges) {
     return (
-      <div className="flex items-center gap-2 px-4 py-2.5 rounded-[var(--radius-lg)] border border-border/30 bg-card text-xs text-muted-foreground/60">
+      <div className="flex items-center gap-2 px-4 py-2.5 rounded-md text-xs" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)', color: 'var(--bp-ink-muted)' }}>
         <Info className="w-3.5 h-3.5" />
         No column changes at {layerLabel}
       </div>
@@ -459,26 +461,26 @@ function DiffSummaryBar({
   }
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-lg)] border border-border/30 bg-card">
+    <div className="flex items-center gap-3 px-4 py-2.5 rounded-md" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
       {added > 0 && (
-        <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+        <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--bp-operational)' }}>
           <Plus className="w-3.5 h-3.5" />
           <span>{added} added</span>
         </div>
       )}
       {removed > 0 && (
-        <div className="flex items-center gap-1.5 text-xs font-medium text-red-400">
+        <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--bp-fault)' }}>
           <Minus className="w-3.5 h-3.5" />
           <span>{removed} removed</span>
         </div>
       )}
       {typeChanged > 0 && (
-        <div className="flex items-center gap-1.5 text-xs font-medium text-amber-400">
+        <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--bp-caution)' }}>
           <ArrowRightLeft className="w-3.5 h-3.5" />
           <span>{typeChanged} type changed</span>
         </div>
       )}
-      <span className="text-[10px] text-muted-foreground/40 ml-auto">vs previous layer</span>
+      <span className="text-[10px] ml-auto" style={{ color: 'var(--bp-ink-muted)' }}>vs previous layer</span>
     </div>
   );
 }
@@ -488,20 +490,16 @@ function ColumnCard({ col }: { col: DisplayColumn }) {
   const typeStyle = getTypeStyle(col.dataType);
   const TypeIcon = typeStyle.icon;
 
-  // Border glow for diff status
-  let borderClass = "border-border/30";
-  let glowStyle: React.CSSProperties = {};
+  // Border for diff status using BP tokens
+  let borderColor = "var(--bp-border)";
   if (col.diffStatus === "new") {
-    borderClass = "border-emerald-500/40";
-    glowStyle = { boxShadow: "0 0 12px rgba(16, 185, 129, 0.15)" };
+    borderColor = "var(--bp-operational)";
   } else if (col.diffStatus === "removed") {
-    borderClass = "border-red-500/40";
-    glowStyle = { boxShadow: "0 0 12px rgba(239, 68, 68, 0.15)" };
+    borderColor = "var(--bp-fault)";
   } else if (col.diffStatus === "type_changed") {
-    borderClass = "border-amber-500/40";
-    glowStyle = { boxShadow: "0 0 12px rgba(245, 158, 11, 0.15)" };
+    borderColor = "var(--bp-caution)";
   } else if (col.diffStatus === "system") {
-    borderClass = "border-violet-500/30";
+    borderColor = "var(--bp-copper)";
   }
 
   return (
@@ -514,19 +512,22 @@ function ColumnCard({ col }: { col: DisplayColumn }) {
       exit="exit"
       transition={{ duration: 0.35, ease: CARD_EASE as unknown as [number, number, number, number] }}
       className={cn(
-        "rounded-[var(--radius)] border p-3 bg-card transition-colors",
-        borderClass,
+        "rounded-md p-3 transition-colors",
         col.diffStatus === "removed" && "opacity-50",
       )}
-      style={glowStyle}
+      style={{ border: `1px solid ${borderColor}`, background: 'var(--bp-surface-1)' }}
     >
       {/* Column name */}
       <div className="flex items-start justify-between gap-2 mb-2">
         <span
           className={cn(
-            "font-mono text-sm font-medium truncate",
-            col.diffStatus === "removed" ? "line-through text-red-400/70" : "text-foreground",
+            "text-sm font-medium truncate",
+            col.diffStatus === "removed" && "line-through",
           )}
+          style={{
+            fontFamily: 'var(--bp-font-mono)',
+            color: col.diffStatus === "removed" ? 'var(--bp-fault)' : 'var(--bp-ink-primary)',
+          }}
           title={col.name}
         >
           {col.name}
@@ -534,7 +535,7 @@ function ColumnCard({ col }: { col: DisplayColumn }) {
 
         {/* Nullable badge */}
         {col.nullable && col.diffStatus !== "removed" && (
-          <span className="text-[9px] font-medium text-muted-foreground/40 bg-muted px-1.5 py-0.5 rounded flex-shrink-0">
+          <span className="text-[9px] font-medium px-1.5 py-0.5 rounded flex-shrink-0" style={{ color: 'var(--bp-ink-muted)', background: 'var(--bp-surface-inset)' }}>
             NULL
           </span>
         )}
@@ -542,40 +543,40 @@ function ColumnCard({ col }: { col: DisplayColumn }) {
 
       {/* Data type with icon */}
       <div className="flex items-center gap-1.5 mb-2">
-        <div className={cn("w-5 h-5 rounded flex items-center justify-center flex-shrink-0", typeStyle.bg)}>
-          <TypeIcon className={cn("w-3 h-3", typeStyle.color)} />
+        <div className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0" style={{ background: typeStyle.bgHex }}>
+          <TypeIcon className="w-3 h-3" style={{ color: typeStyle.colorHex }} />
         </div>
-        <span className={cn("text-xs font-mono", typeStyle.color)}>{col.dataType}</span>
+        <span className="text-xs" style={{ fontFamily: 'var(--bp-font-mono)', color: typeStyle.colorHex }}>{col.dataType}</span>
       </div>
 
       {/* Diff status badge */}
       {col.diffStatus === "new" && (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: 'var(--bp-operational-light)', color: 'var(--bp-operational)', border: '1px solid var(--bp-operational)' }}>
           <Plus className="w-2.5 h-2.5" />
           NEW
         </span>
       )}
       {col.diffStatus === "removed" && (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: 'var(--bp-fault-light)', color: 'var(--bp-fault)', border: '1px solid var(--bp-fault)' }}>
           <Minus className="w-2.5 h-2.5" />
           REMOVED
         </span>
       )}
       {col.diffStatus === "type_changed" && (
         <div className="space-y-1">
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: 'var(--bp-caution-light)', color: 'var(--bp-caution)', border: '1px solid var(--bp-caution)' }}>
             <ArrowRightLeft className="w-2.5 h-2.5" />
             TYPE CHANGED
           </span>
           {col.previousType && (
-            <div className="text-[10px] text-muted-foreground/50 font-mono">
-              {col.previousType} <span className="text-amber-400/60">-&gt;</span> {col.dataType}
+            <div className="text-[10px]" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-muted)' }}>
+              {col.previousType} <span style={{ color: 'var(--bp-caution)' }}>-&gt;</span> {col.dataType}
             </div>
           )}
         </div>
       )}
       {col.diffStatus === "system" && (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/10 text-violet-400 border border-violet-500/20">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: 'var(--bp-copper-light)', color: 'var(--bp-copper)', border: '1px solid var(--bp-copper)' }}>
           <Sparkles className="w-2.5 h-2.5" />
           SYSTEM
         </span>
@@ -638,15 +639,14 @@ function EntitySelector({
   return (
     <div ref={ref} className="relative max-w-xl">
       <div
-        className={cn(
-          "flex items-center border rounded-lg transition-colors cursor-pointer",
-          open
-            ? "border-primary/50 bg-card/80 ring-1 ring-primary/20"
-            : "border-border/50 bg-card hover:border-border",
-        )}
+        className="flex items-center rounded-lg transition-colors cursor-pointer"
+        style={{
+          border: open ? '1px solid var(--bp-copper)' : '1px solid var(--bp-border)',
+          background: open ? 'var(--bp-surface-2)' : 'var(--bp-surface-1)',
+        }}
         onClick={() => !open && setOpen(true)}
       >
-        <Search className="w-4 h-4 text-muted-foreground/50 ml-3 flex-shrink-0" />
+        <Search className="w-4 h-4 ml-3 flex-shrink-0" style={{ color: 'var(--bp-ink-muted)' }} />
         {open ? (
           <input
             type="text"
@@ -654,19 +654,20 @@ function EntitySelector({
             placeholder={listLoading ? "Loading entities..." : `Filter ${entities.length} entities...`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full px-3 py-2.5 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 outline-none"
+            className="w-full px-3 py-2.5 bg-transparent text-sm outline-none"
+            style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
           />
         ) : (
           <div className="w-full px-3 py-2.5 text-sm">
             {selected ? (
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ background: 'var(--bp-copper-light)', color: 'var(--bp-copper)', border: '1px solid var(--bp-copper)' }}>
                   {selected.source}
                 </span>
-                <span className="font-mono text-foreground">{selected.tableName}</span>
+                <span style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }}>{selected.tableName}</span>
               </div>
             ) : (
-              <span className="text-muted-foreground/40">Select an entity...</span>
+              <span style={{ color: 'var(--bp-ink-muted)' }}>Select an entity...</span>
             )}
           </div>
         )}
@@ -676,21 +677,22 @@ function EntitySelector({
               e.stopPropagation();
               onSelect("");
             }}
-            className="mr-2 text-muted-foreground/40 hover:text-muted-foreground"
+            className="mr-2"
+            style={{ color: 'var(--bp-ink-muted)' }}
           >
             <XCircle className="w-4 h-4" />
           </button>
         )}
-        <ChevronDown className={cn("w-4 h-4 text-muted-foreground/40 mr-3 flex-shrink-0 transition-transform", open && "rotate-180")} />
+        <ChevronDown className={cn("w-4 h-4 mr-3 flex-shrink-0 transition-transform", open && "rotate-180")} style={{ color: 'var(--bp-ink-muted)' }} />
       </div>
 
       {open && !listLoading && (
-        <div className="absolute z-[200] mt-1 w-full max-h-[60vh] overflow-y-auto rounded-lg border border-border/50 bg-popover shadow-2xl">
+        <div className="absolute z-[200] mt-1 w-full max-h-[60vh] overflow-y-auto rounded-lg shadow-2xl" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
           {Object.entries(grouped).map(([source, items]) => (
             <div key={source}>
-              <div className="sticky top-0 px-3 py-2 bg-muted/80 backdrop-blur-sm border-b border-border/20 flex items-center justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">{source}</span>
-                <span className="text-[10px] text-muted-foreground/40">{items.length}</span>
+              <div className="sticky top-0 px-3 py-2 backdrop-blur-sm flex items-center justify-between" style={{ background: 'var(--bp-surface-inset)', borderBottom: '1px solid var(--bp-border-subtle)' }}>
+                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-copper)' }}>{source}</span>
+                <span className="text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>{items.length}</span>
               </div>
               {items.map((e) => {
                 const idStr = String(e.id);
@@ -702,25 +704,26 @@ function EntitySelector({
                       setOpen(false);
                       setQuery("");
                     }}
-                    className={cn(
-                      "w-full text-left px-3 py-2 hover:bg-primary/5 transition-colors flex items-center justify-between gap-2",
-                      selectedId === idStr && "bg-primary/10 border-l-2 border-primary",
-                    )}
+                    className="w-full text-left px-3 py-2 transition-colors flex items-center justify-between gap-2"
+                    style={{
+                      background: selectedId === idStr ? 'var(--bp-copper-light)' : 'transparent',
+                      borderLeft: selectedId === idStr ? '2px solid var(--bp-copper)' : '2px solid transparent',
+                    }}
                   >
                     <div className="min-w-0 flex items-center gap-2">
-                      <span className="text-sm font-mono text-foreground truncate">{e.tableName}</span>
+                      <span className="text-sm truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }}>{e.tableName}</span>
                       {e.sourceSchema !== "dbo" && (
-                        <span className="text-[10px] text-muted-foreground/40 flex-shrink-0">{e.sourceSchema}</span>
+                        <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--bp-ink-muted)' }}>{e.sourceSchema}</span>
                       )}
                     </div>
-                    <span className="text-[10px] text-muted-foreground/30 flex-shrink-0">#{idStr}</span>
+                    <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--bp-ink-muted)' }}>#{idStr}</span>
                   </button>
                 );
               })}
             </div>
           ))}
           {Object.keys(grouped).length === 0 && (
-            <div className="px-3 py-6 text-center text-sm text-muted-foreground/40">
+            <div className="px-3 py-6 text-center text-sm" style={{ color: 'var(--bp-ink-muted)' }}>
               No entities match "{query}"
             </div>
           )}
@@ -853,15 +856,15 @@ export default function ColumnEvolution() {
   const isGold = activeLayer === 4;
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="h-full flex flex-col" style={{ background: 'var(--bp-canvas)' }}>
       {/* ── Header ── */}
-      <div className="flex-shrink-0 border-b border-border/50 bg-card px-6 py-4" style={{ zIndex: 100, position: "relative" }}>
+      <div className="flex-shrink-0 px-6 py-4" style={{ zIndex: 100, position: "relative", borderBottom: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <Columns3 className="w-5 h-5 text-primary" />
-            <h1 className="font-display text-lg font-semibold">Column Evolution</h1>
+            <Columns3 className="w-5 h-5" style={{ color: 'var(--bp-copper)' }} />
+            <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: 32, color: 'var(--bp-ink-primary)', fontWeight: 400 }}>Column Evolution</h1>
             {journey && (
-              <span className="text-muted-foreground text-sm">
+              <span className="text-sm" style={{ color: 'var(--bp-ink-secondary)' }}>
                 — {journey.source.namespace || journey.source.dataSourceName}: {journey.source.name}
               </span>
             )}
@@ -869,7 +872,8 @@ export default function ColumnEvolution() {
           {journey && (
             <button
               onClick={() => loadJourney(journey.entityId)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer"
+              style={{ border: '1px solid var(--bp-border)', color: 'var(--bp-ink-tertiary)' }}
             >
               <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
               Refresh
@@ -889,23 +893,23 @@ export default function ColumnEvolution() {
       <div className="flex-1 overflow-y-auto">
         {/* Loading state */}
         {loading && (
-          <div className="flex items-center justify-center h-64 gap-2 text-muted-foreground">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <span className="text-sm">Loading column schema...</span>
+          <div className="flex items-center justify-center h-64 gap-2">
+            <Loader2 className="w-5 h-5 animate-spin" style={{ color: 'var(--bp-copper)' }} />
+            <span className="text-sm" style={{ color: 'var(--bp-ink-secondary)' }}>Loading column schema...</span>
           </div>
         )}
 
         {/* Error state */}
         {error && (
-          <div className="flex items-center justify-center h-64 gap-2 text-red-400">
-            <XCircle className="w-5 h-5" />
-            <span className="text-sm">{error}</span>
+          <div className="flex items-center justify-center h-64 gap-2">
+            <XCircle className="w-5 h-5" style={{ color: 'var(--bp-fault)' }} />
+            <span className="text-sm" style={{ color: 'var(--bp-fault)' }}>{error}</span>
           </div>
         )}
 
         {/* No entity selected */}
         {!loading && !error && !journey && (
-          <div className="flex flex-col items-center justify-center h-64 gap-3 text-muted-foreground/40">
+          <div className="flex flex-col items-center justify-center h-64 gap-3" style={{ color: 'var(--bp-ink-muted)' }}>
             <Columns3 className="w-10 h-10" />
             <p className="text-sm">Select an entity to explore its column evolution</p>
             <p className="text-xs">Watch columns animate as they transform through Source, Bronze, Silver, and Gold</p>
@@ -916,7 +920,7 @@ export default function ColumnEvolution() {
         {journey && !loading && (
           <div className="p-6 space-y-5 max-w-7xl mx-auto">
             {/* Layer Stepper */}
-            <div className="rounded-[var(--radius-lg)] border border-border/30 bg-card backdrop-blur-sm p-4">
+            <div className="rounded-lg p-4" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
               <LayerStepper
                 activeIndex={activeLayer}
                 maxIndex={maxLayerIdx}
@@ -941,9 +945,9 @@ export default function ColumnEvolution() {
 
             {/* Note for Source/LZ layers */}
             {isSourceOrLanding && hasColumnData && (
-              <div className="flex items-start gap-3 px-4 py-3 rounded-[var(--radius-lg)] border border-blue-500/20 bg-blue-500/5">
-                <Info className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-blue-400/80">
+              <div className="flex items-start gap-3 px-4 py-3 rounded-md" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-2)' }}>
+                <Info className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--bp-ink-tertiary)' }} />
+                <p className="text-xs" style={{ color: 'var(--bp-ink-secondary)' }}>
                   Source and Landing Zone columns are identical to Bronze (before system columns are added).
                   The columns below represent the original schema as extracted from{" "}
                   <span className="font-mono font-medium">{journey.source.schema}.{journey.source.name}</span>.
@@ -953,7 +957,7 @@ export default function ColumnEvolution() {
 
             {/* No column data at all */}
             {isSourceOrLanding && !hasColumnData && (
-              <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground/40">
+              <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: 'var(--bp-ink-muted)' }}>
                 <Database className="w-10 h-10" />
                 <p className="text-sm">No column schema available yet</p>
                 <p className="text-xs text-center max-w-md">
@@ -965,7 +969,7 @@ export default function ColumnEvolution() {
 
             {/* Gold placeholder */}
             {isGold && (
-              <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground/40">
+              <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: 'var(--bp-ink-muted)' }}>
                 <Crown className="w-10 h-10" />
                 <p className="text-sm">Gold layer coming soon</p>
                 <p className="text-xs">Materialized Lakehouse Views will appear here once configured</p>
@@ -982,14 +986,14 @@ export default function ColumnEvolution() {
                   >
                     {LAYERS[activeLayer].label}
                   </span>
-                  <span className="text-xs text-muted-foreground/50">
+                  <span className="text-xs" style={{ color: 'var(--bp-ink-muted)' }}>
                     {currentColumns.filter((c) => c.diffStatus !== "removed").length} columns
                     {currentColumns.some((c) => c.isSystem) &&
                       ` (${currentColumns.filter((c) => c.isSystem).length} system)`}
                   </span>
                 </div>
                 {currentColumns.some((c) => c.diffStatus === "removed") && (
-                  <span className="text-[10px] text-red-400/50">
+                  <span className="text-[10px]" style={{ color: 'var(--bp-fault)' }}>
                     +{currentColumns.filter((c) => c.diffStatus === "removed").length} removed shown
                   </span>
                 )}

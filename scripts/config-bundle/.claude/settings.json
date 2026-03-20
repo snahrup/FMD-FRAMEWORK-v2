@@ -111,7 +111,7 @@
         "MSSQL_HOST": "SQL2019Dev",
         "MSSQL_DATABASE": "IPC_PowerData",
         "MSSQL_USER": "UsrSQLRead",
-        "MSSQL_PASSWORD": "Ku7T@hoqFDmDPqG4deMgrrxQ9"
+        "MSSQL_PASSWORD": "SET_VIA_ENV_OR_DOTENV"
       }
     },
     "mssql-m3-etl": {
@@ -125,7 +125,7 @@
         "MSSQL_HOST": "SQL2016Dev",
         "MSSQL_DATABASE": "M3TST-ETL",
         "MSSQL_USER": "UsrSQLRead",
-        "MSSQL_PASSWORD": "Ku7T@hoqFDmDPqG4deMgrrxQ9"
+        "MSSQL_PASSWORD": "SET_VIA_ENV_OR_DOTENV"
       }
     },
     "mssql-m3-fdb": {
@@ -139,7 +139,7 @@
         "MSSQL_HOST": "M3Dev-DB1",
         "MSSQL_DATABASE": "M3FDBTST",
         "MSSQL_USER": "UsrSQLRead",
-        "MSSQL_PASSWORD": "Ku7T@hoqFDmDPqG4deMgrrxQ9"
+        "MSSQL_PASSWORD": "SET_VIA_ENV_OR_DOTENV"
       }
     },
     "mssql-mes": {
@@ -153,7 +153,7 @@
         "MSSQL_HOST": "SQL2012Test",
         "MSSQL_DATABASE": "MES",
         "MSSQL_USER": "UsrSQLRead",
-        "MSSQL_PASSWORD": "Ku7T@hoqFDmDPqG4deMgrrxQ9"
+        "MSSQL_PASSWORD": "SET_VIA_ENV_OR_DOTENV"
       }
     },
     "github": {

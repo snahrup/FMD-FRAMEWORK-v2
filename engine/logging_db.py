@@ -524,7 +524,7 @@ class AuditLogger:
             "SourceServer": entity.source_server or "",
             "SourceDatabase": entity.source_database or "",
             "SourceTable": f"{entity.source_schema}.{entity.source_name}",
-            "SourceQuery": entity.build_source_query()[:4000],
+            "SourceQuery": entity.build_source_query_display()[:4000],
             "RowsRead": result.rows_read,
             "RowsWritten": result.rows_written,
             "BytesTransferred": result.bytes_transferred,

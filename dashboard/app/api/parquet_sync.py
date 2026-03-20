@@ -106,7 +106,12 @@ def _export_once() -> None:
 
     for table_name in to_export:
         try:
-            rows = fmd_db.query(f"SELECT * FROM [{table_name}]")
+            if table_name not in EXPORTABLE_TABLES:
+                log.warning("Table '%s' not in EXPORTABLE_TABLES — skipping.", table_name)
+                continue
+            # table_name validated against EXPORTABLE_TABLES whitelist above
+            safe_table = table_name.replace("]", "]]")
+            rows = fmd_db.query("SELECT * FROM [" + safe_table + "]")
             if not rows:
                 log.debug("Table '%s' is empty — skipping Parquet write.", table_name)
                 continue

@@ -60,26 +60,26 @@ interface ErrorIntelligenceData {
 // ===== Config =====
 const API = '';
 
-const severityConfig: Record<ErrorSeverity, { label: string; color: string; bgColor: string; borderColor: string; icon: React.ElementType }> = {
+const severityConfig: Record<ErrorSeverity, { label: string; colorHex: string; bgHex: string; borderStyle: string; icon: React.ElementType }> = {
   critical: {
     label: 'Critical',
-    color: 'text-red-700 dark:text-red-400',
-    bgColor: 'bg-red-50 dark:bg-red-950/20',
-    borderColor: 'border-red-200 dark:border-red-800',
+    colorHex: 'var(--bp-fault)',
+    bgHex: 'var(--bp-fault-light)',
+    borderStyle: '1px solid var(--bp-fault)',
     icon: AlertCircle,
   },
   warning: {
     label: 'Warning',
-    color: 'text-amber-700 dark:text-amber-400',
-    bgColor: 'bg-amber-50 dark:bg-amber-950/20',
-    borderColor: 'border-amber-200 dark:border-amber-800',
+    colorHex: 'var(--bp-caution)',
+    bgHex: 'var(--bp-caution-light)',
+    borderStyle: '1px solid var(--bp-caution)',
     icon: AlertTriangle,
   },
   info: {
     label: 'Info',
-    color: 'text-blue-700 dark:text-blue-400',
-    bgColor: 'bg-blue-50 dark:bg-blue-950/20',
-    borderColor: 'border-blue-200 dark:border-blue-800',
+    colorHex: 'var(--bp-ink-muted)',
+    bgHex: 'var(--bp-surface-2)',
+    borderStyle: '1px solid var(--bp-border)',
     icon: Info,
   },
 };
@@ -115,16 +115,16 @@ function TopIssueBanner({ topIssue }: { topIssue: TopIssue }) {
   if (topIssue.count <= 1) return null;
   const pct = topIssue.totalErrors > 0 ? Math.round((topIssue.count / topIssue.totalErrors) * 100) : 0;
   return (
-    <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/10 rounded-xl border border-amber-200/60 dark:border-amber-800/40 p-4 shadow-sm">
+    <div className="rounded-lg p-4" style={{ background: 'var(--bp-caution-light)', border: '1px solid var(--bp-caution)' }}>
       <div className="flex items-start gap-3">
-        <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center flex-shrink-0">
-          <Zap className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--bp-caution-light)' }}>
+          <Zap className="w-4 h-4" style={{ color: 'var(--bp-caution)' }} />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">
+          <p className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>
             Top Issue: {topIssue.count} of {topIssue.totalErrors} errors ({pct}%) — {topIssue.label}
           </p>
-          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+          <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--bp-ink-secondary)' }}>
             <Wrench className="w-3 h-3 inline mr-1 relative -top-px" />
             {topIssue.suggestion}
           </p>
@@ -182,29 +182,28 @@ function ErrorCard({
   }, [errorTypeGroups, showAllOccurrences]);
 
   return (
-    <div className={cn(
-      "rounded-[var(--radius-xl)] border overflow-hidden transition-all duration-[var(--duration-normal)]",
-      config.borderColor,
-      isExpanded ? 'shadow-[var(--shadow-card-hover)]' : 'shadow-[var(--shadow-card)]'
-    )}>
+    <div
+      className="rounded-lg overflow-hidden transition-all duration-[var(--duration-normal)]"
+      style={{ border: config.borderStyle }}
+    >
       {/* Header — always visible */}
       <div
-        className={cn("p-4 cursor-pointer", config.bgColor)}
+        className="p-4 cursor-pointer"
+        style={{ background: config.bgHex }}
         onClick={onToggleExpand}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3 min-w-0">
-            <div className={cn(
-              "w-9 h-9 rounded-[var(--radius-md)] flex items-center justify-center flex-shrink-0",
-              summary.severity === 'critical' ? 'bg-red-100 dark:bg-red-950/40' :
-              summary.severity === 'warning' ? 'bg-amber-100 dark:bg-amber-950/40' : 'bg-blue-100 dark:bg-blue-950/40'
-            )}>
-              <SeverityIcon className={cn("w-4 h-4", config.color)} />
+            <div
+              className="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+              style={{ background: config.bgHex }}
+            >
+              <SeverityIcon className="w-4 h-4" style={{ color: config.colorHex }} />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-sm font-semibold text-foreground">{summary.title}</h3>
-                <Badge variant="outline" className={cn("text-[10px]", config.color)}>
+                <h3 className="text-sm" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)', fontWeight: 600 }}>{summary.title}</h3>
+                <Badge variant="outline" className="text-[10px]" style={{ color: config.colorHex, borderColor: config.colorHex }}>
                   {config.label}
                 </Badge>
                 {summary.occurrenceCount > 1 && (
@@ -215,13 +214,13 @@ function ErrorCard({
                 )}
               </div>
               {/* Inline suggestion — always visible */}
-              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+              <p className="text-xs mt-1.5 leading-relaxed" style={{ color: 'var(--bp-ink-secondary)' }}>
                 <Wrench className="w-3 h-3 inline mr-1 relative -top-px opacity-50" />
                 {summary.suggestion}
               </p>
               {/* Affected pipelines */}
               {summary.affectedPipelines.length > 0 && (
-                <p className="text-[10px] text-muted-foreground mt-1 line-clamp-1">
+                <p className="text-[10px] mt-1 line-clamp-1" style={{ color: 'var(--bp-ink-tertiary)' }}>
                   Pipelines: {summary.affectedPipelines.map(p => getDisplayName(p)).join(', ')}
                 </p>
               )}
@@ -230,28 +229,29 @@ function ErrorCard({
           <div className="flex items-center gap-3 flex-shrink-0">
             {summary.latestTime && (
               <div className="text-right hidden sm:block">
-                <p className="text-[10px] text-muted-foreground font-mono flex items-center justify-end">
+                <p className="text-[10px] font-mono flex items-center justify-end" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>
                   <Clock className="w-3 h-3 mr-1" />
                   {fmtTime(summary.latestTime)}
                 </p>
               </div>
             )}
-            {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            {isExpanded ? <ChevronUp className="w-4 h-4" style={{ color: 'var(--bp-ink-muted)' }} /> : <ChevronDown className="w-4 h-4" style={{ color: 'var(--bp-ink-muted)' }} />}
           </div>
         </div>
       </div>
 
       {/* Expanded: Error occurrences with inline detail */}
       {isExpanded && (
-        <div className="border-t border-border">
+        <div style={{ borderTop: '1px solid var(--bp-border)' }}>
           <div className="p-4">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-xs font-semibold text-foreground">
+              <h4 className="text-xs" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)', fontWeight: 600 }}>
                 {catErrors.length} Occurrence{catErrors.length !== 1 ? 's' : ''}
               </h4>
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleRaw(); }}
-                className="flex items-center text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center text-[10px] transition-colors"
+                style={{ color: 'var(--bp-ink-tertiary)' }}
               >
                 {showRaw ? <EyeOff className="w-3 h-3 mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
                 {showRaw ? 'Hide' : 'Show'} Raw Errors
@@ -265,9 +265,10 @@ function ErrorCard({
                     <button
                       key={`collapse-${item.errorType}`}
                       onClick={() => setShowAllOccurrences(true)}
-                      className="w-full text-left p-2.5 bg-muted/50 rounded-[var(--radius-md)] border border-dashed border-border hover:border-primary/30 hover:bg-muted transition-colors"
+                      className="w-full text-left p-2.5 rounded-md border border-dashed transition-colors"
+                      style={{ background: 'var(--bp-surface-2)', borderColor: 'var(--bp-border)' }}
                     >
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>
                         + {item.collapsedCount} more similar error{item.collapsedCount > 1 ? 's' : ''} ({item.errorType.replace(/_/g, ' ').toLowerCase()})
                       </p>
                     </button>
@@ -281,23 +282,23 @@ function ErrorCard({
                 return (
                   <div
                     key={err.id || i}
-                    className="p-2.5 bg-muted rounded-[var(--radius-md)] border border-border/50"
+                    className="p-2.5 rounded-md"
+                    style={{ background: 'var(--bp-surface-2)', border: '1px solid var(--bp-border-subtle)' }}
                   >
                     <div className="flex items-start gap-2.5">
                       {/* Severity dot */}
-                      <div className={cn(
-                        "w-2 h-2 rounded-full flex-shrink-0 mt-1.5",
-                        summary.severity === 'critical' ? 'bg-red-500' :
-                        summary.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-500'
-                      )} />
+                      <div
+                        className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                        style={{ backgroundColor: config.colorHex }}
+                      />
 
                       <div className="min-w-0 flex-1">
                         {/* Pipeline + Entity */}
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-xs font-medium text-foreground">
+                          <p className="text-xs font-medium" style={{ color: 'var(--bp-ink-primary)' }}>
                             {getDisplayName(err.pipelineName)}
                             {hasEntity && (
-                              <span className="text-muted-foreground font-normal"> — {err.entityName}</span>
+                              <span style={{ color: 'var(--bp-ink-secondary)', fontWeight: 400 }}> — {err.entityName}</span>
                             )}
                           </p>
                           <Badge variant="outline" className="text-[9px] flex-shrink-0">
@@ -307,17 +308,17 @@ function ErrorCard({
 
                         {/* Error summary — always visible */}
                         {hasSummary && (
-                          <p className="text-[11px] text-foreground/70 mt-0.5 leading-snug">{err.summary}</p>
+                          <p className="text-[11px] mt-0.5 leading-snug" style={{ color: 'var(--bp-ink-secondary)' }}>{err.summary}</p>
                         )}
 
                         {/* Timestamp */}
-                        <p className="text-[10px] text-muted-foreground font-mono mt-1">
+                        <p className="text-[10px] mt-1" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>
                           {fmtTime(err.startTime)}
                         </p>
 
                         {/* Raw error (toggled) */}
                         {showRaw && (
-                          <pre className="mt-2 p-2 bg-background rounded text-[10px] font-mono text-muted-foreground whitespace-pre-wrap break-all border border-border/50 max-h-32 overflow-y-auto">
+                          <pre className="mt-2 p-2 rounded text-[10px] whitespace-pre-wrap break-all max-h-32 overflow-y-auto" style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border-subtle)', color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-mono)' }}>
                             {err.rawError}
                           </pre>
                         )}
@@ -330,14 +331,15 @@ function ErrorCard({
               {showAllOccurrences && catErrors.length > 10 && (
                 <button
                   onClick={() => setShowAllOccurrences(false)}
-                  className="w-full text-center p-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  className="w-full text-center p-2 text-xs transition-colors"
+                  style={{ color: 'var(--bp-ink-tertiary)' }}
                 >
                   Show fewer
                 </button>
               )}
 
               {catErrors.length === 0 && (
-                <p className="text-xs text-muted-foreground py-2">No individual error records available.</p>
+                <p className="text-xs py-2" style={{ color: 'var(--bp-ink-muted)' }}>No individual error records available.</p>
               )}
             </div>
           </div>
@@ -429,12 +431,12 @@ export default function ErrorIntelligence() {
   }, [summaries, filterSeverity]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-display font-semibold tracking-tight text-foreground">Error Intelligence</h1>
-          <p className="text-sm text-muted-foreground mt-1">Pipeline error analysis — what happened and how to fix it</p>
+          <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: 32, color: 'var(--bp-ink-primary)', fontWeight: 400, lineHeight: 1.2 }}>Error Intelligence</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--bp-ink-secondary)' }}>Pipeline error analysis — what happened and how to fix it</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchData} disabled={loading} className="gap-1.5 h-8 text-xs">
@@ -454,21 +456,21 @@ export default function ErrorIntelligence() {
       {loading && (
         <div className="flex items-center justify-center py-20">
           <div className="flex items-center gap-3">
-            <Loader2 className="h-5 w-5 animate-spin text-primary" />
-            <span className="text-sm text-muted-foreground">Loading pipeline errors...</span>
+            <Loader2 className="h-5 w-5 animate-spin" style={{ color: 'var(--bp-copper)' }} />
+            <span className="text-sm" style={{ color: 'var(--bp-ink-secondary)' }}>Loading pipeline errors...</span>
           </div>
         </div>
       )}
 
       {/* Error State */}
       {error && (
-        <div className="rounded-[var(--radius-xl)] border border-red-200 dark:border-red-800/50 bg-red-50/50 dark:bg-red-950/20 p-6">
+        <div className="rounded-lg p-6" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
           <div className="flex items-start gap-4">
-            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--bp-fault)' }} />
             <div>
-              <h3 className="text-sm font-semibold text-foreground">Failed to load error data</h3>
-              <p className="text-sm text-muted-foreground mt-1">{error}</p>
-              <button className="mt-2 text-xs font-medium text-primary hover:text-primary/80" onClick={fetchData}>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)' }}>Failed to load error data</h3>
+              <p className="text-sm mt-1" style={{ color: 'var(--bp-ink-secondary)' }}>{error}</p>
+              <button className="mt-2 text-xs font-medium" style={{ color: 'var(--bp-copper)' }} onClick={fetchData}>
                 Try again
               </button>
             </div>
@@ -481,70 +483,35 @@ export default function ErrorIntelligence() {
         <>
           {/* Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <button onClick={() => setFilterSeverity('all')} className={cn(
-              "text-left rounded-xl border p-4 shadow-sm hover:shadow-md transition-all",
-              filterSeverity === 'all'
-                ? "ring-2 ring-primary/50 bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/30 dark:to-slate-900/20 border-primary/30"
-                : "bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 border-slate-200/50 dark:border-slate-800/30"
-            )}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Total</p>
-                  <p className="text-2xl font-display font-semibold text-foreground mt-1">{totalErrors}</p>
-                </div>
-                <div className="w-10 h-10 bg-muted rounded-[var(--radius-md)] flex items-center justify-center">
-                  <AlertCircle className="w-5 h-5 text-muted-foreground" />
-                </div>
-              </div>
-            </button>
-            <button onClick={() => setFilterSeverity(filterSeverity === 'critical' ? 'all' : 'critical')} className={cn(
-              "text-left rounded-xl border p-4 shadow-sm hover:shadow-md transition-all",
-              filterSeverity === 'critical'
-                ? "ring-2 ring-red-400/50 bg-gradient-to-br from-red-50 to-red-100/50 dark:from-red-950/30 dark:to-red-900/20 border-red-300/50"
-                : "bg-gradient-to-br from-red-50 to-red-100/50 dark:from-red-950/20 dark:to-red-900/10 border-red-200/50 dark:border-red-800/30"
-            )}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-medium text-red-600 dark:text-red-400 uppercase tracking-wider">Critical</p>
-                  <p className="text-2xl font-display font-semibold text-red-700 dark:text-red-400 mt-1">{criticalCount}</p>
-                </div>
-                <div className="w-10 h-10 bg-red-50 dark:bg-red-950/30 rounded-[var(--radius-md)] flex items-center justify-center">
-                  <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
-                </div>
-              </div>
-            </button>
-            <button onClick={() => setFilterSeverity(filterSeverity === 'warning' ? 'all' : 'warning')} className={cn(
-              "text-left rounded-xl border p-4 shadow-sm hover:shadow-md transition-all",
-              filterSeverity === 'warning'
-                ? "ring-2 ring-amber-400/50 bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/30 dark:to-amber-900/20 border-amber-300/50"
-                : "bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/20 dark:to-amber-900/10 border-amber-200/50 dark:border-amber-800/30"
-            )}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">Warnings</p>
-                  <p className="text-2xl font-display font-semibold text-amber-700 dark:text-amber-400 mt-1">{warningCount}</p>
-                </div>
-                <div className="w-10 h-10 bg-amber-50 dark:bg-amber-950/30 rounded-[var(--radius-md)] flex items-center justify-center">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                </div>
-              </div>
-            </button>
-            <button onClick={() => setFilterSeverity(filterSeverity === 'info' ? 'all' : 'info')} className={cn(
-              "text-left rounded-xl border p-4 shadow-sm hover:shadow-md transition-all",
-              filterSeverity === 'info'
-                ? "ring-2 ring-blue-400/50 bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border-blue-300/50"
-                : "bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/10 border-blue-200/50 dark:border-blue-800/30"
-            )}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wider">Info</p>
-                  <p className="text-2xl font-display font-semibold text-blue-700 dark:text-blue-400 mt-1">{infoCount}</p>
-                </div>
-                <div className="w-10 h-10 bg-blue-50 dark:bg-blue-950/30 rounded-[var(--radius-md)] flex items-center justify-center">
-                  <Info className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                </div>
-              </div>
-            </button>
+            {([
+              { key: 'all' as const, label: 'Total', value: totalErrors, colorHex: 'var(--bp-ink-secondary)', bgHex: 'var(--bp-surface-1)', Icon: AlertCircle },
+              { key: 'critical' as const, label: 'Critical', value: criticalCount, colorHex: 'var(--bp-fault)', bgHex: 'var(--bp-fault-light)', Icon: AlertCircle },
+              { key: 'warning' as const, label: 'Warnings', value: warningCount, colorHex: 'var(--bp-caution)', bgHex: 'var(--bp-caution-light)', Icon: AlertTriangle },
+              { key: 'info' as const, label: 'Info', value: infoCount, colorHex: 'var(--bp-ink-muted)', bgHex: 'var(--bp-surface-2)', Icon: Info },
+            ]).map(({ key, label, value, colorHex, bgHex, Icon }) => {
+              const isActive = filterSeverity === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setFilterSeverity(filterSeverity === key ? 'all' : key)}
+                  className="text-left rounded-lg p-4 transition-all"
+                  style={{
+                    background: bgHex,
+                    border: isActive ? `2px solid ${colorHex}` : '1px solid var(--bp-border)',
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-medium uppercase tracking-wider" style={{ color: colorHex, fontFamily: 'var(--bp-font-body)' }}>{label}</p>
+                      <p className="text-2xl mt-1" style={{ fontFamily: 'var(--bp-font-display)', color: colorHex, fontVariantNumeric: 'tabular-nums' }}>{value}</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-md flex items-center justify-center" style={{ background: bgHex }}>
+                      <Icon className="w-5 h-5" style={{ color: colorHex }} />
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
           {/* Top Issue Banner */}
@@ -554,11 +521,12 @@ export default function ErrorIntelligence() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
             {/* Pipeline filter */}
             <div className="flex items-center gap-2">
-              <Filter className="w-3.5 h-3.5 text-muted-foreground" />
+              <Filter className="w-3.5 h-3.5" style={{ color: 'var(--bp-ink-muted)' }} />
               <select
                 value={filterPipeline}
                 onChange={(e) => setFilterPipeline(e.target.value)}
-                className="text-xs bg-muted border border-border rounded-[var(--radius-md)] px-2.5 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                className="text-xs rounded-md px-2.5 py-1.5 focus:outline-none"
+                style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
               >
                 <option value="all">All Pipelines</option>
                 {uniquePipelines.map(p => (
@@ -569,13 +537,14 @@ export default function ErrorIntelligence() {
 
             {/* Search */}
             <div className="relative flex-1 max-w-xs">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: 'var(--bp-ink-muted)' }} />
               <input
                 type="text"
                 placeholder="Search errors..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full text-xs bg-muted border border-border rounded-[var(--radius-md)] pl-8 pr-3 py-1.5 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                className="w-full text-xs rounded-md pl-8 pr-3 py-1.5 focus:outline-none"
+                style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
               />
             </div>
 
@@ -583,7 +552,8 @@ export default function ErrorIntelligence() {
             {(filterPipeline !== 'all' || searchQuery || filterSeverity !== 'all') && (
               <button
                 onClick={() => { setFilterPipeline('all'); setSearchQuery(''); setFilterSeverity('all'); }}
-                className="text-[10px] text-primary hover:text-primary/80 transition-colors"
+                className="text-[10px] transition-colors"
+                style={{ color: 'var(--bp-copper)' }}
               >
                 Clear filters
               </button>
@@ -607,14 +577,14 @@ export default function ErrorIntelligence() {
 
           {/* Empty State */}
           {filteredSummaries.length === 0 && (
-            <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/20 dark:to-emerald-900/10 rounded-xl border border-emerald-200/50 dark:border-emerald-800/30 p-12 text-center shadow-sm">
-              <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-950/30 rounded-full flex items-center justify-center mx-auto">
-                <CheckCircle className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />
+            <div className="rounded-lg p-12 text-center" style={{ background: 'var(--bp-operational-light)', border: '1px solid var(--bp-operational)' }}>
+              <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto" style={{ background: 'var(--bp-operational-light)' }}>
+                <CheckCircle className="w-7 h-7" style={{ color: 'var(--bp-operational)' }} />
               </div>
-              <h3 className="text-sm font-semibold text-foreground mt-4">
+              <h3 className="text-sm font-semibold mt-4" style={{ color: 'var(--bp-ink-primary)' }}>
                 {totalErrors === 0 ? 'No Pipeline Errors' : 'No Matching Errors'}
               </h3>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-secondary)' }}>
                 {totalErrors === 0
                   ? 'No pipeline failures detected in recent Fabric job history or execution logs.'
                   : 'No errors match the current filters. Try adjusting your search or filter criteria.'}

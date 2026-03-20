@@ -87,7 +87,7 @@ DataMicroscope is a cross-layer row inspection tool. Users select an entity, ent
 
 - **Well-structured**: Clean separation of concerns -- DiffGrid, CellPopover, TransformationCards, PkSearchInput are all self-contained sub-components
 - **Cell status logic is thorough**: `getCellStatus()` properly handles all 4 layers with sanitized name matching for source columns
-- **No security issues**: No user input rendered as HTML, no `dangerouslySetInnerHTML`
+- **No security issues**: No user input rendered as HTML, no dynamic innerHTML injection
 - **No memory leaks**: All effects have proper cleanup (event listeners removed, mountedRef pattern used in hooks)
 - **EntitySelector integration is clean**: Uses the shared component correctly with proper props
 - **useSearchParams usage**: URL state management is well-implemented for deep linking (entity + pk in URL)

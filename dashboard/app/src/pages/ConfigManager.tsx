@@ -181,7 +181,7 @@ const FRIENDLY_CONFIG_KEYS: Record<string, Record<string, string>> = {
   fabric: {
     tenant_id: "Azure Tenant",
     client_id: "Service Principal ID",
-    client_secret: "Service Principal Secret",
+    service_principal_auth: "SP Secret",
     workspace_data_id: "Data Workspace ID",
     workspace_code_id: "Code Workspace ID",
   },
@@ -268,10 +268,10 @@ function SectionHeader({ icon: Icon, title, count, defaultOpen = true, children 
         onClick={() => setOpen(!open)}
         className="flex items-center gap-3 mb-3 w-full text-left group cursor-pointer"
       >
-        <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-          <Icon className="h-5 w-5 text-muted-foreground" />
+        <div className="h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "var(--bp-surface-inset)" }}>
+          <Icon className="h-5 w-5" style={{ color: "var(--bp-ink-tertiary)" }} />
         </div>
-        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+        <h2 style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, fontSize: 18, color: "var(--bp-ink-primary)" }}>{title}</h2>
         {count !== undefined && (
           <span className="text-sm bg-muted text-muted-foreground px-2.5 py-0.5 rounded-full">{count}</span>
         )}
@@ -306,7 +306,7 @@ function EditableCell({ value, onSave }: { value: string; onSave: (v: string) =>
   return (
     <span className="inline-flex items-center gap-1.5">
       <input
-        className="text-sm font-mono bg-background border border-border rounded px-2 py-1 text-foreground w-80 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30"
+        className="text-sm font-mono bg-background border border-border rounded px-2 py-1 text-foreground w-80 focus:outline-none focus:border-[var(--bp-copper)] focus:ring-1 focus:ring-[rgba(180,86,36,0.3)]"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         autoFocus
@@ -324,9 +324,9 @@ function EditableCell({ value, onSave }: { value: string; onSave: (v: string) =>
           setSaving(true);
           onSave(draft).then(() => { setEditing(false); }).catch(() => {}).finally(() => setSaving(false));
         }}
-        className="p-1 hover:bg-emerald-900/50 rounded"
+        className="p-1 hover:bg-[var(--bp-operational-light)] rounded"
       >
-        <Save className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+        <Save className="h-4 w-4 text-[var(--bp-operational)]" />
       </button>
       <button onClick={() => setEditing(false)} className="p-1 hover:bg-muted rounded">
         <X className="h-4 w-4 text-muted-foreground" />
@@ -347,7 +347,7 @@ function CopyButton({ text }: { text: string }) {
       className="p-1 hover:bg-muted rounded"
       title="Copy"
     >
-      {copied ? <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> : <Copy className="h-4 w-4 text-muted-foreground hover:text-foreground" />}
+      {copied ? <CheckCircle2 className="h-4 w-4 text-[var(--bp-operational)]" /> : <Copy className="h-4 w-4 text-muted-foreground hover:text-foreground" />}
     </button>
   );
 }
@@ -387,12 +387,12 @@ function EntityName({
           {displayName}
         </span>
         {copied ? (
-          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+          <CheckCircle2 className="h-3.5 w-3.5 text-[var(--bp-operational)] flex-shrink-0" />
         ) : (
           <Copy className="h-3.5 w-3.5 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
         )}
         {copied && (
-          <span className="text-[10px] text-emerald-500 font-medium">Copied!</span>
+          <span className="text-[10px] text-[var(--bp-operational)] font-medium">Copied!</span>
         )}
       </span>
       {showId && hasName && (
@@ -407,8 +407,8 @@ function EntityName({
 function StatusIcon({ match }: { match: boolean | null }) {
   if (match === null) return null;
   return match
-    ? <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-    : <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0" />;
+    ? <CheckCircle2 className="h-4 w-4 text-[var(--bp-operational)] flex-shrink-0" />
+    : <AlertTriangle className="h-4 w-4 text-[var(--bp-fault)] flex-shrink-0" />;
 }
 
 function GuidDisplay({ guid, expected, label }: { guid: string | null; expected?: string; label?: string }) {
@@ -417,7 +417,7 @@ function GuidDisplay({ guid, expected, label }: { guid: string | null; expected?
   return (
     <span className="inline-flex items-center gap-2">
       <code className={`text-sm font-mono px-2 py-0.5 rounded ${
-        match === false ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 ring-1 ring-red-400/40 dark:ring-red-500/40" : "bg-muted text-foreground"
+        match === false ? "bg-[var(--bp-fault-light)] text-[var(--bp-fault)] ring-1 ring-[rgba(185,58,42,0.3)]" : "bg-muted text-foreground"
       }`}>
         {guid.toLowerCase()}
       </code>
@@ -509,11 +509,11 @@ function CascadeModal({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onSkip} />
-      <div className="relative bg-card border border-border rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col">
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" role="button" tabIndex={0} onClick={onSkip} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSkip(); } }} />
+      <div className="relative bg-card border border-border rounded-xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col">
         <div className="p-6 border-b border-border">
-          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <Zap className="h-5 w-5 text-blue-700 dark:text-blue-400" />
+          <h2 className="flex items-center gap-2" style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, fontSize: 18, color: "var(--bp-ink-primary)" }}>
+            <Zap className="h-5 w-5 text-[var(--bp-copper)]" />
             Cascade Update
           </h2>
           <p className="text-sm text-muted-foreground mt-2">
@@ -521,9 +521,9 @@ function CascadeModal({
             Would you like to update them all?
           </p>
           <div className="flex items-center gap-3 mt-3">
-            <code className="text-sm font-mono text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-2 py-1 rounded line-through">{prompt.oldValue}</code>
+            <code className="text-sm font-mono text-[var(--bp-fault)] bg-[var(--bp-fault-light)] px-2 py-1 rounded line-through">{prompt.oldValue}</code>
             <ArrowRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            <code className="text-sm font-mono text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-2 py-1 rounded">{prompt.newValue}</code>
+            <code className="text-sm font-mono text-[var(--bp-operational)] bg-[var(--bp-operational-light)] px-2 py-1 rounded">{prompt.newValue}</code>
           </div>
         </div>
 
@@ -539,7 +539,7 @@ function CascadeModal({
                     isReadOnly
                       ? "border-border bg-muted opacity-60 cursor-not-allowed"
                       : isChecked
-                      ? "border-blue-400/50 dark:border-blue-500/40 bg-blue-50 dark:bg-blue-900/10 cursor-pointer"
+                      ? "border-[rgba(180,86,36,0.3)] bg-[var(--bp-copper-light)] cursor-pointer"
                       : "border-border hover:bg-muted/50 cursor-pointer"
                   }`}
                 >
@@ -548,7 +548,7 @@ function CascadeModal({
                     checked={isReadOnly ? false : isChecked}
                     disabled={isReadOnly}
                     onChange={() => toggle(i)}
-                    className="mt-0.5 accent-blue-600"
+                    className="mt-0.5 accent-[var(--bp-copper)]"
                   />
                   <div className="flex-1 min-w-0">
                     <span className="text-sm text-foreground font-medium">{ref.location}</span>
@@ -581,7 +581,7 @@ function CascadeModal({
                   onConfirm(toUpdate);
                 }}
                 disabled={applying || selected.size === 0}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                className="px-4 py-2 text-sm font-medium text-[#FEFDFB] bg-[var(--bp-copper)] hover:bg-[var(--bp-copper-hover)] rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
               >
                 {applying ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
                 Update {selected.size} Reference{selected.size !== 1 ? "s" : ""}
@@ -719,7 +719,7 @@ export default function ConfigManager() {
   if (error) {
     return (
       <div className="p-8">
-        <div className="bg-red-50 dark:bg-red-900/30 border border-red-300 dark:border-red-500/30 rounded-lg p-6 text-red-700 dark:text-red-300">
+        <div className="bg-[var(--bp-fault-light)] border border-[rgba(185,58,42,0.3)] rounded-lg p-6 text-[var(--bp-fault)]">
           Failed to load configuration: {error}
         </div>
       </div>
@@ -733,14 +733,14 @@ export default function ConfigManager() {
   const correctDataDev = yamlWs.workspace_data?.toLowerCase() ?? "";
 
   return (
-    <div className="space-y-6 pb-16">
+    <div className="space-y-6 pb-16 px-8 py-8 max-w-[1280px] mx-auto">
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-3">
-            <Settings2 className="h-6 w-6" /> Configuration Manager
+          <h1 className="flex items-center gap-3 font-semibold" style={{ fontFamily: "var(--bp-font-display)", fontSize: 32, color: "var(--bp-ink-primary)" }}>
+            <Settings2 className="h-6 w-6" style={{ color: "var(--bp-copper)" }} /> Configuration Manager
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
             Every dynamic value in the FMD framework. Hover any value and click the pencil to edit.
           </p>
         </div>
@@ -748,37 +748,39 @@ export default function ConfigManager() {
           {/* Show IDs Toggle */}
           <button
             onClick={() => setShowIds(!showIds)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm border transition-colors ${
-              showIds
-                ? "bg-amber-600/10 border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-600/20"
-                : "bg-card border-border text-foreground hover:bg-muted/80"
-            }`}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors"
+            style={showIds
+              ? { background: "var(--bp-caution-light)", borderColor: "rgba(194,122,26,0.3)", color: "var(--bp-caution)", border: "1px solid rgba(194,122,26,0.3)" }
+              : { background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }
+            }
             title={showIds ? "Hide GUID identifiers" : "Show GUID identifiers"}
           >
             {showIds ? (
               <Eye className="h-4 w-4" />
             ) : (
-              <EyeOff className="h-4 w-4 text-muted-foreground" />
+              <EyeOff className="h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />
             )}
             {showIds ? "IDs Visible" : "IDs Hidden"}
           </button>
           {/* Business / Technical Toggle */}
           <button
             onClick={() => setBusinessMode(!businessMode)}
-            className="flex items-center gap-2 px-4 py-2 bg-card hover:bg-muted/80 rounded-lg text-sm text-foreground border border-border transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors"
+            style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }}
             title={businessMode ? "Switch to technical view" : "Switch to business-friendly view"}
           >
             {businessMode ? (
-              <ToggleRight className="h-4 w-4 text-blue-700 dark:text-blue-400" />
+              <ToggleRight className="h-4 w-4" style={{ color: "var(--bp-copper)" }} />
             ) : (
-              <ToggleLeft className="h-4 w-4 text-muted-foreground" />
+              <ToggleLeft className="h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />
             )}
             {businessMode ? "Business" : "Technical"}
           </button>
           <button
             onClick={load}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-muted hover:bg-muted/80 rounded-lg text-sm text-foreground border border-border transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors"
+            style={{ background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }}
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
@@ -786,7 +788,8 @@ export default function ConfigManager() {
           <button
             onClick={() => setShowDeployPrompt(true)}
             disabled={deploying}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600/80 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            style={{ background: "var(--bp-copper)", color: "#FEFDFB" }}
           >
             {deploying ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -800,10 +803,10 @@ export default function ConfigManager() {
 
       {/* ── Mismatch Banner ── */}
       {mismatches.length > 0 && (
-        <div className="bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-500/40 rounded-xl p-6">
+        <div className="rounded-xl p-6" style={{ background: "var(--bp-fault-light)", border: "1px solid rgba(185,58,42,0.3)" }}>
           <div className="flex items-center gap-3 mb-4">
-            <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400" />
-            <h2 className="text-base font-semibold text-red-700 dark:text-red-300">
+            <AlertTriangle className="h-6 w-6" style={{ color: "var(--bp-fault)" }} />
+            <h2 className="text-base font-semibold" style={{ color: "var(--bp-fault)" }}>
               {mismatches.length} Configuration Mismatch{mismatches.length > 1 ? "es" : ""} Detected
             </h2>
             <button
@@ -825,23 +828,24 @@ export default function ConfigManager() {
                   setUpdateLog((prev) => [`ERROR: Fix all mismatches failed: ${e}`, ...prev]);
                 }
               }}
-              className="ml-auto flex items-center gap-2 px-4 py-2 bg-red-600/80 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
+              className="ml-auto flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors"
+              style={{ background: "var(--bp-fault)", color: "#FEFDFB" }}
             >
               <Zap className="h-4 w-4" /> Fix All Mismatches
             </button>
           </div>
           <div className="space-y-3">
             {mismatches.map((m, i) => (
-              <div key={i} className="flex items-start gap-3 bg-red-100 dark:bg-red-900/60 rounded-lg p-4">
-                <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+              <div key={i} className="flex items-start gap-3 rounded-lg p-4" style={{ background: "rgba(185,58,42,0.08)" }}>
+                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" style={{ color: "var(--bp-fault)" }} />
                 <div className="flex-1">
-                  <div className="text-sm text-red-800 dark:text-red-200 font-medium">{m.message}</div>
+                  <div className="text-sm font-medium" style={{ color: "var(--bp-fault)" }}>{m.message}</div>
                   <div className="flex items-center gap-3 mt-2">
-                    <span className="text-sm font-medium text-red-700 dark:text-red-400/80 bg-red-200 dark:bg-red-900/30 px-2 py-0.5 rounded">
+                    <span className="text-sm font-medium px-2 py-0.5 rounded" style={{ color: "var(--bp-fault)", background: "var(--bp-fault-light)" }}>
                       {GUID_PATTERN.test(m.current) ? (resolveGuid(m.current) || m.current) : m.current}
                     </span>
                     <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400/80 bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 rounded">
+                    <span className="text-sm font-medium px-2 py-0.5 rounded" style={{ color: "var(--bp-operational)", background: "var(--bp-operational-light)" }}>
                       {GUID_PATTERN.test(m.expected) ? (resolveGuid(m.expected) || m.expected) : m.expected}
                     </span>
                   </div>
@@ -853,59 +857,42 @@ export default function ConfigManager() {
       )}
 
       {mismatches.length === 0 && !showDeployPrompt && !deployResult && (
-        <div className="bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-500/30 rounded-xl p-5 flex items-center gap-3">
-          <CheckCircle2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
-          <span className="text-sm text-emerald-700 dark:text-emerald-300">All configuration values are in sync. No mismatches detected.</span>
+        <div className="rounded-xl p-5 flex items-center gap-3" style={{ background: "var(--bp-operational-light)", border: "1px solid rgba(61,124,79,0.2)" }}>
+          <CheckCircle2 className="h-6 w-6" style={{ color: "var(--bp-operational)" }} />
+          <span className="text-sm" style={{ color: "var(--bp-operational)" }}>All configuration values are in sync. No mismatches detected.</span>
         </div>
       )}
 
       {/* ── Deploy Prompt (after Fix All Mismatches) ── */}
+      {/* NOTE: Deploy endpoint returns 501 — hidden until backend is implemented.
+         When ready, remove the disabled/title attrs and restore the onClick. */}
       {showDeployPrompt && !deploying && !deployResult && (
-        <div className="bg-blue-50 dark:bg-blue-950 border border-blue-300 dark:border-blue-500/40 rounded-xl p-6">
+        <div className="rounded-xl p-6" style={{ background: "var(--bp-copper-light)", border: "1px solid rgba(180,86,36,0.2)" }}>
           <div className="flex items-center gap-3 mb-3">
-            <Rocket className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-            <h2 className="text-base font-semibold text-blue-700 dark:text-blue-300">
+            <Rocket className="h-6 w-6" style={{ color: "var(--bp-copper)" }} />
+            <h2 className="text-base font-semibold" style={{ color: "var(--bp-copper)" }}>
               Source Files Updated — Deploy to Fabric?
             </h2>
           </div>
-          <p className="text-sm text-blue-700/80 dark:text-blue-300/80 mb-4">
-            The local pipeline JSON files have been corrected. To push these changes to Fabric so the
-            pipelines actually use the new values, deploy them now. This will update all 22 pipelines
-            across both DEV and PROD workspaces via the Fabric REST API.
+          <p className="text-sm mb-4" style={{ color: "var(--bp-ink-secondary)" }}>
+            The local pipeline JSON files have been corrected. Fabric deployment from the dashboard is coming soon.
+            For now, run <code className="text-xs bg-muted px-1 py-0.5 rounded">scripts/upload_pipelines.py</code> to push changes.
           </p>
           <div className="flex items-center gap-3">
             <button
-              onClick={async () => {
-                setDeploying(true);
-                setShowDeployPrompt(false);
-                try {
-                  const result = await postJson<DeployResult>("/deploy-pipelines", {});
-                  setDeployResult(result);
-                  setUpdateLog((prev) => [
-                    `Deployment complete: ${result.deployed} succeeded, ${result.failed} failed`,
-                    ...prev,
-                  ]);
-                } catch (e) {
-                  setDeployResult({
-                    success: false,
-                    deployed: 0,
-                    failed: 1,
-                    total: 1,
-                    results: [{ workspace: "N/A", pipeline: "N/A", success: false, error: String(e) }],
-                  });
-                } finally {
-                  setDeploying(false);
-                }
-              }}
-              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+              disabled
+              title="Coming soon — use scripts/upload_pipelines.py for now"
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-lg opacity-50 cursor-not-allowed"
+              style={{ background: "var(--bp-copper)", color: "#FEFDFB" }}
             >
               <Rocket className="h-4 w-4" /> Deploy All Pipelines to Fabric
             </button>
             <button
               onClick={() => setShowDeployPrompt(false)}
-              className="flex items-center gap-2 px-4 py-2 bg-muted hover:bg-muted/80 text-sm text-foreground rounded-lg border border-border transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-colors"
+              style={{ background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }}
             >
-              Skip Deployment
+              Dismiss
             </button>
           </div>
         </div>
@@ -913,14 +900,14 @@ export default function ConfigManager() {
 
       {/* ── Deploying Spinner ── */}
       {deploying && (
-        <div className="bg-blue-50 dark:bg-blue-950 border border-blue-300 dark:border-blue-500/40 rounded-xl p-6">
+        <div className="rounded-xl p-6" style={{ background: "var(--bp-copper-light)", border: "1px solid rgba(180,86,36,0.2)" }}>
           <div className="flex items-center gap-3">
-            <Loader2 className="h-6 w-6 text-blue-600 dark:text-blue-400 animate-spin" />
-            <h2 className="text-base font-semibold text-blue-700 dark:text-blue-300">
+            <Loader2 className="h-6 w-6 animate-spin" style={{ color: "var(--bp-copper)" }} />
+            <h2 className="text-base font-semibold" style={{ color: "var(--bp-copper)" }}>
               Deploying pipelines to Fabric...
             </h2>
           </div>
-          <p className="text-sm text-blue-700/70 dark:text-blue-300/70 mt-2">
+          <p className="text-sm mt-2" style={{ color: "var(--bp-ink-secondary)" }}>
             Updating 22 pipelines across DEV + PROD workspaces. This takes about 15–20 seconds.
           </p>
         </div>
@@ -929,24 +916,21 @@ export default function ConfigManager() {
       {/* ── Deploy Results ── */}
       {deployResult && (
         <div
-          className={`border rounded-xl p-6 ${
-            deployResult.success
-              ? "bg-emerald-50 dark:bg-emerald-950 border-emerald-300 dark:border-emerald-500/30"
-              : "bg-amber-50 dark:bg-amber-950 border-amber-300 dark:border-amber-500/40"
-          }`}
+          className="rounded-xl p-6"
+          style={deployResult.success
+            ? { background: "var(--bp-operational-light)", border: "1px solid rgba(61,124,79,0.2)" }
+            : { background: "var(--bp-caution-light)", border: "1px solid rgba(194,122,26,0.2)" }
+          }
         >
           <div className="flex items-center gap-3 mb-4">
             {deployResult.success ? (
-              <CheckCircle2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+              <CheckCircle2 className="h-6 w-6" style={{ color: "var(--bp-operational)" }} />
             ) : (
-              <AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+              <AlertTriangle className="h-6 w-6" style={{ color: "var(--bp-caution)" }} />
             )}
             <h2
-              className={`text-base font-semibold ${
-                deployResult.success
-                  ? "text-emerald-700 dark:text-emerald-300"
-                  : "text-amber-700 dark:text-amber-300"
-              }`}
+              className="text-base font-semibold"
+              style={{ color: deployResult.success ? "var(--bp-operational)" : "var(--bp-caution)" }}
             >
               Deployment {deployResult.success ? "Succeeded" : "Completed with Errors"}
               {" — "}
@@ -963,11 +947,11 @@ export default function ConfigManager() {
             {deployResult.results.map((r, i) => (
               <div
                 key={i}
-                className={`flex items-center gap-2 text-sm font-mono px-3 py-1.5 rounded ${
-                  r.success
-                    ? "text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30"
-                    : "text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30"
-                }`}
+                className="flex items-center gap-2 text-sm px-3 py-1.5 rounded"
+                style={r.success
+                  ? { fontFamily: "var(--bp-font-mono)", color: "var(--bp-operational)", background: "var(--bp-operational-light)" }
+                  : { fontFamily: "var(--bp-font-mono)", color: "var(--bp-fault)", background: "var(--bp-fault-light)" }
+                }
               >
                 <span className="w-5 text-center">{r.success ? "✓" : "✗"}</span>
                 <span className="w-24 flex-shrink-0 text-muted-foreground">[{r.workspace}]</span>
@@ -978,7 +962,7 @@ export default function ConfigManager() {
                   </span>
                 )}
                 {!r.success && r.error && (
-                  <span className="text-red-600 dark:text-red-400 text-xs truncate max-w-xs" title={r.error}>
+                  <span className="text-[var(--bp-fault)] text-xs truncate max-w-xs" title={r.error}>
                     {r.error.slice(0, 80)}
                   </span>
                 )}
@@ -998,21 +982,21 @@ export default function ConfigManager() {
           </p>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div>
-              <h3 className="text-sm font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider mb-3">Workspaces</h3>
+              <h3 className="text-sm font-semibold text-[var(--bp-copper)] uppercase tracking-wider mb-3">Workspaces</h3>
               <div className="space-y-3">
                 {Object.entries(yamlWs).map(([key, val]) => {
                   const resolved = resolveGuid(val);
                   return (
                     <div key={key} className="flex flex-col gap-1">
                       <Label technicalName={key} map={FRIENDLY_WORKSPACE_KEYS} biz={biz} />
-                      <EntityName guid={val} name={resolved} showId={showIds} color="text-blue-700 dark:text-blue-300" />
+                      <EntityName guid={val} name={resolved} showId={showIds} color="text-[var(--bp-copper)]" />
                     </div>
                   );
                 })}
               </div>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-purple-700 dark:text-purple-400 uppercase tracking-wider mb-3">Connections</h3>
+              <h3 className="text-sm font-semibold text-[var(--bp-ink-secondary)] uppercase tracking-wider mb-3">Connections</h3>
               <div className="space-y-3">
                 {Object.entries((itemConfig?.connections ?? {}) as Record<string, string>).map(([key, val]) => {
                   const resolved = resolveGuid(val);
@@ -1021,9 +1005,9 @@ export default function ConfigManager() {
                     <div key={key} className="flex flex-col gap-1">
                       <Label technicalName={key} map={FRIENDLY_CONNECTION_KEYS} biz={biz} />
                       {isPlaceholder ? (
-                        <span className="text-sm font-medium text-red-500 dark:text-red-400 italic">Not yet created</span>
+                        <span className="text-sm font-medium text-[var(--bp-fault)] italic">Not yet created</span>
                       ) : (
-                        <EntityName guid={val} name={resolved} showId={showIds} color="text-purple-700 dark:text-purple-300" />
+                        <EntityName guid={val} name={resolved} showId={showIds} color="text-[var(--bp-ink-secondary)]" />
                       )}
                     </div>
                   );
@@ -1031,12 +1015,12 @@ export default function ConfigManager() {
               </div>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-3">Database</h3>
+              <h3 className="text-sm font-semibold text-[var(--bp-caution)] uppercase tracking-wider mb-3">Database</h3>
               <div className="space-y-3">
                 {Object.entries((itemConfig?.database ?? {}) as Record<string, string>).map(([key, val]) => (
                   <div key={key} className="flex flex-col gap-1">
                     <Label technicalName={key} map={FRIENDLY_DB_KEYS} biz={biz} />
-                    <code className="text-sm font-mono text-amber-700 dark:text-amber-300/80 bg-amber-100 dark:bg-amber-900/20 px-2 py-1 rounded break-all" title={val}>{val}</code>
+                    <code className="text-sm font-mono text-[var(--bp-caution)] bg-[var(--bp-caution-light)] px-2 py-1 rounded break-all" title={val}>{val}</code>
                   </div>
                 ))}
               </div>
@@ -1077,16 +1061,16 @@ export default function ConfigManager() {
                           onSave={async (v) => doUpdate({ target: "workspace", workspaceId: ws.WorkspaceId, newGuid: v }, ws.WorkspaceGuid)}
                         />
                       ) : (
-                        <EntityName guid={ws.WorkspaceGuid || ""} name={fabricName} showId={false} color="text-blue-700 dark:text-blue-300" />
+                        <EntityName guid={ws.WorkspaceGuid || ""} name={fabricName} showId={false} color="text-[var(--bp-copper)]" />
                       )}
                     </TD>
                     <TD>
                       {yamlMatch ? (
-                        <span className="inline-flex items-center gap-2 text-emerald-700 dark:text-emerald-400 text-sm">
+                        <span className="inline-flex items-center gap-2 text-[var(--bp-operational)] text-sm">
                           <CheckCircle2 className="h-4 w-4" /> {biz ? friendlyName(yamlMatch[0], FRIENDLY_WORKSPACE_KEYS) : yamlMatch[0]}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-2 text-amber-700 dark:text-amber-400 text-sm">
+                        <span className="inline-flex items-center gap-2 text-[var(--bp-caution)] text-sm">
                           <AlertTriangle className="h-4 w-4" /> no match
                         </span>
                       )}
@@ -1119,9 +1103,6 @@ export default function ConfigManager() {
                     <div className="flex items-center gap-3">
                       <span className="text-muted-foreground font-mono text-sm">#{lh.LakehouseId}</span>
                       <span className="text-foreground font-semibold text-base">{lh.Name}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${lh.IsActive === "True" ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
-                        {lh.IsActive === "True" ? "Active" : "Inactive"}
-                      </span>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1133,7 +1114,7 @@ export default function ConfigManager() {
                           onSave={async (v) => doUpdate({ target: "lakehouse", lakehouseId: lh.LakehouseId, newGuid: v }, lh.LakehouseGuid)}
                         />
                       ) : (
-                        <EntityName guid={lh.LakehouseGuid || ""} name={lhFabricName} showId={false} color="text-amber-700 dark:text-amber-300" />
+                        <EntityName guid={lh.LakehouseGuid || ""} name={lhFabricName} showId={false} color="text-[var(--bp-caution)]" />
                       )}
                     </div>
                     <div>
@@ -1145,7 +1126,7 @@ export default function ConfigManager() {
                             onSave={async (v) => doUpdate({ target: "lakehouse", lakehouseId: lh.LakehouseId, newWorkspaceGuid: v }, lh.WorkspaceGuid)}
                           />
                         ) : (
-                          <EntityName guid={lh.WorkspaceGuid || ""} name={wsFabricName} showId={false} color="text-blue-700 dark:text-blue-300" />
+                          <EntityName guid={lh.WorkspaceGuid || ""} name={wsFabricName} showId={false} color="text-[var(--bp-copper)]" />
                         )}
                         <StatusIcon match={wsMatch} />
                       </span>
@@ -1199,11 +1180,11 @@ export default function ConfigManager() {
                           onSave={async (v) => doUpdate({ target: "connection", connectionId: c.ConnectionId, newGuid: v }, c.ConnectionGuid)}
                         />
                       ) : (
-                        <EntityName guid={c.ConnectionGuid || ""} name={connFabricName} showId={false} color="text-purple-700 dark:text-purple-300" />
+                        <EntityName guid={c.ConnectionGuid || ""} name={connFabricName} showId={false} color="text-[var(--bp-ink-secondary)]" />
                       )}
                     </TD>
                     <TD>
-                      <span className={`text-sm ${c.IsActive === "True" ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                      <span className={`text-sm ${c.IsActive === "True" ? "text-[var(--bp-operational)]" : "text-muted-foreground"}`}>
                         {c.IsActive === "True" ? "Yes" : "No"}
                       </span>
                     </TD>
@@ -1221,7 +1202,7 @@ export default function ConfigManager() {
           <p className="text-sm text-muted-foreground mb-5">
             {biz
               ? <>Each pipeline's workspace GUID default from the JSON source files. When the master orchestrator invokes child pipelines without passing this parameter, the default kicks in. <strong className="text-foreground">Must match the Data Workspace.</strong></>
-              : <>Each pipeline's <code className="text-muted-foreground font-mono text-sm">Data_WorkspaceGuid</code> default from JSON source files. When <code className="text-muted-foreground font-mono text-sm">PL_FMD_LOAD_ALL</code> invokes children without passing this parameter, the default kicks in. <strong className="text-foreground">Must match <code className="text-blue-700 dark:text-blue-400">workspace_data</code>.</strong></>}
+              : <>Each pipeline's <code className="text-muted-foreground font-mono text-sm">Data_WorkspaceGuid</code> default from JSON source files. When <code className="text-muted-foreground font-mono text-sm">PL_FMD_LOAD_ALL</code> invokes children without passing this parameter, the default kicks in. <strong className="text-foreground">Must match <code className="text-[var(--bp-copper)]">workspace_data</code>.</strong></>}
           </p>
           <ConfigTable>
             <THead>
@@ -1237,7 +1218,7 @@ export default function ConfigManager() {
                   const isEmpty = !p.wsParamDefault || p.wsParamDefault === "NONE" || p.wsParamDefault === "";
                   const wsResolved = p.wsParamDefault && GUID_PATTERN.test(p.wsParamDefault) ? resolveGuid(p.wsParamDefault) : null;
                   return (
-                    <tr key={p.name} className={`border-b border-border hover:bg-muted/50 ${!isCorrect && !isEmpty ? "bg-red-50/50 dark:bg-red-950/20" : ""}`}>
+                    <tr key={p.name} className={`border-b border-border hover:bg-muted/50 ${!isCorrect && !isEmpty ? "bg-[var(--bp-fault-light)]" : ""}`}>
                       <TD className="text-foreground font-mono">
                         {biz ? (
                           <span>
@@ -1259,18 +1240,18 @@ export default function ConfigManager() {
                             }
                           />
                         ) : (
-                          <EntityName guid={p.wsParamDefault!} name={wsResolved} showId={false} color="text-blue-700 dark:text-blue-300" />
+                          <EntityName guid={p.wsParamDefault!} name={wsResolved} showId={false} color="text-[var(--bp-copper)]" />
                         )}
                       </TD>
                       <TD>
                         {isEmpty ? (
                           <span className="text-muted-foreground">—</span>
                         ) : isCorrect ? (
-                          <span className="inline-flex items-center gap-2 text-emerald-700 dark:text-emerald-400 text-sm font-medium">
+                          <span className="inline-flex items-center gap-2 text-[var(--bp-operational)] text-sm font-medium">
                             <CheckCircle2 className="h-4 w-4" /> Matches
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-2 text-red-700 dark:text-red-400 text-sm font-medium">
+                          <span className="inline-flex items-center gap-2 text-[var(--bp-fault)] text-sm font-medium">
                             <AlertTriangle className="h-4 w-4" /> MISMATCH
                           </span>
                         )}
@@ -1339,7 +1320,7 @@ export default function ConfigManager() {
                       </div>
                     </TD>
                     <TD>
-                      <span className={`text-sm ${ds.IsActive === "True" ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                      <span className={`text-sm ${ds.IsActive === "True" ? "text-[var(--bp-operational)]" : "text-muted-foreground"}`}>
                         {ds.IsActive === "True" ? "Yes" : "No"}
                       </span>
                     </TD>
@@ -1480,14 +1461,14 @@ export default function ConfigManager() {
                             </>
                           ) : (
                             <>
-                              <EntityName guid={p.WorkspaceGuid || ""} name={wsFabricName} showId={false} color="text-blue-700 dark:text-blue-300" />
+                              <EntityName guid={p.WorkspaceGuid || ""} name={wsFabricName} showId={false} color="text-[var(--bp-copper)]" />
                               <StatusIcon match={wsMatch} />
                             </>
                           )}
                         </div>
                       </TD>
                       <TD>
-                        <span className={`text-sm ${p.IsActive === "True" ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                        <span className={`text-sm ${p.IsActive === "True" ? "text-[var(--bp-operational)]" : "text-muted-foreground"}`}>
                           {p.IsActive === "True" ? "Yes" : "No"}
                         </span>
                       </TD>
@@ -1508,15 +1489,15 @@ export default function ConfigManager() {
               ? "The dashboard API's own configuration. Includes tenant info, service principal, workspace IDs, and SQL connection."
               : "The dashboard API's own config. Includes tenant, service principal, workspace IDs, and SQL connection."}
           </p>
-          <p className="text-sm text-amber-700 dark:text-amber-400/80 mb-6">
+          <p className="text-sm text-[var(--bp-caution)] mb-6">
             Server restart required after changes.
           </p>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {Object.entries(dashboardConfig).map(([section, values]) => {
               if (typeof values !== "object" || values === null) return null;
               const colors: Record<string, string> = {
-                fabric: "text-blue-700 dark:text-blue-400", sql: "text-amber-700 dark:text-amber-400", server: "text-foreground",
-                purview: "text-purple-700 dark:text-purple-400", logging: "text-muted-foreground",
+                fabric: "text-[var(--bp-copper)]", sql: "text-[var(--bp-caution)]", server: "text-[var(--bp-ink-primary)]",
+                purview: "text-[var(--bp-ink-secondary)]", logging: "text-[var(--bp-ink-muted)]",
               };
               const descriptions: Record<string, string> = biz ? {
                 fabric: "Service principal and workspace IDs for Fabric API calls",
@@ -1583,12 +1564,12 @@ export default function ConfigManager() {
       {updateLog.length > 0 && (
         <div className="bg-card border border-border rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-foreground">Update Log</h2>
+            <h2 style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, fontSize: 18, color: "var(--bp-ink-primary)" }}>Update Log</h2>
             <button onClick={() => setUpdateLog([])} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Clear</button>
           </div>
           <div className="space-y-2 max-h-48 overflow-y-auto">
             {updateLog.map((msg, i) => (
-              <div key={i} className={`text-sm font-mono ${msg.startsWith("ERROR") ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400/80"}`}>
+              <div key={i} className={`text-sm font-mono ${msg.startsWith("ERROR") ? "text-[var(--bp-fault)]" : "text-[var(--bp-operational)]"}`}>
                 {msg}
               </div>
             ))}

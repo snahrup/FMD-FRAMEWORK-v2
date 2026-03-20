@@ -96,28 +96,28 @@ const layerConfig: Record<LayerChoice, { label: string; description: string; pip
     label: 'Landing Zone',
     description: 'Copy source data into raw parquet files in the Landing Zone lakehouse',
     pipeline: 'PL_FMD_LOAD_LANDINGZONE',
-    color: 'text-slate-500',
+    color: 'text-[var(--bp-ink-muted)]',
     icon: '📥',
   },
   bronze: {
     label: 'Bronze',
     description: 'Transform Landing Zone parquet files into Delta tables in the Bronze lakehouse',
     pipeline: 'PL_FMD_LOAD_LANDING_BRONZE',
-    color: 'text-amber-600',
+    color: 'text-[var(--bp-caution)]',
     icon: '🥉',
   },
   silver: {
     label: 'Silver',
     description: 'Apply cleansing rules and load Bronze Delta tables into Silver lakehouse',
     pipeline: 'PL_FMD_LOAD_BRONZE_SILVER',
-    color: 'text-purple-500',
+    color: 'text-[var(--bp-ink-tertiary)]',
     icon: '🥈',
   },
   full: {
     label: 'Full Pipeline',
     description: 'Run the complete flow: Landing Zone → Bronze → Silver in one execution',
     pipeline: 'PL_FMD_LOAD_ALL',
-    color: 'text-emerald-500',
+    color: 'text-[var(--bp-operational)]',
     icon: '🚀',
   },
 };
@@ -133,18 +133,20 @@ function StepIndicator({ step, currentStep, label }: { step: WizardStep; current
 
   return (
     <div className="flex items-center gap-2">
-      <div className={cn(
-        "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all",
-        isComplete && "bg-emerald-500 text-white",
-        isCurrent && "bg-primary text-primary-foreground ring-2 ring-primary/30",
-        !isComplete && !isCurrent && "bg-muted text-muted-foreground",
-      )}>
+      <div
+        className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all"
+        style={{
+          backgroundColor: isComplete ? '#3D7C4F' : isCurrent ? '#B45624' : '#EDEAE4',
+          color: isComplete || isCurrent ? '#FEFDFB' : '#A8A29E',
+          ...(isCurrent ? { boxShadow: '0 0 0 3px rgba(180, 86, 36, 0.2)' } : {}),
+        }}
+      >
         {isComplete ? <CheckCircle2 className="w-5 h-5" /> : stepIdx + 1}
       </div>
-      <span className={cn(
-        "text-sm font-medium transition-colors",
-        isCurrent ? "text-foreground" : "text-muted-foreground",
-      )}>
+      <span
+        className="text-sm font-medium transition-colors"
+        style={{ color: isCurrent ? '#1C1917' : '#A8A29E' }}
+      >
         {label}
       </span>
     </div>
@@ -162,46 +164,52 @@ function SourceCard({ source, selected, onToggle }: {
   return (
     <button
       onClick={onToggle}
-      className={cn(
-        "w-full text-left p-4 rounded-xl border-2 transition-all duration-200",
-        selected
-          ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
-          : "border-border hover:border-primary/40 hover:bg-muted/50",
-      )}
+      className="w-full text-left p-4 rounded-xl border-2 transition-all duration-200"
+      style={{
+        borderColor: selected ? '#B45624' : 'rgba(0,0,0,0.08)',
+        backgroundColor: selected ? '#F4E8DF' : '#FEFDFB',
+        boxShadow: selected ? '0 4px 6px -1px rgba(180, 86, 36, 0.1)' : 'none',
+      }}
     >
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <div className={cn(
-            "w-10 h-10 rounded-lg flex items-center justify-center",
-            selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
-          )}>
+          <div
+            className="w-10 h-10 rounded-lg flex items-center justify-center"
+            style={{
+              backgroundColor: selected ? '#B45624' : '#EDEAE4',
+              color: selected ? '#FEFDFB' : '#A8A29E',
+            }}
+          >
             <Database className="w-5 h-5" />
           </div>
           <div>
-            <p className="font-semibold text-sm">{source.displayName || getSourceDisplayName(source.name)}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{source.connectionName}</p>
+            <p className="font-semibold text-sm" style={{ color: '#1C1917' }}>{source.displayName || getSourceDisplayName(source.name)}</p>
+            <p className="text-xs mt-0.5" style={{ color: '#78716C' }}>{source.connectionName}</p>
           </div>
         </div>
-        <div className={cn(
-          "w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all",
-          selected ? "border-primary bg-primary" : "border-muted-foreground/30",
-        )}>
-          {selected && <CheckCircle2 className="w-4 h-4 text-primary-foreground" />}
+        <div
+          className="w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all"
+          style={{
+            borderColor: selected ? '#B45624' : 'rgba(0,0,0,0.14)',
+            backgroundColor: selected ? '#B45624' : 'transparent',
+          }}
+        >
+          {selected && <CheckCircle2 className="w-4 h-4" style={{ color: '#FEFDFB' }} />}
         </div>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2">
         {[
-          { label: 'Landing', count: source.entities.landing.active, color: 'text-slate-500' },
-          { label: 'Bronze', count: source.entities.bronze.active, color: 'text-amber-600' },
-          { label: 'Silver', count: source.entities.silver.active, color: 'text-purple-500' },
+          { label: 'Landing', count: source.entities.landing.active, color: '#A8A29E' },
+          { label: 'Bronze', count: source.entities.bronze.active, color: '#C27A1A' },
+          { label: 'Silver', count: source.entities.silver.active, color: '#78716C' },
         ].map(({ label, count, color }) => (
-          <div key={label} className="text-center py-1.5 rounded-md bg-muted/50">
-            <p className={cn("text-lg font-bold tabular-nums", color)}>{count}</p>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
+          <div key={label} className="text-center py-1.5 rounded-md" style={{ backgroundColor: '#F9F7F3' }}>
+            <p className="text-lg font-bold tabular-nums" style={{ color, fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>{count}</p>
+            <p className="text-[10px] uppercase tracking-wider" style={{ color: '#A8A29E' }}>{label}</p>
           </div>
         ))}
       </div>
-      <p className="text-xs text-muted-foreground mt-2">
+      <p className="text-xs mt-2" style={{ color: '#A8A29E' }}>
         {totalEntities} total entities
       </p>
     </button>
@@ -241,17 +249,17 @@ function EntityTable({ entities, selectedIds, onToggle, onToggleAll, searchTerm,
           {allSelected ? 'Deselect All' : 'Select All'}
         </Button>
       </div>
-      <div className="max-h-[400px] overflow-y-auto rounded-lg border">
+      <div className="max-h-[400px] overflow-y-auto rounded-lg" style={{ border: '1px solid rgba(0,0,0,0.08)' }}>
         <table className="w-full text-sm">
-          <thead className="bg-muted/50 sticky top-0">
+          <thead className="sticky top-0" style={{ backgroundColor: '#F9F7F3' }}>
             <tr>
               <th className="w-8 px-3 py-2"></th>
-              <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Entity</th>
-              <th className="px-3 py-2 text-left text-xs font-semibold text-muted-foreground">Schema</th>
-              <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">Incremental</th>
-              <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">LZ</th>
-              <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">Bronze</th>
-              <th className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground">Silver</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: '#78716C' }}>Entity</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: '#78716C' }}>Schema</th>
+              <th className="px-3 py-2 text-center text-xs font-semibold" style={{ color: '#78716C' }}>Incremental</th>
+              <th className="px-3 py-2 text-center text-xs font-semibold" style={{ color: '#78716C' }}>LZ</th>
+              <th className="px-3 py-2 text-center text-xs font-semibold" style={{ color: '#78716C' }}>Bronze</th>
+              <th className="px-3 py-2 text-center text-xs font-semibold" style={{ color: '#78716C' }}>Silver</th>
             </tr>
           </thead>
           <tbody>
@@ -261,40 +269,46 @@ function EntityTable({ entities, selectedIds, onToggle, onToggleAll, searchTerm,
                 <tr
                   key={e.lzEntityId}
                   onClick={() => onToggle(e.lzEntityId)}
-                  className={cn(
-                    "border-b border-border/50 cursor-pointer transition-colors",
-                    selected ? "bg-primary/5" : "hover:bg-muted/50",
-                  )}
+                  className="cursor-pointer transition-colors"
+                  style={{
+                    borderBottom: '1px solid rgba(0,0,0,0.04)',
+                    backgroundColor: selected ? '#F4E8DF' : undefined,
+                  }}
+                  onMouseEnter={(ev) => { if (!selected) ev.currentTarget.style.backgroundColor = '#F9F7F3'; }}
+                  onMouseLeave={(ev) => { if (!selected) ev.currentTarget.style.backgroundColor = ''; }}
                 >
                   <td className="px-3 py-2 text-center">
-                    <div className={cn(
-                      "w-4 h-4 rounded border-2 flex items-center justify-center",
-                      selected ? "border-primary bg-primary" : "border-muted-foreground/30",
-                    )}>
-                      {selected && <CheckCircle2 className="w-3 h-3 text-primary-foreground" />}
+                    <div
+                      className="w-4 h-4 rounded border-2 flex items-center justify-center"
+                      style={{
+                        borderColor: selected ? '#B45624' : 'rgba(0,0,0,0.14)',
+                        backgroundColor: selected ? '#B45624' : 'transparent',
+                      }}
+                    >
+                      {selected && <CheckCircle2 className="w-3 h-3" style={{ color: '#FEFDFB' }} />}
                     </div>
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs">{e.sourceName}</td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{e.sourceSchema}</td>
+                  <td className="px-3 py-2 text-xs" style={{ fontFamily: "var(--font-mono)", color: '#1C1917' }}>{e.sourceName}</td>
+                  <td className="px-3 py-2 text-xs" style={{ color: '#78716C' }}>{e.sourceSchema}</td>
                   <td className="px-3 py-2 text-center">
                     {e.isIncremental ? (
-                      <span className="text-emerald-500 text-xs font-medium">Yes</span>
+                      <span className="text-xs font-medium" style={{ color: '#3D7C4F' }}>Yes</span>
                     ) : (
-                      <span className="text-muted-foreground text-xs">Full</span>
+                      <span className="text-xs" style={{ color: '#A8A29E' }}>Full</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-center">
-                    {e.lzActive ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mx-auto" /> : <X className="w-3.5 h-3.5 text-muted-foreground/30 mx-auto" />}
+                    {e.lzActive ? <CheckCircle2 className="w-3.5 h-3.5 mx-auto" style={{ color: '#3D7C4F' }} /> : <X className="w-3.5 h-3.5 mx-auto" style={{ color: 'rgba(0,0,0,0.14)' }} />}
                   </td>
                   <td className="px-3 py-2 text-center">
                     {e.bronzeEntityId ? (
-                      e.bronzeActive ? <CheckCircle2 className="w-3.5 h-3.5 text-amber-500 mx-auto" /> : <X className="w-3.5 h-3.5 text-muted-foreground/30 mx-auto" />
-                    ) : <span className="text-muted-foreground/30">—</span>}
+                      e.bronzeActive ? <CheckCircle2 className="w-3.5 h-3.5 mx-auto" style={{ color: '#C27A1A' }} /> : <X className="w-3.5 h-3.5 mx-auto" style={{ color: 'rgba(0,0,0,0.14)' }} />
+                    ) : <span style={{ color: 'rgba(0,0,0,0.14)' }}>—</span>}
                   </td>
                   <td className="px-3 py-2 text-center">
                     {e.silverEntityId ? (
-                      e.silverActive ? <CheckCircle2 className="w-3.5 h-3.5 text-purple-500 mx-auto" /> : <X className="w-3.5 h-3.5 text-muted-foreground/30 mx-auto" />
-                    ) : <span className="text-muted-foreground/30">—</span>}
+                      e.silverActive ? <CheckCircle2 className="w-3.5 h-3.5 mx-auto" style={{ color: '#78716C' }} /> : <X className="w-3.5 h-3.5 mx-auto" style={{ color: 'rgba(0,0,0,0.14)' }} />
+                    ) : <span style={{ color: 'rgba(0,0,0,0.14)' }}>—</span>}
                   </td>
                 </tr>
               );
@@ -302,7 +316,7 @@ function EntityTable({ entities, selectedIds, onToggle, onToggleAll, searchTerm,
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs" style={{ color: '#78716C' }}>
         {selectedIds.size} of {entities.length} entities selected
         {searchTerm && ` (showing ${filtered.length} matching "${searchTerm}")`}
       </p>
@@ -486,8 +500,8 @@ export default function PipelineRunner() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        <span className="ml-3 text-muted-foreground">Loading pipeline runner...</span>
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#B45624' }} />
+        <span className="ml-3" style={{ color: '#78716C' }}>Loading pipeline runner...</span>
       </div>
     );
   }
@@ -495,32 +509,32 @@ export default function PipelineRunner() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-96 gap-4">
-        <AlertCircle className="w-12 h-12 text-destructive" />
-        <p className="text-destructive font-medium">{error}</p>
+        <AlertCircle className="w-12 h-12" style={{ color: '#B93A2A' }} />
+        <p className="font-medium" style={{ color: '#B93A2A' }}>{error}</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ padding: '32px', maxWidth: '1280px', margin: '0 auto' }}>
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-3">
-          <Zap className="w-7 h-7 text-amber-500" />
+        <h1 className="text-[32px] font-normal tracking-tight flex items-center gap-3" style={{ fontFamily: 'var(--bp-font-display)', color: 'var(--bp-ink-primary)' }}>
+          <Zap className="w-7 h-7" style={{ color: 'var(--bp-copper)' }} />
           Pipeline Runner
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-sm mt-1" style={{ fontFamily: 'var(--bp-font-body)', color: 'var(--bp-ink-secondary)' }}>
           Select sources, choose a layer, review, and fire. Full control over what runs and when.
         </p>
       </div>
 
       {/* Active scope warning banner */}
       {runnerState.active && step !== 'running' && (
-        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-300 dark:border-amber-700 rounded-lg">
-          <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0" />
+        <div className="flex items-center gap-3 p-4 rounded-lg" style={{ background: 'var(--bp-caution-light)', border: '2px solid var(--bp-caution)' }}>
+          <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--bp-caution)' }} />
           <div className="flex-1">
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Active scope detected</p>
-            <p className="text-xs text-amber-600 dark:text-amber-400">
+            <p className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)' }}>Active scope detected</p>
+            <p className="text-xs" style={{ color: 'var(--bp-ink-secondary)' }}>
               A previous scoped run is still active. Some entities are temporarily deactivated.
               Restore before starting a new run.
             </p>
@@ -536,9 +550,9 @@ export default function PipelineRunner() {
       {step !== 'running' && (
         <div className="flex items-center gap-6">
           <StepIndicator step="source" currentStep={step} label="Select Sources" />
-          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          <ChevronRight className="w-4 h-4" style={{ color: '#A8A29E' }} />
           <StepIndicator step="layer" currentStep={step} label="Choose Layer" />
-          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          <ChevronRight className="w-4 h-4" style={{ color: '#A8A29E' }} />
           <StepIndicator step="review" currentStep={step} label="Review & Fire" />
         </div>
       )}
@@ -549,7 +563,7 @@ export default function PipelineRunner() {
       {step === 'source' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Which data sources do you want to process?</h2>
+            <h2 className="text-lg font-semibold" style={{ fontFamily: 'var(--bp-font-body)', color: 'var(--bp-ink-primary)' }}>Which data sources do you want to process?</h2>
             <div className="flex items-center gap-3">
               <p className="text-xs text-muted-foreground/60">Select one or more</p>
               <p className="text-sm text-muted-foreground tabular-nums">
@@ -653,35 +667,38 @@ export default function PipelineRunner() {
       {/* ═══════════════════════════════════════════════ */}
       {step === 'layer' && (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Which pipeline layer do you want to run?</h2>
+          <h2 className="text-lg font-semibold" style={{ fontFamily: 'var(--bp-font-body)', color: 'var(--bp-ink-primary)' }}>Which pipeline layer do you want to run?</h2>
 
           <div className="grid gap-3 sm:grid-cols-2">
             {(Object.entries(layerConfig) as [LayerChoice, typeof layerConfig.landing][]).map(([key, cfg]) => (
               <button
                 key={key}
                 onClick={() => setSelectedLayer(key)}
-                className={cn(
-                  "w-full text-left p-5 rounded-xl border-2 transition-all duration-200",
-                  selectedLayer === key
-                    ? "border-primary bg-primary/5 shadow-md shadow-primary/10"
-                    : "border-border hover:border-primary/40 hover:bg-muted/50",
-                )}
+                className="w-full text-left p-5 rounded-xl border-2 transition-all duration-200"
+                style={{
+                  borderColor: selectedLayer === key ? '#B45624' : 'rgba(0,0,0,0.08)',
+                  backgroundColor: selectedLayer === key ? '#F4E8DF' : '#FEFDFB',
+                  boxShadow: selectedLayer === key ? '0 4px 6px -1px rgba(180, 86, 36, 0.1)' : 'none',
+                }}
               >
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">{cfg.icon}</span>
                   <div className="flex-1">
                     <p className={cn("font-semibold", cfg.color)}>{cfg.label}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{cfg.description}</p>
+                    <p className="text-xs mt-0.5" style={{ color: '#78716C' }}>{cfg.description}</p>
                   </div>
-                  <div className={cn(
-                    "w-6 h-6 rounded-full border-2 flex items-center justify-center",
-                    selectedLayer === key ? "border-primary bg-primary" : "border-muted-foreground/30",
-                  )}>
-                    {selectedLayer === key && <CheckCircle2 className="w-4 h-4 text-primary-foreground" />}
+                  <div
+                    className="w-6 h-6 rounded-full border-2 flex items-center justify-center"
+                    style={{
+                      borderColor: selectedLayer === key ? '#B45624' : 'rgba(0,0,0,0.14)',
+                      backgroundColor: selectedLayer === key ? '#B45624' : 'transparent',
+                    }}
+                  >
+                    {selectedLayer === key && <CheckCircle2 className="w-4 h-4" style={{ color: '#FEFDFB' }} />}
                   </div>
                 </div>
                 <div className="mt-3 px-1">
-                  <p className="text-[11px] font-mono text-muted-foreground bg-muted/50 rounded px-2 py-1 inline-block">
+                  <p className="text-[11px] rounded px-2 py-1 inline-block" style={{ fontFamily: "var(--font-mono)", color: '#78716C', backgroundColor: '#F9F7F3' }}>
                     {cfg.pipeline}
                   </p>
                 </div>
@@ -706,35 +723,35 @@ export default function PipelineRunner() {
       {/* ═══════════════════════════════════════════════ */}
       {step === 'review' && (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Review your run configuration</h2>
+          <h2 className="text-lg font-semibold" style={{ fontFamily: 'var(--bp-font-body)', color: 'var(--bp-ink-primary)' }}>Review your run configuration</h2>
 
           {/* Summary card */}
-          <Card className="border-2 border-primary/20">
+          <Card style={{ border: '2px solid rgba(180, 86, 36, 0.2)' }}>
             <CardContent className="pt-6 space-y-4">
               {/* What will run */}
               <div>
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Pipeline</h3>
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#78716C' }}>Pipeline</h3>
+                <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: '#F9F7F3' }}>
                   <span className="text-xl">{layerConfig[selectedLayer].icon}</span>
                   <div>
-                    <p className="font-semibold text-sm">{layerConfig[selectedLayer].label}</p>
-                    <p className="text-xs font-mono text-muted-foreground">{pipelineName}</p>
+                    <p className="font-semibold text-sm" style={{ color: '#1C1917' }}>{layerConfig[selectedLayer].label}</p>
+                    <p className="text-xs" style={{ fontFamily: "var(--font-mono)", color: '#78716C' }}>{pipelineName}</p>
                   </div>
                 </div>
               </div>
 
               {/* Data sources */}
               <div>
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Data Sources ({selectedSourcesList.length})</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#78716C' }}>Data Sources ({selectedSourcesList.length})</h3>
                 <div className="space-y-2">
                   {selectedSourcesList.map(s => (
-                    <div key={s.dataSourceId} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                    <div key={s.dataSourceId} className="flex items-center justify-between p-3 rounded-lg" style={{ backgroundColor: '#F9F7F3' }}>
                       <div className="flex items-center gap-2">
-                        <Database className="w-4 h-4 text-primary" />
-                        <span className="text-sm font-medium">{s.displayName || getSourceDisplayName(s.name)}</span>
-                        <span className="text-xs text-muted-foreground">via {s.connectionName}</span>
+                        <Database className="w-4 h-4" style={{ color: '#B45624' }} />
+                        <span className="text-sm font-medium" style={{ color: '#1C1917' }}>{s.displayName || getSourceDisplayName(s.name)}</span>
+                        <span className="text-xs" style={{ color: '#78716C' }}>via {s.connectionName}</span>
                       </div>
-                      <span className="text-sm font-semibold tabular-nums">
+                      <span className="text-sm font-semibold tabular-nums" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
                         {entityMode === 'custom' && selectedSources.size === 1
                           ? `${selectedEntityIds.size} entities`
                           : `${s.entities[selectedLayer === "full" ? "landing" : selectedLayer]?.active ?? s.entities.landing.active} entities`
@@ -747,12 +764,12 @@ export default function PipelineRunner() {
 
               {/* What will be affected */}
               <div>
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Execution Scope</h3>
-                <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#78716C' }}>Execution Scope</h3>
+                <div className="p-3 rounded-lg" style={{ background: 'var(--bp-copper-light)', border: '1px solid var(--bp-border)' }}>
                   <div className="flex items-start gap-2">
-                    <Shield className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                    <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-                      <p className="font-medium">Safe scoped execution</p>
+                    <Shield className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--bp-copper)' }} />
+                    <div className="text-xs space-y-1" style={{ color: 'var(--bp-ink-secondary)' }}>
+                      <p className="font-medium" style={{ color: 'var(--bp-ink-primary)' }}>Safe scoped execution</p>
                       <p>
                         Only{' '}
                         <strong>
@@ -766,7 +783,7 @@ export default function PipelineRunner() {
                         will be processed. All other entities will be temporarily deactivated for the
                         duration of this run and automatically restorable afterward.
                       </p>
-                      <p className="text-blue-600 dark:text-blue-400">
+                      <p style={{ color: 'var(--bp-ink-tertiary)' }}>
                         Non-selected sources are untouched and will resume normal operation after restore.
                       </p>
                     </div>
@@ -777,11 +794,11 @@ export default function PipelineRunner() {
           </Card>
 
           {/* Failsafe warnings */}
-          <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+          <div className="p-3 rounded-lg" style={{ background: 'var(--bp-caution-light)', border: '1px solid var(--bp-border)' }}>
             <div className="flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
-                <p className="font-medium">Before you fire</p>
+              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--bp-caution)' }} />
+              <div className="text-xs space-y-1" style={{ color: 'var(--bp-ink-secondary)' }}>
+                <p className="font-medium" style={{ color: 'var(--bp-ink-primary)' }}>Before you fire</p>
                 <ul className="space-y-0.5 list-disc list-inside">
                   <li>Entities not in scope will be temporarily deactivated in the metadata database</li>
                   <li>You must click <strong>"Restore All Entities"</strong> when the run completes (or if it fails)</li>
@@ -793,9 +810,9 @@ export default function PipelineRunner() {
           </div>
 
           {execError && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-700 rounded-lg">
-              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-              <p className="text-sm text-red-700 dark:text-red-300">{execError}</p>
+            <div className="flex items-center gap-2 p-3 rounded-lg" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
+              <AlertCircle className="w-4 h-4 text-[var(--bp-fault)] flex-shrink-0" />
+              <p className="text-sm text-[var(--bp-fault)]">{execError}</p>
             </div>
           )}
 
@@ -806,7 +823,7 @@ export default function PipelineRunner() {
             <Button
               onClick={executeRun}
               disabled={preparing || triggering || runnerState.active}
-              className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="gap-2 bg-[var(--bp-copper)] hover:bg-[var(--bp-copper-hover)] text-white"
               size="lg"
             >
               {preparing ? (
@@ -826,14 +843,14 @@ export default function PipelineRunner() {
       {/* ═══════════════════════════════════════════════ */}
       {step === 'running' && (
         <div className="space-y-4">
-          <Card className="border-2 border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/10">
+          <Card style={{ border: '2px solid var(--bp-caution)', background: 'var(--bp-caution-light)' }}>
             <CardContent className="pt-6 space-y-4">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                  <Shield className="w-6 h-6 text-amber-600" />
+                <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'var(--bp-caution-light)' }}>
+                  <Shield className="w-6 h-6" style={{ color: 'var(--bp-caution)' }} />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-foreground">Scoped Run Active</h2>
+                  <h2 className="text-lg font-bold" style={{ fontFamily: 'var(--bp-font-body)', color: 'var(--bp-ink-primary)' }}>Scoped Run Active</h2>
                   <p className="text-sm text-muted-foreground">
                     Some entities are temporarily deactivated. Restore when complete.
                   </p>
@@ -843,29 +860,29 @@ export default function PipelineRunner() {
               {/* Run details */}
               <div className="grid gap-3 sm:grid-cols-2">
                 {runnerState.pipelineTriggered && (
-                  <div className="p-3 bg-background rounded-lg border">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Pipeline</p>
-                    <p className="text-sm font-mono font-medium mt-1">{runnerState.pipelineTriggered}</p>
+                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#FEFDFB', border: '1px solid rgba(0,0,0,0.08)' }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#78716C' }}>Pipeline</p>
+                    <p className="text-sm font-medium mt-1" style={{ fontFamily: "var(--font-mono)", color: '#1C1917' }}>{runnerState.pipelineTriggered}</p>
                   </div>
                 )}
                 {runnerState.layer && (
-                  <div className="p-3 bg-background rounded-lg border">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Layer</p>
-                    <p className="text-sm font-medium mt-1 capitalize">{runnerState.layer === 'full' ? 'Full Pipeline' : runnerState.layer}</p>
+                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#FEFDFB', border: '1px solid rgba(0,0,0,0.08)' }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#78716C' }}>Layer</p>
+                    <p className="text-sm font-medium mt-1 capitalize" style={{ color: '#1C1917' }}>{runnerState.layer === 'full' ? 'Full Pipeline' : runnerState.layer}</p>
                   </div>
                 )}
                 {runnerState.kept && (
-                  <div className="p-3 bg-background rounded-lg border">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Entities In Scope</p>
-                    <p className="text-sm font-medium mt-1 tabular-nums">
+                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#FEFDFB', border: '1px solid rgba(0,0,0,0.08)' }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#78716C' }}>Entities In Scope</p>
+                    <p className="text-sm font-medium mt-1" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#1C1917' }}>
                       {runnerState.kept.lz} LZ · {runnerState.kept.bronze} Bronze · {runnerState.kept.silver} Silver
                     </p>
                   </div>
                 )}
                 {runnerState.affected && (
-                  <div className="p-3 bg-background rounded-lg border">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Temporarily Deactivated</p>
-                    <p className="text-sm font-medium mt-1 tabular-nums text-amber-600">
+                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#FEFDFB', border: '1px solid rgba(0,0,0,0.08)' }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#78716C' }}>Temporarily Deactivated</p>
+                    <p className="text-sm font-medium mt-1" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#C27A1A' }}>
                       {runnerState.affected.lz} LZ · {runnerState.affected.bronze} Bronze · {runnerState.affected.silver} Silver
                     </p>
                   </div>
@@ -873,7 +890,7 @@ export default function PipelineRunner() {
               </div>
 
               {runnerState.triggeredAt && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs" style={{ color: '#78716C', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
                   Started {new Date(runnerState.triggeredAt * 1000).toLocaleString('en-US', {
                     month: 'numeric', day: 'numeric', year: 'numeric',
                     hour: 'numeric', minute: '2-digit', hour12: true,
@@ -882,19 +899,19 @@ export default function PipelineRunner() {
               )}
 
               {execError && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-700 rounded-lg">
-                  <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                  <p className="text-sm text-red-700 dark:text-red-300">{execError}</p>
+                <div className="flex items-center gap-2 p-3 rounded-lg" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
+                  <AlertCircle className="w-4 h-4 text-[var(--bp-fault)] flex-shrink-0" />
+                  <p className="text-sm text-[var(--bp-fault)]">{execError}</p>
                 </div>
               )}
             </CardContent>
           </Card>
 
           {/* Restore button */}
-          <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg border">
+          <div className="flex items-center justify-between p-4 rounded-lg" style={{ backgroundColor: '#F9F7F3', border: '1px solid rgba(0,0,0,0.08)' }}>
             <div>
-              <p className="text-sm font-semibold">Ready to restore?</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm font-semibold" style={{ color: '#1C1917' }}>Ready to restore?</p>
+              <p className="text-xs" style={{ color: '#78716C' }}>
                 Click restore to reactivate all temporarily deactivated entities. Do this after the pipeline
                 completes or if you need to cancel.
               </p>
@@ -903,7 +920,7 @@ export default function PipelineRunner() {
               onClick={restoreScope}
               disabled={restoring}
               size="lg"
-              className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="gap-2 bg-[var(--bp-copper)] hover:bg-[var(--bp-copper-hover)] text-white"
             >
               {restoring ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Restoring...</>
@@ -913,7 +930,7 @@ export default function PipelineRunner() {
             </Button>
           </div>
 
-          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <p className="text-xs flex items-center gap-1.5" style={{ color: '#78716C' }}>
             <Info className="w-3.5 h-3.5" />
             Check the Monitoring Hub on the Pipeline Monitor page to track this run's progress.
           </p>

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional, List
 import json
+import re
 
 
 # ---------------------------------------------------------------------------
@@ -38,21 +39,54 @@ class Entity:
     namespace: Optional[str] = None          # e.g. "MES", "ETQ" — for OneLake path
     connection_guid: str = ""                # Fabric Connection GUID for pipeline mode
 
+    _SAFE_IDENT = re.compile(r'^[\w\.\[\] ]+$')
+
     @property
     def qualified_name(self) -> str:
-        """Fully qualified source table: [schema].[table]."""
-        return f"[{self.source_schema}].[{self.source_name}]"
+        """Fully qualified source table: [schema].[table].
+
+        Validates identifiers with regex, then bracket-escapes ] characters.
+        """
+        if not self._SAFE_IDENT.match(self.source_schema):
+            raise ValueError(f"Unsafe schema identifier: {self.source_schema!r}")
+        if not self._SAFE_IDENT.match(self.source_name):
+            raise ValueError(f"Unsafe table identifier: {self.source_name!r}")
+        safe_schema = self.source_schema.replace("]", "]]")
+        safe_name = self.source_name.replace("]", "]]")
+        return "[" + safe_schema + "].[" + safe_name + "]"
 
     @property
     def onelake_folder(self) -> str:
         """OneLake folder = just the namespace. See ARCHITECTURE.md."""
         return self.namespace or self.source_database
 
-    def build_source_query(self) -> str:
-        """Build the extraction SQL — full or incremental."""
-        base = f"SELECT * FROM {self.qualified_name}"
+    def build_source_query(self) -> tuple[str, list]:
+        """Build the extraction SQL — full or incremental.
+
+        Returns (sql, params) tuple for parameterized execution via pyodbc.
+        Table/column names stay as identifiers; the watermark VALUE uses a ?
+        placeholder to prevent SQL injection.  Fixes: CRITICAL BUG #2
+        """
+        base = "SELECT * FROM " + self.qualified_name
         if self.is_incremental and self.watermark_column and self.last_load_value:
-            return f"{base} WHERE [{self.watermark_column}] > '{self.last_load_value}'"
+            if not self._SAFE_IDENT.match(self.watermark_column):
+                raise ValueError("Unsafe watermark column: " + repr(self.watermark_column))
+            safe_wm = self.watermark_column.replace("]", "]]")
+            return base + " WHERE [" + safe_wm + "] > ?", [self.last_load_value]
+        return base, []
+
+    def build_source_query_display(self) -> str:
+        """Human-readable version of the extraction query (for logging / audit).
+
+        NOT for execution — use build_source_query() with cursor.execute(sql, params).
+        """
+        base = "SELECT * FROM " + self.qualified_name
+        if self.is_incremental and self.watermark_column and self.last_load_value:
+            if not self._SAFE_IDENT.match(self.watermark_column):
+                raise ValueError(f"Unsafe watermark column: {self.watermark_column!r}")
+            safe_wm = self.watermark_column.replace("]", "]]")
+            escaped = self.last_load_value.replace("'", "''")
+            return base + " WHERE [" + safe_wm + "] > '" + escaped + "'"
         return base
 
 
@@ -270,7 +304,7 @@ class EngineConfig:
     chunk_rows: int = 500_000               # rows per Parquet chunk for large tables
     copy_timeout_seconds: int = 14_400      # 4 hours max per entity
     notebook_timeout_seconds: int = 21_600  # 6 hours max for notebook run
-    query_timeout: int = 120                # seconds — max time for a single SQL query before abort
+    query_timeout: int = 300                # seconds — max time for a single SQL query before abort (raised from 120: large MES tables need 3-5min)
 
     # Source SQL driver (on-prem)
     source_sql_driver: str = "ODBC Driver 18 for SQL Server"
@@ -280,6 +314,43 @@ class EngineConfig:
     pipeline_fallback: bool = True           # auto-fallback to local on pipeline failure
     pipeline_copy_sql_id: str = ""           # GUID of deployed PL_FMD_LDZ_COPY_SQL
     pipeline_workspace_id: str = ""          # workspace where COPY_SQL pipeline lives
+
+    def __post_init__(self):
+        """Validate configuration at instantiation.
+
+        CRITICAL: Fails fast on missing required fields.
+        Prevents silent 30-second timeouts with unclear error messages.
+
+        Fixes: CRITICAL BUG #1
+        """
+        required_fields = {
+            'sql_server': self.sql_server,
+            'sql_database': self.sql_database,
+            'tenant_id': self.tenant_id,
+            'client_id': self.client_id,
+            'client_secret': self.client_secret,
+            'workspace_data_id': self.workspace_data_id,
+            'workspace_code_id': self.workspace_code_id,
+            'lz_lakehouse_id': self.lz_lakehouse_id,
+            'bronze_lakehouse_id': self.bronze_lakehouse_id,
+            'silver_lakehouse_id': self.silver_lakehouse_id,
+        }
+
+        missing = [name for name, value in required_fields.items() if not value or not str(value).strip()]
+        if missing:
+            raise ValueError(
+                f"Configuration error: The following required fields are empty or missing:\n"
+                f"  {', '.join(missing)}\n\n"
+                f"Check dashboard/app/api/config.json and ensure all fields are populated."
+            )
+
+        # Validate integer tunables are reasonable
+        if self.batch_size <= 0:
+            raise ValueError(f"batch_size must be > 0, got {self.batch_size}")
+        if self.chunk_rows <= 0:
+            raise ValueError(f"chunk_rows must be > 0, got {self.chunk_rows}")
+        if self.query_timeout <= 0:
+            raise ValueError(f"query_timeout must be > 0, got {self.query_timeout}")
 
 
 # ---------------------------------------------------------------------------

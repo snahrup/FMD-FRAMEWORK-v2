@@ -167,13 +167,13 @@ function ProgressBar({ current, total, label, color }: { current: number; total:
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="font-medium text-foreground">{label}</span>
-        <span className="text-muted-foreground font-mono">
+        <span className="font-medium" style={{ color: '#1C1917' }}>{label}</span>
+        <span style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#78716C' }}>
           {current.toLocaleString()} / {total.toLocaleString()}
           {total > 0 && <span className="ml-1">({pct.toFixed(1)}%)</span>}
         </span>
       </div>
-      <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+      <div className="h-2.5 rounded-full overflow-hidden" style={{ backgroundColor: '#EDEAE4' }}>
         <div
           className={cn("h-full rounded-full transition-all duration-700", color)}
           style={{ width: `${Math.min(pct, 100)}%` }}
@@ -187,28 +187,28 @@ function ProgressBar({ current, total, label, color }: { current: number; total:
 
 function PipelineRunRow({ run }: { run: PipelineRun }) {
   const icon = run.status === 'running'
-    ? <Loader2 className="h-4 w-4 text-amber-500 animate-spin" />
+    ? <Loader2 className="h-4 w-4 animate-spin" style={{ color: '#C27A1A' }} />
     : run.status === 'failed'
-      ? <XCircle className="h-4 w-4 text-destructive" />
-      : <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
+      ? <XCircle className="h-4 w-4" style={{ color: '#B93A2A' }} />
+      : <CheckCircle2 className="h-4 w-4" style={{ color: '#3D7C4F' }} />;
 
   const statusText = run.status === 'running' ? 'Running...' : run.status === 'failed' ? 'Failed' : 'Completed';
-  const statusColor = run.status === 'running' ? 'text-amber-500' : run.status === 'failed' ? 'text-destructive' : 'text-emerald-500';
+  const statusColor = run.status === 'running' ? '#C27A1A' : run.status === 'failed' ? '#B93A2A' : '#3D7C4F';
 
   return (
-    <div className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-muted/50 transition-colors">
+    <div className="flex items-center gap-3 py-2 px-3 rounded-md transition-colors" style={{ backgroundColor: '#FEFDFB' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F9F7F3'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#FEFDFB'}>
       {icon}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-sm truncate">{run.name}</span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-mono">
+          <span className="font-semibold text-sm truncate" style={{ color: '#1C1917' }}>{run.name}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#EDEAE4', color: '#78716C', fontFamily: "var(--font-mono)" }}>
             {run.layer}
           </span>
         </div>
       </div>
-      <span className={cn("text-xs font-medium", statusColor)}>{statusText}</span>
-      <span className="text-xs text-muted-foreground font-mono w-20 text-right">{fmtTime(run.startTime)}</span>
-      <span className="text-xs text-muted-foreground font-mono w-16 text-right">{fmtDuration(run.durationSec)}</span>
+      <span className="text-xs font-medium" style={{ color: statusColor }}>{statusText}</span>
+      <span className="text-xs w-20 text-right" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#A8A29E' }}>{fmtTime(run.startTime)}</span>
+      <span className="text-xs w-16 text-right" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#A8A29E' }}>{fmtDuration(run.durationSec)}</span>
     </div>
   );
 }
@@ -327,24 +327,24 @@ export default function LiveMonitor() {
   if (loading && !data) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: '#B45624' }} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ padding: '32px', maxWidth: '1280px', margin: '0 auto' }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-display font-bold tracking-tight flex items-center gap-2">
-            <Activity className="h-6 w-6" />
+          <h1 className="text-[32px] font-normal tracking-tight flex items-center gap-2" style={{ fontFamily: 'var(--bp-font-display)', color: 'var(--bp-ink-primary)' }}>
+            <Activity className="h-6 w-6" style={{ color: 'var(--bp-copper)' }} />
             Live Pipeline Monitor
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm mt-1" style={{ fontFamily: "var(--font-sans)", color: '#57534E' }}>
             Real-time entity-level pipeline progress
             {lastRefresh && (
-              <span className="ml-2 font-mono text-xs">
+              <span className="ml-2 text-xs" style={{ fontFamily: "var(--font-mono)", color: '#A8A29E' }}>
                 · Refresh #{refreshCount} · {lastRefresh.toLocaleTimeString()}
               </span>
             )}
@@ -352,7 +352,7 @@ export default function LiveMonitor() {
         </div>
         <div className="flex items-center gap-2">
           {hasActiveRun && (
-            <div className="flex items-center gap-1.5 text-xs font-medium text-amber-500 bg-amber-500/10 px-3 py-1.5 rounded-full animate-pulse">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--bp-caution)] bg-[var(--bp-caution-light)] px-3 py-1.5 rounded-full animate-pulse">
               <Zap className="h-3.5 w-3.5" />
               Pipeline Running
             </div>
@@ -376,7 +376,7 @@ export default function LiveMonitor() {
             variant="outline"
             size="sm"
             onClick={() => setAutoRefresh(!autoRefresh)}
-            className={cn("gap-1.5", autoRefresh && "border-emerald-500/50 text-emerald-600 dark:text-emerald-400")}
+            className={cn("gap-1.5", autoRefresh && "border-[var(--bp-operational)] text-[var(--bp-operational)]")}
           >
             {autoRefresh ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
             {autoRefresh ? `Auto ${pollInterval}s` : 'Paused'}
@@ -389,8 +389,8 @@ export default function LiveMonitor() {
       </div>
 
       {error && (
-        <Card className="border-destructive/50 bg-destructive/5">
-          <CardContent className="py-3 flex items-center gap-2 text-sm text-destructive">
+        <Card style={{ border: '1px solid #B93A2A', backgroundColor: '#FBEAE8' }}>
+          <CardContent className="py-3 flex items-center gap-2 text-sm" style={{ color: '#B93A2A' }}>
             <AlertTriangle className="h-4 w-4" />
             {error}
           </CardContent>
@@ -402,7 +402,7 @@ export default function LiveMonitor() {
         <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('pipelines')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              <Play className="h-4 w-4 text-blue-500" />
+              <Play className="h-4 w-4 text-[var(--bp-copper)]" />
               Pipeline Runs
               <span className="text-xs text-muted-foreground font-normal ml-1">
                 ({timeWindow === 0 ? 'all time' : `last ${timeWindow >= 60 ? `${timeWindow / 60}h` : `${timeWindow}m`}`})
@@ -418,7 +418,7 @@ export default function LiveMonitor() {
                 No pipeline runs {timeWindow === 0 ? '' : `in the last ${timeWindow >= 60 ? `${timeWindow / 60} hours` : `${timeWindow} minutes`}`}
               </p>
             ) : (
-              <div className="divide-y divide-border">
+              <div style={{ borderColor: 'rgba(0,0,0,0.04)' }}>
                 {pipelineRuns.map(run => (
                   <PipelineRunRow key={run.guid} run={run} />
                 ))}
@@ -433,7 +433,7 @@ export default function LiveMonitor() {
         <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('progress')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              <Database className="h-4 w-4 text-emerald-500" />
+              <Database className="h-4 w-4 text-[var(--bp-operational)]" />
               Entity Processing Progress
             </CardTitle>
             {expandedSections.progress ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
@@ -445,9 +445,9 @@ export default function LiveMonitor() {
               label="Landing Zone"
               current={num(counts.lzProcessed)}
               total={num(counts.lzRegistered)}
-              color="bg-cyan-500"
+              color="bg-[var(--bp-copper)]"
             />
-            <div className="flex items-center gap-4 text-[11px] text-muted-foreground -mt-1 pl-1">
+            <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: '#A8A29E', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
               <span>Registered: {num(counts.lzRegistered).toLocaleString()}</span>
               <span>·</span>
               <span>Queued: {num(counts.lzPipelineTotal).toLocaleString()}</span>
@@ -459,9 +459,9 @@ export default function LiveMonitor() {
               label="Bronze"
               current={num(counts.brzProcessed)}
               total={num(counts.brzRegistered)}
-              color="bg-amber-500"
+              color="bg-[var(--bp-caution)]"
             />
-            <div className="flex items-center gap-4 text-[11px] text-muted-foreground -mt-1 pl-1">
+            <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: '#A8A29E', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
               <span>Registered: {num(counts.brzRegistered).toLocaleString()}</span>
               <span>·</span>
               <span>Queued: {num(counts.brzPipelineTotal).toLocaleString()}</span>
@@ -475,9 +475,9 @@ export default function LiveMonitor() {
               label="Silver"
               current={num(counts.slvProcessed)}
               total={num(counts.slvRegistered)}
-              color="bg-violet-500"
+              color="bg-[var(--bp-ink-tertiary)]"
             />
-            <div className="flex items-center gap-4 text-[11px] text-muted-foreground -mt-1 pl-1">
+            <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: '#A8A29E', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
               <span>Registered: {num(counts.slvRegistered).toLocaleString()}</span>
               <span>·</span>
               <span>Queued: {num(counts.slvPipelineTotal).toLocaleString()}</span>
@@ -495,16 +495,16 @@ export default function LiveMonitor() {
         <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('notebooks')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              <FileText className="h-4 w-4 text-orange-500" />
+              <FileText className="h-4 w-4 text-[var(--bp-copper)]" />
               Notebook Executions
               <span className="text-xs text-muted-foreground font-normal ml-1">(entity-level)</span>
               {nbEnds > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--bp-operational-light)] text-[var(--bp-operational)] font-mono">
                   {nbEnds} completed
                 </span>
               )}
               {nbFails > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-mono">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono" style={{ backgroundColor: '#FBEAE8', color: '#B93A2A' }}>
                   {nbFails} failed
                 </span>
               )}
@@ -520,34 +520,31 @@ export default function LiveMonitor() {
                 <p className="text-xs">This section populates when Bronze/Silver notebooks process entities</p>
               </div>
             ) : (
-              <div className="divide-y divide-border max-h-[500px] overflow-y-auto">
+              <div className="max-h-[500px] overflow-y-auto" style={{ borderColor: 'rgba(0,0,0,0.04)' }}>
                 {data.notebookEvents.map((evt, i) => {
                   const { action, detail } = parseNotebookDetail(evt.LogData);
                   const isEnd = evt.LogType === 'EndNotebookActivity';
                   const isFail = evt.LogType === 'FailNotebookActivity';
                   const isStart = evt.LogType === 'StartNotebookActivity';
-                  const icon = isFail ? <XCircle className="h-3.5 w-3.5 text-destructive" />
-                    : isEnd ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                      : <ArrowRight className="h-3.5 w-3.5 text-amber-500" />;
+                  const icon = isFail ? <XCircle className="h-3.5 w-3.5" style={{ color: '#B93A2A' }} />
+                    : isEnd ? <CheckCircle2 className="h-3.5 w-3.5" style={{ color: '#3D7C4F' }} />
+                      : <ArrowRight className="h-3.5 w-3.5" style={{ color: '#C27A1A' }} />;
 
                   return (
-                    <div key={i} className="py-2 px-2">
+                    <div key={i} className="py-2 px-2" style={{ borderBottom: '1px solid rgba(0,0,0,0.04)', backgroundColor: '#FEFDFB' }}>
                       <div className="flex items-center gap-2">
                         {icon}
-                        <span className="text-xs font-mono text-muted-foreground w-20">{fmtTime(evt.LogDateTime)}</span>
-                        <span className="text-sm font-medium truncate flex-1">{evt.NotebookName}</span>
+                        <span className="text-xs w-20" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#A8A29E' }}>{fmtTime(evt.LogDateTime)}</span>
+                        <span className="text-sm font-medium truncate flex-1" style={{ color: '#1C1917' }}>{evt.NotebookName}</span>
                         {evt.EntityId && (
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">
+                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#EDEAE4', color: '#78716C', fontFamily: "var(--font-mono)" }}>
                             Entity {evt.EntityId}
                           </span>
                         )}
-                        <span className="text-[10px] text-muted-foreground">{evt.EntityLayer}</span>
+                        <span className="text-[10px]" style={{ color: '#A8A29E' }}>{evt.EntityLayer}</span>
                       </div>
                       {detail && (
-                        <div className={cn(
-                          "text-xs mt-0.5 ml-6",
-                          isFail ? "text-destructive" : "text-muted-foreground"
-                        )}>
+                        <div className="text-xs mt-0.5 ml-6" style={{ color: isFail ? '#B93A2A' : '#78716C' }}>
                           {detail}
                         </div>
                       )}
@@ -565,10 +562,10 @@ export default function LiveMonitor() {
         <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('copies')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              <Copy className="h-4 w-4 text-cyan-500" />
+              <Copy className="h-4 w-4 text-[var(--bp-ink-tertiary)]" />
               Copy Activity — Landing Zone Loads
               {copyEnds.length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 font-mono">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--bp-copper-light)] text-[var(--bp-copper)] font-mono">
                   {totalRowsCopied.toLocaleString()} rows · {fmtBytes(totalDataWritten)}
                 </span>
               )}
@@ -588,7 +585,7 @@ export default function LiveMonitor() {
                   const { rowsCopied, dataWritten, duration } = parseCopyOutput(evt.LogData);
                   return (
                     <div key={i} className="flex items-center gap-3 py-2 px-2">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                      <CheckCircle2 className="h-3.5 w-3.5 text-[var(--bp-operational)] flex-shrink-0" />
                       <span className="text-xs font-mono text-muted-foreground w-20">{fmtTime(evt.LogDateTime)}</span>
                       <span className="text-sm font-medium flex-1 truncate">{evt.EntityName}</span>
                       <span className="text-xs font-mono text-muted-foreground w-24 text-right">
@@ -611,10 +608,10 @@ export default function LiveMonitor() {
         <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('bronze')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              <Layers className="h-4 w-4 text-amber-500" />
+              <Layers className="h-4 w-4 text-[var(--bp-caution)]" />
               Bronze Layer — Entity Processing
               {data?.bronzeEntities && data.bronzeEntities.length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--bp-caution-light)] text-[var(--bp-caution)] font-mono">
                   {data.bronzeEntities.length} tracked
                 </span>
               )}
@@ -641,8 +638,8 @@ export default function LiveMonitor() {
                   return (
                     <div key={i} className="flex items-center gap-3 py-2 px-2">
                       {isProcessed
-                        ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
-                        : <Clock className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                        ? <CheckCircle2 className="h-3.5 w-3.5 text-[var(--bp-operational)] flex-shrink-0" />
+                        : <Clock className="h-3.5 w-3.5 text-[var(--bp-caution)] flex-shrink-0" />
                       }
                       <span className="text-xs font-mono text-muted-foreground w-20">{fmtTime(ent.InsertDateTime)}</span>
                       <span className="text-sm font-medium flex-1 truncate">{ent.SchemaName}.{ent.TableName}</span>
@@ -661,10 +658,10 @@ export default function LiveMonitor() {
         <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('lz')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
-              <HardDrive className="h-4 w-4 text-cyan-500" />
+              <HardDrive className="h-4 w-4 text-[var(--bp-ink-tertiary)]" />
               Landing Zone — Recent Files
               {data?.lzEntities && data.lzEntities.length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 font-mono">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--bp-copper-light)] text-[var(--bp-copper)] font-mono">
                   {data.lzEntities.filter(e => e.IsProcessed === 'True' || e.IsProcessed === '1').length} processed
                 </span>
               )}
@@ -684,8 +681,8 @@ export default function LiveMonitor() {
                   return (
                     <div key={i} className="flex items-center gap-3 py-2 px-2">
                       {isProcessed
-                        ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
-                        : <Clock className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                        ? <CheckCircle2 className="h-3.5 w-3.5 text-[var(--bp-operational)] flex-shrink-0" />
+                        : <Clock className="h-3.5 w-3.5 text-[var(--bp-caution)] flex-shrink-0" />
                       }
                       <span className="text-xs font-mono text-muted-foreground w-20">{fmtTime(ent.InsertDateTime)}</span>
                       <span className="text-sm flex-1 truncate" title={ent.FilePath}>

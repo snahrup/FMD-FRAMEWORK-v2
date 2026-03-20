@@ -305,7 +305,7 @@ Custom Semgrep rules (7 rules):
 | `hardcoded-secret-in-python` | ERROR | Variables named secret/password/token with string literals in Python |
 | `sql-injection-format-string` | ERROR | f-strings in `cursor.execute()` calls (Python) |
 | `sql-injection-percent-format` | ERROR | %-formatting in `cursor.execute()` calls (Python) |
-| `dangerous-inner-html` | WARNING | `dangerouslySetInnerHTML` usage in React/TSX |
+| `dangerous-inner-html` | WARNING | Dynamic innerHTML injection in React/TSX components |
 | `fmd-hardcoded-guid` | WARNING | Hardcoded GUIDs in `engine/*.py` or `src/**/*.py` (should come from config) |
 | `fmd-no-ipaper-suffix` | ERROR | Using `.ipaper.com` suffix (must use short hostname only) |
 | `fmd-wrong-token-scope` | ERROR | Using `database.windows.net` scope (must use `analysis.windows.net/powerbi/api`) |

@@ -15,14 +15,23 @@ import {
 } from "lucide-react";
 import type { SensitivityLevel } from "@/types/governance";
 
-// ── Sensitivity heatmap cell ──
+// ── Sensitivity heatmap cell — BP warm gradient ──
 
 const SENSITIVITY_COLORS: Record<SensitivityLevel, string> = {
-  public: "#10b981",
-  internal: "#3b82f6",
-  confidential: "#f59e0b",
-  restricted: "#ef4444",
-  pii: "#f43f5e",
+  public: "var(--bp-surface-inset)",      // #EDEAE4 — baseline
+  internal: "var(--bp-copper-light)",      // #F4E8DF — warm
+  confidential: "var(--bp-caution-light)", // #FDF3E3 — caution
+  restricted: "var(--bp-fault-light)",     // #FBEAE8 — fault-light
+  pii: "var(--bp-fault)",                  // #B93A2A — fault
+};
+
+// Ink colors for count numbers inside heatmap cells
+const SENSITIVITY_INK: Record<SensitivityLevel, string> = {
+  public: "var(--bp-ink-muted)",
+  internal: "var(--bp-copper)",
+  confidential: "var(--bp-caution)",
+  restricted: "var(--bp-fault)",
+  pii: "#FEFDFB",
 };
 
 const SENSITIVITY_ORDER: SensitivityLevel[] = ["public", "internal", "confidential", "restricted", "pii"];
@@ -165,41 +174,47 @@ export default function DataClassification() {
   }, [allEntities, search, sourceFilter]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-8 py-8 max-w-[1280px] mx-auto">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-display font-semibold flex items-center gap-2">
-          <Shield className="h-5 w-5 text-[var(--cl-accent)]" /> Data Classification
+        <h1
+          className="flex items-center gap-2 font-semibold"
+          style={{ fontFamily: "var(--bp-font-display)", fontSize: 32, color: "var(--bp-ink-primary)" }}
+        >
+          <Shield className="h-6 w-6" style={{ color: "var(--bp-copper)" }} /> Data Classification
         </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
+        <p className="text-sm mt-0.5" style={{ color: "var(--bp-ink-secondary)" }}>
           Tag entities and columns with sensitivity levels — track classification coverage across the pipeline
         </p>
       </div>
 
       {/* KPIs */}
       <KpiRow>
-        <KpiCard label="Total Entities" value={formatRowCount(classData.totalEntities)} icon={Tag} iconColor="text-slate-400" />
-        <KpiCard label="Est. Columns" value={formatRowCount(classData.totalColumns)} icon={Columns3} iconColor="text-blue-400" />
+        <KpiCard label="Total Entities" value={formatRowCount(classData.totalEntities)} icon={Tag} iconColor="text-[var(--bp-ink-muted)]" />
+        <KpiCard label="Est. Columns" value={formatRowCount(classData.totalColumns)} icon={Columns3} iconColor="text-[var(--bp-copper)]" />
         <KpiCard
           label="Classified"
           value={formatRowCount(classData.classifiedColumns)}
           icon={Shield}
-          iconColor="text-emerald-400"
+          iconColor="text-[var(--bp-operational)]"
           subtitle={formatPercent(classData.coveragePercent) + " coverage"}
         />
-        <KpiCard label="PII Detected" value={formatRowCount(classData.bySensitivity.pii)} icon={UserX} iconColor="text-rose-400" />
-        <KpiCard label="Confidential" value={formatRowCount(classData.bySensitivity.confidential)} icon={Lock} iconColor="text-amber-400" />
+        <KpiCard label="PII Detected" value={formatRowCount(classData.bySensitivity.pii)} icon={UserX} iconColor="text-[var(--bp-fault)]" />
+        <KpiCard label="Confidential" value={formatRowCount(classData.bySensitivity.confidential)} icon={Lock} iconColor="text-[var(--bp-caution)]" />
       </KpiRow>
 
       {/* Classification Status Banner */}
-      <Card className="border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/20">
+      <Card
+        className="border"
+        style={{ borderColor: "var(--bp-caution)", background: "var(--bp-caution-light)" }}
+      >
         <CardContent className="py-4">
           <div className="flex items-center gap-3">
-            <Sparkles className="h-5 w-5 text-amber-500" />
+            <Sparkles className="h-5 w-5" style={{ color: "var(--bp-caution)" }} />
             <div>
-              <p className="text-sm font-medium">Classification Engine Not Yet Active</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Column schema capture needs to run during next Bronze/Silver load. Once the <code className="font-mono bg-muted px-1 rounded">ColumnMetadata</code> table is populated,
+              <p className="text-sm font-medium" style={{ color: "var(--bp-ink-primary)" }}>Classification Engine Not Yet Active</p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--bp-ink-secondary)" }}>
+                Column schema capture needs to run during next Bronze/Silver load. Once the <code className="px-1 rounded" style={{ fontFamily: "var(--bp-font-mono)", background: "var(--bp-surface-inset)" }}>ColumnMetadata</code> table is populated,
                 pattern-based classification will tag columns automatically. Claude via Foundry will add AI-powered classification in Phase 3.
               </p>
             </div>
@@ -218,7 +233,7 @@ export default function DataClassification() {
           </Button>
         </div>
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />
           <Input placeholder="Search entities..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-8 text-sm" />
         </div>
         <div className="flex gap-1.5">
@@ -241,30 +256,30 @@ export default function DataClassification() {
       {view === "heatmap" ? (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Source × Sensitivity Matrix</CardTitle>
+            <CardTitle className="text-sm" style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, fontSize: 18, color: "var(--bp-ink-primary)" }}>Source × Sensitivity Matrix</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2 px-3 text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Source</th>
+                  <tr style={{ borderBottom: "1px solid var(--bp-border)" }}>
+                    <th className="text-left py-2 px-3 text-[10px] uppercase tracking-wider font-medium" style={{ color: "var(--bp-ink-tertiary)" }}>Source</th>
                     {SENSITIVITY_ORDER.map((level) => (
-                      <th key={level} className="text-center py-2 px-3 text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+                      <th key={level} className="text-center py-2 px-3 text-[10px] uppercase tracking-wider font-medium" style={{ color: "var(--bp-ink-tertiary)" }}>
                         {level}
                       </th>
                     ))}
-                    <th className="text-center py-2 px-3 text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Unclassified</th>
+                    <th className="text-center py-2 px-3 text-[10px] uppercase tracking-wider font-medium" style={{ color: "var(--bp-ink-tertiary)" }}>Unclassified</th>
                   </tr>
                 </thead>
                 <tbody>
                   {classData.bySource.map((src) => (
-                    <tr key={src.source} className="border-b border-border/50">
+                    <tr key={src.source} style={{ borderBottom: "1px solid var(--bp-border-subtle)" }}>
                       <td className="py-2 px-3 font-medium text-xs">
                         <span style={{ color: getSourceColor(resolveSourceLabel(src.source)) }}>
                           {resolveSourceLabel(src.source)}
                         </span>
-                        <span className="text-muted-foreground ml-1 text-[10px]">({src.total} cols)</span>
+                        <span className="ml-1 text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>({src.total} cols)</span>
                       </td>
                       {SENSITIVITY_ORDER.map((level) => {
                         const cell = classData.heatmap.find((h) => h.source === src.source && h.level === level);
@@ -272,10 +287,12 @@ export default function DataClassification() {
                         return (
                           <td key={level} className="text-center py-2 px-3">
                             <div
-                              className="inline-block w-10 h-6 rounded text-[10px] leading-6 font-mono"
+                              className="inline-block w-10 h-6 rounded text-[10px] leading-6"
                               style={{
-                                backgroundColor: count > 0 ? `${SENSITIVITY_COLORS[level]}20` : "var(--bg-muted)",
-                                color: count > 0 ? SENSITIVITY_COLORS[level] : "var(--text-muted)",
+                                fontFamily: "var(--bp-font-mono)",
+                                fontVariantNumeric: "tabular-nums",
+                                backgroundColor: count > 0 ? SENSITIVITY_COLORS[level] : "var(--bp-surface-inset)",
+                                color: count > 0 ? SENSITIVITY_INK[level] : "var(--bp-ink-muted)",
                               }}
                             >
                               {count}
@@ -284,7 +301,15 @@ export default function DataClassification() {
                         );
                       })}
                       <td className="text-center py-2 px-3">
-                        <div className="inline-block w-10 h-6 rounded text-[10px] leading-6 font-mono bg-muted text-muted-foreground">
+                        <div
+                          className="inline-block w-10 h-6 rounded text-[10px] leading-6"
+                          style={{
+                            fontFamily: "var(--bp-font-mono)",
+                            fontVariantNumeric: "tabular-nums",
+                            background: "var(--bp-surface-inset)",
+                            color: "var(--bp-ink-muted)",
+                          }}
+                        >
                           {Math.max(0, src.total - src.classified)}
                         </div>
                       </td>
@@ -300,8 +325,8 @@ export default function DataClassification() {
           <CardContent className="p-0">
             <div className="max-h-[calc(100vh-420px)] overflow-y-auto">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-card z-10 border-b">
-                  <tr className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                <thead className="sticky top-0 z-10" style={{ background: "var(--bp-surface-1)", borderBottom: "1px solid var(--bp-border)" }}>
+                  <tr className="text-[10px] uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>
                     <th className="text-left py-2 px-3 font-medium">Entity</th>
                     <th className="text-left py-2 px-3 font-medium">Source</th>
                     <th className="text-left py-2 px-3 font-medium">Schema</th>
@@ -312,20 +337,20 @@ export default function DataClassification() {
                 </thead>
                 <tbody>
                   {loading && allEntities.length === 0 ? (
-                    <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">Loading...</td></tr>
+                    <tr><td colSpan={6} className="text-center py-8" style={{ color: "var(--bp-ink-muted)" }}>Loading...</td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">
+                    <tr><td colSpan={6} className="text-center py-8" style={{ color: "var(--bp-ink-muted)" }}>
                       {search || sourceFilter !== "all" ? "No entities match the current filters." : "No entities found."}
                     </td></tr>
                   ) : filtered.map((e) => (
-                    <tr key={e.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
-                      <td className="py-1.5 px-3 font-mono text-xs">{e.tableName}</td>
+                    <tr key={e.id} className="hover:bg-[var(--bp-surface-2)] transition-colors" style={{ borderBottom: "1px solid var(--bp-border-subtle)" }}>
+                      <td className="py-1.5 px-3 text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)" }}>{e.tableName}</td>
                       <td className="py-1.5 px-3">
                         <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: getSourceColor(resolveSourceLabel(e.source)) }}>
                           {resolveSourceLabel(e.source)}
                         </span>
                       </td>
-                      <td className="py-1.5 px-3 text-xs text-muted-foreground">{e.sourceSchema}</td>
+                      <td className="py-1.5 px-3 text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>{e.sourceSchema}</td>
                       <td className="py-1.5 px-2 text-center">
                         <div className="flex gap-0.5 justify-center">
                           {e.lzStatus === "loaded" && <LayerBadge layer="landing" size="sm" showIcon={false} />}
@@ -336,7 +361,7 @@ export default function DataClassification() {
                       <td className="py-1.5 px-2 text-center">
                         <CertificationBadge status="none" />
                       </td>
-                      <td className="py-1.5 px-3 text-right font-mono text-xs text-muted-foreground">&mdash;</td>
+                      <td className="py-1.5 px-3 text-right text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-muted)" }}>&mdash;</td>
                     </tr>
                   ))}
                 </tbody>

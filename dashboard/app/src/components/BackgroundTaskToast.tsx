@@ -24,10 +24,10 @@ function TaskItem({ task }: { task: BackgroundTask }) {
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          {isRunning && <Loader2 className="h-3.5 w-3.5 text-blue-400 animate-spin flex-shrink-0" />}
-          {isDone && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />}
-          {isFailed && <XCircle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />}
-          {isCancelled && <Ban className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />}
+          {isRunning && <Loader2 className="h-3.5 w-3.5 text-[#B45624] animate-spin flex-shrink-0" />}
+          {isDone && <CheckCircle2 className="h-3.5 w-3.5 text-[#3D7C4F] flex-shrink-0" />}
+          {isFailed && <XCircle className="h-3.5 w-3.5 text-[#B93A2A] flex-shrink-0" />}
+          {isCancelled && <Ban className="h-3.5 w-3.5 text-[#C27A1A] flex-shrink-0" />}
           <span className="text-xs font-medium text-foreground truncate">{task.label}</span>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
@@ -56,7 +56,7 @@ function TaskItem({ task }: { task: BackgroundTask }) {
       <div className="h-1.5 rounded-full bg-muted overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-300 ${
-            isRunning ? "bg-blue-500" : isDone ? "bg-emerald-500" : isFailed ? "bg-red-500" : "bg-amber-500"
+            isRunning ? "bg-[#B45624]" : isDone ? "bg-[#3D7C4F]" : isFailed ? "bg-[#B93A2A]" : "bg-[#C27A1A]"
           }`}
           style={{ width: `${pct}%` }}
         />
@@ -66,7 +66,7 @@ function TaskItem({ task }: { task: BackgroundTask }) {
       <div className="flex items-center justify-between text-[10px] text-muted-foreground">
         <span>
           {task.done} / {task.total}
-          {task.errors > 0 && <span className="text-red-400 ml-1">({task.errors} failed)</span>}
+          {task.errors > 0 && <span className="text-[#B93A2A] ml-1">({task.errors} failed)</span>}
         </span>
         <span>{formatElapsed(task.startedAt, task.endedAt)}</span>
       </div>
@@ -93,9 +93,9 @@ export function BackgroundTaskToast() {
       >
         <div className="flex items-center gap-2">
           {runningCount > 0 ? (
-            <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />
+            <Loader2 className="h-4 w-4 text-[#B45624] animate-spin" />
           ) : (
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            <CheckCircle2 className="h-4 w-4 text-[#3D7C4F]" />
           )}
           <span className="text-xs font-medium text-foreground">
             {runningCount > 0
@@ -114,7 +114,7 @@ export function BackgroundTaskToast() {
       {!expanded && runningCount > 0 && (
         <div className="h-1 bg-muted">
           <div
-            className="h-full bg-blue-500 transition-all duration-300"
+            className="h-full bg-[#B45624] transition-all duration-300"
             style={{ width: `${totalTotal > 0 ? Math.round((totalDone / totalTotal) * 100) : 0}%` }}
           />
         </div>

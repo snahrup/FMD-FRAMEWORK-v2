@@ -9,19 +9,21 @@
 
 ## 1. Product Vision
 
-Gold Studio is a persistent assay ledger for report artifacts, where every import is extracted, cataloged, normalized, and refined into traceable Gold-layer specifications.
+Gold Studio is a domain-by-domain workspace for aggregating evidence, auditing current reporting logic, constructing the final Gold model, and tracking readiness to recreate or replace legacy reports. Every import — whether a structural artifact, a supporting spreadsheet, or a contextual screenshot — is cataloged, normalized, and refined into traceable Gold-layer specifications.
 
-**Product thesis:** Nothing gets lost, everything is traceable.
+**Product thesis:** Nothing gets lost, everything is traceable, and every domain knows when it's ready.
 
 Gold Studio translates a 6-phase metadata-first methodology (Inventory → Extract → Normalize → Canonical Model → Gold Design → Validate) plus a governance gate (Catalog Publication) into a dashboard-native workflow with 7 provenance states. The system does the heavy lifting — parsing files, discovering schemas, detecting duplicates, generating specs — while the human makes every judgment call.
 
 ### What Gold Studio Is
 
-- A persistent asset registry for Power BI reports, RDL files, PBIX/PBIP projects, and raw SQL queries
-- An extraction engine that cracks open artifacts and catalogs their contents (tables, columns, queries, measures, relationships)
+- A domain-by-domain construction console for building Gold models from diverse evidence: structural artifacts (RDL, PBIX, PBIP, SQL, TMDL, BIM), supporting materials (Excel, CSV, mapping sheets), and contextual evidence (screenshots, notes)
+- A persistent asset registry for all imported evidence, regardless of source class
+- An extraction engine that cracks open structural artifacts and catalogs their contents (tables, columns, queries, measures, relationships)
 - A normalization workspace for resolving overlapping tables across reports into canonical business entities
 - A Gold layer specification generator that produces Materialized Lake View designs from approved canonical entities
 - A governance pipeline that ensures every Gold asset is validated, enriched with metadata, and published to the catalog
+- A report recreation readiness tracker that confirms when a domain's Gold model can reproduce existing reporting needs
 
 ### What Gold Studio Is Not
 
@@ -29,6 +31,8 @@ Gold Studio translates a 6-phase metadata-first methodology (Inventory → Extra
 - Not an automated canonical modeler — the system suggests, the human decides
 - Not a data loading pipeline — that's what LZ → Bronze → Silver already does
 - Not a one-time import tool — everything persists as a browsable, searchable registry
+- Not limited to structural model artifacts — supporting evidence (Excel, CSV) and contextual evidence (screenshots, notes) inform the process without being treated as structural truth
+- Not a report builder — recreation tracking confirms *readiness*, the actual rebuild happens outside Gold Studio
 
 ### Design Identity
 
@@ -69,8 +73,8 @@ Imported  Extracted  Clustered  Canonicalized  Gold Drafted  Validated  Cataloge
 | → Clustered | Assigned to approved cluster OR reviewed as standalone | Human |
 | → Canonicalized | Canonical entity status set to Approved, all required fields populated | Human |
 | → Gold Drafted | Gold spec generated from approved canonical entity | Automatic |
-| → Validated | All critical validation rules pass + user confirms (or waiver filed) | Human |
-| → Cataloged | All required catalog fields populated + user clicks Certify & Publish | Human |
+| → Validated | All critical rules pass and user confirms, OR critical failures have an approved waiver and user explicitly marks the spec as validated | Human |
+| → Cataloged | All required catalog fields populated + user clicks Publish to Catalog | Human |
 
 ### Provenance Propagation Model
 
@@ -93,6 +97,20 @@ Provenance is tracked at **two levels** — the system derives the display state
 ### Terminal State Visual
 
 When an entity reaches Cataloged, the entire thread transitions to gold (gold dots, gold connecting line). This is the visual payoff — scannable at a glance across a table of entities.
+
+### Provenance for Non-Structural Sources
+
+The Provenance Thread applies **only to structural specimens and their extracted entities**. Supporting and contextual specimens do not participate in the provenance lifecycle:
+
+| Source Class | Provenance Behavior | Visual Treatment |
+|---|---|---|
+| Structural | Full 7-phase thread, advances through lifecycle | Provenance Thread (7 dots) |
+| Supporting | Fixed at `imported`, never advances | Flat `Supporting` badge — no thread displayed |
+| Contextual | Fixed at `imported`, never advances | Flat `Contextual` badge — no thread displayed |
+
+**Rationale:** Provenance tracks a structured methodology (extract → cluster → canonicalize → draft → validate → catalog). Supporting/contextual evidence does not undergo this methodology — it exists as reference material attached to the domain workspace. Displaying a thread frozen at dot 1 of 7 would be confusing and misleading.
+
+**Backend enforcement:** The provenance column on `gs_extracted_entities` is only relevant for entities created from structural specimens. Supporting/contextual specimens do not produce extracted entities. If a supporting specimen is linked to a canonical entity (as a reference), the linkage is stored in specimen-level metadata, not in `gs_extracted_entities`.
 
 ### Thread Dimensions
 
@@ -136,19 +154,20 @@ The tab strip appears below the page title on all Gold Studio pages, reinforcing
 | Specifications | Datasets | Yes |
 | Validation | — | Hidden |
 
-Business portal views show trust badges (Certified / Promoted / Pending) on published assets without exposing the underlying methodology.
+Business portal views show trust badges (Certified / Promoted / Unendorsed) on published assets without exposing the underlying methodology.
 
 ### First-Class Objects
 
-Five object types in the system. All UI centers on these:
+Six object types in the system. All UI centers on these:
 
 | Object | Description | Created By |
 |---|---|---|
-| **Specimen** | Imported artifact (RDL, PBIX, PBIP, SQL, TMDL, BIM) | Import action |
+| **Specimen** | Imported artifact or evidence item (structural: RDL, PBIX, PBIP, SQL, TMDL, BIM; supporting: Excel, CSV; contextual: screenshot, note) | Import action |
 | **Cluster** | System-suggested group of overlapping entities | Duplicate detection |
 | **Canonical Entity** | Approved business object with defined grain, keys, and columns | Cluster resolution or standalone promotion |
 | **Specification** | Gold layer MLV design generated from a canonical entity | Spec generation |
 | **Catalog Entry** | Governed, published Gold asset with full metadata | Catalog publication |
+| **Domain Workspace** | Organizing container for all evidence, entities, and specs within a business domain | Domain creation |
 
 ### Page Layout Pattern
 
@@ -161,6 +180,156 @@ Every Gold Studio page shares:
 - **Main area:** Page-specific content
 
 Stats strip, sub-nav, and filter bar are sticky on scroll.
+
+---
+
+## 3.5. Source Classification Model
+
+Not all imported material carries equal authority. Gold Studio classifies every specimen using two orthogonal fields:
+
+### Two-Field Classification
+
+| Field | Purpose | Values |
+|---|---|---|
+| **`type`** | Artifact format — what kind of file/input this is | `rdl`, `pbix`, `pbip`, `tmdl`, `bim`, `sql`, `excel`, `csv`, `screenshot`, `note`, `other` |
+| **`source_class`** | Authority tier — how the system treats this evidence | `structural`, `supporting`, `contextual` |
+
+These two fields have **no overlapping semantics**. `type` describes format; `source_class` describes authority. There is no third field.
+
+### Auto-Derivation Rules
+
+If `source_class` is not explicitly set at import time, the system derives it from `type`:
+
+| Artifact Type | Default Source Class | Rationale |
+|---|---|---|
+| `rdl`, `pbix`, `pbip`, `tmdl`, `bim`, `sql` | `structural` | Machine-parseable report/model artifacts |
+| `excel`, `csv` | `supporting` | Semi-structured data, not parser-driven |
+| `screenshot`, `note` | `contextual` | Interpretive evidence only |
+| `other` | `supporting` | Unknown format — conservative default |
+
+The user may override the default (e.g., marking an Excel as `contextual` if it's just a reference screenshot export), but the system always has a valid class.
+
+### Source Classes
+
+| Class | Authority | Description | Examples |
+|---|---|---|---|
+| **Structural** | Authoritative | Machine-extractable artifacts that directly drive schema/model inference. Parsers produce tables, columns, queries, measures, relationships. | RDL, PBIX, PBIP/TMDL, BIM, SQL |
+| **Supporting** | Secondary | Semi-structured artifacts that inform mappings, definitions, reconciliation, and business logic but are not treated as primary structural truth. No parser-driven extraction — metadata is user-supplied or lightweight. | Excel, CSV, mapping sheets, data dictionaries, field lists |
+| **Contextual** | Interpretive | Visual or written evidence that explains report intent, visible metrics, user expectations, or recreation requirements. Never drives schema inference. | Screenshots, pasted notes, written explanations, visual annotations |
+
+### Evidence Confidence Semantics
+
+Source class determines how the system treats each piece of evidence:
+
+| Behavior | Structural | Supporting | Contextual |
+|---|---|---|---|
+| Parser-driven extraction | Yes — full entity/column/query extraction | No — metadata is user-supplied | No — stored as-is |
+| Schema discovery | Yes — resolves source DB metadata | No | No |
+| Clustering eligibility | Full weight in duplicate detection | Excluded from automated clustering | Excluded from automated clustering |
+| Canonical decision support | Primary input for column reconciliation | Informational reference during reconciliation | Informational reference only |
+| Provenance progression | Full 7-phase thread (Imported → Cataloged) | Fixed at `imported` — no progression | Fixed at `imported` — no progression |
+| Lineage display | Full provenance thread | Linked as supporting evidence (flat badge, no thread) | Linked as contextual note (flat badge, no thread) |
+| Auditability | Full audit trail with diffs | Audit trail for upload and attachment | Audit trail for upload only |
+| Recreation readiness | Drives structural completeness | Fills knowledge gaps | Confirms visual/behavioral expectations |
+
+### Manual Context Capture
+
+All source classes support optional manual context at submission time:
+
+- **What this artifact represents** — free text describing purpose
+- **Related report/page/metric** — what business question it supports
+- **Known caveats** — any limitations or warnings about the evidence
+- **Influence notes** — what the submitter believes this should affect
+
+This context is stored as structured JSON metadata on the specimen (`manual_context` column), not as a separate object.
+
+---
+
+## 3.55. Workflow Rules by Source Class
+
+This section defines exactly which backend workflow steps apply to each source class. These rules are **enforced by the API layer** — the frontend must not need to know them.
+
+### Intake
+
+| Step | Structural | Supporting | Contextual |
+|---|---|---|---|
+| File upload / paste | Yes | Yes | Yes |
+| `job_state` on creation | `queued` | `accepted` | `accepted` |
+| Background extraction job | Yes — parser runs automatically | No — no parser exists | No — stored as-is |
+| Schema discovery job | Yes — after extraction | No | No |
+| `job_state` terminal state | `extracted` (success) or `parse_failed` / `parse_warning` | `accepted` (immediate, no parsing) | `accepted` (immediate, no parsing) |
+
+### Extraction & Parsing
+
+Only `structural` specimens are eligible for parser-driven extraction. The API **must reject** extraction requests (`POST /{id}/extract`) for supporting/contextual specimens with HTTP 400: "Only structural specimens can be extracted."
+
+Schema discovery (`POST /entities/{id}/discover-schema`) is similarly restricted — only entities from structural specimens are eligible.
+
+### Clustering
+
+Only extracted entities from `structural` specimens participate in duplicate detection (`POST /clusters/detect`). The detection algorithm **must filter** to `gs_specimens.source_class = 'structural'` when gathering candidate entities.
+
+Supporting/contextual specimens are never clustered, never appear in cluster cards, and never surface as unclustered entities.
+
+### Canonical Modeling
+
+Only entities from structural specimens can be promoted to canonical entities (via cluster resolution or standalone promotion). Supporting and contextual specimens are **linked as references** to canonical entities, not promoted into them.
+
+### Gold Spec Generation
+
+No change — Gold specs are generated from canonical entities, which are only derived from structural evidence.
+
+### Validation & Catalog
+
+No change — validation runs against Gold specs, which are structurally derived. Supporting/contextual evidence can be referenced in reconciliation notes but does not participate in automated validation.
+
+### Provenance
+
+| Source Class | Provenance Value | Progression |
+|---|---|---|
+| Structural | Starts at `imported`, advances through `extracted` → `clustered` → (derived phases 4-7) | Full 7-phase lifecycle |
+| Supporting | Fixed at `imported` | Never advances — `imported` is the permanent state |
+| Contextual | Fixed at `imported` | Never advances — `imported` is the permanent state |
+
+**UI implication (for later packets):** Supporting and contextual specimens should display a flat source-class badge (`Supporting` / `Contextual`) instead of the Provenance Thread. The 7-dot thread is meaningless for non-structural evidence.
+
+---
+
+## 3.6. Domain Workspaces
+
+Gold Studio organizes work into **domain workspaces** — one per business domain (e.g., Sales, Finance, Production, Quality, Enterprise Core).
+
+A domain workspace is an organizing container, not a separate database or tenant. It groups:
+
+- Source evidence (all three classes)
+- Extracted entities
+- Clustering decisions
+- Canonical entities
+- Gold specifications
+- Validation runs
+- Report recreation coverage tracking
+
+### Domain-Level Aggregation
+
+Each domain workspace provides:
+
+- **Source coverage** — which source systems have contributed evidence
+- **Report coverage** — which legacy reports have been analyzed and mapped
+- **Unresolved gaps** — which areas lack sufficient evidence or canonical modeling
+- **Recreation readiness** — overall domain readiness state
+
+### Domain Readiness States
+
+| State | Meaning |
+|---|---|
+| Not Started | Domain created but no evidence imported |
+| In Progress | Evidence being collected, entities being modeled |
+| Partially Covered | Some canonical entities approved, some gaps remain |
+| Ready for Recreation | Gold model sufficient to reproduce all identified legacy reports |
+| Recreated | Legacy reports have been rebuilt using the Gold model |
+| Reconciled | Recreated reports validated against legacy output with acceptable tolerances |
+
+The existing `division` field on specimens, clusters, and canonical entities serves as the domain workspace key. No new UI page is needed in this packet — the architecture simply formalizes what `division` already represents.
 
 ---
 
@@ -197,20 +366,25 @@ Two-line card rows on `#FEFDFB` surface with `rgba(0,0,0,0.08)` border:
 - Warm gold `#C2952B` — cataloged
 - Muted stone `#A8A29E` — imported, not yet extracted
 
-**Type badges:** `RDL` `PBIX` `PBIP` `SQL` `TMDL` `BIM` — JetBrains Mono, small, `rgba(180,86,36,0.1)` background, rounded.
+**Type badges:** `RDL` `PBIX` `PBIP` `SQL` `TMDL` `BIM` `EXCEL` `CSV` `SCREENSHOT` `NOTE` — JetBrains Mono, small, `rgba(180,86,36,0.1)` background, rounded.
+
+**Source class badges** (for supporting/contextual specimens, displayed instead of Provenance Thread):
+- `Supporting` — muted copper badge
+- `Contextual` — muted stone badge
 
 **Job state badges** (separate from provenance):
 
 | State | Badge Color | Meaning |
 |---|---|---|
-| Queued | Muted stone | Waiting for extraction |
-| Extracting | Copper pulse | Parser running |
-| Schema Discovery | Copper pulse | Querying source DBs |
+| Queued | Muted stone | Waiting for extraction (structural only) |
+| Extracting | Copper pulse | Parser running (structural only) |
+| Schema Discovery | Copper pulse | Querying source DBs (structural only) |
 | Extracted | Operational green | All content parsed, schemas resolved |
 | Parse Warning | Caution amber | Extracted with issues |
 | Parse Failed | Fault red | Parser error — needs intervention |
-| Needs Connection | Info blue | Source DB not mapped |
+| Needs Connection | Info blue | Source DB not mapped to a registered connection or Fabric item |
 | Schema Pending | Muted stone | Extraction done, schema waiting on VPN |
+| Accepted | Operational green | Supporting/contextual evidence stored (no parsing needed) |
 
 ### Accordion Expansion
 
@@ -231,7 +405,7 @@ Top-right button group on Ledger page:
 **Import button** (dropdown): Upload File | Paste SQL | Bulk Import
 
 **Upload File modal:**
-- File dropzone (accepts `.rdl`, `.pbix`, `.pbip`, `.tmdl`, `.bim`)
+- File dropzone (accepts `.rdl`, `.pbix`, `.bim`; PBIP/TMDL projects use project/folder import in Bulk Import)
 - Fields: Name (auto-populated), Division (required dropdown), Source System (dropdown), Steward (required text), Description (text area), Tags (freeform chips)
 - Submit → file stored → specimen created → extraction queued as background job
 
@@ -257,6 +431,8 @@ Top-right button group on Ledger page:
 
 ## 5. Import & Extraction Pipeline
 
+**Source class gate:** This entire section applies only to **structural** specimens. Supporting and contextual specimens skip parsing, schema discovery, and post-extraction automation entirely — they are stored as-is with `job_state = 'accepted'`. See Section 3.55 for the full workflow eligibility matrix.
+
 ### Parser Architecture
 
 Each file type has a dedicated parser. All parsers produce a normalized output contract.
@@ -268,7 +444,7 @@ Each file type has a dedicated parser. All parsers produce a normalized output c
 4. Raw SQL — SQL is the input, just needs analysis
 5. PBIX — ZIP archive fallback, requires extraction + DataModelSchema parsing
 
-**v2 (not in v1):** XMLA/TOM-based model interrogation via endpoint.
+**v2 (not in v1):** XMLA/TOM-based semantic model interrogation via endpoint.
 
 **Parser Security Requirements (mandatory for all parsers):**
 
@@ -289,7 +465,7 @@ Each file type has a dedicated parser. All parsers produce a normalized output c
 |---|---|---|
 | `rdl_parser.py` | `.rdl`, `.rdlc` | XML parse `<DataSets>`, `<CommandText>`, `<Fields>`, `<DataSources>` |
 | `pbix_parser.py` | `.pbix` | ZIP extract → `DataModelSchema` JSON |
-| `pbip_parser.py` | `.pbip` folders | TMDL file reading + `model.bim` fallback |
+| `pbip_parser.py` | `.pbip` / TMDL project folders | TMDL file reading + `model.bim` fallback |
 | `bim_parser.py` | `.bim` | Tabular Model JSON direct parse |
 | `sql_parser.py` | `.sql`, pasted SQL | FROM/JOIN/SELECT analysis, table/alias extraction |
 | `schema_discovery.py` | All | Source DB metadata resolution |
@@ -369,10 +545,10 @@ Per-session rate limits: max 10 job submissions per minute. Bulk import counts a
 
 ### Post-Extraction Automation
 
-After successful extraction:
+After successful extraction (structural specimens only):
 1. All extracted entities registered with provenance `Imported`
 2. Auto-advance to `Extracted` (if parser succeeded + schema resolved)
-3. Duplicate detection runs — fuzzy matches table names, column signatures, query patterns across all entities in same division
+3. Duplicate detection runs — fuzzy matches table names, column signatures, query patterns across **structural** entities in same division (supporting/contextual specimens are excluded)
 4. Cluster suggestions surface as `⚠` badges on Ledger entity rows
 
 ### File Storage
@@ -654,7 +830,7 @@ Two-line rows:
 - Line 1: Spec name, Type badge, Domain, Sources, Validation status, Provenance Thread
 - Line 2 (muted): Version, column count, refresh strategy
 
-**Validation badges:** `✓ Pass` (green), `⚠ Pending` (amber), `✗ Failed` (red), `↻ Needs Reval.` (copper with rotation icon — visually distinct from "not yet validated").
+**Validation badges:** `✓ Pass` (green), `◌ Pending` (amber), `✗ Failed` (red), `↻ Needs Reval.` (copper with rotation icon — visually distinct from "not yet validated").
 
 ### Spec Detail Slide-Over
 
@@ -685,7 +861,7 @@ Previous validation runs retained but marked as `superseded`. Spec status → `n
 
 `Canonicalized` → `Gold Drafted`: Automatic when spec is generated.
 
-`Gold Drafted` → `Validated`: When all critical validation rules pass + user confirms (or waiver filed for critical failures).
+`Gold Drafted` → `Validated`: When all critical rules pass and the user confirms, or critical failures have an approved waiver and the user explicitly marks the spec as validated.
 
 ---
 
@@ -701,7 +877,7 @@ Each Gold spec can have multiple validation runs. A run executes all validation 
 
 | Type | Behavior |
 |---|---|
-| Critical | Must pass for Validated status (unless waiver filed) |
+| Critical | Must pass for Validated status unless an approved waiver exists for the current spec version |
 | Warning | Flagged, doesn't block |
 | Advisory | Informational, for legacy reconciliation |
 
@@ -779,7 +955,7 @@ Endorsement is a separate attribute:
 
 **Catalog versioning invariant:** Republishing after spec version change creates a new `version` row under the same `root_id`. The `root_id` of a catalog entry is immutable after creation. Previous versions are set to `status = 'superseded'`.
 
-**Certify & Publish** button:
+**Publish to Catalog** button:
 1. Writes all metadata to `gs_catalog_entries` table
 2. Updates provenance to Cataloged (gold thread)
 3. Syncs to FMD Data Catalog (`/catalog`) and Business Portal (`/catalog-portal`)
@@ -795,7 +971,50 @@ Endorsement is a separate attribute:
 
 **Tab 1: Validation Status** — All specs with latest validation run results. Sorted: failed first, then waiver, then pending, then passed. Columns: Spec, Status, Critical rules (fraction), Warnings, Last Run.
 
-**Tab 2: Catalog Registry** — All published Gold assets with governance metadata summary. Trust badges. This feeds the Data Catalog and Business Portal.
+**Tab 2: Catalog Registry** — All published Gold assets with governance metadata summary and endorsement badges. This feeds the Data Catalog and Business Portal.
+
+---
+
+## 9.5. Report Recreation Tracking
+
+Gold Studio explicitly supports the downstream goal of recreating or replacing legacy reports from the finalized domain Gold model.
+
+### Report Recreation Coverage
+
+For each domain workspace, the system tracks:
+
+| Concept | Description |
+|---|---|
+| **Legacy Report** | An identified report that exists today and needs to be recreated or replaced |
+| **Coverage Status** | Whether the Gold model includes sufficient canonical entities and specs to reproduce this report's key outputs |
+| **Contributing Evidence** | Which specimens (structural, supporting, contextual) contributed to understanding this report |
+| **Unresolved Metrics** | Specific measures, visuals, or business questions from this report that are not yet covered |
+| **Recreation Readiness** | Per-report readiness state (Not Analyzed → Analyzed → Partially Covered → Fully Covered → Recreated → Reconciled) |
+
+### Coverage Assessment Logic
+
+Recreation readiness is assessed by checking:
+
+1. All tables referenced by the legacy report have corresponding canonical entities (approved)
+2. All measures/KPIs used in the report have semantic definitions linked to canonical entities
+3. Gold specs exist for the required canonical entities
+4. Validation has passed (or has approved waivers) for those Gold specs
+5. No unresolved metrics remain flagged
+
+This is NOT automated report generation. It is a structured checklist that confirms the Gold model is complete enough to support manual or assisted report recreation.
+
+### Relationship to Existing Workflow
+
+Report recreation tracking is the "why" behind the existing workflow:
+
+- **Ledger** → "What evidence do we have?"
+- **Clusters** → "Which evidence overlaps?"
+- **Canonical** → "What is the clean business model?"
+- **Specifications** → "How do we build it in Gold?"
+- **Validation** → "Does it work correctly?"
+- **Recreation** → "Can we replace the old reports with confidence?"
+
+This completes the conceptual loop from evidence intake to business outcome.
 
 ---
 
@@ -857,7 +1076,14 @@ CREATE UNIQUE INDEX uq_catalog_one_current ON gs_catalog_entries(root_id) WHERE 
 CREATE TABLE gs_specimens (
     id              INTEGER PRIMARY KEY,
     name            TEXT NOT NULL,
-    type            TEXT NOT NULL CHECK(type IN ('rdl','pbix','pbip','tmdl','bim','sql')),
+    type            TEXT NOT NULL CHECK(type IN (          -- artifact format (what kind of file)
+        'rdl','pbix','pbip','tmdl','bim','sql',
+        'excel','csv','screenshot','note','other'
+    )),
+    source_class    TEXT NOT NULL DEFAULT 'structural'     -- authority tier (how system treats it)
+        CHECK(source_class IN ('structural','supporting','contextual')),
+    -- No evidence_type column — type IS the artifact type, source_class IS the authority.
+    -- These two fields have non-overlapping semantics. See Section 3.5.
     division        TEXT NOT NULL,
     source_system   TEXT,
     steward         TEXT NOT NULL,
@@ -865,9 +1091,11 @@ CREATE TABLE gs_specimens (
     description     TEXT,
     tags            TEXT,                   -- JSON array
     file_path       TEXT,
+    manual_context  TEXT,                   -- JSON: {represents, related_report, caveats, influence_notes}
     job_state       TEXT DEFAULT 'queued' CHECK(job_state IN (
         'queued','extracting','schema_discovery','extracted',
-        'parse_warning','parse_failed','needs_connection','schema_pending'
+        'parse_warning','parse_failed','needs_connection','schema_pending',
+        'accepted'                          -- terminal state for supporting/contextual (no parsing)
     )),
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -918,8 +1146,8 @@ CREATE TABLE gs_extracted_entities (
     schema_name     TEXT,
     source_database TEXT,
     source_system   TEXT,
-    table_type      TEXT DEFAULT 'physical' CHECK(table_type IN (
-        'physical','calculated','import','direct_query','direct_lake'
+    entity_kind     TEXT DEFAULT 'physical' CHECK(entity_kind IN (
+        'physical','view','calculated','semantic_output','unknown'
     )),
     column_count    INTEGER DEFAULT 0,
     provenance      TEXT DEFAULT 'imported' CHECK(provenance IN (
@@ -1237,7 +1465,8 @@ CREATE TABLE gs_catalog_entries (
 CREATE TABLE gs_audit_log (
     id              INTEGER PRIMARY KEY,
     object_type     TEXT NOT NULL CHECK(object_type IN (
-        'specimen','entity','cluster','canonical','spec','validation','catalog'
+        'specimen','entity','cluster','canonical','spec','validation','catalog',
+        'domain_workspace','report_coverage'
     )),
     object_id       INTEGER NOT NULL,
     action          TEXT NOT NULL,
@@ -1274,6 +1503,54 @@ CREATE TABLE gs_report_field_usage (
 );
 ```
 
+#### Domain Workspaces (1 table)
+
+```sql
+-- Organizing container for all evidence, entities, and specs within a business domain.
+-- The 'name' field aligns with the 'division' field on specimens, clusters, and canonical entities.
+CREATE TABLE gs_domain_workspaces (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,    -- matches division field on other gs_* tables
+    display_name    TEXT NOT NULL,
+    description     TEXT,
+    readiness_state TEXT DEFAULT 'not_started' CHECK(readiness_state IN (
+        'not_started','in_progress','partially_covered',
+        'ready_for_recreation','recreated','reconciled'
+    )),
+    source_coverage TEXT,                   -- JSON: {source_systems: [], report_count: N}
+    metadata        TEXT,                   -- JSON: extensible
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### Report Recreation Coverage (1 table)
+
+```sql
+-- Tracks whether the Gold model can reproduce each identified legacy report.
+-- One row per legacy report per domain.
+CREATE TABLE gs_report_recreation_coverage (
+    id              INTEGER PRIMARY KEY,
+    domain          TEXT NOT NULL,           -- matches gs_domain_workspaces.name
+    report_name     TEXT NOT NULL,
+    report_description TEXT,
+    report_type     TEXT CHECK(report_type IN ('power_bi','ssrs','excel','other')),
+    coverage_status TEXT DEFAULT 'not_analyzed' CHECK(coverage_status IN (
+        'not_analyzed','analyzed','partially_covered',
+        'fully_covered','recreated','reconciled'
+    )),
+    contributing_specimen_ids TEXT,          -- JSON array of specimen IDs
+    contributing_canonical_ids TEXT,         -- JSON array of canonical root_ids
+    contributing_spec_ids TEXT,              -- JSON array of spec root_ids
+    unresolved_metrics TEXT,                -- JSON array: [{metric, description, severity}]
+    notes           TEXT,
+    assessed_by     TEXT,
+    assessed_at     DATETIME,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
 ### API Routes
 
 New module: `dashboard/app/api/routes/gold_studio.py`
@@ -1283,7 +1560,7 @@ New module: `dashboard/app/api/routes/gold_studio.py`
 | Method | Path | Description |
 |---|---|---|
 | POST | `/` | Create specimen (file upload or SQL paste) |
-| GET | `/` | List (filters: division, type, steward, job_state) |
+| GET | `/` | List (filters: division, type, steward, job_state, source_class) |
 | GET | `/{id}` | Detail + extracted entities + queries |
 | PUT | `/{id}` | Update metadata (name, steward, description, tags, division, source_system) |
 | DELETE | `/{id}` | Soft delete |
@@ -1395,9 +1672,29 @@ New module: `dashboard/app/api/routes/gold_studio.py`
 | GET | `/?entity_id=` | Field usage for an entity |
 | GET | `/?column_name=` | Which reports use a specific column (impact analysis) |
 
+#### Domain Workspaces (`/api/gold-studio/domains`)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/` | List all domain workspaces with readiness state |
+| POST | `/` | Create domain workspace |
+| GET | `/{id}` | Detail with aggregated coverage stats |
+| PUT | `/{id}` | Update metadata or readiness state |
+
+#### Report Recreation Coverage (`/api/gold-studio/report-coverage`)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/` | List (filters: domain, coverage_status) |
+| POST | `/` | Register legacy report for recreation tracking |
+| GET | `/{id}` | Coverage detail |
+| PUT | `/{id}` | Update status, contributing IDs, unresolved metrics |
+| DELETE | `/{id}` | Remove coverage entry |
+| GET | `/summary` | Aggregate readiness summary by domain |
+
 **Pagination:** All list endpoints accept `limit` (default 100) and `offset` parameters. Audit log queries REQUIRE pagination.
 
-**Total: 59 endpoints across 21 tables.**
+**Total: 67 endpoints across 21 tables.**
 
 ### Integration Points
 
@@ -1430,6 +1727,7 @@ Working within the existing Business Portal design system:
 | Operational-green | `#3D7C4F` | Validated, approved, passed |
 | Caution-amber | `#C27A1A` | Warnings, pending steward |
 | Fault-red | `#B93A2A` | Failed, errors |
+| Info-blue | `#5B7FA3` | Informational, connection-mapping required |
 | Border-standard | `rgba(0,0,0,0.08)` | Card borders, dividers |
 | Border-emphasis | `rgba(0,0,0,0.14)` | Focus, active states |
 
@@ -1492,6 +1790,7 @@ Consistent across all Gold Studio pages:
 | Gold drafted | Amber-gold | `#D4A017` |
 | Cataloged | Warm gold | `#C2952B` |
 | Pending/queued | Muted stone | `#A8A29E` |
+| Needs connection | Info blue | `#5B7FA3` |
 | Failed | Fault red | `#B93A2A` |
 | Warning | Caution amber | `#C27A1A` |
 
@@ -1505,7 +1804,7 @@ Consistent across all Gold Studio pages:
 
 | Scenario | Behavior |
 |---|---|
-| Unsupported file type | File picker rejects. If dragged: toast error "Unsupported file type. Accepted: .rdl, .pbix, .pbip, .tmdl, .bim" |
+| Unsupported file type | File picker rejects. If dragged: toast error "Unsupported file type. Accepted: .rdl, .pbix, .bim, or PBIP/TMDL project folder via Bulk Import" |
 | Duplicate file name | Warning: "A specimen named X already exists. Import anyway?" — allows duplicate (different version/steward) |
 | Partial bulk success | Each file imports independently. Failures shown in result table with per-file error. Successful imports proceed. |
 | Parse warning | Specimen created, job state `parse_warning`. Specimen row shows amber rail. Extraction results available but flagged. |
@@ -1529,13 +1828,13 @@ Consistent across all Gold Studio pages:
 
 | State | Allowed Actions | Blocked Actions |
 |---|---|---|
-| Gold Drafted, no validation run | Run Validation | Publish, Certify |
+| Gold Drafted, no validation run | Run Validation | Publish to Catalog |
 | Validation running | View progress | Edit SQL, Publish |
 | All critical pass | Mark Validated, then Publish | — |
 | Critical failure, no waiver | File Waiver, Re-edit spec | Mark Validated, Publish |
 | Critical failure + waiver filed | Mark Validated (with waiver badge), then Publish | — |
 | Validated, not published | Publish to Catalog | — |
-| Published, endorsement = None | Update Endorsement to Promoted or Certified | — |
+| Published, endorsement = None (Unendorsed) | Update Endorsement to Promoted or Certified | — |
 | Published, spec later edited | Status → Needs Revalidation. Previous catalog entry stays but marked "source updated". Must revalidate + republish. | Publish stale version |
 | Republish after version change | Creates new catalog revision. Previous revision retained in history. | Overwrite previous revision |
 
@@ -1556,10 +1855,15 @@ Consistent across all Gold Studio pages:
 - Catalog publication with governance metadata
 - Audit log
 - Business Portal integration (Data Collections, Datasets views)
-- All 21 SQLite tables + 59 API endpoints
+- All 19 SQLite tables + 57 API endpoints
 - Security model with auth tiers (Viewer / Contributor / Approver)
 - File upload safety (size limits, ZIP bomb protection, XXE protection, path sanitization)
 - Schema discovery SQL injection protection
+- Source classification model (structural / supporting / contextual evidence)
+- Domain workspace concept (using existing division field)
+- Report recreation coverage tracking (schema + API scaffolding)
+- Manual context capture on evidence intake
+- Support for non-structural artifact types (Excel, CSV, screenshot, note)
 
 ### In v2
 

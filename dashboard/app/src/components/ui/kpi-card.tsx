@@ -40,8 +40,8 @@ export function KpiCard({ label, value, icon: Icon, iconColor, trend, subtitle, 
             <p
               className={cn(
                 "text-[11px] font-medium",
-                trendPositive && "text-emerald-600 dark:text-emerald-400",
-                trendNegative && "text-red-600 dark:text-red-400",
+                trendPositive && "text-[#3D7C4F]",
+                trendNegative && "text-[#B93A2A]",
                 !trendPositive && !trendNegative && "text-muted-foreground"
               )}
             >

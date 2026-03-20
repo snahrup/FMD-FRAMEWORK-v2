@@ -1,9 +1,10 @@
 """Quality API routes — entity quality scores, tier breakdowns, and recomputation.
 
 Endpoints:
-    GET  /api/quality/scores         — paginated quality scores with optional tier filter
-    GET  /api/quality/score/{entityId} — single entity quality breakdown
-    POST /api/quality/refresh        — trigger full recomputation
+    GET  /api/quality/scores             — paginated quality scores with optional tier filter
+    GET  /api/mdm/quality/scores         — alias (used by Business Portal pages)
+    GET  /api/quality/score/{entityId}   — single entity quality breakdown
+    POST /api/quality/refresh            — trigger full recomputation
 
 Data source: SQLite quality_scores table (populated by quality_engine.py)
 """
@@ -16,10 +17,11 @@ log = logging.getLogger("fmd.routes.quality")
 
 
 # ---------------------------------------------------------------------------
-# GET /api/quality/scores
+# GET /api/quality/scores  +  /api/mdm/quality/scores (alias)
 # ---------------------------------------------------------------------------
 
 @route("GET", "/api/quality/scores")
+@route("GET", "/api/mdm/quality/scores")
 def get_quality_scores(params: dict) -> dict:
     """Return paginated quality scores with an optional tier filter.
 

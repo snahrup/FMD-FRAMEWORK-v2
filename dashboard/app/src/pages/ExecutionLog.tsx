@@ -128,11 +128,11 @@ function formatTimestamp(iso: string | null): string {
 
 function getStatusInfo(status: string | null) {
   const s = (status || '').toLowerCase();
-  if (s === 'succeeded') return { label: 'Succeeded', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', Icon: CheckCircle };
-  if (s === 'failed') return { label: 'Failed', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20', Icon: XCircle };
-  if (s === 'inprogress' || s === 'running') return { label: 'Running', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20', Icon: Loader2 };
-  if (s === 'cancelled' || s === 'canceled') return { label: 'Cancelled', color: 'text-gray-400', bg: 'bg-gray-500/10 border-gray-500/20', Icon: XCircle };
-  if (s === 'queued') return { label: 'Queued', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20', Icon: Clock };
+  if (s === 'succeeded') return { label: 'Succeeded', color: 'text-[var(--bp-operational)]', bg: 'bg-[var(--bp-operational-light)] border-[var(--bp-border)]', Icon: CheckCircle };
+  if (s === 'failed') return { label: 'Failed', color: 'text-[var(--bp-fault)]', bg: 'bg-[var(--bp-fault-light)] border-[var(--bp-border)]', Icon: XCircle };
+  if (s === 'inprogress' || s === 'running') return { label: 'Running', color: 'text-[var(--bp-copper)]', bg: 'bg-[var(--bp-copper-light)] border-[var(--bp-border)]', Icon: Loader2 };
+  if (s === 'cancelled' || s === 'canceled') return { label: 'Cancelled', color: 'text-muted-foreground', bg: 'bg-muted border-border', Icon: XCircle };
+  if (s === 'queued') return { label: 'Queued', color: 'text-[var(--bp-caution)]', bg: 'bg-[var(--bp-caution-light)] border-[var(--bp-border)]', Icon: Clock };
   return { label: status || 'Unknown', color: 'text-muted-foreground', bg: 'bg-muted border-border', Icon: Clock };
 }
 
@@ -274,7 +274,7 @@ export default function ExecutionLog() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center max-w-md">
-          <AlertTriangle className="h-8 w-8 text-amber-500 mx-auto mb-4" />
+          <AlertTriangle className="h-8 w-8 text-[var(--bp-caution)] mx-auto mb-4" />
           <p className="text-foreground font-medium mb-2">Cannot Load Execution Logs</p>
           <p className="text-sm text-muted-foreground mb-4">{error}</p>
           <button onClick={loadData} className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors mx-auto">
@@ -286,11 +286,11 @@ export default function ExecutionLog() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ padding: "32px", maxWidth: "1280px" }}>
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">Execution Log</h1>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>Execution Log</h1>
           <p className="text-muted-foreground mt-1">Pipeline, copy, and notebook execution history</p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
@@ -300,7 +300,7 @@ export default function ExecutionLog() {
               onClick={() => setViewMode('business')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                 viewMode === 'business'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -311,7 +311,7 @@ export default function ExecutionLog() {
               onClick={() => setViewMode('technical')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                 viewMode === 'technical'
-                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -342,7 +342,7 @@ export default function ExecutionLog() {
               onClick={() => { setActiveTab(tab.key); setExpandedRow(null); }}
               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md transition-colors ${
                 activeTab === tab.key
-                  ? 'bg-card text-foreground shadow-sm border border-border'
+                  ? 'bg-card text-foreground border border-border'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -358,19 +358,19 @@ export default function ExecutionLog() {
         {/* Quick stats */}
         <div className="flex items-center gap-4 text-xs">
           <span className="flex items-center gap-1.5">
-            <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
-            <span className="text-emerald-400 font-medium">{stats.succeeded}</span>
+            <CheckCircle className="h-3.5 w-3.5 text-[var(--bp-operational)]" />
+            <span className="text-[var(--bp-operational)] font-medium">{stats.succeeded}</span>
             <span className="text-muted-foreground">succeeded</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <XCircle className="h-3.5 w-3.5 text-red-400" />
-            <span className="text-red-400 font-medium">{stats.failed}</span>
+            <XCircle className="h-3.5 w-3.5 text-[var(--bp-fault)]" />
+            <span className="text-[var(--bp-fault)] font-medium">{stats.failed}</span>
             <span className="text-muted-foreground">failed</span>
           </span>
           {stats.running > 0 && (
             <span className="flex items-center gap-1.5">
-              <Loader2 className="h-3.5 w-3.5 text-blue-400 animate-spin" />
-              <span className="text-blue-400 font-medium">{stats.running}</span>
+              <Loader2 className="h-3.5 w-3.5 text-[var(--bp-copper)] animate-spin" />
+              <span className="text-[var(--bp-copper)] font-medium">{stats.running}</span>
               <span className="text-muted-foreground">running</span>
             </span>
           )}
@@ -416,7 +416,7 @@ export default function ExecutionLog() {
 
       {/* Content */}
       {currentData.length === 0 ? (
-        <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 rounded-xl border border-slate-200/50 dark:border-slate-800/30 p-12 text-center shadow-sm">
+        <div className="rounded-xl border border-border p-12 text-center" style={{ background: "var(--bp-surface-1)" }}>
           <Clock className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
           <p className="text-foreground font-medium mb-1">No Execution Logs</p>
           <p className="text-sm text-muted-foreground">
@@ -439,7 +439,7 @@ export default function ExecutionLog() {
               <div key={key} className={`rounded-xl border ${statusInfo.bg} overflow-hidden transition-all`}>
                 <button
                   onClick={() => setExpandedRow(isExpanded ? null : key)}
-                  className="w-full flex items-center gap-4 p-4 text-left hover:bg-white/[0.02] transition-colors"
+                  className="w-full flex items-center gap-4 p-4 text-left hover:bg-muted/30 transition-colors"
                 >
                   <StatusIcon className={`h-5 w-5 shrink-0 ${statusInfo.color} ${isRunning ? 'animate-spin' : ''}`} />
                   <div className="flex-1 min-w-0">
@@ -461,7 +461,7 @@ export default function ExecutionLog() {
                 </button>
 
                 {isExpanded && (
-                  <div className="border-t border-border/30 bg-black/10 p-4">
+                  <div className="border-t p-4" style={{ borderColor: "rgba(0,0,0,0.04)", background: "var(--bp-surface-inset)" }}>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                       {Object.entries(run).map(([col, val]) => (
                         <div key={col}>
@@ -478,7 +478,7 @@ export default function ExecutionLog() {
         </div>
       ) : (
         /* ━━━ TECHNICAL VIEW ━━━ */
-        <div className="bg-gradient-to-br from-slate-50/50 to-slate-100/30 dark:from-slate-950/10 dark:to-slate-900/5 rounded-xl border border-slate-200/50 dark:border-slate-800/30 overflow-hidden shadow-sm">
+        <div className="rounded-xl border border-border overflow-hidden" style={{ background: "var(--bp-surface-1)" }}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -509,7 +509,7 @@ export default function ExecutionLog() {
                         <StatusIcon className={`h-4 w-4 ${statusInfo.color} ${isRunning ? 'animate-spin' : ''}`} />
                       </td>
                       {columns.map(col => (
-                        <td key={col} className="py-2.5 px-3 font-mono text-xs text-foreground whitespace-nowrap max-w-[200px] truncate">
+                        <td key={col} className="py-2.5 px-3 text-xs whitespace-nowrap max-w-[200px] truncate" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: "'tnum'", color: "#1C1917" }}>
                           {(col === 'Status' || col === 'LogType') ? (
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusInfo.bg} ${statusInfo.color}`}>
                               {run[col] || '—'}

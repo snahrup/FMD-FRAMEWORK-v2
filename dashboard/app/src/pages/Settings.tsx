@@ -49,8 +49,8 @@ interface LabFeature {
   key: keyof LabsFlags;
   label: string;
   description: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: string;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+  colorVar: string;
 }
 
 const LAB_FEATURES: LabFeature[] = [
@@ -60,7 +60,7 @@ const LAB_FEATURES: LabFeature[] = [
     description:
       "View and manage the JSON cleansing rules applied during Bronze → Silver transformation. Build rules visually instead of writing SQL inserts.",
     icon: Sparkles,
-    color: "text-violet-500",
+    colorVar: "var(--bp-copper)",
   },
   {
     key: "scdAuditView",
@@ -68,7 +68,7 @@ const LAB_FEATURES: LabFeature[] = [
     description:
       "Track inserts, updates, and deletes per Silver table per pipeline run. Surfaces the SCD Type 2 change tracking that the framework already logs.",
     icon: ClipboardCheck,
-    color: "text-emerald-500",
+    colorVar: "var(--bp-operational)",
   },
   {
     key: "goldMlvManager",
@@ -76,7 +76,7 @@ const LAB_FEATURES: LabFeature[] = [
     description:
       "View which Materialized Lakehouse Views exist in the Gold layer, what Silver tables they reference, and their current state.",
     icon: Layers3,
-    color: "text-amber-500",
+    colorVar: "var(--bp-caution)",
   },
   {
     key: "dqScorecard",
@@ -84,7 +84,7 @@ const LAB_FEATURES: LabFeature[] = [
     description:
       "Data quality metrics per table — null rates, duplicate counts, cleansing rule pass/fail rates. Surfaces checks already run by the DQ cleansing notebook.",
     icon: ShieldCheck,
-    color: "text-sky-500",
+    colorVar: "var(--bp-ink-secondary)",
   },
 ];
 
@@ -191,7 +191,6 @@ function DeployWizard() {
     if (step === "config") {
       setFabricLoading(true);
 
-      // Fetch existing config, live workspaces, connections, and security groups in parallel
       Promise.all([
         fetchJson<{
           itemConfig: { workspaces?: Record<string, string>; connections?: Record<string, string> };
@@ -247,7 +246,6 @@ function DeployWizard() {
     if (nextPhase && elapsed >= nextPhase.after) {
       setLogMessages((prev) => [...prev, nextPhase.msg]);
       phasesEmitted.current += 1;
-      // Auto-scroll log
       setTimeout(() => logEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     }
   }, [elapsed, step]);
@@ -291,7 +289,6 @@ function DeployWizard() {
       poll();
       pollRef.current = setInterval(poll, 5000);
     }, 5000);
-    // Store the timeout so stopPolling can clear it if called before the first poll
     pollRef.current = delayId as unknown as ReturnType<typeof setInterval>;
   }, [stopPolling]);
 
@@ -303,7 +300,6 @@ function DeployWizard() {
     phasesEmitted.current = 0;
 
     try {
-      // Step 1: Save config values
       setLogMessages(["Saving configuration values..."]);
       const cfgRes1 = await postJson<{ error?: string }>("/notebook-config/update", {
         target: "item_config",
@@ -321,7 +317,6 @@ function DeployWizard() {
       if (cfgRes2.error) throw new Error(cfgRes2.error);
       setLogMessages((prev) => [...prev, "Configuration saved."]);
 
-      // Step 2: Wipe old workspaces + trigger notebook
       setLogMessages((prev) => [...prev, "Deleting old workspaces and triggering setup notebook..."]);
       const res = await postJson<{
         success?: boolean;
@@ -331,7 +326,6 @@ function DeployWizard() {
         deleteLog?: string[];
       }>("/deploy/wipe-and-trigger", {});
 
-      // Show the delete log entries
       if (res.deleteLog) {
         setLogMessages((prev) => [...prev, ...(res.deleteLog ?? [])]);
       }
@@ -347,7 +341,6 @@ function DeployWizard() {
         `Setup notebook triggered (${res.notebookId?.slice(0, 8)}...)`,
         "Polling for notebook job status...",
       ]);
-      // Set phasesEmitted past the first 2 phases (we already logged them manually)
       phasesEmitted.current = 2;
 
       setNotebookInfo({ workspaceId: res.workspaceId!, notebookId: res.notebookId! });
@@ -379,14 +372,14 @@ function DeployWizard() {
   if (step === "idle") {
     return (
       <div className="space-y-4">
-        <p className="text-sm text-muted-foreground leading-relaxed">
+        <p className="text-sm leading-relaxed" style={{ color: 'var(--bp-ink-secondary)', fontFamily: 'var(--bp-font-body)' }}>
           Run the setup notebook to deploy or redeploy the entire FMD framework to Microsoft Fabric.
           This creates workspaces, lakehouses, pipelines, connections, variable libraries, and the
           metadata database.
         </p>
         <button
           onClick={() => setStep("config")}
-          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+          className="bp-btn-primary flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors"
         >
           <Rocket className="h-4 w-4" />
           Start Deployment
@@ -400,19 +393,18 @@ function DeployWizard() {
   if (step === "config") {
     const selectedWsName = fabricWorkspaces.find((w) => w.id === fields.workspace_config)?.displayName;
     const selectedConnName = fabricConnections.find((c) => c.id === fields.con_fmd_fabric_sql)?.displayName;
-    // Filter to only FabricSql connections for the SQL dropdown
     const sqlConnections = fabricConnections.filter(
       (c) => c.type === 'FabricSql' || (c.displayName ?? '').startsWith('CON_FMD')
     );
 
     return (
       <div className="space-y-5">
-        <p className="text-sm text-muted-foreground leading-relaxed">
+        <p className="text-sm leading-relaxed" style={{ color: 'var(--bp-ink-secondary)', fontFamily: 'var(--bp-font-body)' }}>
           Select your Fabric resources below. {fabricLoading ? "Loading live data from Fabric..." : "Dropdowns are populated from your live Fabric environment."}
         </p>
 
         {fabricLoading && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--bp-ink-tertiary)' }}>
             <Loader2 className="h-4 w-4 animate-spin" />
             Connecting to Fabric and loading workspaces &amp; connections...
           </div>
@@ -421,19 +413,20 @@ function DeployWizard() {
         <div className="space-y-5">
           {/* Config Workspace — dropdown */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-foreground flex items-center gap-2">
-              Config Workspace <span className="text-red-500 text-xs">*</span>
+            <label className="text-sm font-medium flex items-center gap-2" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>
+              Config Workspace <span className="text-xs" style={{ color: 'var(--bp-fault)' }}>*</span>
               {prefilledFrom.includes("workspace_config") && (
-                <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-500 bg-emerald-500/10 rounded px-1.5 py-0.5">
+                <span className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5" style={{ color: 'var(--bp-operational)', background: 'var(--bp-operational-light)' }}>
                   Pre-filled
                 </span>
               )}
             </label>
-            <p className="text-xs text-muted-foreground">The workspace that holds NB_SETUP_FMD. This workspace survives the wipe.</p>
+            <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>The workspace that holds NB_SETUP_FMD. This workspace survives the wipe.</p>
             <select
               value={fields.workspace_config || ""}
               onChange={(e) => setFields({ ...fields, workspace_config: e.target.value })}
-              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+              className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2"
+              style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
             >
               <option value="">Select a workspace...</option>
               {fabricWorkspaces.map((ws) => (
@@ -443,29 +436,30 @@ function DeployWizard() {
               ))}
             </select>
             {selectedWsName && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+              <p className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--bp-operational)' }}>
                 <CheckCircle2 className="h-3 w-3" />
                 {selectedWsName}
-                <span className="text-muted-foreground/50 font-mono ml-1">({fields.workspace_config})</span>
+                <span className="ml-1" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-mono)' }}>({fields.workspace_config})</span>
               </p>
             )}
           </div>
 
           {/* Fabric SQL Connection — dropdown */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-foreground flex items-center gap-2">
-              Fabric SQL Connection <span className="text-red-500 text-xs">*</span>
+            <label className="text-sm font-medium flex items-center gap-2" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>
+              Fabric SQL Connection <span className="text-xs" style={{ color: 'var(--bp-fault)' }}>*</span>
               {prefilledFrom.includes("con_fmd_fabric_sql") && (
-                <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-500 bg-emerald-500/10 rounded px-1.5 py-0.5">
+                <span className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5" style={{ color: 'var(--bp-operational)', background: 'var(--bp-operational-light)' }}>
                   Pre-filled
                 </span>
               )}
             </label>
-            <p className="text-xs text-muted-foreground">The CON_FMD_FABRIC_SQL connection. Must be created manually in Fabric first.</p>
+            <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>The CON_FMD_FABRIC_SQL connection. Must be created manually in Fabric first.</p>
             <select
               value={fields.con_fmd_fabric_sql || ""}
               onChange={(e) => setFields({ ...fields, con_fmd_fabric_sql: e.target.value })}
-              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+              className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2"
+              style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
             >
               <option value="">Select a connection...</option>
               {sqlConnections.map((c) => (
@@ -473,7 +467,6 @@ function DeployWizard() {
                   {c.displayName} ({c.type})
                 </option>
               ))}
-              {/* If the pre-filled value isn't in the filtered list, show all connections */}
               {fields.con_fmd_fabric_sql && !sqlConnections.find((c) => c.id === fields.con_fmd_fabric_sql) && (
                 <option value={fields.con_fmd_fabric_sql}>
                   {fabricConnections.find((c) => c.id === fields.con_fmd_fabric_sql)?.displayName || fields.con_fmd_fabric_sql}
@@ -481,24 +474,25 @@ function DeployWizard() {
               )}
             </select>
             {selectedConnName && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+              <p className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--bp-operational)' }}>
                 <CheckCircle2 className="h-3 w-3" />
                 {selectedConnName}
-                <span className="text-muted-foreground/50 font-mono ml-1">({fields.con_fmd_fabric_sql})</span>
+                <span className="ml-1" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-mono)' }}>({fields.con_fmd_fabric_sql})</span>
               </p>
             )}
           </div>
 
           {/* Lakehouse Schemas — simple toggle-style select */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-foreground flex items-center gap-2">
-              Enable Lakehouse Schemas <span className="text-red-500 text-xs">*</span>
+            <label className="text-sm font-medium flex items-center gap-2" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>
+              Enable Lakehouse Schemas <span className="text-xs" style={{ color: 'var(--bp-fault)' }}>*</span>
             </label>
-            <p className="text-xs text-muted-foreground">Create lakehouses with schema support enabled.</p>
+            <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>Create lakehouses with schema support enabled.</p>
             <select
               value={fields.lakehouse_schema_enabled || "true"}
               onChange={(e) => setFields({ ...fields, lakehouse_schema_enabled: e.target.value })}
-              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+              className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2"
+              style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
             >
               <option value="true">Yes (recommended)</option>
               <option value="false">No</option>
@@ -507,21 +501,21 @@ function DeployWizard() {
 
           {/* Workspace & Connection Roles — multi-select chip style */}
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-foreground">
+            <label className="text-sm font-medium" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>
               Workspace &amp; Connection Roles
             </label>
-            <p className="text-xs text-muted-foreground">Principals auto-assigned to all created workspaces and connections.</p>
-            <div className="flex flex-wrap gap-2 rounded-lg border border-border bg-background px-3 py-2.5 min-h-[38px]">
-              <span className="inline-flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 rounded-full pl-2.5 pr-2 py-1 text-xs font-medium">
+            <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>Principals auto-assigned to all created workspaces and connections.</p>
+            <div className="flex flex-wrap gap-2 rounded-lg px-3 py-2.5 min-h-[38px]" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-inset)' }}>
+              <span className="inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-2 py-1 text-xs font-medium" style={{ background: 'var(--bp-copper-light)', border: '1px solid var(--bp-copper)', color: 'var(--bp-ink-primary)' }}>
                 Fabric-PowerBI-API
-                <span className="text-[9px] text-blue-500/70 font-normal">Contributor</span>
+                <span className="text-[9px] font-normal" style={{ color: 'var(--bp-ink-muted)' }}>Contributor</span>
               </span>
-              <span className="inline-flex items-center gap-1.5 bg-violet-500/10 border border-violet-500/20 text-violet-700 dark:text-violet-300 rounded-full pl-2.5 pr-2 py-1 text-xs font-medium">
+              <span className="inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-2 py-1 text-xs font-medium" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border-strong)', color: 'var(--bp-ink-primary)' }}>
                 FabricAdmins
-                <span className="text-[9px] text-violet-500/70 font-normal">Admin</span>
+                <span className="text-[9px] font-normal" style={{ color: 'var(--bp-ink-muted)' }}>Admin</span>
               </span>
             </div>
-            <p className="text-[10px] text-muted-foreground/60">
+            <p className="text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>
               Configured in the setup notebook. To change, edit NB_SETUP_FMD &rarr; Workspace Roles Configuration.
             </p>
           </div>
@@ -533,7 +527,6 @@ function DeployWizard() {
               setPreflightLoading(true);
               setPreflight(null);
               try {
-                // Save config first so preflight reads fresh values
                 const r1 = await postJson<{ error?: string }>("/notebook-config/update", {
                   target: "item_config", section: "workspaces",
                   key: "workspace_config", newValue: fields.workspace_config,
@@ -557,9 +550,10 @@ function DeployWizard() {
             disabled={!allRequiredFilled || preflightLoading || fabricLoading}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
               allRequiredFilled && !preflightLoading && !fabricLoading
-                ? "bg-blue-600 hover:bg-blue-700 text-white"
-                : "bg-muted text-muted-foreground cursor-not-allowed"
+                ? "bp-btn-primary"
+                : ""
             }`}
+            style={!(allRequiredFilled && !preflightLoading && !fabricLoading) ? { background: 'var(--bp-surface-inset)', color: 'var(--bp-ink-muted)', cursor: 'not-allowed' } : undefined}
           >
             {preflightLoading ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Scanning Fabric...</>
@@ -569,7 +563,8 @@ function DeployWizard() {
           </button>
           <button
             onClick={reset}
-            className="px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="px-4 py-2.5 text-sm transition-colors"
+            style={{ color: 'var(--bp-ink-tertiary)' }}
           >
             Cancel
           </button>
@@ -582,49 +577,49 @@ function DeployWizard() {
   if (step === "preflight" && preflight) {
     return (
       <div className="space-y-5">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm" style={{ color: 'var(--bp-ink-secondary)' }}>
           Scanned your Fabric environment. Here's what was found:
         </p>
 
         {/* Workspaces */}
         <div className="space-y-2">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Workspaces</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-ink-tertiary)' }}>Workspaces</h3>
           <div className="space-y-1">
             {preflight.workspaces.map((ws) => (
-              <div key={ws.label} className="flex items-center gap-3 text-sm px-3 py-2.5 rounded-lg bg-muted/50">
+              <div key={ws.label} className="flex items-center gap-3 text-sm px-3 py-2.5 rounded-lg" style={{ background: 'var(--bp-surface-inset)' }}>
                 {ws.exists ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--bp-operational)' }} />
                 ) : (
-                  <XCircle className="h-4 w-4 text-zinc-400 flex-shrink-0" />
+                  <XCircle className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--bp-ink-muted)' }} />
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-foreground font-medium">
+                    <span className="font-medium" style={{ color: 'var(--bp-ink-primary)' }}>
                       {ws.displayName || ws.label}
                     </span>
                     {ws.displayName && ws.displayName !== ws.label && (
-                      <span className="text-[10px] text-muted-foreground">({ws.label})</span>
+                      <span className="text-[10px]" style={{ color: 'var(--bp-ink-tertiary)' }}>({ws.label})</span>
                     )}
                   </div>
-                  <span className="text-[10px] font-mono text-muted-foreground/60 block">{ws.id || "—"}</span>
+                  <span className="text-[10px] block" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-muted)' }}>{ws.id || "\u2014"}</span>
                 </div>
                 {ws.exists && ws.willDelete && (
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-red-500 bg-red-500/10 rounded px-1.5 py-0.5 flex-shrink-0">
+                  <span className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 flex-shrink-0" style={{ color: 'var(--bp-fault)', background: 'var(--bp-fault-light)' }}>
                     Will be deleted
                   </span>
                 )}
                 {ws.exists && !ws.willDelete && (
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-500 bg-emerald-500/10 rounded px-1.5 py-0.5 flex-shrink-0">
+                  <span className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 flex-shrink-0" style={{ color: 'var(--bp-operational)', background: 'var(--bp-operational-light)' }}>
                     Kept
                   </span>
                 )}
                 {!ws.exists && ws.willDelete && (
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-blue-500 bg-blue-500/10 rounded px-1.5 py-0.5 flex-shrink-0">
+                  <span className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 flex-shrink-0" style={{ color: 'var(--bp-copper)', background: 'var(--bp-copper-light)' }}>
                     Will be created
                   </span>
                 )}
                 {!ws.exists && !ws.willDelete && (
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-red-500 bg-red-500/10 rounded px-1.5 py-0.5 flex-shrink-0">
+                  <span className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 flex-shrink-0" style={{ color: 'var(--bp-fault)', background: 'var(--bp-fault-light)' }}>
                     Not found
                   </span>
                 )}
@@ -635,31 +630,31 @@ function DeployWizard() {
 
         {/* Connections */}
         <div className="space-y-2">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Connections</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-ink-tertiary)' }}>Connections</h3>
           <div className="space-y-1">
             {preflight.connections.map((conn) => (
-              <div key={conn.label} className="flex items-center gap-3 text-sm px-3 py-2.5 rounded-lg bg-muted/50">
+              <div key={conn.label} className="flex items-center gap-3 text-sm px-3 py-2.5 rounded-lg" style={{ background: 'var(--bp-surface-inset)' }}>
                 {conn.exists ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--bp-operational)' }} />
                 ) : (
-                  <XCircle className="h-4 w-4 text-zinc-400 flex-shrink-0" />
+                  <XCircle className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--bp-ink-muted)' }} />
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-foreground font-medium">
+                    <span className="font-medium" style={{ color: 'var(--bp-ink-primary)' }}>
                       {conn.displayName || conn.label}
                     </span>
                     {conn.displayName && conn.displayName !== conn.label && (
-                      <span className="text-[10px] text-muted-foreground">({conn.label})</span>
+                      <span className="text-[10px]" style={{ color: 'var(--bp-ink-tertiary)' }}>({conn.label})</span>
                     )}
                   </div>
-                  <span className="text-[10px] font-mono text-muted-foreground/60 block">{conn.id || "—"}</span>
+                  <span className="text-[10px] block" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-muted)' }}>{conn.id || "\u2014"}</span>
                 </div>
-                <span className={`text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 flex-shrink-0 ${
+                <span className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 flex-shrink-0" style={
                   conn.exists
-                    ? "text-emerald-500 bg-emerald-500/10"
-                    : "text-amber-500 bg-amber-500/10"
-                }`}>
+                    ? { color: 'var(--bp-operational)', background: 'var(--bp-operational-light)' }
+                    : { color: 'var(--bp-caution)', background: 'var(--bp-caution-light)' }
+                }>
                   {conn.exists ? "Found" : "Missing"}
                 </span>
               </div>
@@ -669,32 +664,32 @@ function DeployWizard() {
 
         {/* Setup Notebook */}
         <div className="space-y-2">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Setup Notebook</h3>
-          <div className="flex items-center gap-3 text-sm px-3 py-2.5 rounded-lg bg-muted/50">
+          <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-ink-tertiary)' }}>Setup Notebook</h3>
+          <div className="flex items-center gap-3 text-sm px-3 py-2.5 rounded-lg" style={{ background: 'var(--bp-surface-inset)' }}>
             {preflight.notebook?.exists ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--bp-operational)' }} />
             ) : (
-              <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+              <XCircle className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--bp-fault)' }} />
             )}
             <div className="flex-1 min-w-0">
-              <span className="text-foreground font-medium">{preflight.notebook?.name ?? "NB_SETUP_FMD"}</span>
+              <span className="font-medium" style={{ color: 'var(--bp-ink-primary)' }}>{preflight.notebook?.name ?? "NB_SETUP_FMD"}</span>
               {preflight.notebook?.id && (
-                <span className="text-[10px] font-mono text-muted-foreground/60 block">{preflight.notebook.id}</span>
+                <span className="text-[10px] block" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-muted)' }}>{preflight.notebook.id}</span>
               )}
             </div>
-            <span className={`text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 flex-shrink-0 ${
+            <span className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5 flex-shrink-0" style={
               preflight.notebook?.exists
-                ? "text-emerald-500 bg-emerald-500/10"
-                : "text-red-500 bg-red-500/10"
-            }`}>
+                ? { color: 'var(--bp-operational)', background: 'var(--bp-operational-light)' }
+                : { color: 'var(--bp-fault)', background: 'var(--bp-fault-light)' }
+            }>
               {preflight.notebook?.exists ? "Ready" : "Not found"}
             </span>
           </div>
         </div>
 
         {!preflight.ready && (
-          <div className="bg-red-50 dark:bg-red-950/60 border border-red-300 dark:border-red-500/40 rounded-lg p-3">
-            <p className="text-xs text-red-700 dark:text-red-400">
+          <div className="rounded-lg p-3" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
+            <p className="text-xs" style={{ color: 'var(--bp-fault)' }}>
               The setup notebook was not found in the Config workspace. Deploy it to the Config
               workspace before running the deployment wizard.
             </p>
@@ -706,17 +701,17 @@ function DeployWizard() {
             onClick={() => setStep("confirm")}
             disabled={!preflight.ready}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              preflight.ready
-                ? "bg-blue-600 hover:bg-blue-700 text-white"
-                : "bg-muted text-muted-foreground cursor-not-allowed"
+              preflight.ready ? "bp-btn-primary" : ""
             }`}
+            style={!preflight.ready ? { background: 'var(--bp-surface-inset)', color: 'var(--bp-ink-muted)', cursor: 'not-allowed' } : undefined}
           >
             Continue to Deploy
             <ArrowRight className="h-4 w-4" />
           </button>
           <button
             onClick={() => setStep("config")}
-            className="px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="px-4 py-2.5 text-sm transition-colors"
+            style={{ color: 'var(--bp-ink-tertiary)' }}
           >
             Back
           </button>
@@ -729,14 +724,14 @@ function DeployWizard() {
   if (step === "confirm") {
     return (
       <div className="space-y-4">
-        <div className="bg-red-50 dark:bg-red-950/60 border border-red-300 dark:border-red-500/40 rounded-xl p-5 space-y-3">
+        <div className="rounded-xl p-5 space-y-3" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
-            <span className="text-sm font-semibold text-red-700 dark:text-red-300">
+            <AlertTriangle className="h-5 w-5" style={{ color: 'var(--bp-fault)' }} />
+            <span className="text-sm font-semibold" style={{ color: 'var(--bp-fault)' }}>
               This will deploy the entire FMD framework
             </span>
           </div>
-          <div className="text-sm text-red-700 dark:text-red-400 space-y-2">
+          <div className="text-sm space-y-2" style={{ color: 'var(--bp-ink-secondary)' }}>
             <p>The setup notebook will:</p>
             <ul className="list-disc pl-5 space-y-1 text-xs">
               <li>Create or update DEV and PROD workspaces</li>
@@ -748,54 +743,56 @@ function DeployWizard() {
             </ul>
             <p className="text-xs mt-2">
               Existing items with matching names will be overwritten.
-              This typically takes <strong>5–15 minutes</strong>.
+              This typically takes <strong>5-15 minutes</strong>.
             </p>
           </div>
 
-          <div className="bg-red-100 dark:bg-red-900/40 rounded-lg p-3 space-y-1">
-            <p className="text-xs font-semibold text-red-700 dark:text-red-300">What happens when you click Deploy:</p>
-            <ul className="text-xs text-red-600 dark:text-red-400 space-y-0.5">
-              <li>• Old DEV and PROD workspaces will be <strong>automatically deleted</strong></li>
-              <li>• The CONFIG workspace is preserved (it holds the setup notebook)</li>
-              <li>• The setup notebook will recreate everything from scratch</li>
+          <div className="rounded-lg p-3 space-y-1" style={{ background: 'rgba(185, 58, 42, 0.08)' }}>
+            <p className="text-xs font-semibold" style={{ color: 'var(--bp-fault)' }}>What happens when you click Deploy:</p>
+            <ul className="text-xs space-y-0.5" style={{ color: 'var(--bp-ink-secondary)' }}>
+              <li>Old DEV and PROD workspaces will be <strong>automatically deleted</strong></li>
+              <li>The CONFIG workspace is preserved (it holds the setup notebook)</li>
+              <li>The setup notebook will recreate everything from scratch</li>
             </ul>
           </div>
         </div>
 
-        <div className="bg-muted/50 rounded-lg p-3 text-xs space-y-1.5 text-muted-foreground">
+        <div className="rounded-lg p-3 text-xs space-y-1.5" style={{ background: 'var(--bp-surface-inset)', color: 'var(--bp-ink-tertiary)' }}>
           <div className="flex items-center gap-2">
             <span>Config Workspace:</span>
-            <span className="text-foreground font-medium">
+            <span className="font-medium" style={{ color: 'var(--bp-ink-primary)' }}>
               {fabricWorkspaces.find((w) => w.id === fields.workspace_config)?.displayName || fields.workspace_config}
             </span>
           </div>
           <div className="flex items-center gap-2">
             <span>SQL Connection:</span>
-            <span className="text-foreground font-medium">
+            <span className="font-medium" style={{ color: 'var(--bp-ink-primary)' }}>
               {fabricConnections.find((c) => c.id === fields.con_fmd_fabric_sql)?.displayName || fields.con_fmd_fabric_sql}
             </span>
           </div>
           <div className="flex items-center gap-2">
             <span>Lakehouse Schemas:</span>
-            <span className="text-foreground font-medium">{fields.lakehouse_schema_enabled === "true" ? "Enabled" : "Disabled"}</span>
+            <span className="font-medium" style={{ color: 'var(--bp-ink-primary)' }}>{fields.lakehouse_schema_enabled === "true" ? "Enabled" : "Disabled"}</span>
           </div>
           <div className="flex items-center gap-2">
             <span>Roles:</span>
-            <span className="text-foreground font-medium">Fabric-PowerBI-API (Contributor) + FabricAdmins (Admin)</span>
+            <span className="font-medium" style={{ color: 'var(--bp-ink-primary)' }}>Fabric-PowerBI-API (Contributor) + FabricAdmins (Admin)</span>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
           <button
             onClick={handleDeploy}
-            className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors"
+            style={{ background: 'var(--bp-fault)', color: '#fff' }}
           >
             <Rocket className="h-4 w-4" />
             Deploy Now
           </button>
           <button
             onClick={() => setStep("preflight")}
-            className="px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="px-4 py-2.5 text-sm transition-colors"
+            style={{ color: 'var(--bp-ink-tertiary)' }}
           >
             Back
           </button>
@@ -808,19 +805,19 @@ function DeployWizard() {
   if (step === "running") {
     return (
       <div className="space-y-4">
-        <div className="bg-blue-50 dark:bg-blue-950 border border-blue-300 dark:border-blue-500/30 rounded-xl p-5">
+        <div className="rounded-xl p-5" style={{ background: 'var(--bp-copper-light)', border: '1px solid var(--bp-copper)' }}>
           <div className="flex items-center gap-3">
-            <Loader2 className="h-5 w-5 text-blue-600 dark:text-blue-400 animate-spin flex-shrink-0" />
+            <Loader2 className="h-5 w-5 animate-spin flex-shrink-0" style={{ color: 'var(--bp-copper)' }} />
             <div className="flex-1">
-              <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+              <p className="text-sm font-medium" style={{ color: 'var(--bp-ink-primary)' }}>
                 Framework deployment in progress...
               </p>
               <div className="flex items-center gap-4 mt-1">
-                <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                <span className="text-xs flex items-center gap-1" style={{ color: 'var(--bp-copper)', fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>
                   <Clock className="h-3 w-3" /> {formatElapsed(elapsed)}
                 </span>
                 {jobStatus && (
-                  <span className="text-xs text-blue-600 dark:text-blue-400 font-mono">
+                  <span className="text-xs" style={{ color: 'var(--bp-copper)', fontFamily: 'var(--bp-font-mono)' }}>
                     Fabric: {jobStatus.status}
                   </span>
                 )}
@@ -829,25 +826,24 @@ function DeployWizard() {
           </div>
         </div>
 
-        {/* Activity log */}
-        <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden">
-          <div className="px-4 py-2 border-b border-zinc-800 flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-medium text-zinc-400">Deployment Log</span>
+        {/* Activity log — terminal keeps dark bg per spec */}
+        <div className="rounded-xl overflow-hidden" style={{ background: '#0d1117', border: '1px solid var(--bp-border)' }}>
+          <div className="px-4 py-2 flex items-center gap-2" style={{ borderBottom: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+            <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--bp-operational)' }} />
+            <span className="text-xs font-medium" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>Deployment Log</span>
           </div>
-          <div className="px-4 py-3 max-h-64 overflow-y-auto font-mono text-xs space-y-1.5">
+          <div className="px-4 py-3 max-h-64 overflow-y-auto text-xs space-y-1.5" style={{ fontFamily: 'var(--bp-font-mono)' }}>
             {logMessages.map((msg, i) => (
               <div key={i} className="flex items-start gap-2">
-                <span className="text-zinc-600 flex-shrink-0 select-none">
+                <span className="flex-shrink-0 select-none" style={{ color: 'rgba(255,255,255,0.3)' }}>
                   {DEPLOY_PHASES[i] != null ? formatElapsed(DEPLOY_PHASES[i].after) : '\u00A0\u00A0\u00A0'}
                 </span>
-                <CheckCircle2 className="h-3 w-3 text-emerald-500 flex-shrink-0 mt-0.5" />
-                <span className="text-zinc-300">{msg}</span>
+                <CheckCircle2 className="h-3 w-3 flex-shrink-0 mt-0.5" style={{ color: '#3D7C4F' }} />
+                <span style={{ color: 'rgba(255,255,255,0.8)' }}>{msg}</span>
               </div>
             ))}
-            {/* Current activity indicator */}
             {phasesEmitted.current < DEPLOY_PHASES.length && (
-              <div className="flex items-start gap-2 text-zinc-500">
+              <div className="flex items-start gap-2" style={{ color: 'rgba(255,255,255,0.4)' }}>
                 <span className="flex-shrink-0 select-none">&nbsp;&nbsp;&nbsp;&nbsp;</span>
                 <Loader2 className="h-3 w-3 animate-spin flex-shrink-0 mt-0.5" />
                 <span className="animate-pulse">
@@ -859,7 +855,7 @@ function DeployWizard() {
           </div>
         </div>
 
-        <p className="text-[10px] text-muted-foreground/60">
+        <p className="text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>
           Log messages are estimated based on typical deployment timing.
           The notebook continues running in Fabric regardless of this view.
         </p>
@@ -871,14 +867,14 @@ function DeployWizard() {
   if (step === "done") {
     return (
       <div className="space-y-4">
-        <div className="bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-500/30 rounded-xl p-5">
+        <div className="rounded-xl p-5" style={{ background: 'var(--bp-operational-light)', border: '1px solid var(--bp-operational)' }}>
           <div className="flex items-center gap-3">
-            <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+            <CheckCircle2 className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--bp-operational)' }} />
             <div>
-              <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+              <p className="text-sm font-medium" style={{ color: 'var(--bp-operational)' }}>
                 Framework deployed successfully
               </p>
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
+              <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-secondary)', fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>
                 Completed in {formatElapsed(elapsed)}
                 {jobStatus?.endTime && !isNaN(new Date(jobStatus.endTime).getTime()) && (
                   <> &bull; Finished at {new Date(jobStatus.endTime).toLocaleTimeString()}</>
@@ -886,7 +882,7 @@ function DeployWizard() {
               </p>
             </div>
           </div>
-          <div className="mt-3 text-xs text-emerald-600 dark:text-emerald-400 space-y-1">
+          <div className="mt-3 text-xs space-y-1" style={{ color: 'var(--bp-ink-secondary)' }}>
             <p>Next steps:</p>
             <ul className="list-disc pl-5 space-y-0.5">
               <li>Refresh the dashboard to pick up new workspace/pipeline data</li>
@@ -897,7 +893,8 @@ function DeployWizard() {
         </div>
         <button
           onClick={reset}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-2 px-4 py-2 text-sm transition-colors"
+          style={{ color: 'var(--bp-ink-tertiary)' }}
         >
           <RotateCcw className="h-3.5 w-3.5" />
           Back to Settings
@@ -910,15 +907,15 @@ function DeployWizard() {
   if (step === "failed") {
     return (
       <div className="space-y-4">
-        <div className="bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-500/30 rounded-xl p-5">
+        <div className="rounded-xl p-5" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
           <div className="flex items-center gap-3">
-            <XCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0" />
+            <XCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--bp-fault)' }} />
             <div>
-              <p className="text-sm font-medium text-red-700 dark:text-red-300">
+              <p className="text-sm font-medium" style={{ color: 'var(--bp-fault)' }}>
                 Deployment failed
               </p>
               {error && (
-                <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-mono break-all">
+                <p className="text-xs mt-1 break-all" style={{ color: 'var(--bp-ink-secondary)', fontFamily: 'var(--bp-font-mono)' }}>
                   {error}
                 </p>
               )}
@@ -928,13 +925,15 @@ function DeployWizard() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setStep("confirm")}
-            className="flex items-center gap-2 px-4 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg border border-border text-foreground transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-colors"
+            style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-primary)' }}
           >
             Retry
           </button>
           <button
             onClick={reset}
-            className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="px-4 py-2 text-sm transition-colors"
+            style={{ color: 'var(--bp-ink-tertiary)' }}
           >
             Cancel
           </button>
@@ -976,16 +975,16 @@ export function GeneralTab() {
       {/* ── Notebook Deployment (legacy) ── */}
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <Rocket className="w-5 h-5 text-blue-500" />
+          <Rocket className="w-5 h-5" style={{ color: 'var(--bp-copper)' }} />
           <div>
-            <h2 className="font-display text-base font-semibold">Notebook Deployment</h2>
-            <p className="text-xs text-muted-foreground">
+            <h2 className="text-base font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-display)' }}>Notebook Deployment</h2>
+            <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>
               Deploy via the setup notebook (legacy). For script-based deployment, use the Deployment tab.
             </p>
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-card px-5 py-5">
+        <div className="rounded-lg px-5 py-5" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
           <DeployWizard />
         </div>
       </div>
@@ -993,15 +992,15 @@ export function GeneralTab() {
       {/* ── Labs Section ── */}
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <FlaskConical className="w-5 h-5 text-amber-500" />
+          <FlaskConical className="w-5 h-5" style={{ color: 'var(--bp-caution)' }} />
           <div>
-            <h2 className="font-display text-base font-semibold">Labs</h2>
-            <p className="text-xs text-muted-foreground">
+            <h2 className="text-base font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-display)' }}>Labs</h2>
+            <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>
               Experimental features under active development. Enable them to add new pages to the sidebar.
             </p>
           </div>
           {enabledCount > 0 && (
-            <span className="ml-auto text-[10px] font-semibold text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-0.5">
+            <span className="ml-auto text-[10px] font-semibold rounded-full px-2 py-0.5" style={{ color: 'var(--bp-caution)', background: 'var(--bp-caution-light)', border: '1px solid var(--bp-caution)' }}>
               {enabledCount} enabled
             </span>
           )}
@@ -1013,34 +1012,37 @@ export function GeneralTab() {
             return (
               <div
                 key={feature.key}
-                className={`rounded-lg border bg-card px-5 py-4 transition-all ${
-                  enabled ? "border-primary/30 shadow-sm" : "border-border"
-                }`}
+                className="rounded-lg px-5 py-4 transition-all"
+                style={{
+                  border: enabled ? '1px solid var(--bp-copper)' : '1px solid var(--bp-border)',
+                  background: 'var(--bp-surface-1)',
+                  boxShadow: enabled ? '0 1px 3px rgba(0,0,0,0.04)' : 'none',
+                }}
               >
                 <div className="flex items-start gap-4">
-                  <feature.icon className={`w-5 h-5 mt-0.5 flex-shrink-0 ${feature.color}`} />
+                  <feature.icon className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: feature.colorVar }} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-semibold text-foreground">{feature.label}</h3>
+                      <h3 className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)' }}>{feature.label}</h3>
                       {enabled && (
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-500 bg-emerald-500/10 rounded px-1.5 py-0.5">
+                        <span className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5" style={{ color: 'var(--bp-operational)', background: 'var(--bp-operational-light)' }}>
                           Active
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--bp-ink-tertiary)' }}>
                       {feature.description}
                     </p>
                   </div>
                   <button
                     onClick={() => toggle(feature.key)}
-                    className="flex-shrink-0 cursor-pointer text-foreground/60 hover:text-foreground transition-colors"
+                    className="flex-shrink-0 cursor-pointer transition-colors"
                     title={enabled ? "Disable" : "Enable"}
                   >
                     {enabled ? (
-                      <ToggleRight className="w-8 h-8 text-primary" />
+                      <ToggleRight className="w-8 h-8" style={{ color: 'var(--bp-copper)' }} />
                     ) : (
-                      <ToggleLeft className="w-8 h-8" />
+                      <ToggleLeft className="w-8 h-8" style={{ color: 'var(--bp-ink-muted)' }} />
                     )}
                   </button>
                 </div>
@@ -1049,7 +1051,7 @@ export function GeneralTab() {
           })}
         </div>
 
-        <p className="text-[10px] text-muted-foreground/60 ml-8">
+        <p className="text-[10px] ml-8" style={{ color: 'var(--bp-ink-muted)' }}>
           Changes take effect immediately. Labs features appear under the "Labs" group in the sidebar.
         </p>
       </div>
@@ -1079,12 +1081,12 @@ export default function Settings() {
   }, [activeTab]);
 
   return (
-    <div className="flex gap-6 min-h-0">
+    <div className="flex gap-6 min-h-0" style={{ padding: '32px', maxWidth: '1280px' }}>
       {/* Left sub-nav */}
       <div className="w-44 flex-shrink-0">
         <div className="flex items-center gap-2 mb-4 px-2">
-          <SettingsIcon className="w-4 h-4 text-muted-foreground" />
-          <h1 className="font-display text-sm font-semibold tracking-tight text-muted-foreground">
+          <SettingsIcon className="w-4 h-4" style={{ color: 'var(--bp-ink-tertiary)' }} />
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: '32px', color: '#1C1917', lineHeight: '1.1' }}>
             Settings
           </h1>
         </div>
@@ -1095,11 +1097,11 @@ export default function Settings() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                  isActive
-                    ? 'bg-primary/10 text-primary border border-primary/20'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-card border border-transparent'
-                }`}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                style={isActive
+                  ? { background: 'var(--bp-copper-light)', color: 'var(--bp-copper)', border: '1px solid var(--bp-copper)' }
+                  : { color: 'var(--bp-ink-tertiary)', border: '1px solid transparent' }
+                }
               >
                 <tab.icon className="w-3.5 h-3.5" />
                 {tab.label}

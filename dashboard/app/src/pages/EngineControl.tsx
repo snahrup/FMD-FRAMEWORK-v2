@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronUp, Activity, RefreshCw, Clock, Zap,
   HeartPulse, RotateCcw, Terminal, Timer, Layers,
   Gauge, TrendingUp, AlertTriangle, Search, Filter, Database,
-  FileBarChart, X, ArrowUpDown, Server, Settings, ArrowRight,
+  FileBarChart, X, ArrowUpDown, Server, Settings, ArrowRight, WifiOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveSourceLabel } from "@/hooks/useSourceConfig";
@@ -302,7 +302,7 @@ function ConfigValue({ k, v }: { k: string; v: unknown }) {
   if (friendlyName) {
     return (
       <span
-        className="text-foreground font-mono cursor-pointer hover:text-blue-400 transition-colors"
+        className="text-foreground font-mono cursor-pointer hover:text-[var(--bp-copper)] transition-colors"
         title={`Click to ${showGuid ? "hide" : "show"} GUID`}
         onClick={() => setShowGuid(!showGuid)}
       >
@@ -317,17 +317,17 @@ function ConfigValue({ k, v }: { k: string; v: unknown }) {
   return <span className="text-foreground font-mono">{str || "—"}</span>;
 }
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; pulse: string }> = {
-  idle: { label: "Idle", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20", pulse: "bg-emerald-500" },
-  running: { label: "Running", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20", pulse: "bg-blue-500" },
-  stopping: { label: "Stopping", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20", pulse: "bg-amber-500" },
-  error: { label: "Error", color: "text-red-400", bg: "bg-red-500/10 border-red-500/20", pulse: "bg-red-500" },
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; pulse: string; bgStyle?: React.CSSProperties }> = {
+  idle: { label: "Idle", color: "text-[var(--bp-operational)]", bg: "border", pulse: "bg-[var(--bp-operational)]", bgStyle: { background: "var(--bp-operational-light)", borderColor: "var(--bp-operational)" } },
+  running: { label: "Running", color: "text-[var(--bp-copper)]", bg: "border", pulse: "bg-[var(--bp-copper)]", bgStyle: { background: "var(--bp-copper-light)", borderColor: "var(--bp-copper)" } },
+  stopping: { label: "Stopping", color: "text-[var(--bp-caution)]", bg: "border", pulse: "bg-[var(--bp-caution)]", bgStyle: { background: "var(--bp-caution-light)", borderColor: "var(--bp-caution)" } },
+  error: { label: "Error", color: "text-[var(--bp-fault)]", bg: "border", pulse: "bg-[var(--bp-fault)]", bgStyle: { background: "var(--bp-fault-light)", borderColor: "var(--bp-fault)" } },
 };
 
-const LAYER_COLORS: Record<string, string> = {
-  landing: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
-  bronze: "text-amber-400 bg-amber-500/10 border-amber-500/20",
-  silver: "text-violet-400 bg-violet-500/10 border-violet-500/20",
+const LAYER_COLORS: Record<string, React.CSSProperties> = {
+  landing: { color: "var(--bp-ink-secondary)", background: "var(--bp-surface-2)", borderColor: "var(--bp-border)" },
+  bronze: { color: "var(--bp-caution)", background: "var(--bp-caution-light)", borderColor: "var(--bp-caution)" },
+  silver: { color: "var(--bp-ink-tertiary)", background: "var(--bp-surface-inset)", borderColor: "var(--bp-border-strong)" },
 };
 
 // ── Sub-components ──
@@ -345,9 +345,9 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function LayerBadge({ layer }: { layer: string }) {
-  const cls = LAYER_COLORS[layer.toLowerCase()] || "text-muted-foreground bg-muted border-border";
+  const style = LAYER_COLORS[layer.toLowerCase()] || { color: "var(--bp-ink-muted)", background: "var(--bp-surface-inset)", borderColor: "var(--bp-border)" };
   return (
-    <span className={cn("text-[10px] px-2 py-0.5 rounded border font-mono uppercase", cls)}>
+    <span className="text-[10px] px-2 py-0.5 rounded border uppercase" style={{ fontFamily: "var(--bp-font-mono)", ...style }}>
       {layer}
     </span>
   );
@@ -357,20 +357,20 @@ function EntityStatusBadge({ status }: { status: string }) {
   const s = status.toLowerCase();
   if (s === "succeeded") {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border font-mono bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border" style={{ fontFamily: "var(--bp-font-mono)", background: "var(--bp-operational-light)", color: "var(--bp-operational)", borderColor: "var(--bp-operational)" }}>
         <CheckCircle2 className="h-3 w-3" /> OK
       </span>
     );
   }
   if (s === "failed") {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border font-mono bg-red-500/10 text-red-400 border-red-500/20">
+      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border" style={{ fontFamily: "var(--bp-font-mono)", background: "var(--bp-fault-light)", color: "var(--bp-fault)", borderColor: "var(--bp-fault)" }}>
         <XCircle className="h-3 w-3" /> FAIL
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border font-mono bg-muted text-muted-foreground border-border">
+    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border" style={{ fontFamily: "var(--bp-font-mono)", background: "var(--bp-surface-inset)", color: "var(--bp-ink-muted)", borderColor: "var(--bp-border)" }}>
       <Clock className="h-3 w-3" /> {status}
     </span>
   );
@@ -392,7 +392,7 @@ function ProgressBar({ current, total, label }: { current: number; total: number
         <div
           className={cn(
             "h-full rounded-full transition-all duration-500",
-            pct >= 100 ? "bg-emerald-500" : "bg-blue-500",
+            pct >= 100 ? "bg-[var(--bp-operational)]" : "bg-[var(--bp-copper)]",
           )}
           style={{ width: `${Math.min(pct, 100)}%` }}
         />
@@ -403,20 +403,25 @@ function ProgressBar({ current, total, label }: { current: number; total: number
 
 function LogLine({ entry }: { entry: LogEntry }) {
   const levelColor =
-    entry.level === "ERROR" ? "text-red-400" :
-    entry.level === "WARN" ? "text-amber-400" :
-    entry.level === "INFO" ? "text-blue-400" :
-    "text-muted-foreground";
+    entry.level === "ERROR" ? "#f87171" :
+    entry.level === "WARN" ? "#fbbf24" :
+    entry.level === "INFO" ? "#93c5fd" :
+    "#9ca3af";
+
+  const msgColor =
+    entry.level === "ERROR" ? "#fca5a5" :
+    entry.level === "WARN" ? "#fde68a" :
+    "#e2e8f0";
 
   return (
-    <div className="flex items-start gap-2 py-0.5 font-mono text-xs leading-relaxed">
-      <span className="text-[#8b949e] shrink-0 w-20 text-right">
+    <div className="flex items-start gap-2 py-[3px] font-mono text-[13px] leading-[1.7]">
+      <span className="shrink-0 w-[72px] text-right text-[11px]" style={{ color: "#6b7280" }}>
         {fmtTimeShort(entry.timestamp)}
       </span>
-      <span className={cn("shrink-0 w-12 text-right font-semibold", levelColor)}>
+      <span className="shrink-0 w-[42px] text-right font-semibold text-[11px]" style={{ color: levelColor }}>
         {entry.level}
       </span>
-      <span className="text-[#e6edf3] break-all">{entry.message}</span>
+      <span className="break-words whitespace-pre-wrap" style={{ color: msgColor }}>{entry.message}</span>
     </div>
   );
 }
@@ -566,9 +571,9 @@ function RunSummaryModal({
 
   const runStatus = (run.status || "").toLowerCase();
   const statusColor =
-    runStatus === "completed" || runStatus === "succeeded" ? "text-emerald-400" :
-    runStatus === "failed" ? "text-red-400" :
-    runStatus === "aborted" ? "text-amber-400" : "text-muted-foreground";
+    runStatus === "completed" || runStatus === "succeeded" ? "text-[var(--bp-operational)]" :
+    runStatus === "failed" ? "text-[var(--bp-fault)]" :
+    runStatus === "aborted" ? "text-[var(--bp-caution)]" : "text-muted-foreground";
 
   return (
     <div
@@ -614,16 +619,16 @@ function RunSummaryModal({
                 <div className="text-2xl font-bold font-mono tabular-nums">{totalEntities}</div>
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Total Tasks</div>
               </div>
-              <div className="rounded-lg border bg-emerald-500/5 border-emerald-500/20 p-3 text-center">
-                <div className="text-2xl font-bold font-mono tabular-nums text-emerald-400">{totalSucceeded}</div>
+              <div className="rounded-lg border bg-[var(--bp-operational-light)] border-[var(--bp-operational)] p-3 text-center">
+                <div className="text-2xl font-bold font-mono tabular-nums text-[var(--bp-operational)]">{totalSucceeded}</div>
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">
-                  Succeeded {totalEntities > 0 && <span className="text-emerald-400/60">({(totalSucceeded / totalEntities * 100).toFixed(0)}%)</span>}
+                  Succeeded {totalEntities > 0 && <span className="text-[var(--bp-operational)]">({(totalSucceeded / totalEntities * 100).toFixed(0)}%)</span>}
                 </div>
               </div>
-              <div className="rounded-lg border bg-red-500/5 border-red-500/20 p-3 text-center">
-                <div className="text-2xl font-bold font-mono tabular-nums text-red-400">{totalFailed}</div>
+              <div className="rounded-lg border bg-[var(--bp-fault-light)] border-[var(--bp-fault)] p-3 text-center">
+                <div className="text-2xl font-bold font-mono tabular-nums text-[var(--bp-fault)]">{totalFailed}</div>
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">
-                  Failed {totalEntities > 0 && totalFailed > 0 && <span className="text-red-400/60">({(totalFailed / totalEntities * 100).toFixed(0)}%)</span>}
+                  Failed {totalEntities > 0 && totalFailed > 0 && <span className="text-[var(--bp-fault)]">({(totalFailed / totalEntities * 100).toFixed(0)}%)</span>}
                 </div>
               </div>
               <div className="rounded-lg border bg-muted p-3 text-center">
@@ -643,12 +648,12 @@ function RunSummaryModal({
                     activeTab === tab
                       ? "border-primary text-foreground"
                       : "border-transparent text-muted-foreground hover:text-foreground",
-                    tab === "failures" && totalFailed > 0 && activeTab !== tab && "text-red-400",
+                    tab === "failures" && totalFailed > 0 && activeTab !== tab && "text-[var(--bp-fault)]",
                   )}
                 >
                   {tab}
                   {tab === "failures" && totalFailed > 0 && (
-                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-400 font-mono">
+                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--bp-fault-light)] text-[var(--bp-fault)] font-mono">
                       {totalFailed}
                     </span>
                   )}
@@ -668,8 +673,8 @@ function RunSummaryModal({
                         <tr className="bg-muted">
                           <th className="px-3 py-2 text-left font-medium text-muted-foreground">Source</th>
                           <th className="px-3 py-2 text-right font-medium text-muted-foreground">Entities</th>
-                          <th className="px-3 py-2 text-right font-medium text-emerald-400/60">OK</th>
-                          <th className="px-3 py-2 text-right font-medium text-red-400/60">Fail</th>
+                          <th className="px-3 py-2 text-right font-medium text-[var(--bp-operational)]">OK</th>
+                          <th className="px-3 py-2 text-right font-medium text-[var(--bp-fault)]">Fail</th>
                           <th className="px-3 py-2 text-right font-medium text-muted-foreground">Rows</th>
                           <th className="px-3 py-2 text-right font-medium text-muted-foreground">Duration</th>
                         </tr>
@@ -681,8 +686,8 @@ function RunSummaryModal({
                             <tr key={src} className="hover:bg-muted/50">
                               <td className="px-3 py-1.5 font-medium">{resolveSourceLabel(src)}</td>
                               <td className="px-3 py-1.5 text-right font-mono tabular-nums">{d.count}</td>
-                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-emerald-400">{d.succeeded}</td>
-                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-red-400">{d.failed || ""}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-[var(--bp-operational)]">{d.succeeded}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-[var(--bp-fault)]">{d.failed || ""}</td>
                               <td className="px-3 py-1.5 text-right font-mono tabular-nums">{fmtNum(d.rows)}</td>
                               <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">{fmtDuration(d.duration)}</td>
                             </tr>
@@ -700,8 +705,8 @@ function RunSummaryModal({
                       <thead>
                         <tr className="bg-muted">
                           <th className="px-3 py-2 text-left font-medium text-muted-foreground">Layer</th>
-                          <th className="px-3 py-2 text-right font-medium text-emerald-400/60">OK</th>
-                          <th className="px-3 py-2 text-right font-medium text-red-400/60">Fail</th>
+                          <th className="px-3 py-2 text-right font-medium text-[var(--bp-operational)]">OK</th>
+                          <th className="px-3 py-2 text-right font-medium text-[var(--bp-fault)]">Fail</th>
                           <th className="px-3 py-2 text-right font-medium text-muted-foreground">Skip</th>
                           <th className="px-3 py-2 text-right font-medium text-muted-foreground">Avg Duration</th>
                         </tr>
@@ -715,8 +720,8 @@ function RunSummaryModal({
                               <td className="px-3 py-1.5">
                                 <LayerBadge layer={layer} />
                               </td>
-                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-emerald-400">{d.succeeded}</td>
-                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-red-400">{d.failed || ""}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-[var(--bp-operational)]">{d.succeeded}</td>
+                              <td className="px-3 py-1.5 text-right font-mono tabular-nums text-[var(--bp-fault)]">{d.failed || ""}</td>
                               <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">{d.skipped || ""}</td>
                               <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">{avg > 0 ? `${avg.toFixed(1)}s` : "--"}</td>
                             </tr>
@@ -733,7 +738,7 @@ function RunSummaryModal({
               <div className="space-y-4">
                 {totalFailed === 0 ? (
                   <div className="text-center py-8">
-                    <CheckCircle2 className="h-8 w-8 text-emerald-400/30 mx-auto mb-3" />
+                    <CheckCircle2 className="h-8 w-8 text-[var(--bp-operational)] opacity-30 mx-auto mb-3" />
                     <p className="text-sm text-muted-foreground">No failures in this run</p>
                   </div>
                 ) : (
@@ -747,17 +752,17 @@ function RunSummaryModal({
                           .map(([key, group]) => {
                             const [errType, errMsg] = key.split("::");
                             return (
-                              <div key={key} className="rounded-lg border border-red-500/10 bg-red-500/5 p-3">
+                              <div key={key} className="rounded-lg border border-[var(--bp-fault)] bg-[var(--bp-fault-light)] p-3">
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 mb-1">
-                                      <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-mono">
+                                      <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--bp-fault-light)] text-[var(--bp-fault)] border border-[var(--bp-fault)] font-mono">
                                         {errType}
                                       </span>
-                                      <span className="text-xs font-mono text-red-300/80 truncate">{errMsg}</span>
+                                      <span className="text-xs font-mono text-[var(--bp-fault)] truncate">{errMsg}</span>
                                     </div>
                                     {group.suggestion && (
-                                      <p className="text-xs text-amber-300/80 mt-1">
+                                      <p className="text-xs text-[var(--bp-caution)] mt-1">
                                         <AlertTriangle className="h-3 w-3 inline mr-1" />
                                         {group.suggestion}
                                       </p>
@@ -766,7 +771,7 @@ function RunSummaryModal({
                                       {group.entities.join(", ")}{group.count > 10 ? ` (+${group.count - 10} more)` : ""}
                                     </p>
                                   </div>
-                                  <span className="text-lg font-bold font-mono text-red-400 shrink-0">{group.count}</span>
+                                  <span className="text-lg font-bold font-mono text-[var(--bp-fault)] shrink-0">{group.count}</span>
                                 </div>
                               </div>
                             );
@@ -800,7 +805,7 @@ function RunSummaryModal({
                                     </td>
                                     <td className="px-3 py-1.5 text-muted-foreground">{resolveSourceLabel(t.DataSourceName) || "--"}</td>
                                     <td className="px-3 py-1.5"><LayerBadge layer={t.Layer} /></td>
-                                    <td className="px-3 py-1.5 text-red-300/80 max-w-[200px] truncate" title={t.ErrorMessage || ""}>
+                                    <td className="px-3 py-1.5 text-[var(--bp-fault)] max-w-[200px] truncate" title={t.ErrorMessage || ""}>
                                       {friendlyError(t.ErrorMessage ?? undefined) || t.ErrorType || "--"}
                                     </td>
                                     <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">
@@ -873,7 +878,7 @@ function RunSummaryModal({
                                   <div className="flex-1 text-right">
                                     <span className={cn(
                                       "text-[10px] px-1.5 py-0.5 rounded font-mono",
-                                      t.LoadType === "incremental" ? "bg-cyan-500/10 text-cyan-400" : "bg-muted text-muted-foreground",
+                                      t.LoadType === "incremental" ? "bg-[var(--bp-copper-light)] text-[var(--bp-copper)]" : "bg-muted text-muted-foreground",
                                     )}>
                                       {t.LoadType || "--"}
                                     </span>
@@ -899,10 +904,10 @@ function RunSummaryModal({
                                       <div><span className="text-muted-foreground">Bytes:</span> <span className="font-mono">{fmtNum(t.BytesTransferred)}</span></div>
                                     )}
                                     {s === "failed" && t.ErrorMessage && (
-                                      <div className="mt-1 p-2 rounded bg-red-500/5 border border-red-500/10">
-                                        <div className="text-red-400 font-mono text-[10px] break-all">{t.ErrorMessage}</div>
+                                      <div className="mt-1 p-2 rounded bg-[var(--bp-fault-light)] border border-[var(--bp-fault)]">
+                                        <div className="text-[var(--bp-fault)] font-mono text-xs break-words leading-relaxed">{t.ErrorMessage}</div>
                                         {t.ErrorSuggestion && (
-                                          <div className="text-amber-300/80 mt-1 text-[10px]">
+                                          <div className="text-[var(--bp-caution)] mt-1 text-xs leading-relaxed">
                                             <AlertTriangle className="h-3 w-3 inline mr-1" />
                                             {t.ErrorSuggestion}
                                           </div>
@@ -1166,6 +1171,7 @@ export default function EngineControl() {
   const sseRunIdRef = useRef<string | null>(null);
   const sseRetryCount = useRef(0);
   const sseGaveUp = useRef(false);
+  const [sseDisconnected, setSseDisconnected] = useState(false);
   const SSE_MAX_RETRIES = 5;
 
   useEffect(() => {
@@ -1183,6 +1189,7 @@ export default function EngineControl() {
     es.addEventListener("open", () => {
       // Connection established — reset retry counter
       sseRetryCount.current = 0;
+      setSseDisconnected(false);
     });
 
     es.addEventListener("log", (e: MessageEvent) => {
@@ -1245,6 +1252,7 @@ export default function EngineControl() {
         // (every 5s) still tracks the engine, so the UI isn't blind.
         // Set gaveUp flag so fetchStatus won't re-trigger SSE.
         sseGaveUp.current = true;
+        setSseDisconnected(true);
         console.warn(`SSE reconnect failed after ${SSE_MAX_RETRIES} attempts, giving up`);
         return;
       }
@@ -1267,23 +1275,8 @@ export default function EngineControl() {
     };
   }, [liveRunId]);
 
-  // ── Fallback: poll /api/engine/jobs when running in pipeline mode ──
-  useEffect(() => {
-    if (!isRunning || loadMethod !== "pipeline") return;
-    const poll = async () => {
-      try {
-        const res = await fetch(`${API}/engine/jobs`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.active_fabric_jobs?.length && fabricJobs.length === 0) {
-          setFabricJobs(data.active_fabric_jobs);
-        }
-      } catch { /* ignore */ }
-    };
-    poll(); // immediate
-    const interval = setInterval(poll, 15000); // every 15s
-    return () => clearInterval(interval);
-  }, [isRunning, loadMethod]);
+  // Note: /api/engine/jobs endpoint does not exist — fabric job tracking
+  // comes from SSE job_status events instead. Polling removed to stop 404s.
 
   // ── Auto-scroll log container ──
   useEffect(() => {
@@ -1350,6 +1343,7 @@ export default function EngineControl() {
   };
 
   const handleStop = async () => {
+    if (!window.confirm("Stop the engine? In-flight entities will finish but no new ones will start.")) return;
     setStopping(true);
     try {
       await postJson("/engine/stop", {});
@@ -1420,6 +1414,7 @@ export default function EngineControl() {
   };
 
   const handleAbortAll = async () => {
+    if (!window.confirm("Abort ALL runs? This will cancel every in-progress entity immediately.")) return;
     setAborting("__all__");
     try {
       await postJson<{ aborted: number; message: string }>("/engine/abort-run", { all: true });
@@ -1513,7 +1508,7 @@ export default function EngineControl() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center max-w-md">
-          <AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-4" />
+          <AlertCircle className="h-8 w-8 text-[var(--bp-fault)] mx-auto mb-4" />
           <p className="text-foreground font-medium mb-2">Cannot Reach FMD Engine</p>
           <p className="text-sm text-muted-foreground mb-4">{error}</p>
           <Button onClick={fetchStatus} variant="outline" className="gap-2">
@@ -1529,14 +1524,14 @@ export default function EngineControl() {
   const statusCfg = STATUS_CONFIG[engineStatus] || STATUS_CONFIG.idle;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" style={{ padding: "32px", maxWidth: "1280px" }}>
       {/* ═══════════════════════════════════════════════════ */}
       {/* Top Bar                                             */}
       {/* ═══════════════════════════════════════════════════ */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-display font-bold tracking-tight text-foreground flex items-center gap-3">
-            <Zap className="h-7 w-7 text-amber-500" />
+          <h1 className="flex items-center gap-3" style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>
+            <Zap className="h-7 w-7" style={{ color: "#B45624" }} />
             Engine Control
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -1558,7 +1553,7 @@ export default function EngineControl() {
             size="sm"
             onClick={handleStop}
             disabled={!isRunning || stopping}
-            className={cn("gap-1.5", isRunning && "border-red-500/50 text-red-500 hover:bg-red-500/10")}
+            className={cn("gap-1.5", isRunning && "border-[var(--bp-fault)] text-[var(--bp-fault)] hover:bg-[var(--bp-fault-light)]")}
           >
             {stopping ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1586,7 +1581,7 @@ export default function EngineControl() {
       {/* ═══════════════════════════════════════════════════ */}
       {/* Status Bar                                          */}
       {/* ═══════════════════════════════════════════════════ */}
-      <div className={cn("rounded-xl p-4 border flex flex-wrap items-center gap-4", statusCfg.bg)}>
+      <div className={cn("rounded-xl p-4 flex flex-wrap items-center gap-4", statusCfg.bg)} style={statusCfg.bgStyle}>
         <StatusBadge status={engineStatus} />
 
         <div className="h-8 w-px bg-border/40 hidden sm:block" />
@@ -1600,14 +1595,14 @@ export default function EngineControl() {
 
         <div className="flex items-center gap-1.5 text-xs">
           {loadMethod === "pipeline" ? (
-            <Zap className="h-3 w-3 text-cyan-400" />
+            <Zap className="h-3 w-3 text-[var(--bp-copper)]" />
           ) : (
-            <Terminal className="h-3 w-3 text-orange-400" />
+            <Terminal className="h-3 w-3 text-[var(--bp-caution)]" />
           )}
           <span className="text-muted-foreground">Method</span>
           <span className={cn(
             "font-mono font-semibold",
-            loadMethod === "pipeline" ? "text-cyan-400" : "text-orange-400",
+            loadMethod === "pipeline" ? "text-[var(--bp-copper)]" : "text-[var(--bp-caution)]",
           )}>
             {loadMethod === "pipeline" ? "Notebook" : "Local"}
           </span>
@@ -1623,7 +1618,7 @@ export default function EngineControl() {
 
         {status?.current_run_id && (
           <div className="flex items-center gap-1.5 text-xs">
-            <Activity className="h-3 w-3 text-blue-400 animate-pulse" />
+            <Activity className="h-3 w-3 text-[var(--bp-copper)] animate-pulse" />
             <span className="text-muted-foreground">Run</span>
             <span className="font-mono font-semibold text-foreground">{truncateId(status.current_run_id)}</span>
           </div>
@@ -1636,8 +1631,8 @@ export default function EngineControl() {
               <span className="text-muted-foreground">Last run:</span>
               <span className={cn(
                 "font-mono font-semibold",
-                status.last_run.status === "completed" ? "text-emerald-400" :
-                status.last_run.status === "failed" ? "text-red-400" : "text-muted-foreground",
+                status.last_run.status === "completed" ? "text-[var(--bp-operational)]" :
+                status.last_run.status === "failed" ? "text-[var(--bp-fault)]" : "text-muted-foreground",
               )}>
                 {status.last_run.status}
               </span>
@@ -1650,7 +1645,7 @@ export default function EngineControl() {
         {error && (
           <>
             <div className="h-8 w-px bg-border/40 hidden sm:block" />
-            <span className="text-xs text-amber-400 flex items-center gap-1">
+            <span className="text-xs text-[var(--bp-caution)] flex items-center gap-1">
               <AlertTriangle className="h-3 w-3" />
               Status poll failed
             </span>
@@ -1666,7 +1661,7 @@ export default function EngineControl() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
-                <HeartPulse className="h-4 w-4 text-pink-500" />
+                <HeartPulse className="h-4 w-4 text-[var(--bp-fault)]" />
                 System Health
                 {healthReport && (
                   <Badge
@@ -1703,16 +1698,16 @@ export default function EngineControl() {
                 {healthReport.checks.map((check, i) => (
                   <div key={i} className="flex items-center gap-3 py-2.5">
                     {check.passed ? (
-                      <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                      <CheckCircle2 className="h-4 w-4 text-[var(--bp-operational)] shrink-0" />
                     ) : (
-                      <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+                      <XCircle className="h-4 w-4 text-[var(--bp-fault)] shrink-0" />
                     )}
                     <div className="flex-1 min-w-0">
                       <span className="text-sm font-medium text-foreground">{check.name}</span>
                     </div>
                     <span className={cn(
                       "text-xs",
-                      check.passed ? "text-muted-foreground" : "text-red-400",
+                      check.passed ? "text-muted-foreground" : "text-[var(--bp-fault)]",
                     )}>
                       {check.message}
                     </span>
@@ -1745,9 +1740,9 @@ export default function EngineControl() {
                 {(["landing", "bronze", "silver"] as const).map((layer) => {
                   const selected = configLayers.has(layer);
                   const colors: Record<string, string> = {
-                    landing: "border-cyan-500 bg-cyan-500/10 text-cyan-400",
-                    bronze: "border-amber-500 bg-amber-500/10 text-amber-400",
-                    silver: "border-violet-500 bg-violet-500/10 text-violet-400",
+                    landing: "border-[var(--bp-copper)] bg-[var(--bp-copper-light)] text-[var(--bp-copper)]",
+                    bronze: "border-[var(--bp-caution)] bg-[var(--bp-caution-light)] text-[var(--bp-caution)]",
+                    silver: "border-[var(--bp-copper)] bg-[var(--bp-copper-light)] text-[var(--bp-copper)]",
                   };
                   return (
                     <button
@@ -1784,7 +1779,7 @@ export default function EngineControl() {
                   className={cn(
                     "flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all text-sm font-medium",
                     configMode === "run"
-                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
+                      ? "border-[var(--bp-operational)] bg-[var(--bp-operational-light)] text-[var(--bp-operational)]"
                       : "border-border text-muted-foreground hover:border-muted-foreground/40",
                   )}
                 >
@@ -1796,7 +1791,7 @@ export default function EngineControl() {
                   className={cn(
                     "flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all text-sm font-medium",
                     configMode === "plan"
-                      ? "border-blue-500 bg-blue-500/10 text-blue-400"
+                      ? "border-[var(--bp-copper)] bg-[var(--bp-copper-light)] text-[var(--bp-copper)]"
                       : "border-border text-muted-foreground hover:border-muted-foreground/40",
                   )}
                 >
@@ -1817,7 +1812,7 @@ export default function EngineControl() {
                   className={cn(
                     "flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all text-sm font-medium",
                     loadMethod === "pipeline"
-                      ? "border-cyan-500 bg-cyan-500/10 text-cyan-400"
+                      ? "border-[var(--bp-copper)] bg-[var(--bp-copper-light)] text-[var(--bp-copper)]"
                       : "border-border text-muted-foreground hover:border-muted-foreground/40",
                     !pipelineConfigured && "opacity-50",
                   )}
@@ -1825,7 +1820,7 @@ export default function EngineControl() {
                   <Zap className="h-4 w-4" />
                   Fabric Notebook
                   {!pipelineConfigured && (
-                    <span className="text-[10px] text-amber-400 ml-1">(not configured)</span>
+                    <span className="text-[10px] text-[var(--bp-caution)] ml-1">(not configured)</span>
                   )}
                 </button>
                 <button
@@ -1833,7 +1828,7 @@ export default function EngineControl() {
                   className={cn(
                     "flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all text-sm font-medium",
                     loadMethod === "local"
-                      ? "border-orange-500 bg-orange-500/10 text-orange-400"
+                      ? "border-[var(--bp-caution)] bg-[var(--bp-caution-light)] text-[var(--bp-caution)]"
                       : "border-border text-muted-foreground hover:border-muted-foreground/40",
                   )}
                 >
@@ -1848,7 +1843,7 @@ export default function EngineControl() {
                     className={cn(
                       "w-4 h-4 rounded border-2 flex items-center justify-center transition-all",
                       pipelineFallback
-                        ? "border-cyan-500 bg-cyan-500/20 text-cyan-400"
+                        ? "border-[var(--bp-copper)] bg-[var(--bp-copper-light)] text-[var(--bp-copper)]"
                         : "border-muted-foreground/30",
                     )}
                   >
@@ -1879,7 +1874,7 @@ export default function EngineControl() {
                   className={cn(
                     "flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all",
                     !entitySelectorOpen
-                      ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
+                      ? "border-[var(--bp-operational)] bg-[var(--bp-operational-light)] text-[var(--bp-operational)]"
                       : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-muted-foreground/50",
                   )}
                 >
@@ -1891,14 +1886,14 @@ export default function EngineControl() {
                   className={cn(
                     "flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all",
                     entitySelectorOpen
-                      ? "border-cyan-500/50 bg-cyan-500/10 text-cyan-400"
+                      ? "border-[var(--bp-copper)] bg-[var(--bp-copper-light)] text-[var(--bp-copper)]"
                       : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-muted-foreground/50",
                   )}
                 >
                   <Filter className="h-4 w-4" />
                   Select Specific
                   {selectedEntityIds.size > 0 && (
-                    <Badge variant="outline" className="text-cyan-400 border-cyan-500/30 bg-cyan-500/20 ml-1">
+                    <Badge variant="outline" className="text-[var(--bp-copper)] border-[var(--bp-border)] bg-[var(--bp-copper-light)] ml-1">
                       {selectedEntityIds.size}
                     </Badge>
                   )}
@@ -1951,7 +1946,7 @@ export default function EngineControl() {
                           {selectedEntityIds.size > 0 && (
                             <button
                               onClick={() => setSelectedEntityIds(new Set())}
-                              className="text-xs px-2 py-1 rounded text-red-400 hover:bg-red-500/10 transition-colors"
+                              className="text-xs px-2 py-1 rounded text-[var(--bp-fault)] hover:bg-[var(--bp-fault-light)] transition-colors"
                             >
                               Clear
                             </button>
@@ -2010,15 +2005,15 @@ export default function EngineControl() {
                                   }}
                                   className={cn(
                                     "cursor-pointer border-b border-border/50 transition-colors",
-                                    checked ? "bg-cyan-500/5" : "hover:bg-muted/50",
+                                    checked ? "bg-[var(--bp-copper-light)]" : "hover:bg-muted/50",
                                   )}
                                 >
                                   <td className="px-2 py-1.5">
                                     <div className={cn(
                                       "w-4 h-4 rounded border-2 flex items-center justify-center transition-colors",
-                                      checked ? "border-cyan-500 bg-cyan-500/20" : "border-muted-foreground/30",
+                                      checked ? "border-[var(--bp-copper)] bg-[var(--bp-copper-light)]" : "border-muted-foreground/30",
                                     )}>
-                                      {checked && <CheckCircle2 className="w-3 h-3 text-cyan-400" />}
+                                      {checked && <CheckCircle2 className="w-3 h-3 text-[var(--bp-copper)]" />}
                                     </div>
                                   </td>
                                   <td className="px-2 py-1.5 text-muted-foreground font-mono">{e.namespace || e.datasource}</td>
@@ -2028,8 +2023,8 @@ export default function EngineControl() {
                                   <td className="px-2 py-1.5">
                                     <span className={cn(
                                       "text-[10px] px-1.5 py-0.5 rounded font-mono",
-                                      e.lz_status === "loaded" ? "text-emerald-400 bg-emerald-500/10" :
-                                      e.lz_status === "failed" ? "text-red-400 bg-red-500/10" :
+                                      e.lz_status === "loaded" ? "text-[var(--bp-operational)] bg-[var(--bp-operational-light)]" :
+                                      e.lz_status === "failed" ? "text-[var(--bp-fault)] bg-[var(--bp-fault-light)]" :
                                       "text-muted-foreground bg-muted",
                                     )}>
                                       {e.lz_status}
@@ -2048,7 +2043,7 @@ export default function EngineControl() {
 
                   <div className="flex items-center justify-between px-2.5 py-2 border-t border-border bg-muted text-xs text-muted-foreground">
                     <span>{allEntities.length} total entities</span>
-                    <span className={selectedEntityIds.size > 0 ? "text-cyan-400 font-medium" : ""}>
+                    <span className={selectedEntityIds.size > 0 ? "text-[var(--bp-copper)] font-medium" : ""}>
                       {selectedEntityIds.size > 0 ? `${selectedEntityIds.size} selected` : "None selected — will run all"}
                     </span>
                   </div>
@@ -2058,9 +2053,9 @@ export default function EngineControl() {
 
             {/* Launch button + error */}
             {launchError && (
-              <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-700 rounded-lg">
-                <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
-                <p className="text-sm text-red-700 dark:text-red-300">{launchError}</p>
+              <div className="flex items-center gap-2 p-3 rounded-lg" style={{ background: "var(--bp-fault-light)", border: "1px solid var(--bp-fault)" }}>
+                <AlertCircle className="w-4 h-4 text-[var(--bp-fault)] shrink-0" />
+                <p className="text-sm text-[var(--bp-fault)]">{launchError}</p>
               </div>
             )}
 
@@ -2074,8 +2069,8 @@ export default function EngineControl() {
                 className={cn(
                   "gap-2",
                   configMode === "run"
-                    ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                    : "bg-blue-600 hover:bg-blue-700 text-white",
+                    ? "bg-[var(--bp-operational)] hover:bg-[var(--bp-operational)] text-white"
+                    : "bg-[var(--bp-copper)] hover:bg-[var(--bp-copper-hover)] text-white",
                 )}
               >
                 {launching ? (
@@ -2098,14 +2093,14 @@ export default function EngineControl() {
       {planResult && (
         <Card className={cn(
           "border-2",
-          liveRunId ? "border-blue-500/20" : "border-blue-500/30",
+          liveRunId ? "border-[var(--bp-copper)]" : "border-[var(--bp-copper)]",
         )}>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
-              <Search className="h-5 w-5 text-blue-400" />
-              <span className="text-blue-400">Execution Plan</span>
+              <Search className="h-5 w-5 text-[var(--bp-copper)]" />
+              <span className="text-[var(--bp-copper)]">Execution Plan</span>
               {liveRunId && (
-                <Badge variant="outline" className="ml-2 text-[10px] border-blue-500/30 text-blue-400">
+                <Badge variant="outline" className="ml-2 text-[10px] border-[var(--bp-copper)] text-[var(--bp-copper)]">
                   <Activity className="h-3 w-3 mr-1 animate-pulse" /> Running
                 </Badge>
               )}
@@ -2125,11 +2120,11 @@ export default function EngineControl() {
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Entities</p>
               </div>
               <div className="p-2 rounded bg-background border text-center">
-                <p className="text-xl font-bold text-blue-400 tabular-nums">{fmtNum(planResult.incremental_count)}</p>
+                <p className="text-xl font-bold text-[var(--bp-copper)] tabular-nums">{fmtNum(planResult.incremental_count)}</p>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Incremental</p>
               </div>
               <div className="p-2 rounded bg-background border text-center">
-                <p className="text-xl font-bold text-amber-400 tabular-nums">{fmtNum(planResult.full_load_count)}</p>
+                <p className="text-xl font-bold text-[var(--bp-caution)] tabular-nums">{fmtNum(planResult.full_load_count)}</p>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Full Load</p>
               </div>
               <div className="p-2 rounded bg-background border text-center">
@@ -2151,13 +2146,13 @@ export default function EngineControl() {
 
             {/* Warnings */}
             {planResult.warnings && planResult.warnings.length > 0 && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
+              <div className="rounded-lg border border-[var(--bp-caution)] bg-[var(--bp-caution-light)] p-3 space-y-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <AlertTriangle className="h-4 w-4 text-amber-400" />
-                  <span className="text-xs font-semibold text-amber-400">Warnings ({planResult.warnings.length})</span>
+                  <AlertTriangle className="h-4 w-4 text-[var(--bp-caution)]" />
+                  <span className="text-xs font-semibold text-[var(--bp-caution)]">Warnings ({planResult.warnings.length})</span>
                 </div>
                 {planResult.warnings.map((w, i) => (
-                  <p key={i} className="text-xs text-amber-300/80 pl-6">{w}</p>
+                  <p key={i} className="text-xs text-[var(--bp-caution)] pl-6">{w}</p>
                 ))}
               </div>
             )}
@@ -2173,7 +2168,7 @@ export default function EngineControl() {
                   {planResult.layer_plan.map((step, i) => (
                     <div key={step.layer} className="rounded border border-border/50 bg-background p-3">
                       <div className="flex items-center gap-2 mb-1.5">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold">{i + 1}</span>
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--bp-copper-light)] text-[var(--bp-copper)] text-[10px] font-bold">{i + 1}</span>
                         <LayerBadge layer={step.layer} />
                         <ArrowRight className="h-3 w-3 text-muted-foreground" />
                         <span className="text-xs text-foreground font-medium">{step.action}</span>
@@ -2227,8 +2222,8 @@ export default function EngineControl() {
                           <td className="px-3 py-1.5 font-semibold text-foreground uppercase">{src.namespace || src.name}</td>
                           <td className="px-3 py-1.5 font-mono text-muted-foreground">{src.server || "—"}</td>
                           <td className="px-3 py-1.5 text-right font-mono text-foreground tabular-nums">{fmtNum(src.entity_count)}</td>
-                          <td className="px-3 py-1.5 text-right font-mono text-blue-400 tabular-nums">{fmtNum(src.incremental)}</td>
-                          <td className="px-3 py-1.5 text-right font-mono text-amber-400 tabular-nums">{fmtNum(src.full_load)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono text-[var(--bp-copper)] tabular-nums">{fmtNum(src.incremental)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono text-[var(--bp-caution)] tabular-nums">{fmtNum(src.full_load)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2284,7 +2279,7 @@ export default function EngineControl() {
                             <span className={cn(
                               "px-1.5 py-0.5 rounded border text-[10px] font-mono",
                               e.incremental
-                                ? "text-blue-400 bg-blue-500/10 border-blue-500/20"
+                                ? "text-[var(--bp-copper)] bg-[var(--bp-copper-light)] border-[var(--bp-copper)]"
                                 : "text-muted-foreground bg-muted border-border",
                             )}>
                               {e.incremental ? "INCR" : "FULL"}
@@ -2311,22 +2306,22 @@ export default function EngineControl() {
           {/* Progress + Summary */}
           <Card className={cn(
             "border-2",
-            runSummary ? (runSummary.failed > 0 ? "border-amber-500/30" : "border-emerald-500/30") :
-            runError ? "border-red-500/30" :
-            "border-blue-500/30",
+            runSummary ? (runSummary.failed > 0 ? "border-[var(--bp-caution)]" : "border-[var(--bp-operational)]") :
+            runError ? "border-[var(--bp-fault)]" :
+            "border-[var(--bp-copper)]",
           )}>
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 {runSummary ? (
                   runSummary.failed > 0 ? (
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    <AlertTriangle className="h-4 w-4 text-[var(--bp-caution)]" />
                   ) : (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    <CheckCircle2 className="h-4 w-4 text-[var(--bp-operational)]" />
                   )
                 ) : runError ? (
-                  <XCircle className="h-4 w-4 text-red-500" />
+                  <XCircle className="h-4 w-4 text-[var(--bp-fault)]" />
                 ) : (
-                  <Activity className="h-4 w-4 text-blue-500 animate-pulse" />
+                  <Activity className="h-4 w-4 text-[var(--bp-copper)] animate-pulse" />
                 )}
                 {runSummary ? "Run Complete" : runError ? "Run Error" : "Live Run"}
                 {liveRunId && (
@@ -2337,23 +2332,30 @@ export default function EngineControl() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 pt-0">
+              {/* SSE disconnected warning */}
+              {sseDisconnected && !runSummary && !runError && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-[var(--bp-caution-light)] border border-[var(--bp-caution)] text-[var(--bp-caution)]">
+                  <WifiOff className="h-4 w-4 flex-shrink-0" />
+                  Live log stream disconnected — status updates continue via polling.
+                </div>
+              )}
               {/* Run summary (when complete) */}
               {runSummary && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-center">
-                    <p className="text-2xl font-bold text-emerald-400 tabular-nums">{fmtNum(runSummary.succeeded)}</p>
+                  <div className="p-3 rounded-lg bg-[var(--bp-operational-light)] border border-[var(--bp-operational)] text-center">
+                    <p className="text-2xl font-bold text-[var(--bp-operational)] tabular-nums">{fmtNum(runSummary.succeeded)}</p>
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Succeeded</p>
                   </div>
-                  <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/20 text-center">
-                    <p className="text-2xl font-bold text-red-400 tabular-nums">{fmtNum(runSummary.failed)}</p>
+                  <div className="p-3 rounded-lg bg-[var(--bp-fault-light)] border border-[var(--bp-fault)] text-center">
+                    <p className="text-2xl font-bold text-[var(--bp-fault)] tabular-nums">{fmtNum(runSummary.failed)}</p>
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Failed</p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted border border-border text-center">
                     <p className="text-2xl font-bold text-muted-foreground tabular-nums">{fmtNum(runSummary.skipped)}</p>
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Skipped</p>
                   </div>
-                  <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-center">
-                    <p className="text-2xl font-bold text-blue-400 tabular-nums">{fmtNum(runSummary.total_rows)}</p>
+                  <div className="p-3 rounded-lg bg-[var(--bp-copper-light)] border border-[var(--bp-copper)] text-center">
+                    <p className="text-2xl font-bold text-[var(--bp-copper)] tabular-nums">{fmtNum(runSummary.total_rows)}</p>
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Rows</p>
                   </div>
                 </div>
@@ -2361,9 +2363,9 @@ export default function EngineControl() {
 
               {/* Run error */}
               {runError && (
-                <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-700 rounded-lg">
-                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                  <p className="text-sm text-red-700 dark:text-red-300 break-all">{runError}</p>
+                <div className="flex items-start gap-2 p-3 rounded-lg" style={{ background: "var(--bp-fault-light)", border: "1px solid var(--bp-fault)" }}>
+                  <AlertCircle className="w-4 h-4 text-[var(--bp-fault)] shrink-0 mt-0.5" />
+                  <p className="text-sm text-[var(--bp-fault)] break-all">{runError}</p>
                 </div>
               )}
 
@@ -2374,23 +2376,23 @@ export default function EngineControl() {
                   {fabricJobs.length > 0 && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Server className="h-3.5 w-3.5 text-cyan-500" />
+                        <Server className="h-3.5 w-3.5 text-[var(--bp-copper)]" />
                         <span>Fabric Notebook Jobs</span>
                         <span className="ml-auto tabular-nums">{fmtDuration(fabricRunElapsed)} elapsed</span>
                       </div>
                       {fabricJobs.map((job) => (
                         <div key={job.job_id} className={cn(
                           "flex items-center gap-3 p-2.5 rounded-lg border",
-                          job.status === "Completed" ? "border-emerald-500/30 bg-emerald-500/5" :
-                          job.status === "Failed" || job.status === "Cancelled" ? "border-red-500/30 bg-red-500/5" :
-                          "border-cyan-500/30 bg-cyan-500/5",
+                          job.status === "Completed" ? "border-[var(--bp-operational)] bg-[var(--bp-operational-light)]" :
+                          job.status === "Failed" || job.status === "Cancelled" ? "border-[var(--bp-fault)] bg-[var(--bp-fault-light)]" :
+                          "border-[var(--bp-border)] bg-[var(--bp-copper-light)]",
                         )}>
                           {job.status === "Completed" ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                            <CheckCircle2 className="h-4 w-4 text-[var(--bp-operational)] shrink-0" />
                           ) : job.status === "Failed" || job.status === "Cancelled" ? (
-                            <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+                            <XCircle className="h-4 w-4 text-[var(--bp-fault)] shrink-0" />
                           ) : (
-                            <Loader2 className="h-4 w-4 text-cyan-500 animate-spin shrink-0" />
+                            <Loader2 className="h-4 w-4 text-[var(--bp-copper)] animate-spin shrink-0" />
                           )}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium capitalize">{job.layer} Notebook</p>
@@ -2398,9 +2400,9 @@ export default function EngineControl() {
                           </div>
                           <Badge variant="outline" className={cn(
                             "text-[10px] shrink-0",
-                            job.status === "Completed" ? "border-emerald-500/40 text-emerald-400" :
-                            job.status === "Failed" ? "border-red-500/40 text-red-400" :
-                            "border-cyan-500/40 text-cyan-400",
+                            job.status === "Completed" ? "border-[var(--bp-operational)] text-[var(--bp-operational)]" :
+                            job.status === "Failed" ? "border-[var(--bp-fault)] text-[var(--bp-fault)]" :
+                            "border-[var(--bp-copper)] text-[var(--bp-copper)]",
                           )}>
                             {job.status === "InProgress" ? `Running ${fmtDuration(job.elapsed_seconds)}` : job.status}
                           </Badge>
@@ -2416,20 +2418,20 @@ export default function EngineControl() {
                       <p className="text-lg font-bold text-foreground tabular-nums">{fmtNum(completedEntities)}</p>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Processed</p>
                     </div>
-                    <div className="p-2 rounded bg-emerald-500/5 border border-emerald-500/20 text-center">
-                      <p className="text-lg font-bold text-emerald-400 tabular-nums">{fmtNum(succeededEntities)}</p>
+                    <div className="p-2 rounded bg-[var(--bp-operational-light)] border border-[var(--bp-operational)] text-center">
+                      <p className="text-lg font-bold text-[var(--bp-operational)] tabular-nums">{fmtNum(succeededEntities)}</p>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">OK</p>
                     </div>
-                    <div className="p-2 rounded bg-red-500/5 border border-red-500/20 text-center">
-                      <p className="text-lg font-bold text-red-400 tabular-nums">{fmtNum(failedEntities)}</p>
+                    <div className="p-2 rounded bg-[var(--bp-fault-light)] border border-[var(--bp-fault)] text-center">
+                      <p className="text-lg font-bold text-[var(--bp-fault)] tabular-nums">{fmtNum(failedEntities)}</p>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Failed</p>
                     </div>
-                    <div className="p-2 rounded bg-amber-500/5 border border-amber-500/20 text-center">
-                      <p className="text-lg font-bold text-amber-400 tabular-nums">{fmtDuration(totalDuration)}</p>
+                    <div className="p-2 rounded bg-[var(--bp-caution-light)] border border-[var(--bp-caution)] text-center">
+                      <p className="text-lg font-bold text-[var(--bp-caution)] tabular-nums">{fmtDuration(totalDuration)}</p>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Duration</p>
                     </div>
-                    <div className="p-2 rounded bg-blue-500/5 border border-blue-500/20 text-center">
-                      <p className="text-lg font-bold text-blue-400 tabular-nums">{fmtNum(totalRows)}</p>
+                    <div className="p-2 rounded bg-[var(--bp-copper-light)] border border-[var(--bp-copper)] text-center">
+                      <p className="text-lg font-bold text-[var(--bp-copper)] tabular-nums">{fmtNum(totalRows)}</p>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Rows</p>
                     </div>
                   </div>
@@ -2466,7 +2468,7 @@ export default function EngineControl() {
           {entityResults.length > 0 && (
             <Section
               title="Entity Results"
-              icon={<Layers className="h-4 w-4 text-emerald-500" />}
+              icon={<Layers className="h-4 w-4 text-[var(--bp-operational)]" />}
               badge={
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/60 font-mono text-muted-foreground ml-1">
                   {entityResults.length}
@@ -2509,11 +2511,11 @@ export default function EngineControl() {
                         </td>
                         <td className="px-3 py-1.5 max-w-[250px]">
                           {er.status === "failed" && er.error ? (
-                            <span className="text-red-400 text-[11px]" title={er.error}>
+                            <span className="text-[var(--bp-fault)] text-[11px]" title={er.error}>
                               {friendlyError(er.error)}
                             </span>
                           ) : er.status === "succeeded" ? (
-                            <span className="text-emerald-500/60 text-[11px]">OK</span>
+                            <span className="text-[var(--bp-operational)] text-[11px]">OK</span>
                           ) : null}
                         </td>
                       </tr>
@@ -2527,7 +2529,7 @@ export default function EngineControl() {
           {/* Live log stream — dual view */}
           <Section
             title="Log Stream"
-            icon={<Terminal className="h-4 w-4 text-green-500" />}
+            icon={<Terminal className="h-4 w-4 text-[var(--bp-operational)]" />}
             badge={
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/60 font-mono text-muted-foreground ml-1">
                 {logBuffer.length} lines
@@ -2548,7 +2550,7 @@ export default function EngineControl() {
               </div>
               <div
                 ref={logContainerRef}
-                className="h-[300px] overflow-y-auto rounded-lg border bg-[#0d1117] p-3 scrollbar-thin [&_span]:!text-opacity-100"
+                className="h-[480px] overflow-y-auto rounded-lg border border-[#30363d] bg-[#0d1117] p-4 scrollbar-thin [&_span]:!text-opacity-100"
               >
                 {logBuffer.length === 0 ? (
                   <div className="flex items-center justify-center h-full text-muted-foreground/50 text-sm">
@@ -2569,7 +2571,7 @@ export default function EngineControl() {
       {metrics && (metrics.runs?.length > 0 || metrics.top_errors?.length > 0) && (
         <Section
           title="24h Metrics"
-          icon={<TrendingUp className="h-4 w-4 text-purple-500" />}
+          icon={<TrendingUp className="h-4 w-4 text-[var(--bp-copper)]" />}
           defaultOpen={false}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2590,23 +2592,25 @@ export default function EngineControl() {
                     >
                       <XAxis
                         dataKey="layer"
-                        tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                        tick={{ fontSize: 11, fill: "#A8A29E" }}
                         axisLine={false}
                         tickLine={false}
                       />
                       <YAxis
-                        tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                        tick={{ fontSize: 11, fill: "#A8A29E" }}
                         axisLine={false}
                         tickLine={false}
                         width={30}
                       />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: "hsl(var(--card))",
-                          border: "1px solid hsl(var(--border))",
+                          backgroundColor: "#FEFDFB",
+                          border: "1px solid rgba(0,0,0,0.08)",
                           borderRadius: "8px",
                           fontSize: "12px",
                         }}
+                        labelStyle={{ color: "#1C1917", fontWeight: 600 }}
+                        itemStyle={{ color: "#57534E" }}
                         formatter={((value: number | undefined, name: string | undefined) => [
                           name === "count" ? `${value ?? 0} runs` : `${value ?? 0}s avg`,
                           name === "count" ? "Runs" : "Avg Duration",
@@ -2615,11 +2619,11 @@ export default function EngineControl() {
                       <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                         {Object.keys(metrics.layers).map((layer, i) => {
                           const colors: Record<string, string> = {
-                            landing: "#06b6d4",
-                            bronze: "#f59e0b",
-                            silver: "#8b5cf6",
+                            landing: "#A8A29E",
+                            bronze: "#C27A1A",
+                            silver: "#B45624",
                           };
-                          return <Cell key={i} fill={colors[layer] || "#6b7280"} />;
+                          return <Cell key={i} fill={colors[layer] || "#A8A29E"} />;
                         })}
                       </Bar>
                     </BarChart>
@@ -2649,8 +2653,9 @@ export default function EngineControl() {
                         </div>
                         <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-1">
                           <div
-                            className="h-full bg-amber-500/70 rounded-full"
+                            className="h-full rounded-full"
                             style={{
+                              background: "var(--bp-caution)",
                               width: `${Math.min(
                                 (ent.DurationSeconds / (metrics.slowest_entities[0]?.DurationSeconds || 1)) * 100,
                                 100,
@@ -2659,7 +2664,7 @@ export default function EngineControl() {
                           />
                         </div>
                       </div>
-                      <span className="text-xs font-mono text-amber-400 shrink-0">
+                      <span className="text-xs font-mono text-[var(--bp-caution)] shrink-0">
                         {fmtDuration(ent.DurationSeconds)}
                       </span>
                     </div>
@@ -2677,12 +2682,12 @@ export default function EngineControl() {
                 <div className="space-y-2">
                   {metrics.top_errors.slice(0, 5).map((err, i) => (
                     <div key={i} className="flex items-start gap-3 py-1.5">
-                      <span className="text-xs font-bold text-red-400 shrink-0 tabular-nums w-8 text-right">
+                      <span className="text-xs font-bold text-[var(--bp-fault)] shrink-0 tabular-nums w-8 text-right">
                         x{err.Occurrences}
                       </span>
                       <div className="text-xs text-foreground/80 break-all">
                         {err.ErrorType && (
-                          <span className="font-semibold text-red-300">{err.ErrorType}: </span>
+                          <span className="font-semibold text-[var(--bp-fault)]">{err.ErrorType}: </span>
                         )}
                         {err.ErrorMessage}
                       </div>
@@ -2733,7 +2738,7 @@ export default function EngineControl() {
                     <th className="px-3 py-2.5 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Started</th>
                     <th className="px-3 py-2.5 text-right text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Duration</th>
                     <th className="px-3 py-2.5 text-center text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                      <span className="text-emerald-400">OK</span> / <span className="text-red-400">Fail</span> / <span className="text-muted-foreground">Skip</span>
+                      <span className="text-[var(--bp-operational)]">OK</span> / <span className="text-[var(--bp-fault)]">Fail</span> / <span className="text-muted-foreground">Skip</span>
                     </th>
                     <th className="px-3 py-2.5 text-left text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Triggered By</th>
                     <th className="px-3 py-2.5 text-right text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
@@ -2762,10 +2767,10 @@ export default function EngineControl() {
                               <div className="w-[100px] shrink-0">
                                 <span className={cn(
                                   "inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border font-mono",
-                                  runStatus === "completed" || runStatus === "succeeded" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                                  runStatus === "failed" ? "bg-red-500/10 text-red-400 border-red-500/20" :
-                                  runStatus === "running" || runStatus === "inprogress" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
-                                  runStatus === "aborted" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                                  runStatus === "completed" || runStatus === "succeeded" ? "bg-[var(--bp-operational-light)] text-[var(--bp-operational)] border-[var(--bp-operational)]" :
+                                  runStatus === "failed" ? "bg-[var(--bp-fault-light)] text-[var(--bp-fault)] border-[var(--bp-fault)]" :
+                                  runStatus === "running" || runStatus === "inprogress" ? "bg-[var(--bp-copper-light)] text-[var(--bp-copper)] border-[var(--bp-copper)]" :
+                                  runStatus === "aborted" ? "bg-[var(--bp-caution-light)] text-[var(--bp-caution)] border-[var(--bp-caution)]" :
                                   "bg-muted text-muted-foreground border-border",
                                 )}>
                                   {(runStatus === "running" || runStatus === "inprogress") && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -2785,9 +2790,9 @@ export default function EngineControl() {
                                 {fmtDuration(run.duration_seconds)}
                               </div>
                               <div className="w-[100px] shrink-0 text-center font-mono tabular-nums">
-                                <span className="text-emerald-400">{fmtNum(run.entities_succeeded)}</span>
+                                <span className="text-[var(--bp-operational)]">{fmtNum(run.entities_succeeded)}</span>
                                 {" / "}
-                                <span className="text-red-400">{fmtNum(run.entities_failed)}</span>
+                                <span className="text-[var(--bp-fault)]">{fmtNum(run.entities_failed)}</span>
                                 {" / "}
                                 <span className="text-muted-foreground">{fmtNum(run.entities_skipped)}</span>
                               </div>
@@ -2799,7 +2804,7 @@ export default function EngineControl() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-6 px-2 text-[10px] gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                                    className="h-6 px-2 text-[10px] gap-1 text-[var(--bp-fault)] hover:text-[var(--bp-fault)] hover:bg-[var(--bp-fault-light)]"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleAbortRun(run.run_id);
@@ -2818,7 +2823,7 @@ export default function EngineControl() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-6 px-2 text-[10px] gap-1 text-amber-400 hover:text-amber-300"
+                                    className="h-6 px-2 text-[10px] gap-1 text-[var(--bp-caution)] hover:text-[var(--bp-caution)]"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleRetry(run.run_id);
@@ -2867,7 +2872,7 @@ export default function EngineControl() {
                                 ) : expandedRunLogs.length === 0 ? (
                                   <p className="text-xs text-muted-foreground text-center py-4">No log entries for this run</p>
                                 ) : (
-                                  <div className="max-h-[300px] overflow-y-auto rounded border bg-[#0d1117] p-2">
+                                  <div className="max-h-[480px] overflow-y-auto rounded border border-[#30363d] bg-[#0d1117] p-4">
                                     {expandedRunLogs.map((entry, i) => (
                                       <LogLine key={i} entry={entry} />
                                     ))}
@@ -2902,7 +2907,7 @@ export default function EngineControl() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="gap-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                  className="gap-1.5 text-xs text-[var(--bp-fault)] hover:text-[var(--bp-fault)] hover:bg-[var(--bp-fault-light)]"
                   onClick={handleAbortAll}
                   disabled={aborting === "__all__"}
                 >

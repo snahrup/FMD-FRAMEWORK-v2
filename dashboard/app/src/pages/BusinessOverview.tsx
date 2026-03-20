@@ -1,8 +1,18 @@
+// ============================================================================
+// Business Overview — The default landing page for Business Portal mode.
+//
+// Design system: Industrial Precision, Light Mode
+// Matches wireframe: .superpowers/brainstorm/130-1773660833/bp-overview.html
+// Fonts: Instrument Serif (display), Outfit (body), JetBrains Mono (data)
+// All styles use BP CSS custom properties (--bp-*)
+// Data: /api/overview/kpis, /api/overview/sources, /api/overview/activity
+// ============================================================================
+
 import { useState, useEffect } from "react";
-import { cn } from "@/lib/utils";
+import { Link } from "react-router-dom";
 import { useTerminology } from "@/hooks/useTerminology";
 import { resolveSourceLabel, getSourceColor } from "@/hooks/useSourceConfig";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { ProgressRing, StatusRail, toRailStatus, SourceBadge, SeverityBadge, toSeverity } from "@/components/business";
 
 const API = import.meta.env.VITE_API_URL || "";
 
@@ -48,80 +58,26 @@ function relativeTime(dateStr: string | null): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function sourceStatusLabel(status: SourceHealth["status"]): string {
-  if (status === "operational") return "Operational";
-  if (status === "degraded") return "Degraded";
-  return "Offline";
-}
-
-function sourceStatusClass(status: SourceHealth["status"]): string {
-  if (status === "operational") return "text-emerald-600 dark:text-emerald-400";
-  if (status === "degraded") return "text-amber-600 dark:text-amber-400";
-  return "text-red-500 dark:text-red-400";
-}
-
-function alertSeverityClass(status: ActivityEvent["status"]): string {
-  if (status === "error") return "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400";
-  if (status === "warning") return "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400";
-  return "bg-muted text-muted-foreground";
-}
-
-function alertSeverityLabel(status: ActivityEvent["status"]): string {
-  if (status === "error") return "Critical";
-  if (status === "warning") return "Warning";
-  return "Info";
-}
-
-function alertRailClass(status: ActivityEvent["status"]): string {
-  if (status === "error") return "bg-red-500";
-  if (status === "warning") return "bg-amber-500";
-  return "bg-border";
-}
-
-// ── Progress Ring ──
-
-function ProgressRing({ pct }: { pct: number }) {
-  const r = 34;
-  const circumference = 2 * Math.PI * r;
-  const offset = circumference * (1 - Math.min(pct, 100) / 100);
-
-  const strokeColor =
-    pct >= 95 ? "#22c55e" : pct >= 80 ? "#f59e0b" : "#ef4444";
-
-  return (
-    <svg width="72" height="72" viewBox="0 0 80 80" className="shrink-0" aria-hidden="true">
-      <circle
-        cx="40" cy="40" r={r}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="5"
-        className="text-muted/30"
-      />
-      <circle
-        cx="40" cy="40" r={r}
-        fill="none"
-        stroke={strokeColor}
-        strokeWidth="5"
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        style={{ transform: "rotate(-90deg)", transformOrigin: "center", transition: "stroke-dashoffset 0.5s ease" }}
-      />
-    </svg>
-  );
-}
-
 // ── Skeleton ──
 
 function Skeleton({ className }: { className?: string }) {
-  return <div className={cn("animate-pulse rounded bg-muted/50", className)} />;
+  return (
+    <div
+      className={`rounded ${className ?? ""}`}
+      style={{
+        background: "linear-gradient(90deg, var(--bp-surface-inset) 25%, var(--bp-surface-2) 50%, var(--bp-surface-inset) 75%)",
+        backgroundSize: "200% 100%",
+        animation: "bp-skeleton-shimmer 2s ease-in-out infinite",
+      }}
+    />
+  );
 }
 
 function KPIRowSkeleton() {
   return (
-    <div className="grid grid-cols-4 gap-4 mb-6">
-      {[...Array(4)].map((_, i) => (
-        <div key={i} className="bg-card border border-border rounded-lg p-5">
+    <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="bp-card" style={{ padding: 20 }}>
           <Skeleton className="h-3 w-24 mb-3" />
           <Skeleton className="h-10 w-20 mb-2" />
           <Skeleton className="h-3 w-32" />
@@ -145,27 +101,25 @@ export default function BusinessOverview() {
 
   async function fetchAll() {
     try {
-      const [kpiRes, srcRes, actRes] = await Promise.all([
-        fetch(`${API}/api/overview/kpis`),
-        fetch(`${API}/api/overview/sources`),
-        fetch(`${API}/api/overview/activity`),
+      const [kpiResult, srcResult, actResult] = await Promise.allSettled([
+        fetch(`${API}/api/overview/kpis`).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+        fetch(`${API}/api/overview/sources`).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+        fetch(`${API}/api/overview/activity`).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
       ]);
 
-      if (!kpiRes.ok || !srcRes.ok || !actRes.ok) {
-        throw new Error("One or more overview endpoints returned an error");
+      if (kpiResult.status === "fulfilled") setKpis(kpiResult.value);
+      if (srcResult.status === "fulfilled") setSources(srcResult.value);
+      if (actResult.status === "fulfilled") setActivity(actResult.value);
+
+      const failures = [kpiResult, srcResult, actResult].filter((r) => r.status === "rejected");
+      if (failures.length === 3) {
+        setError("All overview endpoints failed");
+      } else if (failures.length > 0) {
+        setError(null); // partial data is better than no data
+      } else {
+        setError(null);
       }
-
-      const [kpiData, srcData, actData] = await Promise.all([
-        kpiRes.json(),
-        srcRes.json(),
-        actRes.json(),
-      ]);
-
-      setKpis(kpiData);
-      setSources(srcData);
-      setActivity(actData);
       setLastRefreshed(new Date());
-      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load overview data");
     } finally {
@@ -179,96 +133,178 @@ export default function BusinessOverview() {
     return () => clearInterval(timer);
   }, []);
 
-  const alerts = activity.filter((a) => a.status === "error" || a.status === "warning").slice(0, 5);
-  const recentActivity = activity.slice(0, 8);
+  const alerts = activity
+    .filter((a) => a.status === "error" || a.status === "warning")
+    .slice(0, 5);
 
-  // ── Render ──
+  const recentActivity = activity.filter((a) => a.status === "success").slice(0, 8);
 
   return (
-    <div className="p-8 max-w-[1280px]">
-      {/* Header */}
-      <div className="flex items-baseline gap-4 mb-6">
-        <h1 className="text-3xl font-display font-semibold text-foreground tracking-tight">
+    <div style={{ padding: 32, maxWidth: 1280 }}>
+      {/* ── Page Header ── */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginBottom: 24 }}>
+        <h1
+          style={{
+            fontFamily: "var(--bp-font-display)",
+            fontSize: 32,
+            color: "var(--bp-ink-primary)",
+            lineHeight: 1.1,
+            fontWeight: 400,
+            letterSpacing: "-0.01em",
+          }}
+        >
           Overview
         </h1>
-        <span className="text-sm text-muted-foreground">
-          {lastRefreshed ? `Last refreshed: ${relativeTime(lastRefreshed.toISOString())}` : "Loading…"}
-        </span>
-        <button
-          onClick={fetchAll}
-          className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          aria-label="Refresh"
+        <span
+          style={{
+            fontSize: 13,
+            color: "var(--bp-ink-muted)",
+          }}
         >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </button>
+          {lastRefreshed
+            ? `Last refreshed: ${relativeTime(lastRefreshed.toISOString())}`
+            : "Loading…"}
+        </span>
       </div>
 
-      {/* Error banner */}
+      {/* ── Error banner ── */}
       {error && (
-        <div className="mb-5 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          <AlertCircle className="h-4 w-4 shrink-0" />
+        <div
+          style={{
+            marginBottom: 20,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            borderRadius: 8,
+            padding: "12px 16px",
+            fontSize: 13,
+            background: "var(--bp-fault-light)",
+            color: "var(--bp-fault)",
+            border: "1px solid rgba(185, 58, 42, 0.2)",
+          }}
+        >
           {error}
         </div>
       )}
 
-      {/* KPI Row */}
+      {/* ── KPI Row — asymmetric: freshness 1.5x wider ── */}
       {loading ? (
         <KPIRowSkeleton />
       ) : (
-        <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr] gap-4 mb-6">
-          {/* Data Freshness */}
-          <div className="bg-card border border-border rounded-lg p-5">
-            <div className="flex items-center gap-5">
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
+          {/* Freshness — Instrument Serif value + progress ring */}
+          <div className="bp-card" style={{ padding: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+              <div style={{ flex: 1 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: "var(--bp-ink-tertiary)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                    marginBottom: 8,
+                  }}
+                >
                   Data Freshness
                 </div>
-                <div className="font-mono text-4xl font-medium text-foreground tabular-nums leading-none">
-                  {kpis ? `${kpis.freshness_pct.toFixed(1)}%` : "—"}
-                </div>
-                <div className="text-sm text-muted-foreground mt-1.5">
-                  {kpis
-                    ? `${kpis.freshness_on_time.toLocaleString()} of ${kpis.freshness_total.toLocaleString()} ${t("Entities").toLowerCase()} on schedule`
-                    : "—"}
-                </div>
+                {kpis && kpis.freshness_total > 0 ? (
+                  <>
+                    <div
+                      className="bp-mono"
+                      style={{
+                        fontSize: 42,
+                        fontWeight: 500,
+                        color: "var(--bp-ink-primary)",
+                        lineHeight: 1,
+                      }}
+                    >
+                      {kpis.freshness_pct.toFixed(1)}%
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
+                      {kpis.freshness_on_time.toLocaleString()} of {kpis.freshness_total.toLocaleString()} {t("tables")} refreshed in last 24h
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div
+                      className="bp-mono"
+                      style={{
+                        fontSize: 42,
+                        fontWeight: 500,
+                        color: "var(--bp-ink-muted)",
+                        lineHeight: 1,
+                      }}
+                    >
+                      —
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
+                      No load data yet
+                    </div>
+                  </>
+                )}
               </div>
-              <ProgressRing pct={kpis?.freshness_pct ?? 0} />
+              <ProgressRing pct={kpis && kpis.freshness_total > 0 ? kpis.freshness_pct : 0} size={72} strokeWidth={5} />
             </div>
           </div>
 
           {/* Open Alerts */}
-          <div className="bg-card border border-border rounded-lg p-5">
-            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+          <div className="bp-card" style={{ padding: 20 }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: "var(--bp-ink-tertiary)",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                marginBottom: 8,
+              }}
+            >
               Open Alerts
             </div>
             <div
-              className={cn(
-                "font-mono text-4xl font-medium tabular-nums leading-none",
-                kpis && kpis.open_alerts > 0 ? "text-red-500 dark:text-red-400" : "text-foreground"
-              )}
+              className="bp-mono"
+              style={{
+                fontSize: 42,
+                fontWeight: 500,
+                lineHeight: 1,
+                color: kpis && kpis.open_alerts > 0 ? "var(--bp-fault)" : "var(--bp-ink-primary)",
+              }}
             >
               {kpis?.open_alerts ?? "—"}
             </div>
-            <div className="text-sm text-muted-foreground mt-1.5">
-              {kpis?.open_alerts === 0 ? "All clear" : kpis?.open_alerts === 1 ? "1 needs attention" : `${kpis?.open_alerts} need attention`}
+            <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
+              {kpis?.open_alerts === 0
+                ? "All clear"
+                : `${kpis?.open_alerts} need${kpis?.open_alerts === 1 ? "s" : ""} attention`}
             </div>
           </div>
 
-          {/* Sources Online */}
-          <div className="bg-card border border-border rounded-lg p-5">
-            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+          {/* Sources Online — split size for "N / M" */}
+          <div className="bp-card" style={{ padding: 20 }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: "var(--bp-ink-tertiary)",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                marginBottom: 8,
+              }}
+            >
               Sources Online
             </div>
-            <div className="font-mono text-4xl font-medium text-foreground tabular-nums leading-none">
+            <div className="bp-mono" style={{ fontSize: 42, fontWeight: 500, lineHeight: 1, color: "var(--bp-ink-primary)" }}>
               {kpis ? (
                 <>
                   {kpis.sources_online}
-                  <span className="text-2xl text-muted-foreground"> / {kpis.sources_total}</span>
+                  <span style={{ fontSize: 24, color: "var(--bp-ink-tertiary)" }}> / {kpis.sources_total}</span>
                 </>
-              ) : "—"}
+              ) : (
+                "—"
+              )}
             </div>
-            <div className="text-sm text-muted-foreground mt-1.5">
+            <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
               {kpis && kpis.sources_online === kpis.sources_total
                 ? "All sources connected"
                 : kpis
@@ -277,39 +313,50 @@ export default function BusinessOverview() {
             </div>
           </div>
 
-          {/* Total Data Assets */}
-          <div className="bg-card border border-border rounded-lg p-5">
-            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-              {t("Total Entities")}
+          {/* Total Tables */}
+          <div className="bp-card" style={{ padding: 20 }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: "var(--bp-ink-tertiary)",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                marginBottom: 8,
+              }}
+            >
+              Total {t("Tables")}
             </div>
-            <div className="font-mono text-4xl font-medium text-foreground tabular-nums leading-none">
+            <div className="bp-mono" style={{ fontSize: 42, fontWeight: 500, lineHeight: 1, color: "var(--bp-ink-primary)" }}>
               {kpis ? kpis.total_entities.toLocaleString() : "—"}
             </div>
-            <div className="text-sm text-muted-foreground mt-1.5">
-              Across {kpis ? kpis.sources_total : "—"} sources
+            <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
+              {kpis ? `Across ${kpis.sources_total} sources` : "—"}
             </div>
           </div>
         </div>
       )}
 
-      {/* Content Split */}
-      <div className="grid grid-cols-[3fr_2fr] gap-6">
-        {/* Left: Recent Alerts */}
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
-            <span className="text-sm font-semibold text-foreground">Recent Alerts</span>
-            <a
-              href="#/alerts"
-              className="text-[13px] text-primary hover:text-primary/80 font-medium transition-colors"
-            >
+      {/* ── Content: 60/40 split ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 24 }}>
+        {/* ── Left: Recent Alerts ── */}
+        <div className="bp-card">
+          <div className="bp-panel-header">
+            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
+              Recent Alerts
+            </span>
+            <Link to="/alerts" className="bp-link" style={{ fontSize: 13 }}>
               View all alerts →
-            </a>
+            </Link>
           </div>
 
           {loading ? (
-            <div className="divide-y divide-border/50">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="px-5 py-4 pl-8">
+            <div>
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  style={{ padding: "14px 20px", borderBottom: "1px solid var(--bp-border-subtle)" }}
+                >
                   <Skeleton className="h-3 w-40 mb-2" />
                   <Skeleton className="h-4 w-64 mb-1.5" />
                   <Skeleton className="h-3 w-32" />
@@ -317,81 +364,93 @@ export default function BusinessOverview() {
               ))}
             </div>
           ) : alerts.length === 0 ? (
-            <div className="px-5 py-10 text-center text-sm text-muted-foreground">
+            <div
+              style={{ padding: "48px 20px", textAlign: "center", fontSize: 14, color: "var(--bp-ink-muted)" }}
+            >
               No active alerts — all systems normal
             </div>
           ) : (
-            <div className="divide-y divide-border/50">
-              {alerts.map((alert, i) => {
-                const srcLabel = resolveSourceLabel(alert.source);
-                const srcColor = getSourceColor(alert.source);
-                return (
-                  <div key={i} className="relative flex gap-3 px-5 py-4 pl-8">
-                    {/* Severity rail */}
-                    <div
-                      className={cn(
-                        "absolute left-0 top-0 bottom-0 w-[3px]",
-                        alertRailClass(alert.status),
-                        alert.status === "error" && "animate-pulse"
-                      )}
-                    />
+            <div>
+              {alerts.map((alert, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    padding: "14px 20px",
+                    borderBottom: i < alerts.length - 1 ? "1px solid var(--bp-border-subtle)" : "none",
+                    position: "relative",
+                  }}
+                >
+                  {/* Status rail */}
+                  <StatusRail status={toRailStatus(alert.status)} />
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span
-                          className={cn(
-                            "text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded",
-                            alertSeverityClass(alert.status)
-                          )}
-                        >
-                          {alertSeverityLabel(alert.status)}
-                        </span>
-                        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <span
-                            className="inline-block w-2 h-2 rounded-full shrink-0"
-                            style={{ backgroundColor: srcColor.hex }}
-                          />
-                          {srcLabel}
-                        </span>
-                      </div>
-                      <div className="text-sm font-medium text-foreground leading-snug">
-                        {alert.entityName}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {layer(alert.layer)} layer
-                        {alert.lastLoadDate ? ` · ${relativeTime(alert.lastLoadDate)}` : ""}
-                      </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <SeverityBadge severity={toSeverity(alert.status)} />
+                      <SourceBadge source={alert.source} />
                     </div>
-
-                    <span className="font-mono text-[11px] text-muted-foreground self-start mt-0.5 whitespace-nowrap">
-                      {relativeTime(alert.lastLoadDate)}
-                    </span>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 500,
+                        color: "var(--bp-ink-primary)",
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {alert.entityName}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--bp-ink-muted)", marginTop: 4 }}>
+                      {layer(alert.layer)} layer
+                      {alert.lastLoadDate ? ` · First seen ${relativeTime(alert.lastLoadDate)}` : ""}
+                    </div>
                   </div>
-                );
-              })}
+
+                  <span
+                    className="bp-mono"
+                    style={{
+                      fontSize: 11,
+                      color: "var(--bp-ink-muted)",
+                      whiteSpace: "nowrap",
+                      alignSelf: "flex-start",
+                      marginTop: 2,
+                    }}
+                  >
+                    {relativeTime(alert.lastLoadDate)}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>
 
-        {/* Right: Stacked panels */}
-        <div className="flex flex-col gap-5">
+        {/* ── Right: Stacked panels ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
           {/* Source Health */}
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
-              <span className="text-sm font-semibold text-foreground">Source Health</span>
-              <a
-                href="#/sources"
-                className="text-[13px] text-primary hover:text-primary/80 font-medium transition-colors"
-              >
+          <div className="bp-card">
+            <div className="bp-panel-header">
+              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
+                Source Health
+              </span>
+              <Link to="/sources-portal" className="bp-link" style={{ fontSize: 13 }}>
                 All sources →
-              </a>
+              </Link>
             </div>
 
-            <div className="max-h-[220px] overflow-y-auto scrollbar-thin">
+            <div style={{ maxHeight: 220, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--bp-border-strong) transparent" }}>
               {loading ? (
-                <div className="divide-y divide-border/50">
-                  {[...Array(5)].map((_, i) => (
-                    <div key={i} className="flex items-center gap-3 px-5 py-2.5">
+                <div>
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "10px 20px",
+                        borderBottom: "1px solid var(--bp-border-subtle)",
+                      }}
+                    >
                       <Skeleton className="h-2.5 w-2.5 rounded-full" />
                       <Skeleton className="h-3 w-24 flex-1" />
                       <Skeleton className="h-3 w-16" />
@@ -400,25 +459,51 @@ export default function BusinessOverview() {
                   ))}
                 </div>
               ) : sources.length === 0 ? (
-                <div className="px-5 py-6 text-center text-sm text-muted-foreground">
+                <div
+                  style={{ padding: "32px 20px", textAlign: "center", fontSize: 13, color: "var(--bp-ink-muted)" }}
+                >
                   No sources configured
                 </div>
               ) : (
-                <div className="divide-y divide-border/50">
-                  {sources.map((src) => {
+                <div>
+                  {sources.map((src, i) => {
                     const srcColor = getSourceColor(src.name);
                     const label = src.displayName || resolveSourceLabel(src.name);
+                    const statusColor =
+                      src.status === "operational"
+                        ? "var(--bp-operational)"
+                        : src.status === "degraded"
+                        ? "var(--bp-caution)"
+                        : "var(--bp-fault)";
+
                     return (
-                      <div key={src.name} className="flex items-center gap-2.5 px-5 py-2.5 text-[13px]">
-                        <span
-                          className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: srcColor.hex }}
-                        />
-                        <span className="flex-1 font-medium text-foreground truncate">{label}</span>
-                        <span className={cn("text-xs font-medium", sourceStatusClass(src.status))}>
-                          {sourceStatusLabel(src.status)}
+                      <div
+                        key={src.name}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "10px 20px",
+                          borderBottom: i < sources.length - 1 ? "1px solid var(--bp-border-subtle)" : "none",
+                          fontSize: 13,
+                        }}
+                      >
+                        <span className="bp-source-dot" style={{ backgroundColor: srcColor.hex }} />
+                        <span style={{ flex: 1, fontWeight: 500, color: "var(--bp-ink-primary)" }}>
+                          {label}
                         </span>
-                        <span className="font-mono text-xs text-muted-foreground min-w-[36px] text-right tabular-nums">
+                        <span style={{ fontSize: 12, fontWeight: 500, color: statusColor, textTransform: "capitalize" }}>
+                          {src.status}
+                        </span>
+                        <span
+                          className="bp-mono"
+                          style={{
+                            fontSize: 12,
+                            color: "var(--bp-ink-tertiary)",
+                            minWidth: 48,
+                            textAlign: "right",
+                          }}
+                        >
                           {src.entityCount.toLocaleString()}
                         </span>
                       </div>
@@ -430,36 +515,56 @@ export default function BusinessOverview() {
           </div>
 
           {/* Recent Activity */}
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
-              <span className="text-sm font-semibold text-foreground">Recent Activity</span>
+          <div className="bp-card">
+            <div className="bp-panel-header">
+              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
+                Recent Activity
+              </span>
             </div>
 
-            <div className="max-h-[200px] overflow-y-auto scrollbar-thin">
+            <div style={{ maxHeight: 200, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--bp-border-strong) transparent" }}>
               {loading ? (
-                <div className="divide-y divide-border/50">
-                  {[...Array(5)].map((_, i) => (
-                    <div key={i} className="px-5 py-2.5">
+                <div>
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      style={{ padding: "10px 20px", borderBottom: "1px solid var(--bp-border-subtle)" }}
+                    >
                       <Skeleton className="h-3 w-48 mb-1.5" />
                       <Skeleton className="h-2.5 w-16" />
                     </div>
                   ))}
                 </div>
               ) : recentActivity.length === 0 ? (
-                <div className="px-5 py-6 text-center text-sm text-muted-foreground">
+                <div
+                  style={{ padding: "32px 20px", textAlign: "center", fontSize: 13, color: "var(--bp-ink-muted)" }}
+                >
                   No recent activity
                 </div>
               ) : (
-                <div className="divide-y divide-border/50">
+                <div>
                   {recentActivity.map((evt, i) => {
                     const srcLabel = resolveSourceLabel(evt.source);
                     return (
-                      <div key={i} className="px-5 py-2.5 text-[13px] text-muted-foreground leading-snug">
-                        <span className="font-medium text-foreground">{evt.entityName}</span>
-                        {" "}refreshed from {srcLabel}
-                        {" "}· {layer(evt.layer)}
+                      <div
+                        key={i}
+                        style={{
+                          padding: "10px 20px",
+                          borderBottom: i < recentActivity.length - 1 ? "1px solid var(--bp-border-subtle)" : "none",
+                          fontSize: 13,
+                          color: "var(--bp-ink-secondary)",
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        <span style={{ fontWeight: 500, color: "var(--bp-ink-primary)" }}>
+                          {evt.entityName}
+                        </span>
+                        {" "}refreshed from {srcLabel} · {layer(evt.layer)}
                         <br />
-                        <span className="font-mono text-[11px] text-muted-foreground/70">
+                        <span
+                          className="bp-mono"
+                          style={{ fontSize: 11, color: "var(--bp-ink-muted)" }}
+                        >
                           {relativeTime(evt.lastLoadDate)}
                         </span>
                       </div>

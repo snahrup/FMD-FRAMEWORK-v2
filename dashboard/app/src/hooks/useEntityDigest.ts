@@ -32,6 +32,7 @@ export interface DigestEntity {
   id: number;
   tableName: string;
   sourceSchema: string;
+  onelakeSchema?: string;
   source: string;
   targetSchema: string;
   dataSourceName: string;

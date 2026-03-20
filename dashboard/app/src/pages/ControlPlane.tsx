@@ -107,19 +107,19 @@ function formatTimestamp(iso: string): string {
 
 const statusIcon = (status: string) => {
   const s = status.toLowerCase();
-  if (s === 'succeeded') return <CheckCircle className="h-4 w-4 text-emerald-400" />;
-  if (s === 'failed') return <XCircle className="h-4 w-4 text-red-400" />;
-  if (s === 'inprogress') return <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />;
-  return <Clock className="h-4 w-4 text-muted-foreground" />;
+  if (s === 'succeeded') return <CheckCircle className="h-4 w-4" style={{ color: "var(--bp-operational)" }} />;
+  if (s === 'failed') return <XCircle className="h-4 w-4" style={{ color: "var(--bp-fault)" }} />;
+  if (s === 'inprogress') return <Loader2 className="h-4 w-4 animate-spin" style={{ color: "var(--bp-copper)" }} />;
+  return <Clock className="h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />;
 };
 
 const statusBadge = (status: string) => {
   const s = status.toLowerCase();
-  const cls = s === 'succeeded' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-    : s === 'failed' ? 'bg-red-500/10 text-red-400 border-red-500/20'
-    : s === 'inprogress' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-    : 'bg-muted text-muted-foreground border-border';
-  return <span className={`text-[11px] px-2 py-0.5 rounded border font-mono ${cls}`}>{status}</span>;
+  const style = s === 'succeeded' ? { background: "var(--bp-operational-light)", color: "var(--bp-operational)", borderColor: "var(--bp-operational)" }
+    : s === 'failed' ? { background: "var(--bp-fault-light)", color: "var(--bp-fault)", borderColor: "var(--bp-fault)" }
+    : s === 'inprogress' ? { background: "var(--bp-copper-light)", color: "var(--bp-copper)", borderColor: "var(--bp-copper)" }
+    : { background: "var(--bp-surface-inset)", color: "var(--bp-ink-muted)", borderColor: "var(--bp-border)" };
+  return <span className="text-[11px] px-2 py-0.5 rounded border" style={{ fontFamily: "var(--bp-font-mono)", ...style }}>{status}</span>;
 };
 
 /** Check IsActive across both SQLite (integer 0/1) and Fabric SQL (string 'True'/'1') */
@@ -130,11 +130,11 @@ function checkActive(val: unknown): boolean {
 }
 
 const HEALTH_CONFIG = {
-  healthy: { label: 'All Systems Operational', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', pulse: 'bg-emerald-500' },
-  warning: { label: 'Degraded — Recent Failures', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20', pulse: 'bg-amber-500' },
-  critical: { label: 'Critical — Pipelines Failing', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20', pulse: 'bg-red-500' },
-  setup: { label: 'Initial Setup — No Sources', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20', pulse: 'bg-blue-500' },
-  offline: { label: 'SQL Database Offline', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20', pulse: 'bg-red-500' },
+  healthy: { label: 'All Systems Operational', color: 'text-[var(--bp-operational)]', bg: 'border', pulse: 'bg-[var(--bp-operational)]', bgStyle: { background: "var(--bp-operational-light)", borderColor: "var(--bp-operational)" } },
+  warning: { label: 'Degraded — Recent Failures', color: 'text-[var(--bp-caution)]', bg: 'border', pulse: 'bg-[var(--bp-caution)]', bgStyle: { background: "var(--bp-caution-light)", borderColor: "var(--bp-caution)" } },
+  critical: { label: 'Critical — Pipelines Failing', color: 'text-[var(--bp-fault)]', bg: 'border', pulse: 'bg-[var(--bp-fault)]', bgStyle: { background: "var(--bp-fault-light)", borderColor: "var(--bp-fault)" } },
+  setup: { label: 'Initial Setup — No Sources', color: 'text-[var(--bp-copper)]', bg: 'border', pulse: 'bg-[var(--bp-copper)]', bgStyle: { background: "var(--bp-copper-light)", borderColor: "var(--bp-copper)" } },
+  offline: { label: 'SQL Database Offline', color: 'text-[var(--bp-fault)]', bg: 'border', pulse: 'bg-[var(--bp-fault)]', bgStyle: { background: "var(--bp-fault-light)", borderColor: "var(--bp-fault)" } },
 };
 
 interface EntityMeta {
@@ -235,7 +235,7 @@ export default function ControlPlane() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center max-w-md">
-          <AlertTriangle className="h-8 w-8 text-amber-500 mx-auto mb-4" />
+          <AlertTriangle className="h-8 w-8 text-[var(--bp-caution)] mx-auto mb-4" />
           <p className="text-foreground font-medium mb-2">Cannot Reach Data Platform</p>
           <p className="text-sm text-muted-foreground mb-4">{error}</p>
           <button onClick={() => setRefreshKey(k => k + 1)} className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors mx-auto">
@@ -296,11 +296,11 @@ export default function ControlPlane() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" style={{ padding: "32px", maxWidth: "1280px" }}>
       {/* ── Header ── */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-display font-bold tracking-tight text-foreground">Control Plane</h1>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>Control Plane</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Metadata database — the single source of truth driving all FMD pipelines
           </p>
@@ -313,7 +313,8 @@ export default function ControlPlane() {
           <button
             onClick={runMaintenanceAgent}
             disabled={maintenanceRunning}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg text-amber-400 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg transition-colors disabled:opacity-50"
+            style={{ background: "var(--bp-caution-light)", border: "1px solid var(--bp-caution)", color: "var(--bp-caution)" }}
             title="Run server-side resync + trigger OneLake maintenance agent in Fabric"
           >
             {maintenanceRunning
@@ -333,10 +334,14 @@ export default function ControlPlane() {
 
       {/* ── Maintenance Result Banner ── */}
       {maintenanceResult && (
-        <div className={`rounded-lg p-3 ${maintenanceResult.startsWith('Error') ? 'bg-red-500/10 border-red-500/20' : 'bg-emerald-500/10 border-emerald-500/20'} border flex items-center justify-between gap-3`}>
+        <div className="rounded-lg p-3 border flex items-center justify-between gap-3"
+          style={maintenanceResult.startsWith('Error')
+            ? { background: "var(--bp-fault-light)", borderColor: "var(--bp-fault)" }
+            : { background: "var(--bp-operational-light)", borderColor: "var(--bp-operational)" }
+          }>
           <div className="flex items-center gap-2">
-            <Wrench className={`h-4 w-4 shrink-0 ${maintenanceResult.startsWith('Error') ? 'text-red-400' : 'text-emerald-400'}`} />
-            <p className={`text-xs ${maintenanceResult.startsWith('Error') ? 'text-red-300' : 'text-emerald-300'}`}>
+            <Wrench className="h-4 w-4 shrink-0" style={{ color: maintenanceResult.startsWith('Error') ? "var(--bp-fault)" : "var(--bp-operational)" }} />
+            <p className="text-xs" style={{ color: maintenanceResult.startsWith('Error') ? "var(--bp-fault)" : "var(--bp-operational)" }}>
               {maintenanceResult}
             </p>
           </div>
@@ -346,16 +351,16 @@ export default function ControlPlane() {
 
       {/* ── Snapshot Banner ── */}
       {data._fromSnapshot && (
-        <div className="rounded-lg p-3 bg-amber-500/10 border border-amber-500/20 flex items-center gap-3">
-          <FileJson className="h-4 w-4 text-amber-400 shrink-0" />
-          <p className="text-xs text-amber-300">
+        <div className="rounded-lg p-3 border flex items-center gap-3" style={{ background: "var(--bp-caution-light)", borderColor: "var(--bp-caution)" }}>
+          <FileJson className="h-4 w-4 shrink-0" style={{ color: "var(--bp-caution)" }} />
+          <p className="text-xs" style={{ color: "var(--bp-caution)" }}>
             Showing cached snapshot — SQL database unreachable. Live data resumes when DB is back.
           </p>
         </div>
       )}
 
       {/* ── Health Bar + Key Metrics ── */}
-      <div className={`rounded-xl p-4 border ${healthCfg.bg} flex flex-wrap items-center gap-4`}>
+      <div className={`rounded-xl p-4 ${healthCfg.bg} flex flex-wrap items-center gap-4`} style={(healthCfg as any).bgStyle}>
         <div className="flex items-center gap-3">
           <div className="relative">
             <div className={`h-3 w-3 rounded-full ${healthCfg.pulse} animate-pulse`} />
@@ -385,9 +390,9 @@ export default function ControlPlane() {
           <>
             <div className="h-8 w-px bg-border/40 hidden sm:block" />
             <div className="flex items-center gap-3 text-xs">
-              <span className="text-emerald-400 font-mono">{ph.succeeded} OK</span>
-              <span className="text-red-400 font-mono">{ph.failed} FAIL</span>
-              <span className="text-blue-400 font-mono">{ph.running} RUN</span>
+              <span style={{ color: "var(--bp-operational)", fontFamily: "var(--bp-font-mono)" }}>{ph.succeeded} OK</span>
+              <span style={{ color: "var(--bp-fault)", fontFamily: "var(--bp-font-mono)" }}>{ph.failed} FAIL</span>
+              <span style={{ color: "var(--bp-copper)", fontFamily: "var(--bp-font-mono)" }}>{ph.running} RUN</span>
               <span className="text-muted-foreground">({successRate}% success)</span>
             </div>
           </>
@@ -418,9 +423,9 @@ export default function ControlPlane() {
           <div className="rounded-xl border border-border bg-card overflow-hidden">
             {/* Entity load error banner */}
             {entityError && entities.length === 0 && (
-              <div className="px-4 py-3 border-b border-amber-500/20 bg-amber-500/5 flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
-                <p className="text-xs text-amber-300">{entityError}</p>
+              <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: "var(--bp-caution)", background: "var(--bp-caution-light)" }}>
+                <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: "var(--bp-caution)" }} />
+                <p className="text-xs" style={{ color: "var(--bp-caution)" }}>{entityError}</p>
               </div>
             )}
             {/* Filters */}
@@ -476,19 +481,21 @@ export default function ControlPlane() {
                         <td className="px-3 py-1.5 font-mono text-foreground">{e.table}</td>
                         <td className="px-3 py-1.5 font-mono text-foreground/70">{e.FileName}</td>
                         <td className="px-3 py-1.5">
-                          <span className={`px-1.5 py-0.5 rounded border text-[10px] font-mono ${
-                            isInc ? 'text-blue-400 bg-blue-500/10 border-blue-500/20' : 'text-muted-foreground bg-muted border-border'
-                          }`}>
+                          <span className="px-1.5 py-0.5 rounded border text-[10px]"
+                            style={isInc
+                              ? { fontFamily: "var(--bp-font-mono)", color: "var(--bp-copper)", background: "var(--bp-copper-light)", borderColor: "var(--bp-copper)" }
+                              : { fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-muted)", background: "var(--bp-surface-inset)", borderColor: "var(--bp-border)" }
+                            }>
                             {isInc ? 'INCR' : 'FULL'}
                           </span>
                         </td>
                         <td className="px-3 py-1.5 font-mono text-muted-foreground">{e.watermarkColumn || '—'}</td>
                         <td className="px-3 py-1.5 font-mono text-muted-foreground max-w-[150px] truncate" title={e.primaryKeys}>{e.primaryKeys || '—'}</td>
                         <td className="px-3 py-1.5 text-center">
-                          {hasBronze ? <CheckCircle className="h-3.5 w-3.5 text-amber-400 inline" /> : <span className="text-muted-foreground/30">—</span>}
+                          {hasBronze ? <CheckCircle className="h-3.5 w-3.5 inline" style={{ color: "var(--bp-caution)" }} /> : <span style={{ color: "var(--bp-ink-muted)" }}>—</span>}
                         </td>
                         <td className="px-3 py-1.5 text-center">
-                          {hasSilver ? <CheckCircle className="h-3.5 w-3.5 text-gray-300 inline" /> : <span className="text-muted-foreground/30">—</span>}
+                          {hasSilver ? <CheckCircle className="h-3.5 w-3.5 inline" style={{ color: "var(--bp-ink-tertiary)" }} /> : <span style={{ color: "var(--bp-ink-muted)" }}>—</span>}
                         </td>
                         <td className="px-3 py-1.5 font-mono text-muted-foreground">
                           {e.lastLoadTime ? formatTimestamp(e.lastLoadTime) : <span className="text-muted-foreground/30">never</span>}
@@ -554,7 +561,7 @@ export default function ControlPlane() {
                             {run.Duration}
                           </span>
                         ) : run.Status === 'InProgress' ? (
-                          <span className="text-xs text-blue-400 animate-pulse">running...</span>
+                          <span className="text-xs animate-pulse" style={{ color: "var(--bp-copper)" }}>running...</span>
                         ) : (
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
@@ -585,9 +592,11 @@ export default function ControlPlane() {
                 >
                   {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                   <span className="font-semibold text-foreground">{src.namespace}</span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${
-                    allActive ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                  }`}>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium"
+                    style={allActive
+                      ? { background: "var(--bp-operational-light)", color: "var(--bp-operational)", borderColor: "var(--bp-operational)" }
+                      : { background: "var(--bp-caution-light)", color: "var(--bp-caution)", borderColor: "var(--bp-caution)" }
+                    }>
                     {allActive ? 'Active' : 'Partial'}
                   </span>
                   <div className="ml-auto flex items-center gap-4 text-xs text-muted-foreground">
@@ -606,7 +615,7 @@ export default function ControlPlane() {
                         <div className="space-y-1">
                           {src.connections.map(c => (
                             <div key={c.name} className="flex items-center gap-2 text-xs">
-                              <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${checkActive(c.isActive) ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                              <div className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: checkActive(c.isActive) ? "var(--bp-operational)" : "var(--bp-fault)" }} />
                               <span className="font-mono text-foreground">{c.name}</span>
                               <span className="text-muted-foreground/60">{c.type}</span>
                             </div>
@@ -636,9 +645,9 @@ export default function ControlPlane() {
                     <div>
                       <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Registered Entities</p>
                       <div className="flex gap-4 text-xs">
-                        <span className="text-slate-400">LZ: <strong className="text-foreground">{src.activeEntities.landing}</strong></span>
-                        <span className="text-amber-400">Bronze: <strong className="text-foreground">{src.activeEntities.bronze}</strong></span>
-                        <span className="text-gray-300">Silver: <strong className="text-foreground">{src.activeEntities.silver}</strong></span>
+                        <span style={{ color: "var(--bp-ink-secondary)" }}>LZ: <strong style={{ color: "var(--bp-ink-primary)" }}>{src.activeEntities.landing}</strong></span>
+                        <span style={{ color: "var(--bp-caution)" }}>Bronze: <strong style={{ color: "var(--bp-ink-primary)" }}>{src.activeEntities.bronze}</strong></span>
+                        <span style={{ color: "var(--bp-ink-tertiary)" }}>Silver: <strong style={{ color: "var(--bp-ink-primary)" }}>{src.activeEntities.silver}</strong></span>
                       </div>
                     </div>
                   </div>
@@ -660,7 +669,7 @@ export default function ControlPlane() {
             <div className="space-y-2">
               {data.workspaces.map(ws => (
                 <div key={ws.WorkspaceId} className="flex items-center gap-2 text-sm">
-                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  <div className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: "var(--bp-operational)" }} />
                   <span className="text-foreground font-mono text-xs">{ws.Name}</span>
                 </div>
               ))}
@@ -679,10 +688,11 @@ export default function ControlPlane() {
                   <Database className="h-3 w-3 text-muted-foreground shrink-0" />
                   <span className="text-foreground font-mono text-xs">{lh.Name}</span>
                   {lh.Environment && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ml-auto ${
-                      lh.Environment === 'DEV' ? 'text-blue-400 border-blue-500/20 bg-blue-500/5'
-                        : 'text-orange-400 border-orange-500/20 bg-orange-500/5'
-                    }`}>{lh.Environment}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded border ml-auto"
+                      style={lh.Environment === 'DEV'
+                        ? { fontFamily: "var(--bp-font-mono)", color: "var(--bp-copper)", borderColor: "var(--bp-copper)", background: "var(--bp-copper-light)" }
+                        : { fontFamily: "var(--bp-font-mono)", color: "var(--bp-caution)", borderColor: "var(--bp-caution)", background: "var(--bp-caution-light)" }
+                      }>{lh.Environment}</span>
                   )}
                 </div>
               ))}
@@ -702,7 +712,7 @@ export default function ControlPlane() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">Active</span>
-                <span className="text-lg font-bold text-emerald-400">{s.pipelines.active}</span>
+                <span className="text-lg font-bold" style={{ color: "var(--bp-operational)" }}>{s.pipelines.active}</span>
               </div>
               {s.pipelines.total > 0 && (
                 <div className="flex items-center justify-between pt-2 border-t border-border mt-2">
@@ -718,7 +728,7 @@ export default function ControlPlane() {
       {/* ── Footer ── */}
       <div className="text-center text-[10px] text-muted-foreground pb-2">
         {data._fromSnapshot ? (
-          <span className="text-amber-400">Snapshot mode — SQL database offline</span>
+          <span style={{ color: "var(--bp-caution)" }}>Snapshot mode — SQL database offline</span>
         ) : (
           <span>Live from integration metadata DB · {data.lastRefreshed ? formatTimestamp(data.lastRefreshed) : 'N/A'}</span>
         )}
@@ -758,11 +768,11 @@ function TabBtn({ active, onClick, icon, label, count }: { active: boolean; onCl
 
 function LayerBadge({ layer }: { layer: string }) {
   const l = (layer || '').toLowerCase();
-  const cls = l === 'control' ? 'text-blue-400 bg-blue-500/10 border-blue-500/20'
-    : l === 'landing' || l === 'landingzone' ? 'text-slate-400 bg-slate-500/10 border-slate-500/20'
-    : l === 'bronze' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
-    : l === 'silver' ? 'text-gray-300 bg-gray-500/10 border-gray-500/20'
-    : l === 'gold' ? 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20'
-    : 'text-muted-foreground bg-muted border-border';
-  return <span className={`text-[10px] px-2 py-0.5 rounded border font-mono ${cls}`}>{layer || '—'}</span>;
+  const style = l === 'control' ? { color: "var(--bp-copper)", background: "var(--bp-copper-light)", borderColor: "var(--bp-copper)" }
+    : l === 'landing' || l === 'landingzone' ? { color: "var(--bp-ink-secondary)", background: "var(--bp-surface-2)", borderColor: "var(--bp-border)" }
+    : l === 'bronze' ? { color: "var(--bp-caution)", background: "var(--bp-caution-light)", borderColor: "var(--bp-caution)" }
+    : l === 'silver' ? { color: "var(--bp-ink-tertiary)", background: "var(--bp-surface-inset)", borderColor: "var(--bp-border-strong)" }
+    : l === 'gold' ? { color: "var(--bp-caution)", background: "var(--bp-caution-light)", borderColor: "var(--bp-caution)" }
+    : { color: "var(--bp-ink-muted)", background: "var(--bp-surface-inset)", borderColor: "var(--bp-border)" };
+  return <span className="text-[10px] px-2 py-0.5 rounded border" style={{ fontFamily: "var(--bp-font-mono)", ...style }}>{layer || '—'}</span>;
 }

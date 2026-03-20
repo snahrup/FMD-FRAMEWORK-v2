@@ -7,6 +7,9 @@ import {
 } from 'lucide-react';
 import { ThemeContext } from '../App';
 
+/** Known source systems — update this list when sources change */
+const KNOWN_SOURCES = ['MES', 'ETQ', 'M3C', 'M3 ERP'] as const;
+
 const nodeTypeConfig: Record<string, { icon: typeof Database; bg: string; border: string; text: string }> = {
   source: { icon: Server, bg: 'bg-warmgray-50', border: 'border-warmgray-300', text: 'text-warmgray-600' },
   engine: { icon: Cpu, bg: 'bg-terracotta-50', border: 'border-terracotta-300', text: 'text-terracotta-600' },
@@ -195,7 +198,7 @@ function SvgDiagram() {
       <g>
         <rect x="20" y="80" width="120" height="140" rx="12" fill={cardFill} stroke={cardStroke} strokeWidth="1.5" />
         <text x="80" y="110" textAnchor="middle" fill="#7A756B" fontSize="11" fontWeight="600">SOURCES</text>
-        {['MES', 'ETQ', 'M3C', 'M3 ERP'].map((s, i) => (
+        {KNOWN_SOURCES.map((s, i) => (
           <g key={s}>
             <rect x="35" y={122 + i * 22} width="90" height="18" rx="4" fill={innerFill} stroke={cardStroke} strokeWidth="1" />
             <text x="80" y={134 + i * 22} textAnchor="middle" fill={textFill} fontSize="9">{s}</text>

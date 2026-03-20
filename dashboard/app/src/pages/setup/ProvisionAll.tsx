@@ -48,10 +48,10 @@ function getStepIcon(name: string) {
 }
 
 const STATUS_STYLES = {
-  creating: { color: "text-blue-400", bg: "bg-blue-500/10" },
-  ok: { color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  error: { color: "text-red-400", bg: "bg-red-500/10" },
-  warning: { color: "text-amber-400", bg: "bg-amber-500/10" },
+  creating: { color: "var(--bp-copper)", bg: "var(--bp-copper-light)" },
+  ok: { color: "var(--bp-operational)", bg: "var(--bp-operational-light)" },
+  error: { color: "var(--bp-fault)", bg: "var(--bp-fault-light)" },
+  warning: { color: "var(--bp-caution)", bg: "var(--bp-caution-light)" },
 };
 
 export function ProvisionAll({ onComplete }: ProvisionAllProps) {
@@ -125,7 +125,6 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
           pipelines: data.config.pipelines || {},
         };
         configRef.current = newConfig;
-        // Don't auto-navigate — let user review the results first
       }
     } catch (ex) {
       setError(ex instanceof Error ? ex.message : String(ex));
@@ -155,20 +154,20 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
   return (
     <div className="space-y-5">
       {/* Hero banner */}
-      <div className="rounded-lg border border-dashed border-blue-500/30 bg-gradient-to-br from-blue-500/5 to-purple-500/5 p-6">
+      <div className="rounded-lg p-6" style={{ border: '1px dashed var(--bp-border-strong)', background: 'var(--bp-copper-light)' }}>
         <div className="flex items-start gap-4">
-          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 flex items-center justify-center shrink-0">
-            <Rocket className="h-6 w-6 text-blue-400" />
+          <div className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
+            <Rocket className="h-6 w-6" style={{ color: 'var(--bp-copper)' }} />
           </div>
           <div className="space-y-2 flex-1">
-            <h3 className="text-lg font-bold">Provision Fresh Environment</h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">
+            <h3 className="text-lg font-bold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-display)' }}>Provision Fresh Environment</h3>
+            <p className="text-sm leading-relaxed" style={{ color: 'var(--bp-ink-secondary)', fontFamily: 'var(--bp-font-body)' }}>
               One click creates <strong>5 workspaces</strong>, <strong>3 lakehouses</strong>, and{" "}
               <strong>1 SQL database</strong> with correct naming conventions. Assigns Service
               Principal + FabricAdmins admin access to every workspace. Saves all IDs to every
               config target automatically.
             </p>
-            <p className="text-xs text-muted-foreground/60">
+            <p className="text-xs" style={{ color: 'var(--bp-ink-muted)' }}>
               Idempotent — safe to run again. Existing resources with matching names will be reused,
               not duplicated.
             </p>
@@ -196,7 +195,7 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
           onClick={handleProvision}
           disabled={!capacity || provisioning}
           size="lg"
-          className="gap-2"
+          className="gap-2 bp-btn-primary"
         >
           {provisioning ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -209,7 +208,7 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
 
       {/* Error */}
       {error && (
-        <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
+        <div className="rounded-md p-3 text-xs" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)', color: 'var(--bp-fault)' }}>
           {error}
         </div>
       )}
@@ -218,19 +217,20 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
       {steps.length > 0 && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <h4 className="text-xs font-medium text-muted-foreground">
+            <h4 className="text-xs font-medium" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
               {provisioning ? "Provisioning..." : done ? "Provisioning Complete" : "Progress"}
             </h4>
             <div className="flex items-center gap-2">
               {done && (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>
                   {successCount} succeeded{errorCount > 0 ? `, ${errorCount} failed` : ""}
                 </span>
               )}
               {done && (
                 <button
                   onClick={handleCopyIds}
-                  className="text-[10px] text-muted-foreground/60 hover:text-foreground flex items-center gap-1 transition-colors"
+                  className="text-[10px] flex items-center gap-1 transition-colors"
+                  style={{ color: copied ? 'var(--bp-operational)' : 'var(--bp-ink-muted)' }}
                 >
                   <Copy className="h-3 w-3" />
                   {copied ? "Copied!" : "Copy IDs"}
@@ -239,32 +239,30 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
             </div>
           </div>
 
-          <div className="rounded-md border border-border/40 bg-card divide-y divide-border/20">
+          <div className="rounded-md divide-y" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
             {steps.map((step, i) => {
               const style = STATUS_STYLES[step.status];
               const Icon = getStepIcon(step.name);
               return (
-                <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                  <Icon className={cn("h-4 w-4 shrink-0", style.color)} />
-                  <span className="text-sm font-medium flex-1">{step.name}</span>
+                <div key={i} className="flex items-center gap-3 px-4 py-2.5" style={{ borderColor: 'var(--bp-border-subtle)' }}>
+                  <Icon className="h-4 w-4 shrink-0" style={{ color: style.color }} />
+                  <span className="text-sm font-medium flex-1" style={{ color: 'var(--bp-ink-primary)' }}>{step.name}</span>
                   {step.status === "creating" && (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: 'var(--bp-copper)' }} />
                   )}
                   {step.status === "ok" && (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                    <CheckCircle2 className="h-3.5 w-3.5" style={{ color: 'var(--bp-operational)' }} />
                   )}
                   {step.status === "error" && (
-                    <XCircle className="h-3.5 w-3.5 text-red-400" />
+                    <XCircle className="h-3.5 w-3.5" style={{ color: 'var(--bp-fault)' }} />
                   )}
                   {step.status === "warning" && (
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                    <AlertTriangle className="h-3.5 w-3.5" style={{ color: 'var(--bp-caution)' }} />
                   )}
                   {step.details && (
                     <span
-                      className={cn(
-                        "text-[10px] max-w-[200px] truncate",
-                        step.status === "error" ? "text-red-400" : "text-muted-foreground/60",
-                      )}
+                      className="text-[10px] max-w-[200px] truncate"
+                      style={{ color: step.status === "error" ? 'var(--bp-fault)' : 'var(--bp-ink-muted)' }}
                       title={step.details}
                     >
                       {step.details}
@@ -272,7 +270,8 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
                   )}
                   {step.id && (
                     <span
-                      className="text-[9px] font-mono text-muted-foreground/40 max-w-[180px] truncate"
+                      className="text-[9px] max-w-[180px] truncate"
+                      style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-muted)' }}
                       title={step.id}
                     >
                       {step.id}
@@ -285,18 +284,18 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
         </div>
       )}
 
-      {/* ── Success confirmation panel ── */}
+      {/* Success confirmation panel */}
       {done && errorCount === 0 && (
-        <div className="rounded-lg border border-emerald-500/30 bg-gradient-to-br from-emerald-500/5 to-green-500/5 p-6 space-y-4">
+        <div className="rounded-lg p-6 space-y-4" style={{ border: '1px solid var(--bp-operational)', background: 'var(--bp-operational-light)' }}>
           <div className="flex items-start gap-3">
-            <div className="h-10 w-10 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0">
-              <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+            <div className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-operational)' }}>
+              <CheckCircle2 className="h-5 w-5" style={{ color: 'var(--bp-operational)' }} />
             </div>
             <div>
-              <h3 className="text-base font-bold text-emerald-400">
+              <h3 className="text-base font-bold" style={{ color: 'var(--bp-operational)' }}>
                 Environment Provisioned Successfully
               </h3>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-secondary)' }}>
                 All {successCount} resources created. Config saved to <strong>item_config.yaml</strong>,{" "}
                 <strong>config.json</strong>, <strong>SQL metadata</strong>, and{" "}
                 <strong>variable libraries</strong>.
@@ -306,26 +305,26 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
 
           {/* Resource summary grid */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-md border border-border/30 bg-card p-3">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Workspaces</div>
-              <div className="text-2xl font-bold text-foreground">5</div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">2 DEV + 2 PROD + 1 CONFIG</div>
+            <div className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+              <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--bp-ink-muted)' }}>Workspaces</div>
+              <div className="text-2xl font-bold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>5</div>
+              <div className="text-[10px] mt-0.5" style={{ color: 'var(--bp-ink-tertiary)' }}>2 DEV + 2 PROD + 1 CONFIG</div>
             </div>
-            <div className="rounded-md border border-border/30 bg-card p-3">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Lakehouses</div>
-              <div className="text-2xl font-bold text-foreground">3</div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">LZ + Bronze + Silver</div>
+            <div className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+              <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--bp-ink-muted)' }}>Lakehouses</div>
+              <div className="text-2xl font-bold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>3</div>
+              <div className="text-[10px] mt-0.5" style={{ color: 'var(--bp-ink-tertiary)' }}>LZ + Bronze + Silver</div>
             </div>
-            <div className="rounded-md border border-border/30 bg-card p-3">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">SQL Database</div>
-              <div className="text-2xl font-bold text-foreground">1</div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">Metadata DB</div>
+            <div className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+              <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--bp-ink-muted)' }}>SQL Database</div>
+              <div className="text-2xl font-bold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>1</div>
+              <div className="text-[10px] mt-0.5" style={{ color: 'var(--bp-ink-tertiary)' }}>Metadata DB</div>
             </div>
           </div>
 
           {/* Config targets confirmation */}
-          <div className="rounded-md border border-border/30 bg-card p-3">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-2">
+          <div className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+            <div className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--bp-ink-muted)' }}>
               Config Propagated To
             </div>
             <div className="grid grid-cols-2 gap-1.5">
@@ -336,8 +335,8 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
                 "Variable libraries",
               ].map((target) => (
                 <div key={target} className="flex items-center gap-1.5 text-[11px]">
-                  <CheckCircle2 className="h-3 w-3 text-emerald-400 shrink-0" />
-                  <span className="text-muted-foreground">{target}</span>
+                  <CheckCircle2 className="h-3 w-3 shrink-0" style={{ color: 'var(--bp-operational)' }} />
+                  <span style={{ color: 'var(--bp-ink-tertiary)' }}>{target}</span>
                 </div>
               ))}
             </div>
@@ -353,7 +352,8 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
               href="https://app.fabric.microsoft.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="flex items-center gap-1.5 text-xs transition-colors"
+              style={{ color: 'var(--bp-ink-tertiary)' }}
             >
               <ExternalLink className="h-3.5 w-3.5" />
               Open Fabric Portal
@@ -367,7 +367,8 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
               }}
               variant="ghost"
               size="sm"
-              className="gap-1.5 text-muted-foreground"
+              className="gap-1.5"
+              style={{ color: 'var(--bp-ink-tertiary)' }}
             >
               <Rocket className="h-3.5 w-3.5" />
               Provision Again
@@ -378,14 +379,14 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
 
       {/* Partial success with errors */}
       {done && errorCount > 0 && (
-        <div className="rounded-lg border border-amber-500/30 bg-gradient-to-br from-amber-500/5 to-orange-500/5 p-5 space-y-3">
+        <div className="rounded-lg p-5 space-y-3" style={{ border: '1px solid var(--bp-caution)', background: 'var(--bp-caution-light)' }}>
           <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+            <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" style={{ color: 'var(--bp-caution)' }} />
             <div>
-              <p className="text-sm font-medium text-amber-400">
+              <p className="text-sm font-medium" style={{ color: 'var(--bp-caution)' }}>
                 Provisioned with {errorCount} error{errorCount > 1 ? "s" : ""}
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-secondary)' }}>
                 {successCount} resources succeeded, {errorCount} failed. Review errors above and
                 re-run — idempotent, won't duplicate existing resources.
               </p>

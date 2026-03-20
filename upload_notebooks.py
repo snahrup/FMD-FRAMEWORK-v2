@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Upload modified notebooks to Fabric workspace (convert .py -> .ipynb)."""
 
-import base64, json, os, sys
+import os
+import base64, json, logging, os, sys
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 
 TENANT_ID = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
 CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
-CLIENT_SECRET = "Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu"
+CLIENT_SECRET = os.environ["FABRIC_CLIENT_SECRET"]
 CODE_WS = "146fe38c-f6c3-4e9d-a18c-5c01cad5941e"
 FABRIC_API = "https://api.fabric.microsoft.com/v1"
 
@@ -66,8 +67,8 @@ def fabric_py_to_ipynb(py_content):
                 i += 1
             try:
                 notebook_meta = json.loads("\n".join(meta_lines))
-            except:
-                pass
+            except Exception as e:
+                logging.debug("Failed to parse notebook metadata: %s", e)
             continue
 
         # Code cell
@@ -98,8 +99,8 @@ def fabric_py_to_ipynb(py_content):
                         i += 1
                     try:
                         cell_meta = json.loads("\n".join(meta_lines))
-                    except:
-                        pass
+                    except Exception as e:
+                        logging.debug("Failed to parse cell metadata: %s", e)
                     break
                 elif lines[i].strip() in ("# CELL ********************", "# MARKDOWN ********************", "# PARAMETERS CELL ********************"):
                     break

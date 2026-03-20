@@ -19,7 +19,7 @@ def _queue_export(table: str):
         from dashboard.app.api.parquet_sync import queue_export
         queue_export(table)
     except (ImportError, Exception):
-        pass
+        log.debug("Parquet export queue unavailable for table %s", table)
 
 # Ensure admin_config table exists. control_plane_db.init_db() does not create
 # it, so we create it here on first import. CREATE IF NOT EXISTS is idempotent.
@@ -86,7 +86,7 @@ def get_admin_config(params):
             try:
                 val = json.loads(val)
             except (json.JSONDecodeError, TypeError):
-                pass
+                pass  # intentionally suppressed: keep raw string if JSON parse fails
         result[key] = val
     return result
 
@@ -176,8 +176,8 @@ def get_setup_current_config(params):
             guid = r.get("ConnectionGuid", "")
             if name and guid:
                 connections[name] = {"id": guid, "displayName": name}
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("Failed to load connections for admin gateway: %s", e)
 
     config = {
         "workspaces": {

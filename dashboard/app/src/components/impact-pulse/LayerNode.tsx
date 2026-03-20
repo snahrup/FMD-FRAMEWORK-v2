@@ -31,15 +31,15 @@ function healthLevel(total: number, loaded: number, errors: number): "green" | "
 }
 
 const HEALTH_COLORS: Record<string, string> = {
-  green: "bg-emerald-400",
-  amber: "bg-amber-400",
-  red: "bg-red-400",
+  green: "bg-[#3D7C4F]",
+  amber: "bg-[#C27A1A]",
+  red: "bg-[#B93A2A]",
 };
 
 const HEALTH_RING: Record<string, string> = {
-  green: "ring-emerald-400/30",
-  amber: "ring-amber-400/30",
-  red: "ring-red-400/30",
+  green: "ring-[#3D7C4F]/30",
+  amber: "ring-[#C27A1A]/30",
+  red: "ring-[#B93A2A]/30",
 };
 
 function LayerNodeComponent({ data }: NodeProps) {
@@ -103,12 +103,12 @@ function LayerNodeComponent({ data }: NodeProps) {
         {/* Status row */}
         <div className="flex items-center gap-2 mt-0.5">
           {d.loadedCount > 0 && (
-            <span className="text-[10px] font-medium text-emerald-400">
+            <span className="text-[10px] font-medium text-[#3D7C4F]">
               {d.loadedCount.toLocaleString()} loaded
             </span>
           )}
           {d.errorCount > 0 && (
-            <span className="text-[10px] font-medium text-red-400">
+            <span className="text-[10px] font-medium text-[#B93A2A]">
               {d.errorCount.toLocaleString()} errors
             </span>
           )}

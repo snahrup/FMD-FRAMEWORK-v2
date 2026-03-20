@@ -177,19 +177,30 @@ import struct, pyodbc
 
 # CELL ********************
 
+_SAFE_PROC_RE = re.compile(r'^[\w.\[\]]+$')
+
+def _safe_proc_name(name):
+    """Validate stored procedure name to prevent SQL injection."""
+    if not name or not _SAFE_PROC_RE.match(name):
+        raise ValueError(f"Invalid stored procedure name: {name!r}")
+    return name
+
 def build_exec_statement(proc_name, **params):
+    safe_proc = _safe_proc_name(proc_name)
     param_strs = []
     for key, value in params.items():
         if value is not None:
+            if not re.match(r'^\w+$', key):
+                raise ValueError(f"Invalid parameter name: {key!r}")
             if isinstance(value, str):
-                param_strs.append(f"@{key}='{value}'")
+                param_strs.append(f"@{key}='{value.replace(chr(39), chr(39)+chr(39))}'")
             else:
                 param_strs.append(f"@{key}={value}")
 
     if param_strs:
-        return f"EXEC {proc_name}, " + ", ".join(param_strs)
+        return f"EXEC {safe_proc}, " + ", ".join(param_strs)
     else:
-        return f"EXEC {proc_name}"
+        return f"EXEC {safe_proc}"
 
 # METADATA ********************
 
@@ -283,14 +294,14 @@ def execute_with_outputs(exec_statement, driver, connstring, database, **params)
 
             try:
                 cursor.commit()
-            except:
-                pass
+            except Exception as e:
+                print(f"Warning: cursor.commit() failed (non-fatal): {e}")
 
     finally:
         try:
             conn.close()
-        except:
-            pass
+        except Exception as e:
+            print(f"Warning: conn.close() failed (non-fatal): {e}")
 
     return {
         "result_sets": result_sets,

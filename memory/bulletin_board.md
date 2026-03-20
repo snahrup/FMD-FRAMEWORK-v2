@@ -70,7 +70,7 @@ from azure.identity import ClientSecretCredential
 
 # Get token
 cred = ClientSecretCredential("ca81e9fd-06dd-49cf-b5a9-ee7441ff5303", "ac937c5d-4bdd-438f-be8b-84a850021d2d", "<secret>")
-token = cred.get_token("https://database.windows.net/.default").token
+token = cred.get_token("https://analysis.windows.net/powerbi/api/.default").token
 
 # Encode for pyodbc
 token_bytes = token.encode("UTF-16-LE")

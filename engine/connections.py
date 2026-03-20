@@ -60,14 +60,31 @@ class SourceConnection:
             conn.close()
 
     def ping(self, server: str, database: str) -> bool:
-        """Test connectivity to a source server."""
+        """Test connectivity to a source server.
+
+        Returns True/False for backward compatibility. Logs structured
+        diagnostic info on failure (VPN, auth, driver, timeout).
+        """
         try:
             with self.connect(server, database, timeout=10) as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT 1 AS ok")
                 return True
+        except pyodbc.Error as exc:
+            error_msg = str(exc).lower()
+            if "could not open a connection" in error_msg or "[53]" in str(exc):
+                log.warning("Source ping FAILED (%s/%s): NETWORK — server unreachable. Check VPN.", server, database)
+            elif "login failed" in error_msg:
+                log.warning("Source ping FAILED (%s/%s): AUTH — login failed. Check Windows auth / domain trust.", server, database)
+            elif "driver" in error_msg:
+                log.warning("Source ping FAILED (%s/%s): DRIVER — ODBC driver '%s' not found or misconfigured.", server, database, self._driver)
+            elif "timeout" in error_msg:
+                log.warning("Source ping FAILED (%s/%s): TIMEOUT — server did not respond within 10s.", server, database)
+            else:
+                log.warning("Source ping FAILED (%s/%s): %s", server, database, exc)
+            return False
         except Exception as exc:
-            log.warning("Source ping failed (%s/%s): %s", server, database, exc)
+            log.warning("Source ping FAILED (%s/%s): UNEXPECTED — %s", server, database, exc)
             return False
 
 

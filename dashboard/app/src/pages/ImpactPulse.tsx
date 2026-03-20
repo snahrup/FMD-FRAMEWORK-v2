@@ -99,11 +99,11 @@ type AnyEvent = PipelineEvent | NotebookEvent | CopyEvent;
 // ── Status Helpers ──
 
 const STATUS_META: Record<string, { color: string; icon: typeof CheckCircle2; label: string }> = {
-  complete: { color: "text-emerald-400", icon: CheckCircle2, label: "Complete" },
-  partial: { color: "text-amber-400", icon: Clock, label: "Partial" },
-  pending: { color: "text-blue-400", icon: Clock, label: "Pending" },
-  error: { color: "text-red-400", icon: AlertTriangle, label: "Error" },
-  not_started: { color: "text-muted-foreground/40", icon: Circle, label: "Not Started" },
+  complete: { color: "text-[var(--bp-operational)]", icon: CheckCircle2, label: "Complete" },
+  partial: { color: "text-[var(--bp-caution)]", icon: Clock, label: "Partial" },
+  pending: { color: "text-[var(--bp-copper)]", icon: Clock, label: "Pending" },
+  error: { color: "text-[var(--bp-fault)]", icon: AlertTriangle, label: "Error" },
+  not_started: { color: "text-[var(--bp-ink-muted)]", icon: Circle, label: "Not Started" },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -281,7 +281,8 @@ function LayerDrawer({
   return (
     <div
       ref={panelRef}
-      className="fixed top-0 right-0 h-full w-[400px] z-[300] bg-card border-l border-border/50 shadow-2xl flex flex-col animate-[slideInRight_0.25s_ease-out]"
+      className="fixed top-0 right-0 h-full w-[400px] z-[300] flex flex-col animate-[slideInRight_0.25s_ease-out]"
+      style={{ background: 'var(--bp-surface-1)', borderLeft: '1px solid var(--bp-border)' }}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-border/30 flex-shrink-0">
@@ -319,17 +320,17 @@ function LayerDrawer({
         </div>
         <div className="flex items-center gap-3 mt-2">
           {stats.loaded > 0 && (
-            <span className="text-[10px] font-medium text-emerald-400">
+            <span className="text-[10px] font-medium text-[var(--bp-operational)]">
               {stats.loaded.toLocaleString()} loaded
             </span>
           )}
           {stats.pending > 0 && (
-            <span className="text-[10px] font-medium text-blue-400">
+            <span className="text-[10px] font-medium text-[var(--bp-copper)]">
               {stats.pending.toLocaleString()} pending
             </span>
           )}
           {stats.error > 0 && (
-            <span className="text-[10px] font-medium text-red-400">
+            <span className="text-[10px] font-medium text-[var(--bp-fault)]">
               {stats.error.toLocaleString()} errors
             </span>
           )}
@@ -357,8 +358,8 @@ function LayerDrawer({
                   <span className="text-[10px] text-foreground truncate">{name}</span>
                   <span className={cn(
                     "text-[9px] font-mono px-1 py-0.5 rounded",
-                    logType === "Error" ? "bg-red-500/10 text-red-400" :
-                    logType === "End" ? "bg-emerald-500/10 text-emerald-400" :
+                    logType === "Error" ? "bg-[var(--bp-fault-light)] text-[var(--bp-fault)]" :
+                    logType === "End" ? "bg-[var(--bp-operational-light)] text-[var(--bp-operational)]" :
                     "bg-muted text-muted-foreground/60",
                   )}>
                     {logType}
@@ -375,7 +376,7 @@ function LayerDrawer({
 
       {/* Entity list */}
       <div className="flex-1 overflow-y-auto">
-        <div className="px-5 py-2 sticky top-0 bg-card/95 backdrop-blur-sm z-10">
+        <div className="px-5 py-2 sticky top-0 backdrop-blur-sm z-10" style={{ backgroundColor: 'rgba(254, 253, 251, 0.95)' }}>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40">
             Entities ({sortedEntities.length})
           </p>
@@ -520,7 +521,7 @@ export default function ImpactPulse() {
         data: {
           label: "Landing Zone",
           type: "layer",
-          color: "#3b82f6",
+          color: "#B45624", // --bp-copper
           entityCount: layerStats.lz.total,
           loadedCount: layerStats.lz.loaded,
           errorCount: layerStats.lz.error,
@@ -536,7 +537,7 @@ export default function ImpactPulse() {
         data: {
           label: "Bronze",
           type: "layer",
-          color: "#f59e0b",
+          color: "#C27A1A", // --bp-caution
           entityCount: layerStats.bronze.total,
           loadedCount: layerStats.bronze.loaded,
           errorCount: layerStats.bronze.error,
@@ -552,7 +553,7 @@ export default function ImpactPulse() {
         data: {
           label: "Silver",
           type: "layer",
-          color: "#8b5cf6",
+          color: "#78716C", // --bp-ink-tertiary
           entityCount: layerStats.silver.total,
           loadedCount: layerStats.silver.loaded,
           errorCount: layerStats.silver.error,
@@ -568,7 +569,7 @@ export default function ImpactPulse() {
         data: {
           label: "Gold",
           type: "layer",
-          color: "#10b981",
+          color: "#3D7C4F", // --bp-operational
           entityCount: layerStats.gold.total,
           loadedCount: layerStats.gold.loaded,
           errorCount: layerStats.gold.error,
@@ -611,7 +612,7 @@ export default function ImpactPulse() {
       target: "bronze",
       type: "animated",
       data: {
-        color: "#3b82f6",
+        color: "#B45624", // --bp-copper
         entityCount: layerStats.bronze.total,
         isActive: layerActivity.bronze,
       } satisfies AnimatedEdgeData,
@@ -624,7 +625,7 @@ export default function ImpactPulse() {
       target: "silver",
       type: "animated",
       data: {
-        color: "#f59e0b",
+        color: "#C27A1A", // --bp-caution
         entityCount: layerStats.silver.total,
         isActive: layerActivity.silver,
       } satisfies AnimatedEdgeData,
@@ -637,7 +638,7 @@ export default function ImpactPulse() {
       target: "gold",
       type: "animated",
       data: {
-        color: "#8b5cf6",
+        color: "#78716C", // --bp-ink-tertiary
         entityCount: layerStats.gold.total || 0,
         isActive: layerActivity.gold,
       } satisfies AnimatedEdgeData,
@@ -659,7 +660,7 @@ export default function ImpactPulse() {
     if (!selectedNode) return null;
 
     let label = "";
-    let color = "#64748b";
+    let color = "#A8A29E";
     let stats: LayerStats = { total: 0, loaded: 0, error: 0, pending: 0 };
 
     if (selectedNode.startsWith("source-")) {
@@ -671,10 +672,10 @@ export default function ImpactPulse() {
       stats = sourceStats[key] || stats;
     } else {
       const layerMap: Record<string, { label: string; color: string }> = {
-        lz: { label: "Landing Zone", color: "#3b82f6" },
-        bronze: { label: "Bronze", color: "#f59e0b" },
-        silver: { label: "Silver", color: "#8b5cf6" },
-        gold: { label: "Gold", color: "#10b981" },
+        lz: { label: "Landing Zone", color: "#B45624" },      // --bp-copper
+        bronze: { label: "Bronze", color: "#C27A1A" },        // --bp-caution
+        silver: { label: "Silver", color: "#78716C" },        // --bp-ink-tertiary
+        gold: { label: "Gold", color: "#3D7C4F" },            // --bp-operational
       };
       const layer = layerMap[selectedNode];
       if (!layer) return null;
@@ -700,8 +701,8 @@ export default function ImpactPulse() {
   if (error) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
-        <AlertCircle className="w-8 h-8 text-red-400" />
-        <p className="text-sm text-red-400">{error}</p>
+        <AlertCircle className="w-8 h-8 text-[var(--bp-fault)]" />
+        <p className="text-sm text-[var(--bp-fault)]">{error}</p>
         <button
           onClick={refresh}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -724,15 +725,15 @@ export default function ImpactPulse() {
   }
 
   return (
-    <div className="h-full w-full relative bg-background">
+    <div className="h-full w-full relative" style={{ backgroundColor: '#F4F2ED' }}>
       {/* ── Floating header (glassmorphic, overlaid on canvas) ── */}
       <div className="absolute top-4 left-4 right-4 z-50 pointer-events-none">
-        <div className="pointer-events-auto inline-flex items-center gap-4 bg-card/80 backdrop-blur-md border border-border/40 rounded-xl px-5 py-3 shadow-lg">
+        <div className="pointer-events-auto inline-flex items-center gap-4 rounded-lg px-5 py-3" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
           {/* Title */}
           <div className="flex items-center gap-2.5">
-            <Radar className="w-5 h-5 text-primary" />
+            <Radar className="w-5 h-5" style={{ color: '#B45624' }} />
             <div>
-              <h1 className="font-display text-sm font-semibold text-foreground leading-none">
+              <h1 className="text-[20px] font-normal tracking-tight leading-none" style={{ fontFamily: 'var(--bp-font-display)', color: 'var(--bp-ink-primary)' }}>
                 Impact Pulse
               </h1>
               <p className="text-[10px] text-muted-foreground/60 mt-0.5">
@@ -791,13 +792,13 @@ export default function ImpactPulse() {
         elementsSelectable={true}
         panOnScroll={true}
       >
-        <Background gap={20} size={1} color="var(--color-border)" />
+        <Background gap={20} size={1} color="rgba(0,0,0,0.04)" />
         <Controls position="bottom-left" showInteractive={false} />
         <MiniMap
           position="bottom-right"
           nodeStrokeWidth={3}
-          nodeColor={(node: Node) => (node.data as LayerNodeData)?.color || "#64748b"}
-          style={{ background: "var(--color-card)" }}
+          nodeColor={(node: Node) => (node.data as LayerNodeData)?.color || "#A8A29E"}
+          style={{ background: "#FEFDFB" }}
           maskColor="rgba(0,0,0,0.15)"
         />
       </ReactFlow>
@@ -823,25 +824,25 @@ export default function ImpactPulse() {
           to { transform: translateX(0); }
         }
 
-        /* React Flow overrides for dark/theme consistency */
+        /* React Flow overrides for Industrial Precision theme */
         .react-flow__controls {
-          background: var(--color-card) !important;
-          border: 1px solid var(--color-border) !important;
+          background: #FEFDFB !important;
+          border: 1px solid rgba(0,0,0,0.08) !important;
           border-radius: 8px !important;
-          box-shadow: var(--shadow-md) !important;
+          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important;
         }
         .react-flow__controls-button {
-          background: var(--color-card) !important;
-          border-color: var(--color-border) !important;
-          fill: var(--color-foreground) !important;
+          background: #FEFDFB !important;
+          border-color: rgba(0,0,0,0.08) !important;
+          fill: #1C1917 !important;
         }
         .react-flow__controls-button:hover {
-          background: var(--color-muted) !important;
+          background: #F9F7F3 !important;
         }
         .react-flow__minimap {
-          border: 1px solid var(--color-border) !important;
+          border: 1px solid rgba(0,0,0,0.08) !important;
           border-radius: 8px !important;
-          box-shadow: var(--shadow-md) !important;
+          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important;
         }
       `}</style>
     </div>

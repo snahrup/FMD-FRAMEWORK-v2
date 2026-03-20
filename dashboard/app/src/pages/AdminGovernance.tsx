@@ -1,3 +1,11 @@
+// ============================================================================
+// Admin & Governance — Framework metadata, lineage, and health overview.
+//
+// Design system: Industrial Precision (Business Portal), Light Mode
+// Fonts: Instrument Serif (display), Outfit (body), JetBrains Mono (data)
+// All styles use BP CSS custom properties (--bp-*)
+// ============================================================================
+
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   XCircle,
@@ -68,14 +76,14 @@ function FabricIcon({ name, className = 'w-5 h-5' }: { name: string; className?:
   return <img src={`/icons/${name}.svg`} alt={name} className={className} />;
 }
 
-// ── Layer colors ──
+// ── Layer colors (BP palette) ──
 
 const layerColors: Record<string, string> = {
-  source: '#64748b',
-  landing: '#3b82f6',
-  bronze: '#f59e0b',
-  silver: '#8b5cf6',
-  gold: '#10b981',
+  source: 'var(--bp-ink-muted, #8A8985)',
+  landing: 'var(--bp-copper, #B45624)',
+  bronze: 'var(--bp-caution, #C27A1A)',
+  silver: 'var(--bp-ink-secondary, #6B6A68)',
+  gold: 'var(--bp-operational, #3D7C4F)',
 };
 
 // ── API fetch helper ──
@@ -201,8 +209,8 @@ export default function AdminGovernance() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        <span className="ml-3 text-muted-foreground">Loading framework metadata...</span>
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--bp-copper)]" />
+        <span className="ml-3 text-[var(--bp-ink-muted)]">Loading framework metadata...</span>
       </div>
     );
   }
@@ -210,8 +218,8 @@ export default function AdminGovernance() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-96 gap-4">
-        <XCircle className="w-12 h-12 text-destructive" />
-        <p className="text-destructive font-medium">{error}</p>
+        <XCircle className="w-12 h-12 text-[var(--bp-fault)]" />
+        <p className="text-[var(--bp-fault)] font-medium">{error}</p>
         <Button onClick={loadData} variant="outline" className="gap-2">
           <RefreshCw className="w-4 h-4" /> Retry
         </Button>
@@ -220,11 +228,11 @@ export default function AdminGovernance() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-8 py-8 max-w-[1280px] mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">Admin & Governance</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="font-[var(--bp-font-display)] text-[32px] leading-tight text-[var(--bp-ink-primary)]">Admin & Governance</h1>
+          <p className="text-[var(--bp-ink-muted)] mt-1 font-[var(--bp-font-body)]">
             Live framework metadata from Fabric SQL Database
           </p>
         </div>
@@ -235,83 +243,83 @@ export default function AdminGovernance() {
       </div>
 
       {/* Health Scorecard — LIVE DATA */}
-      <div className="bg-gradient-to-br from-emerald-50 to-blue-50/50 dark:from-emerald-950/20 dark:to-blue-950/10 rounded-xl border border-emerald-200/50 dark:border-emerald-800/30 p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-foreground mb-6 flex items-center gap-2">
+      <div className="bg-[var(--bp-surface-2)] rounded-xl border border-[var(--bp-border)] p-6">
+        <h2 className="text-[18px] font-[var(--bp-font-body)] font-semibold text-[var(--bp-ink-primary)] mb-6 flex items-center gap-2">
           <FabricIcon name="fabric" />
           Framework Health
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          <div className="bg-muted rounded-lg p-5">
+          <div className="bg-[var(--bp-surface-1)] rounded-lg p-5 border border-[var(--bp-border-subtle)]">
             <div className="flex items-center justify-between mb-3">
-              <div className="w-10 h-10 bg-blue-100 dark:bg-blue-950/30 rounded-lg flex items-center justify-center">
+              <div className="w-10 h-10 bg-[var(--bp-copper-light)] rounded-lg flex items-center justify-center">
                 <FabricIcon name="pipeline" />
               </div>
-              <span className="text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 px-2 py-1 rounded-full">
+              <span className="text-xs font-medium text-[var(--bp-copper)] bg-[var(--bp-copper-light)] px-2 py-1 rounded-full">
                 {activePipelines.length} active
               </span>
             </div>
-            <p className="text-3xl font-bold text-foreground">{pipelines.length}</p>
-            <p className="text-sm text-muted-foreground mt-1">Pipelines</p>
-            <div className="flex items-center mt-2 space-x-3 text-xs text-muted-foreground">
+            <p className="text-3xl font-bold font-[var(--bp-font-mono)] tabular-nums text-[var(--bp-ink-primary)]">{pipelines.length}</p>
+            <p className="text-sm text-[var(--bp-ink-muted)] mt-1">Pipelines</p>
+            <div className="flex items-center mt-2 space-x-3 text-xs text-[var(--bp-ink-muted)] font-[var(--bp-font-mono)] tabular-nums">
               <span>{pipelinesByCategory.landingZone.length} LDZ</span>
               <span>{pipelinesByCategory.bronze.length} Bronze</span>
               <span>{pipelinesByCategory.silver.length} Silver</span>
             </div>
           </div>
 
-          <div className="bg-muted rounded-lg p-5">
+          <div className="bg-[var(--bp-surface-1)] rounded-lg p-5 border border-[var(--bp-border-subtle)]">
             <div className="flex items-center justify-between mb-3">
-              <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-950/30 rounded-lg flex items-center justify-center">
+              <div className="w-10 h-10 bg-[var(--bp-operational-light)] rounded-lg flex items-center justify-center">
                 <FabricIcon name="sql_database" />
               </div>
-              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-1 rounded-full">
+              <span className="text-xs font-medium text-[var(--bp-operational)] bg-[var(--bp-operational-light)] px-2 py-1 rounded-full">
                 Live
               </span>
             </div>
-            <p className="text-3xl font-bold text-foreground">{stats?.activeConnections ?? 0}</p>
-            <p className="text-sm text-muted-foreground mt-1">Connections</p>
-            <p className="text-xs text-muted-foreground mt-2">{stats?.activeDataSources ?? 0} data sources</p>
+            <p className="text-3xl font-bold font-[var(--bp-font-mono)] tabular-nums text-[var(--bp-ink-primary)]">{stats?.activeConnections ?? 0}</p>
+            <p className="text-sm text-[var(--bp-ink-muted)] mt-1">Connections</p>
+            <p className="text-xs text-[var(--bp-ink-muted)] mt-2 font-[var(--bp-font-mono)] tabular-nums">{stats?.activeDataSources ?? 0} data sources</p>
           </div>
 
-          <div className="bg-muted rounded-lg p-5">
+          <div className="bg-[var(--bp-surface-1)] rounded-lg p-5 border border-[var(--bp-border-subtle)]">
             <div className="flex items-center justify-between mb-3">
-              <div className="w-10 h-10 bg-purple-100 dark:bg-purple-950/30 rounded-lg flex items-center justify-center">
+              <div className="w-10 h-10 bg-[var(--bp-surface-inset)] rounded-lg flex items-center justify-center">
                 <FabricIcon name="lakehouse" />
               </div>
             </div>
-            <p className="text-3xl font-bold text-foreground">{stats?.lakehouses ?? 0}</p>
-            <p className="text-sm text-muted-foreground mt-1">Lakehouses</p>
-            <div className="flex items-center mt-2 space-x-4 text-xs">
-              <span className="text-blue-600 dark:text-blue-400">
+            <p className="text-3xl font-bold font-[var(--bp-font-mono)] tabular-nums text-[var(--bp-ink-primary)]">{stats?.lakehouses ?? 0}</p>
+            <p className="text-sm text-[var(--bp-ink-muted)] mt-1">Lakehouses</p>
+            <div className="flex items-center mt-2 space-x-4 text-xs font-[var(--bp-font-mono)] tabular-nums">
+              <span className="text-[var(--bp-copper)]">
                 {lakehouses.filter(l => workspaces.find(w => w.WorkspaceGuid === l.WorkspaceGuid)?.Name.includes('(D)')).length} Dev
               </span>
-              <span className="text-emerald-600 dark:text-emerald-400">
+              <span className="text-[var(--bp-operational)]">
                 {lakehouses.filter(l => workspaces.find(w => w.WorkspaceGuid === l.WorkspaceGuid)?.Name.includes('(P)')).length} Prod
               </span>
             </div>
           </div>
 
-          <div className="bg-muted rounded-lg p-5">
+          <div className="bg-[var(--bp-surface-1)] rounded-lg p-5 border border-[var(--bp-border-subtle)]">
             <div className="flex items-center justify-between mb-3">
-              <div className="w-10 h-10 bg-amber-100 dark:bg-amber-950/30 rounded-lg flex items-center justify-center">
+              <div className="w-10 h-10 bg-[var(--bp-caution-light)] rounded-lg flex items-center justify-center">
                 <FabricIcon name="sql_database" className="w-5 h-5" />
               </div>
             </div>
             <div className="flex items-baseline space-x-2">
-              <p className="text-3xl font-bold text-foreground">{stats?.activeEntities ?? 0}</p>
-              <p className="text-sm text-muted-foreground">entities</p>
+              <p className="text-3xl font-bold font-[var(--bp-font-mono)] tabular-nums text-[var(--bp-ink-primary)]">{stats?.activeEntities ?? 0}</p>
+              <p className="text-sm text-[var(--bp-ink-muted)]">entities</p>
             </div>
-            <div className="flex items-center mt-2 space-x-4 text-xs">
-              <span className="flex items-center text-blue-600 dark:text-blue-400">
-                <span className="w-2 h-2 bg-blue-500 rounded-full mr-1.5 inline-block"></span>
+            <div className="flex items-center mt-2 space-x-4 text-xs font-[var(--bp-font-mono)] tabular-nums">
+              <span className="flex items-center text-[var(--bp-copper)]">
+                <span className="w-2 h-2 bg-[var(--bp-copper)] rounded-full mr-1.5 inline-block"></span>
                 {lzEntityCount} Landing
               </span>
-              <span className="flex items-center text-amber-600 dark:text-amber-400">
-                <span className="w-2 h-2 bg-amber-500 rounded-full mr-1.5 inline-block"></span>
+              <span className="flex items-center text-[var(--bp-caution)]">
+                <span className="w-2 h-2 bg-[var(--bp-caution)] rounded-full mr-1.5 inline-block"></span>
                 {bronzeEntityCount} Bronze
               </span>
-              <span className="flex items-center text-purple-600 dark:text-purple-400">
-                <span className="w-2 h-2 bg-purple-500 rounded-full mr-1.5 inline-block"></span>
+              <span className="flex items-center text-[var(--bp-ink-secondary)]">
+                <span className="w-2 h-2 bg-[var(--bp-ink-secondary)] rounded-full mr-1.5 inline-block"></span>
                 {silverEntityCount} Silver
               </span>
             </div>
@@ -320,8 +328,8 @@ export default function AdminGovernance() {
       </div>
 
       {/* Entity Inventory by Layer */}
-      <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/20 dark:to-purple-900/10 rounded-xl border border-purple-200/50 dark:border-purple-800/30 p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+      <div className="bg-[var(--bp-surface-2)] rounded-xl border border-[var(--bp-border)] p-6">
+        <h2 className="text-[18px] font-[var(--bp-font-body)] font-semibold text-[var(--bp-ink-primary)] mb-4 flex items-center gap-2">
           <Layers className="w-5 h-5" />
           Entity Inventory by Layer
         </h2>
@@ -332,22 +340,22 @@ export default function AdminGovernance() {
             { label: 'Bronze', count: bronzeEntityCount, color: layerColors.bronze, icon: 'lakehouse' },
             { label: 'Silver', count: silverEntityCount, color: layerColors.silver, icon: 'lakehouse' },
           ].map((item, index) => (
-            <div key={item.label} className="relative bg-muted rounded-lg p-5 border border-border overflow-hidden">
+            <div key={item.label} className="relative bg-[var(--bp-surface-1)] rounded-lg p-5 border border-[var(--bp-border-subtle)] overflow-hidden">
               <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: item.color }}></div>
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center">
                   <FabricIcon name={item.icon} className="w-5 h-5 mr-2" />
-                  <span className="font-medium text-foreground">{item.label}</span>
+                  <span className="font-medium text-[var(--bp-ink-primary)] font-[var(--bp-font-body)]">{item.label}</span>
                 </div>
-                <span className="text-xs px-2 py-1 rounded-full font-medium" style={{
+                <span className="text-xs px-2 py-1 rounded-full font-medium font-[var(--bp-font-mono)]" style={{
                   backgroundColor: `${item.color}15`,
                   color: item.color,
                 }}>
                   Layer {index}
                 </span>
               </div>
-              <p className="text-3xl font-bold text-foreground">{item.count}</p>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="text-3xl font-bold font-[var(--bp-font-mono)] tabular-nums text-[var(--bp-ink-primary)]">{item.count}</p>
+              <p className="text-sm text-[var(--bp-ink-muted)] mt-1">
                 {item.count === 0 ? 'Not yet registered' : `${item.count} registered`}
               </p>
             </div>
@@ -356,7 +364,7 @@ export default function AdminGovernance() {
       </div>
 
       {/* Data Lineage — Enhanced Swim Lane Flow */}
-      <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 rounded-xl border border-slate-200/50 dark:border-slate-800/30 p-6 shadow-sm overflow-hidden">
+      <div className="bg-[var(--bp-surface-2)] rounded-xl border border-[var(--bp-border)] p-6 overflow-hidden">
         <style>{`
           @keyframes flowRight {
             from { background-position: 0 0; }
@@ -384,16 +392,16 @@ export default function AdminGovernance() {
 
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-lg font-semibold text-foreground">Data Lineage</h2>
-            <p className="text-sm text-muted-foreground mt-1">
+            <h2 className="text-[18px] font-[var(--bp-font-body)] font-semibold text-[var(--bp-ink-primary)]">Data Lineage</h2>
+            <p className="text-sm text-[var(--bp-ink-muted)] mt-1">
               Live data flow traced through the medallion architecture
             </p>
           </div>
         </div>
 
         {/* Legend */}
-        <div className="flex items-center space-x-6 mb-4 pb-4 border-b border-border">
-          <span className="text-sm font-medium text-muted-foreground">Layers:</span>
+        <div className="flex items-center space-x-6 mb-4 pb-4 border-b border-[var(--bp-border-subtle)]">
+          <span className="text-sm font-medium text-[var(--bp-ink-muted)]">Layers:</span>
           {[
             { label: 'Source', color: layerColors.source },
             { label: 'Landing', color: layerColors.landing },
@@ -403,13 +411,13 @@ export default function AdminGovernance() {
           ].map((item) => (
             <div key={item.label} className="flex items-center">
               <div className="w-3 h-3 rounded-full mr-1.5" style={{ backgroundColor: item.color }}></div>
-              <span className="text-sm text-muted-foreground">{item.label}</span>
+              <span className="text-sm text-[var(--bp-ink-muted)]">{item.label}</span>
             </div>
           ))}
         </div>
 
         {!hasLineageData ? (
-          <div className="text-center py-12 text-muted-foreground">
+          <div className="text-center py-12 text-[var(--bp-ink-muted)]">
             <FabricIcon name="databases" className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p className="font-medium">No lineage data yet</p>
             <p className="text-sm mt-1">Register connections, data sources, and entities in Source Manager to build the lineage graph</p>
@@ -418,15 +426,15 @@ export default function AdminGovernance() {
           <>
             {/* Column headers */}
             <div className="flex items-center mb-2 px-1">
-              <div className="w-[170px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center" style={{ color: layerColors.source }}>Source</div>
+              <div className="w-[170px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center font-[var(--bp-font-body)]" style={{ color: layerColors.source }}>Source</div>
               <div className="flex-1" />
-              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center" style={{ color: layerColors.landing }}>Landing Zone</div>
+              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center font-[var(--bp-font-body)]" style={{ color: layerColors.landing }}>Landing Zone</div>
               <div className="flex-1" />
-              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center" style={{ color: layerColors.bronze }}>Bronze</div>
+              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center font-[var(--bp-font-body)]" style={{ color: layerColors.bronze }}>Bronze</div>
               <div className="flex-1" />
-              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center" style={{ color: layerColors.silver }}>Silver</div>
+              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center font-[var(--bp-font-body)]" style={{ color: layerColors.silver }}>Silver</div>
               <div className="flex-1" />
-              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center" style={{ color: layerColors.gold }}>Gold</div>
+              <div className="w-[120px] shrink-0 text-xs uppercase tracking-wider font-semibold text-center font-[var(--bp-font-body)]" style={{ color: layerColors.gold }}>Gold</div>
             </div>
 
             {/* Swim lanes */}
@@ -439,25 +447,25 @@ export default function AdminGovernance() {
                   <div key={lane.id}>
                     {/* Lane row */}
                     <div
-                      className={`flex items-center px-1 py-1.5 rounded-lg cursor-pointer hover:bg-muted/50 transition-all duration-200 ${isDimmed ? 'opacity-[0.12]' : ''}`}
+                      className={`flex items-center px-1 py-1.5 rounded-lg cursor-pointer hover:bg-[var(--bp-surface-inset)] transition-all duration-200 ${isDimmed ? 'opacity-[0.12]' : ''}`}
                       onMouseEnter={() => setHoveredLane(lane.id)}
                       onMouseLeave={() => setHoveredLane(null)}
                       onClick={() => setExpandedLane(isExpanded ? null : lane.id)}
                     >
                       {/* Source node */}
                       <div className="w-[170px] shrink-0">
-                        <div className="rounded-lg border-2 px-3 py-2 bg-card relative overflow-hidden" style={{ borderColor: layerColors.source }}>
+                        <div className="rounded-lg border-2 px-3 py-2 bg-[var(--bp-surface-1)] relative overflow-hidden" style={{ borderColor: layerColors.source }}>
                           <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: layerColors.source }} />
                           <div className="flex items-center gap-1.5 ml-1">
                             {isExpanded
-                              ? <ChevronDown className="w-3 h-3 shrink-0 text-muted-foreground" />
-                              : <ChevronRight className="w-3 h-3 shrink-0 text-muted-foreground" />
+                              ? <ChevronDown className="w-3 h-3 shrink-0 text-[var(--bp-ink-muted)]" />
+                              : <ChevronRight className="w-3 h-3 shrink-0 text-[var(--bp-ink-muted)]" />
                             }
                             <div className="min-w-0 flex-1">
-                              <p className="text-xs font-semibold text-foreground truncate">{resolveSourceLabel(lane.dataSourceName)}</p>
-                              <p className="text-[10px] text-muted-foreground truncate">{lane.connectionName}</p>
+                              <p className="text-xs font-semibold text-[var(--bp-ink-primary)] truncate font-[var(--bp-font-body)]">{resolveSourceLabel(lane.dataSourceName)}</p>
+                              <p className="text-[10px] text-[var(--bp-ink-muted)] truncate">{lane.connectionName}</p>
                             </div>
-                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
+                            <span className="text-[9px] font-[var(--bp-font-mono)] px-1.5 py-0.5 rounded bg-[var(--bp-surface-inset)] text-[var(--bp-ink-muted)] shrink-0">
                               {lane.type.replace('_01', '')}
                             </span>
                           </div>
@@ -472,15 +480,15 @@ export default function AdminGovernance() {
                       {/* Landing node */}
                       <div className="w-[120px] shrink-0">
                         {lane.landingCount > 0 ? (
-                          <div className="rounded-lg border-2 px-2 py-2 bg-card relative overflow-hidden text-center" style={{ borderColor: layerColors.landing }}>
+                          <div className="rounded-lg border-2 px-2 py-2 bg-[var(--bp-surface-1)] relative overflow-hidden text-center" style={{ borderColor: layerColors.landing }}>
                             <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: layerColors.landing }} />
-                            <p className="text-xl font-bold leading-none" style={{ color: layerColors.landing }}>{lane.landingCount}</p>
-                            <p className="text-[10px] text-muted-foreground mt-0.5">entities</p>
+                            <p className="text-xl font-bold font-[var(--bp-font-mono)] tabular-nums leading-none" style={{ color: layerColors.landing }}>{lane.landingCount}</p>
+                            <p className="text-[10px] text-[var(--bp-ink-muted)] mt-0.5">entities</p>
                           </div>
                         ) : (
                           <div className="rounded-lg border-2 border-dashed px-2 py-2 text-center" style={{ borderColor: `${layerColors.landing}30` }}>
-                            <p className="text-xl font-bold leading-none text-muted-foreground/20">0</p>
-                            <p className="text-[10px] text-muted-foreground/30 mt-0.5">pending</p>
+                            <p className="text-xl font-bold font-[var(--bp-font-mono)] tabular-nums leading-none text-[var(--bp-ink-muted)] opacity-20">0</p>
+                            <p className="text-[10px] text-[var(--bp-ink-muted)] opacity-30 mt-0.5">pending</p>
                           </div>
                         )}
                       </div>
@@ -493,15 +501,15 @@ export default function AdminGovernance() {
                       {/* Bronze node */}
                       <div className="w-[120px] shrink-0">
                         {lane.bronzeCount > 0 ? (
-                          <div className="rounded-lg border-2 px-2 py-2 bg-card relative overflow-hidden text-center" style={{ borderColor: layerColors.bronze }}>
+                          <div className="rounded-lg border-2 px-2 py-2 bg-[var(--bp-surface-1)] relative overflow-hidden text-center" style={{ borderColor: layerColors.bronze }}>
                             <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: layerColors.bronze }} />
-                            <p className="text-xl font-bold leading-none" style={{ color: layerColors.bronze }}>{lane.bronzeCount}</p>
-                            <p className="text-[10px] text-muted-foreground mt-0.5">entities</p>
+                            <p className="text-xl font-bold font-[var(--bp-font-mono)] tabular-nums leading-none" style={{ color: layerColors.bronze }}>{lane.bronzeCount}</p>
+                            <p className="text-[10px] text-[var(--bp-ink-muted)] mt-0.5">entities</p>
                           </div>
                         ) : (
                           <div className="rounded-lg border-2 border-dashed px-2 py-2 text-center" style={{ borderColor: `${layerColors.bronze}30` }}>
-                            <p className="text-xl font-bold leading-none text-muted-foreground/20">0</p>
-                            <p className="text-[10px] text-muted-foreground/30 mt-0.5">pending</p>
+                            <p className="text-xl font-bold font-[var(--bp-font-mono)] tabular-nums leading-none text-[var(--bp-ink-muted)] opacity-20">0</p>
+                            <p className="text-[10px] text-[var(--bp-ink-muted)] opacity-30 mt-0.5">pending</p>
                           </div>
                         )}
                       </div>
@@ -514,15 +522,15 @@ export default function AdminGovernance() {
                       {/* Silver node */}
                       <div className="w-[120px] shrink-0">
                         {lane.silverCount > 0 ? (
-                          <div className="rounded-lg border-2 px-2 py-2 bg-card relative overflow-hidden text-center" style={{ borderColor: layerColors.silver }}>
+                          <div className="rounded-lg border-2 px-2 py-2 bg-[var(--bp-surface-1)] relative overflow-hidden text-center" style={{ borderColor: layerColors.silver }}>
                             <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: layerColors.silver }} />
-                            <p className="text-xl font-bold leading-none" style={{ color: layerColors.silver }}>{lane.silverCount}</p>
-                            <p className="text-[10px] text-muted-foreground mt-0.5">entities</p>
+                            <p className="text-xl font-bold font-[var(--bp-font-mono)] tabular-nums leading-none" style={{ color: layerColors.silver }}>{lane.silverCount}</p>
+                            <p className="text-[10px] text-[var(--bp-ink-muted)] mt-0.5">entities</p>
                           </div>
                         ) : (
                           <div className="rounded-lg border-2 border-dashed px-2 py-2 text-center" style={{ borderColor: `${layerColors.silver}30` }}>
-                            <p className="text-xl font-bold leading-none text-muted-foreground/20">0</p>
-                            <p className="text-[10px] text-muted-foreground/30 mt-0.5">pending</p>
+                            <p className="text-xl font-bold font-[var(--bp-font-mono)] tabular-nums leading-none text-[var(--bp-ink-muted)] opacity-20">0</p>
+                            <p className="text-[10px] text-[var(--bp-ink-muted)] opacity-30 mt-0.5">pending</p>
                           </div>
                         )}
                       </div>
@@ -535,71 +543,71 @@ export default function AdminGovernance() {
                       {/* Gold node (future - MLVs) */}
                       <div className="w-[120px] shrink-0">
                         <div className="rounded-lg border-2 border-dashed px-2 py-2 text-center" style={{ borderColor: `${layerColors.gold}30` }}>
-                          <p className="text-xl font-bold leading-none text-muted-foreground/20">0</p>
-                          <p className="text-[10px] text-muted-foreground/30 mt-0.5">MLV</p>
+                          <p className="text-xl font-bold font-[var(--bp-font-mono)] tabular-nums leading-none text-[var(--bp-ink-muted)] opacity-20">0</p>
+                          <p className="text-[10px] text-[var(--bp-ink-muted)] opacity-30 mt-0.5">MLV</p>
                         </div>
                       </div>
                     </div>
 
                     {/* Expanded detail panel */}
                     {isExpanded && (
-                      <div className="ml-[170px] mt-1 mb-2 bg-muted/40 rounded-lg border border-border p-4 animate-in slide-in-from-top-2 duration-200">
+                      <div className="ml-[170px] mt-1 mb-2 bg-[var(--bp-canvas)] rounded-lg border border-[var(--bp-border-subtle)] p-4 animate-in slide-in-from-top-2 duration-200">
                         <div className="grid grid-cols-3 gap-6">
                           {/* Landing entities */}
                           <div>
-                            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5" style={{ color: layerColors.landing }}>
+                            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5 font-[var(--bp-font-body)]" style={{ color: layerColors.landing }}>
                               <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: layerColors.landing }} />
                               Landing Zone ({lane.landingCount})
                             </p>
                             <div className="space-y-0.5 max-h-40 overflow-y-auto">
                               {lane.digestEntities.map(e => (
                                 <div key={e.id} className="flex items-center gap-2 text-[11px]">
-                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{e.sourceSchema}</span>
-                                  <span className="font-mono text-foreground/80 truncate">{e.tableName}</span>
-                                  <span className={`ml-auto text-[9px] px-1 py-0.5 rounded shrink-0 ${
+                                  <span className="font-[var(--bp-font-mono)] text-[var(--bp-ink-muted)] w-10 shrink-0">{e.sourceSchema}</span>
+                                  <span className="font-[var(--bp-font-mono)] text-[var(--bp-ink-secondary)] truncate">{e.tableName}</span>
+                                  <span className={`ml-auto text-[9px] px-1 py-0.5 rounded shrink-0 font-[var(--bp-font-mono)] ${
                                     e.isIncremental
-                                      ? 'bg-blue-100 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400'
-                                      : 'bg-muted text-muted-foreground'
+                                      ? 'bg-[var(--bp-copper-light)] text-[var(--bp-copper)]'
+                                      : 'bg-[var(--bp-surface-inset)] text-[var(--bp-ink-muted)]'
                                   }`}>
                                     {e.isIncremental ? 'INC' : 'FULL'}
                                   </span>
                                 </div>
                               ))}
-                              {lane.landingCount === 0 && <p className="text-[11px] text-muted-foreground italic">No entities registered</p>}
+                              {lane.landingCount === 0 && <p className="text-[11px] text-[var(--bp-ink-muted)] italic">No entities registered</p>}
                             </div>
                           </div>
 
                           {/* Bronze entities */}
                           <div>
-                            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5" style={{ color: layerColors.bronze }}>
+                            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5 font-[var(--bp-font-body)]" style={{ color: layerColors.bronze }}>
                               <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: layerColors.bronze }} />
                               Bronze ({lane.bronzeCount})
                             </p>
                             <div className="space-y-0.5 max-h-40 overflow-y-auto">
                               {lane.digestEntities.filter(e => e.bronzeId !== null).map(e => (
                                 <div key={`brz-${e.id}`} className="flex items-center gap-2 text-[11px]">
-                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{e.sourceSchema}</span>
-                                  <span className="font-mono text-foreground/80 truncate">{e.tableName}</span>
+                                  <span className="font-[var(--bp-font-mono)] text-[var(--bp-ink-muted)] w-10 shrink-0">{e.sourceSchema}</span>
+                                  <span className="font-[var(--bp-font-mono)] text-[var(--bp-ink-secondary)] truncate">{e.tableName}</span>
                                 </div>
                               ))}
-                              {lane.bronzeCount === 0 && <p className="text-[11px] text-muted-foreground italic">Not yet processed</p>}
+                              {lane.bronzeCount === 0 && <p className="text-[11px] text-[var(--bp-ink-muted)] italic">Not yet processed</p>}
                             </div>
                           </div>
 
                           {/* Silver entities */}
                           <div>
-                            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5" style={{ color: layerColors.silver }}>
+                            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5 font-[var(--bp-font-body)]" style={{ color: layerColors.silver }}>
                               <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: layerColors.silver }} />
                               Silver ({lane.silverCount})
                             </p>
                             <div className="space-y-0.5 max-h-40 overflow-y-auto">
                               {lane.digestEntities.filter(e => e.silverId !== null).map(e => (
                                 <div key={`slv-${e.id}`} className="flex items-center gap-2 text-[11px]">
-                                  <span className="font-mono text-muted-foreground w-10 shrink-0">{e.sourceSchema}</span>
-                                  <span className="font-mono text-foreground/80 truncate">{e.tableName}</span>
+                                  <span className="font-[var(--bp-font-mono)] text-[var(--bp-ink-muted)] w-10 shrink-0">{e.sourceSchema}</span>
+                                  <span className="font-[var(--bp-font-mono)] text-[var(--bp-ink-secondary)] truncate">{e.tableName}</span>
                                 </div>
                               ))}
-                              {lane.silverCount === 0 && <p className="text-[11px] text-muted-foreground italic">Not yet processed</p>}
+                              {lane.silverCount === 0 && <p className="text-[11px] text-[var(--bp-ink-muted)] italic">Not yet processed</p>}
                             </div>
                           </div>
                         </div>
@@ -621,12 +629,12 @@ export default function AdminGovernance() {
                   >
                     {/* Source node (dashed - pending) */}
                     <div className="w-[170px] shrink-0">
-                      <div className="rounded-lg border-2 border-dashed px-3 py-2 bg-card relative" style={{ borderColor: `${layerColors.source}50` }}>
+                      <div className="rounded-lg border-2 border-dashed px-3 py-2 bg-[var(--bp-surface-1)] relative" style={{ borderColor: `${layerColors.source}50` }}>
                         <div className="flex items-center gap-1.5">
                           <FabricIcon name="sql_database" className="w-3.5 h-3.5 shrink-0 opacity-40" />
                           <div className="min-w-0">
-                            <p className="text-xs font-semibold text-muted-foreground truncate">{conn.Name}</p>
-                            <p className="text-[10px] text-muted-foreground/50">No data source</p>
+                            <p className="text-xs font-semibold text-[var(--bp-ink-muted)] truncate">{conn.Name}</p>
+                            <p className="text-[10px] text-[var(--bp-ink-muted)] opacity-50">No data source</p>
                           </div>
                         </div>
                       </div>
@@ -640,7 +648,7 @@ export default function AdminGovernance() {
                         </div>
                         <div className="w-[120px] shrink-0">
                           <div className="rounded-lg border-2 border-dashed px-2 py-2 text-center" style={{ borderColor: `${color}15` }}>
-                            <p className="text-xl font-bold leading-none text-muted-foreground/10">—</p>
+                            <p className="text-xl font-bold font-[var(--bp-font-mono)] tabular-nums leading-none text-[var(--bp-ink-muted)] opacity-10">&mdash;</p>
                           </div>
                         </div>
                       </div>
@@ -651,27 +659,27 @@ export default function AdminGovernance() {
             </div>
 
             {/* Flow Summary */}
-            <div className="mt-6 pt-4 border-t border-border">
+            <div className="mt-6 pt-4 border-t border-[var(--bp-border-subtle)]">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">
+                <span className="text-[var(--bp-ink-muted)]">
                   {sourceLanes.length} source{sourceLanes.length !== 1 ? 's' : ''} registered
                   {orphanConnections.length > 0 && ` \u00b7 ${orphanConnections.length} connection${orphanConnections.length !== 1 ? 's' : ''} pending`}
                 </span>
-                <div className="flex items-center space-x-6">
-                  <span className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{connections.filter(c => c.IsActive === 'True').length}</span> connections
+                <div className="flex items-center space-x-6 font-[var(--bp-font-mono)] tabular-nums">
+                  <span className="text-[var(--bp-ink-muted)]">
+                    <span className="font-medium text-[var(--bp-ink-primary)]">{connections.filter(c => c.IsActive === 'True').length}</span> connections
                   </span>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{lzEntityCount}</span> landing
+                  <ArrowRight className="w-4 h-4 text-[var(--bp-ink-muted)]" />
+                  <span className="text-[var(--bp-ink-muted)]">
+                    <span className="font-medium text-[var(--bp-ink-primary)]">{lzEntityCount}</span> landing
                   </span>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{bronzeEntityCount}</span> bronze
+                  <ArrowRight className="w-4 h-4 text-[var(--bp-ink-muted)]" />
+                  <span className="text-[var(--bp-ink-muted)]">
+                    <span className="font-medium text-[var(--bp-ink-primary)]">{bronzeEntityCount}</span> bronze
                   </span>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{silverEntityCount}</span> silver
+                  <ArrowRight className="w-4 h-4 text-[var(--bp-ink-muted)]" />
+                  <span className="text-[var(--bp-ink-muted)]">
+                    <span className="font-medium text-[var(--bp-ink-primary)]">{silverEntityCount}</span> silver
                   </span>
                 </div>
               </div>
@@ -683,8 +691,8 @@ export default function AdminGovernance() {
       {/* Workspaces & Lakehouses + Pipeline Inventory */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Workspaces */}
-        <div className="bg-gradient-to-br from-blue-50 to-purple-50/50 dark:from-blue-950/20 dark:to-purple-950/10 rounded-xl border border-blue-200/50 dark:border-blue-800/30 p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+        <div className="bg-[var(--bp-surface-2)] rounded-xl border border-[var(--bp-border)] p-6">
+          <h2 className="text-[18px] font-[var(--bp-font-body)] font-semibold text-[var(--bp-ink-primary)] mb-4 flex items-center gap-2">
             <FabricIcon name="folder" />
             Workspaces & Lakehouses
           </h2>
@@ -692,17 +700,17 @@ export default function AdminGovernance() {
           {/* Dev */}
           {devWorkspaces.length > 0 && (
             <div className="mb-4">
-              <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">Development</h3>
+              <h3 className="text-xs uppercase tracking-wider text-[var(--bp-ink-muted)] font-semibold mb-2 font-[var(--bp-font-body)]">Development</h3>
               <div className="space-y-2">
                 {devWorkspaces.map(ws => (
-                  <div key={ws.WorkspaceId} className="p-3 bg-muted rounded-lg border border-border">
+                  <div key={ws.WorkspaceId} className="p-3 bg-[var(--bp-surface-1)] rounded-lg border border-[var(--bp-border-subtle)]">
                     <div className="flex items-center gap-2 mb-2">
                       <FabricIcon name="fabric" className="w-4 h-4" />
-                      <span className="font-medium text-sm text-foreground">{ws.Name}</span>
+                      <span className="font-medium text-sm text-[var(--bp-ink-primary)] font-[var(--bp-font-body)]">{ws.Name}</span>
                     </div>
                     <div className="flex flex-wrap gap-2 ml-6">
                       {lakehouses.filter(l => l.WorkspaceGuid === ws.WorkspaceGuid).map(lh => (
-                        <span key={lh.LakehouseId} className="text-xs bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full flex items-center gap-1">
+                        <span key={lh.LakehouseId} className="text-xs bg-[var(--bp-copper-light)] text-[var(--bp-copper)] px-2 py-1 rounded-full flex items-center gap-1 font-[var(--bp-font-mono)]">
                           <FabricIcon name="lakehouse" className="w-3 h-3" />
                           {lh.Name}
                         </span>
@@ -717,17 +725,17 @@ export default function AdminGovernance() {
           {/* Prod */}
           {prodWorkspaces.length > 0 && (
             <div className="mb-4">
-              <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">Production</h3>
+              <h3 className="text-xs uppercase tracking-wider text-[var(--bp-ink-muted)] font-semibold mb-2 font-[var(--bp-font-body)]">Production</h3>
               <div className="space-y-2">
                 {prodWorkspaces.map(ws => (
-                  <div key={ws.WorkspaceId} className="p-3 bg-muted rounded-lg border border-border">
+                  <div key={ws.WorkspaceId} className="p-3 bg-[var(--bp-surface-1)] rounded-lg border border-[var(--bp-border-subtle)]">
                     <div className="flex items-center gap-2 mb-2">
                       <FabricIcon name="fabric" className="w-4 h-4" />
-                      <span className="font-medium text-sm text-foreground">{ws.Name}</span>
+                      <span className="font-medium text-sm text-[var(--bp-ink-primary)] font-[var(--bp-font-body)]">{ws.Name}</span>
                     </div>
                     <div className="flex flex-wrap gap-2 ml-6">
                       {lakehouses.filter(l => l.WorkspaceGuid === ws.WorkspaceGuid).map(lh => (
-                        <span key={lh.LakehouseId} className="text-xs bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 px-2 py-1 rounded-full flex items-center gap-1">
+                        <span key={lh.LakehouseId} className="text-xs bg-[var(--bp-operational-light)] text-[var(--bp-operational)] px-2 py-1 rounded-full flex items-center gap-1 font-[var(--bp-font-mono)]">
                           <FabricIcon name="lakehouse" className="w-3 h-3" />
                           {lh.Name}
                         </span>
@@ -742,13 +750,13 @@ export default function AdminGovernance() {
           {/* Config */}
           {configWorkspaces.length > 0 && (
             <div>
-              <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">Config</h3>
+              <h3 className="text-xs uppercase tracking-wider text-[var(--bp-ink-muted)] font-semibold mb-2 font-[var(--bp-font-body)]">Config</h3>
               <div className="space-y-2">
                 {configWorkspaces.map(ws => (
-                  <div key={ws.WorkspaceId} className="p-3 bg-muted rounded-lg border border-border">
+                  <div key={ws.WorkspaceId} className="p-3 bg-[var(--bp-surface-1)] rounded-lg border border-[var(--bp-border-subtle)]">
                     <div className="flex items-center gap-2">
                       <FabricIcon name="fabric" className="w-4 h-4" />
-                      <span className="font-medium text-sm text-foreground">{ws.Name}</span>
+                      <span className="font-medium text-sm text-[var(--bp-ink-primary)] font-[var(--bp-font-body)]">{ws.Name}</span>
                     </div>
                   </div>
                 ))}
@@ -758,31 +766,34 @@ export default function AdminGovernance() {
         </div>
 
         {/* Pipeline Inventory */}
-        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/20 dark:to-amber-900/10 rounded-xl border border-amber-200/50 dark:border-amber-800/30 p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+        <div className="bg-[var(--bp-surface-2)] rounded-xl border border-[var(--bp-border)] p-6">
+          <h2 className="text-[18px] font-[var(--bp-font-body)] font-semibold text-[var(--bp-ink-primary)] mb-4 flex items-center gap-2">
             <FabricIcon name="pipeline" />
             Pipeline Inventory ({activePipelines.length} active)
           </h2>
 
           {[
-            { label: 'Landing Zone', pipes: pipelinesByCategory.landingZone, badgeClass: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20' },
-            { label: 'Bronze Layer', pipes: pipelinesByCategory.bronze, badgeClass: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20' },
-            { label: 'Silver Layer', pipes: pipelinesByCategory.silver, badgeClass: 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/20' },
-            { label: 'Orchestration', pipes: pipelinesByCategory.orchestration, badgeClass: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20' },
-            { label: 'Utility', pipes: pipelinesByCategory.utility, badgeClass: 'text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/20' },
+            { label: 'Landing Zone', pipes: pipelinesByCategory.landingZone, badgeColor: 'var(--bp-copper)', badgeBg: 'var(--bp-copper-light)' },
+            { label: 'Bronze Layer', pipes: pipelinesByCategory.bronze, badgeColor: 'var(--bp-caution)', badgeBg: 'var(--bp-caution-light)' },
+            { label: 'Silver Layer', pipes: pipelinesByCategory.silver, badgeColor: 'var(--bp-ink-secondary)', badgeBg: 'var(--bp-surface-inset)' },
+            { label: 'Orchestration', pipes: pipelinesByCategory.orchestration, badgeColor: 'var(--bp-operational)', badgeBg: 'var(--bp-operational-light)' },
+            { label: 'Utility', pipes: pipelinesByCategory.utility, badgeColor: 'var(--bp-ink-muted)', badgeBg: 'var(--bp-surface-inset)' },
           ].filter(cat => cat.pipes.length > 0).map(cat => (
             <div key={cat.label} className="mb-4">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">{cat.label}</h3>
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cat.badgeClass}`}>
+                <h3 className="text-xs uppercase tracking-wider text-[var(--bp-ink-muted)] font-semibold font-[var(--bp-font-body)]">{cat.label}</h3>
+                <span
+                  className="text-xs font-medium px-2 py-0.5 rounded-full font-[var(--bp-font-mono)]"
+                  style={{ color: cat.badgeColor, backgroundColor: cat.badgeBg }}
+                >
                   {cat.pipes.length}
                 </span>
               </div>
               <div className="space-y-1">
                 {cat.pipes.map(p => (
-                  <div key={p.PipelineId} className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded text-sm hover:bg-muted transition-colors">
+                  <div key={p.PipelineId} className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bp-surface-1)] rounded text-sm hover:bg-[var(--bp-surface-inset)] transition-colors border border-transparent hover:border-[var(--bp-border-subtle)]">
                     <FabricIcon name="pipeline" className="w-3.5 h-3.5 opacity-60" />
-                    <span className="text-foreground/80 font-mono text-xs">{p.Name}</span>
+                    <span className="text-[var(--bp-ink-secondary)] font-[var(--bp-font-mono)] text-xs">{p.Name}</span>
                   </div>
                 ))}
               </div>

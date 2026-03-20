@@ -70,6 +70,7 @@ export interface SelectedTable {
 export interface FabricLakehouse {
   name: string;
   display: string;
+  layer: 'landing' | 'bronze' | 'silver' | 'unknown';
   status: 'online' | 'offline' | 'unknown';
   error: string | null;
 }

@@ -25,17 +25,17 @@ export function LakehouseStep({ lakehouses, dataWorkspaceId, onChange }: Lakehou
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <Database className="h-4 w-4 text-emerald-400" />
-        <h3 className="text-sm font-semibold">Select or Create Lakehouses</h3>
+        <Database className="h-4 w-4" style={{ color: 'var(--bp-copper)' }} />
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>Select or Create Lakehouses</h3>
       </div>
-      <p className="text-xs text-muted-foreground leading-relaxed">
+      <p className="text-xs leading-relaxed" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
         FMD uses three lakehouses for the medallion architecture: Landing Zone (raw),
         Bronze (cleaned), and Silver (conformed). These live in the Data workspace.
       </p>
 
       <div className="space-y-3">
         {LAKEHOUSE_FIELDS.map((field) => (
-          <div key={field.key} className="rounded-md border border-border/40 bg-card p-3">
+          <div key={field.key} className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
             <FabricDropdown
               label={field.label}
               endpoint={hasWorkspace ? `/setup/workspaces/${dataWorkspaceId}/lakehouses` : ""}

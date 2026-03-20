@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FMD Framework — Data Source Audit</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --canvas: #F4F2ED;
+    --surface-1: #FEFDFB;
+    --surface-2: #F9F7F3;
+    --surface-inset: #EDEAE4;
+    --ink-primary: #1C1917;
+    --ink-secondary: #57534E;
+    --ink-tertiary: #78716C;
+    --ink-muted: #A8A29E;
+    --copper: #B45624;
+    --copper-hover: #9A4A1F;
+    --copper-light: #F4E8DF;
+    --operational: #3D7C4F;
+    --operational-light: #E7F3EB;
+    --caution: #C27A1A;
+    --caution-light: #FDF3E3;
+    --fault: #B93A2A;
+    --fault-light: #FBEAE8;
+    --border: rgba(0,0,0,0.08);
+    --border-strong: rgba(0,0,0,0.14);
+    --sqlite: #3D7C4F;
+    --fabric-sql: #2563EB;
+    --onelake: #7C3AED;
+    --onprem: #C27A1A;
+    --fabric-api: #0891B2;
+    --inmemory: #78716C;
+    --hardcoded: #A8A29E;
+    --local-fs: #9333EA;
+    --sse: #DB2777;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Outfit', system-ui, sans-serif;
+    background: var(--canvas);
+    color: var(--ink-primary);
+    line-height: 1.5;
+  }
+
+  /* ── Sticky Nav ── */
+  .top-bar {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 32px;
+    display: flex; align-items: center; gap: 16px;
+    backdrop-filter: blur(12px);
+  }
+  .top-bar h1 {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-size: 22px; font-weight: normal;
+    white-space: nowrap;
+  }
+  .top-bar .badge {
+    font-size: 11px; font-weight: 600;
+    background: var(--copper-light); color: var(--copper);
+    padding: 2px 8px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .top-bar .search {
+    flex: 1; max-width: 320px; margin-left: auto;
+    background: var(--surface-inset); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px;
+    font-family: 'Outfit', sans-serif; font-size: 13px;
+    color: var(--ink-primary); outline: none;
+  }
+  .top-bar .search:focus { border-color: var(--copper); }
+  .top-bar .search::placeholder { color: var(--ink-muted); }
+
+  /* ── Sidebar ── */
+  .layout { display: flex; min-height: 100vh; }
+  .sidebar {
+    width: 280px; min-width: 280px;
+    background: var(--surface-1);
+    border-right: 1px solid var(--border);
+    padding: 16px 0;
+    position: sticky; top: 52px;
+    height: calc(100vh - 52px);
+    overflow-y: auto;
+  }
+  .sidebar h3 {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--ink-muted);
+    padding: 12px 20px 4px;
+  }
+  .sidebar a {
+    display: block; padding: 5px 20px;
+    font-size: 13px; color: var(--ink-secondary);
+    text-decoration: none;
+    transition: all 0.15s;
+  }
+  .sidebar a:hover { color: var(--copper); background: var(--copper-light); }
+  .sidebar a .ds-dot {
+    display: inline-block; width: 6px; height: 6px;
+    border-radius: 50%; margin-right: 6px; vertical-align: middle;
+  }
+  .sidebar .section-sep { height: 1px; background: var(--border); margin: 8px 20px; }
+
+  /* ── Main Content ── */
+  .main { flex: 1; padding: 32px; max-width: 1200px; }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    padding: 16px 20px; border-radius: 8px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 500; color: var(--ink-secondary);
+  }
+  .legend-dot {
+    width: 10px; height: 10px; border-radius: 3px;
+  }
+
+  /* ── Summary Stats ── */
+  .summary-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px; margin-bottom: 32px;
+  }
+  .stat-card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px;
+  }
+  .stat-card .label {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--ink-tertiary);
+  }
+  .stat-card .value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 28px; font-weight: 500; color: var(--ink-primary);
+    font-feature-settings: 'tnum';
+  }
+  .stat-card .detail { font-size: 12px; color: var(--ink-muted); }
+
+  /* ── Page Sections ── */
+  .page-section {
+    margin-bottom: 40px;
+    scroll-margin-top: 68px;
+  }
+  .page-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .page-header h2 {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-size: 24px; font-weight: normal;
+  }
+  .page-header .tag {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; padding: 2px 8px; border-radius: 4px;
+  }
+  .tag-cluster { background: var(--copper-light); color: var(--copper); }
+  .tag-stub { background: var(--surface-inset); color: var(--ink-muted); }
+  .tag-broken { background: var(--fault-light); color: var(--fault); }
+
+  .page-meta {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 12px;
+  }
+  .endpoint-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; padding: 2px 8px; border-radius: 4px;
+    background: var(--surface-inset); color: var(--ink-secondary);
+  }
+  .hook-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; padding: 2px 8px; border-radius: 4px;
+    background: var(--copper-light); color: var(--copper);
+  }
+
+  /* ── Visual Elements Table ── */
+  .visual-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .visual-table thead th {
+    background: var(--surface-2);
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--ink-tertiary);
+    border-bottom: 1px solid var(--border);
+  }
+  .visual-table tbody td {
+    padding: 6px 12px;
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+    vertical-align: top;
+  }
+  .visual-table tbody tr:last-child td { border-bottom: none; }
+  .visual-table tbody tr:hover { background: var(--surface-2); }
+  .visual-table .mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+
+  /* ── Data Source Badges ── */
+  .ds-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 600;
+    padding: 1px 6px; border-radius: 3px;
+    white-space: nowrap;
+  }
+  .ds-sqlite { background: #E7F3EB; color: #2D5E3A; }
+  .ds-fabric-sql { background: #DBEAFE; color: #1D4ED8; }
+  .ds-onelake { background: #EDE9FE; color: #6D28D9; }
+  .ds-onprem { background: #FDF3E3; color: #92580F; }
+  .ds-fabric-api { background: #CFFAFE; color: #0E7490; }
+  .ds-inmemory { background: var(--surface-inset); color: var(--ink-tertiary); }
+  .ds-hardcoded { background: #F5F5F4; color: #A8A29E; }
+  .ds-local-fs { background: #F3E8FF; color: #7E22CE; }
+  .ds-sse { background: #FCE7F3; color: #BE185D; }
+
+  /* ── Cluster Header ── */
+  .cluster-header {
+    margin-top: 48px; margin-bottom: 20px;
+    padding: 16px 20px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    scroll-margin-top: 68px;
+  }
+  .cluster-header h2 {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-size: 28px; font-weight: normal;
+  }
+  .cluster-header p { font-size: 13px; color: var(--ink-secondary); margin-top: 4px; }
+
+  /* ── Findings ── */
+  .finding {
+    padding: 12px 16px; border-radius: 8px;
+    margin-bottom: 12px; font-size: 13px;
+  }
+  .finding-critical { background: var(--fault-light); border-left: 3px solid var(--fault); }
+  .finding-warning { background: var(--caution-light); border-left: 3px solid var(--caution); }
+  .finding-info { background: var(--operational-light); border-left: 3px solid var(--operational); }
+  .finding strong { font-weight: 600; }
+
+  /* ── Collapsible ── */
+  details { margin-bottom: 2px; }
+  details summary {
+    cursor: pointer; list-style: none;
+    padding: 6px 12px;
+    font-size: 13px; font-weight: 500;
+    color: var(--ink-secondary);
+    border-radius: 6px;
+    transition: background 0.15s;
+  }
+  details summary:hover { background: var(--surface-2); }
+  details summary::before { content: '▸ '; color: var(--ink-muted); }
+  details[open] summary::before { content: '▾ '; }
+  details .detail-content { padding: 8px 12px 16px; }
+
+  /* ── Cross-page Link Badges ── */
+  .link-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; padding: 2px 8px; border-radius: 4px;
+    background: #DBEAFE; color: #1D4ED8;
+    white-space: nowrap;
+  }
+  .link-badge::before { content: '→ '; }
+
+  /* ── Back to Top ── */
+  .back-top {
+    position: fixed; bottom: 24px; right: 24px;
+    width: 40px; height: 40px;
+    background: var(--copper); color: white;
+    border: none; border-radius: 50%;
+    font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: background 0.15s;
+    z-index: 100;
+  }
+  .back-top:hover { background: var(--copper-hover); }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .main { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ Top Bar ═══ -->
+<div class="top-bar">
+  <h1>Data Source Audit</h1>
+  <span class="badge">67 Pages &middot; 100+ Endpoints</span>
+  <input class="search" type="text" placeholder="Search pages, endpoints, data sources..." id="globalSearch" oninput="filterPages(this.value)">
+</div>
+
+<div class="layout">
+
+<!-- ═══ Sidebar Navigation ═══ -->
+<nav class="sidebar">
+  <h3>Overview</h3>
+  <a href="#summary">Summary &amp; Stats</a>
+  <a href="#legend">Data Source Legend</a>
+  <a href="#findings">Critical Findings</a>
+  <div class="section-sep"></div>
+
+  <h3>Core Operations</h3>
+  <a href="#ExecutionMatrix"><span class="ds-dot" style="background:var(--fabric-sql)"></span>ExecutionMatrix</a>
+  <a href="#EngineControl"><span class="ds-dot" style="background:var(--sqlite)"></span>EngineControl</a>
+  <a href="#ControlPlane"><span class="ds-dot" style="background:var(--fabric-sql)"></span>ControlPlane</a>
+  <a href="#ExecutionLog"><span class="ds-dot" style="background:var(--fabric-sql)"></span>ExecutionLog</a>
+  <a href="#LiveMonitor"><span class="ds-dot" style="background:var(--fabric-sql)"></span>LiveMonitor</a>
+  <a href="#LoadProgress"><span class="ds-dot" style="background:var(--fabric-sql)"></span>LoadProgress</a>
+  <a href="#ExecutiveDashboard"><span class="ds-dot" style="background:var(--sqlite)"></span>ExecutiveDashboard</a>
+  <div class="section-sep"></div>
+
+  <h3>Data Registry</h3>
+  <a href="#RecordCounts"><span class="ds-dot" style="background:var(--onelake)"></span>RecordCounts</a>
+  <a href="#DataCatalog"><span class="ds-dot" style="background:var(--sqlite)"></span>DataCatalog</a>
+  <a href="#DataJourney"><span class="ds-dot" style="background:var(--fault)"></span>DataJourney</a>
+  <a href="#ColumnEvolution"><span class="ds-dot" style="background:var(--fault)"></span>ColumnEvolution</a>
+  <a href="#DataLineage"><span class="ds-dot" style="background:var(--sqlite)"></span>DataLineage</a>
+  <a href="#DataClassification"><span class="ds-dot" style="background:var(--sqlite)"></span>DataClassification</a>
+  <a href="#DataManager"><span class="ds-dot" style="background:var(--sqlite)"></span>DataManager</a>
+  <div class="section-sep"></div>
+
+  <h3>Data Exploration</h3>
+  <a href="#DataBlender"><span class="ds-dot" style="background:var(--onelake)"></span>DataBlender</a>
+  <a href="#DataMicroscope"><span class="ds-dot" style="background:var(--onprem)"></span>DataMicroscope</a>
+  <a href="#DataProfiler"><span class="ds-dot" style="background:var(--onelake)"></span>DataProfiler</a>
+  <a href="#DatabaseExplorer"><span class="ds-dot" style="background:var(--sqlite)"></span>DatabaseExplorer</a>
+  <a href="#SqlExplorer"><span class="ds-dot" style="background:var(--onprem)"></span>SqlExplorer</a>
+  <a href="#SankeyFlow"><span class="ds-dot" style="background:var(--sqlite)"></span>SankeyFlow</a>
+  <a href="#FlowExplorer"><span class="ds-dot" style="background:var(--sqlite)"></span>FlowExplorer</a>
+  <div class="section-sep"></div>
+
+  <h3>Quality &amp; Testing</h3>
+  <a href="#DqScorecard"><span class="ds-dot" style="background:var(--hardcoded)"></span>DqScorecard</a>
+  <a href="#CleansingRuleEditor"><span class="ds-dot" style="background:var(--hardcoded)"></span>CleansingRuleEditor</a>
+  <a href="#ScdAudit"><span class="ds-dot" style="background:var(--hardcoded)"></span>ScdAudit</a>
+  <a href="#GoldMlvManager"><span class="ds-dot" style="background:var(--hardcoded)"></span>GoldMlvManager</a>
+  <a href="#TestAudit"><span class="ds-dot" style="background:var(--local-fs)"></span>TestAudit</a>
+  <a href="#TestSwarm"><span class="ds-dot" style="background:var(--local-fs)"></span>TestSwarm</a>
+  <a href="#MRI"><span class="ds-dot" style="background:var(--local-fs)"></span>MRI</a>
+  <a href="#ValidationChecklist"><span class="ds-dot" style="background:var(--sqlite)"></span>ValidationChecklist</a>
+  <div class="section-sep"></div>
+
+  <h3>Pipeline &amp; Analysis</h3>
+  <a href="#PipelineRunner"><span class="ds-dot" style="background:var(--sqlite)"></span>PipelineRunner</a>
+  <a href="#PipelineMonitor"><span class="ds-dot" style="background:var(--fabric-api)"></span>PipelineMonitor</a>
+  <a href="#ErrorIntelligence"><span class="ds-dot" style="background:var(--sqlite)"></span>ErrorIntelligence</a>
+  <a href="#ImpactAnalysis"><span class="ds-dot" style="background:var(--sqlite)"></span>ImpactAnalysis</a>
+  <a href="#ImpactPulse"><span class="ds-dot" style="background:var(--sqlite)"></span>ImpactPulse</a>
+  <a href="#TransformationReplay"><span class="ds-dot" style="background:var(--hardcoded)"></span>TransformationReplay</a>
+  <div class="section-sep"></div>
+
+  <h3>Business Portal</h3>
+  <a href="#BusinessOverview"><span class="ds-dot" style="background:var(--sqlite)"></span>BusinessOverview</a>
+  <a href="#BusinessAlerts"><span class="ds-dot" style="background:var(--sqlite)"></span>BusinessAlerts</a>
+  <a href="#BusinessCatalog"><span class="ds-dot" style="background:var(--sqlite)"></span>BusinessCatalog</a>
+  <a href="#BusinessHelp"><span class="ds-dot" style="background:var(--hardcoded)"></span>BusinessHelp</a>
+  <a href="#BusinessRequests"><span class="ds-dot" style="background:var(--sqlite)"></span>BusinessRequests</a>
+  <a href="#BusinessSources"><span class="ds-dot" style="background:var(--sqlite)"></span>BusinessSources</a>
+  <a href="#DatasetDetail"><span class="ds-dot" style="background:var(--sqlite)"></span>DatasetDetail</a>
+  <div class="section-sep"></div>
+
+  <h3>Admin &amp; Settings</h3>
+  <a href="#AdminGateway"><span class="ds-dot" style="background:var(--sqlite)"></span>AdminGateway</a>
+  <a href="#AdminGovernance"><span class="ds-dot" style="background:var(--fabric-sql)"></span>AdminGovernance</a>
+  <a href="#ConfigManager"><span class="ds-dot" style="background:var(--fabric-sql)"></span>ConfigManager</a>
+  <a href="#SourceManager"><span class="ds-dot" style="background:var(--fabric-sql)"></span>SourceManager</a>
+  <a href="#Settings"><span class="ds-dot" style="background:var(--fabric-api)"></span>Settings</a>
+  <a href="#NotebookConfig"><span class="ds-dot" style="background:var(--fabric-api)"></span>NotebookConfig</a>
+  <a href="#NotebookDebug"><span class="ds-dot" style="background:var(--fabric-api)"></span>NotebookDebug</a>
+  <a href="#DeploymentManager"><span class="ds-dot" style="background:var(--sse)"></span>DeploymentManager</a>
+  <div class="section-sep"></div>
+
+  <h3>Setup Wizard</h3>
+  <a href="#EnvironmentSetup"><span class="ds-dot" style="background:var(--sqlite)"></span>EnvironmentSetup</a>
+  <a href="#SetupWizard"><span class="ds-dot" style="background:var(--fabric-api)"></span>SetupWizard</a>
+  <a href="#ProvisionAll"><span class="ds-dot" style="background:var(--fabric-api)"></span>ProvisionAll</a>
+</nav>
+
+<!-- ═══ Main Content ═══ -->
+<main class="main">
+
+<!-- ── Summary ── -->
+<div id="summary" class="page-section">
+  <div class="summary-grid">
+    <div class="stat-card">
+      <div class="label">Total Pages</div>
+      <div class="value">67</div>
+      <div class="detail">47 main + 6 business + 7 settings + 7 setup</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">API Endpoints</div>
+      <div class="value">100+</div>
+      <div class="detail">18 route files, 6 shared hooks</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Data Sources</div>
+      <div class="value">8</div>
+      <div class="detail">SQLite, Fabric SQL, OneLake, On-Prem, Fabric API, SSE, Local FS, Hardcoded</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Stub Pages</div>
+      <div class="value">4</div>
+      <div class="detail">DqScorecard, CleansingRuleEditor, ScdAudit, GoldMlvManager</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Broken Endpoints</div>
+      <div class="value" style="color:var(--operational)">0</div>
+      <div class="detail">All 3 fixed 2026-03-16 (journey, gold/domains, mdm/quality/scores)</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">OneLake Local</div>
+      <div class="value">9</div>
+      <div class="detail">LZ counts, Bronze/Silver counts, entity-status sync, microscope rows, SqlExplorer, loader.py, lineage columns, blender profile/sample, blender query</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Legend ── -->
+<div id="legend" class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--sqlite)"></div>SQLite (local DB)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--fabric-sql)"></div>Fabric SQL Endpoint (cloud)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--onelake)"></div>OneLake Filesystem (local)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--onprem)"></div>On-Prem SQL Server (VPN)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--fabric-api)"></div>Fabric REST API (cloud)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--sse)"></div>SSE Stream (real-time)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--local-fs)"></div>Local Filesystem (JSON/artifacts)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--inmemory)"></div>In-Memory / Computed</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--hardcoded)"></div>Hardcoded / Mock</div>
+</div>
+
+<!-- ── Critical Findings ── -->
+<div id="findings" class="page-section">
+  <h2 style="font-family:'Instrument Serif',serif; font-size:28px; margin-bottom:16px;">Critical Findings</h2>
+
+  <div class="finding finding-info">
+    <strong>RESOLVED: /api/journey now returns column data</strong> — <code>/api/journey</code> restructured to return <code>bronze.columns[]</code>, <code>silver.columns[]</code>, <code>schemaDiff[]</code>, and <code>rowCount</code>. Columns from SQLite <code>column_metadata</code> cache (24h TTL, OneLake + polars schema read on cache miss). Row counts from SQLite <code>lakehouse_row_counts</code> cache. DataJourney + ColumnEvolution now fully functional.
+  </div>
+  <div class="finding finding-info">
+    <strong>RESOLVED: /api/mdm/quality/scores alias added</strong> — Added <code>@route("GET", "/api/mdm/quality/scores")</code> as a second decorator on existing <code>get_quality_scores</code> handler in quality.py. BusinessCatalog and DatasetDetail quality tier badges now display.
+  </div>
+  <div class="finding finding-info">
+    <strong>RESOLVED: /api/gold/domains implemented</strong> — New endpoint in glossary.py returns distinct domains from <code>entity_annotations</code> with entity counts. BusinessCatalog "Data Collections" tab now populated. 100% SQLite.
+  </div>
+  <div class="finding finding-info">
+    <strong>RESOLVED: Lakehouse row counts now use OneLake local files</strong> — <code>/api/lakehouse-counts</code> discovers tables via OneLake filesystem, row counts read from local parquet/delta files via polars, cached to SQLite <code>lakehouse_row_counts</code> table. All 3 layers (LZ, Bronze, Silver). Zero cloud dependency. Background scan via <code>POST /api/lakehouse-counts/scan</code>.
+  </div>
+  <div class="finding finding-info">
+    <strong>RESOLVED: LZ upload (loader.py) now filesystem-first</strong> — <code>engine/loader.py</code> writes parquet files directly to local OneLake mount via <code>open(path, 'wb')</code>. ADLS SDK is lazy-initialized only as a silent fallback when the local mount is unavailable or a write fails. No UI changes, no config changes. Matches the same filesystem-first pattern used by <code>OneLakeIO</code> for Bronze/Silver. GUID→lakehouse name mapping resolved from SQLite.
+  </div>
+  <div class="finding finding-info">
+    <strong>RESOLVED: DataMicroscope Bronze/Silver rows now return actual data</strong> — <code>/api/microscope</code> reads Bronze/Silver rows from local OneLake delta/parquet files via polars. Bronze: single row by PK. Silver: all SCD2 versions sorted by RecordStartDate. Graceful fallback to null if OneLake mount unavailable.
+  </div>
+  <div class="finding finding-info">
+    <strong>Business Portal is 100% SQLite-powered</strong> — All 7 Business Portal pages read exclusively from <code>fmd_control_plane.db</code>. Zero cloud dependencies. This is the most resilient part of the dashboard.
+  </div>
+  <div class="finding finding-info">
+    <strong>4 pages are pure stubs</strong> — DqScorecard, CleansingRuleEditor, ScdAudit, GoldMlvManager contain zero API calls. All content is hardcoded "Coming Soon" placeholders.
+  </div>
+  <div class="finding finding-info">
+    <strong>RESOLVED: Cross-page URL parameter handling verified 2026-03-16</strong> — All 7 Data pages now have bidirectional cross-links with 17/17 URL parameters properly encoded. RecordCounts reads <code>?search=</code>, FlowExplorer reads <code>?source=&amp;table=</code>, SourceManager reads <code>?source=</code>, SqlExplorer handles both source-server and lakehouse deep-links, DataManager entity tables link to DataJourney. Full audit-fix loop completed with zero remaining findings.
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!--  CLUSTER 1: CORE OPERATIONS                        -->
+<!-- ════════════════════════════════════════════════════ -->
+<div id="cluster-core" class="cluster-header">
+  <h2>Core Operations</h2>
+  <p>7 pages — Engine execution, monitoring, control plane, load progress. Primary data source: Fabric SQL Analytics Endpoint + SQLite fallback.</p>
+</div>
+
+<!-- ExecutionMatrix -->
+<div id="ExecutionMatrix" class="page-section" data-page="ExecutionMatrix">
+  <div class="page-header">
+    <h2>ExecutionMatrix</h2>
+    <span class="tag tag-cluster">Core Operations</span>
+  </div>
+  <div class="page-meta">
+    <span class="hook-badge">useEntityDigest</span>
+    <span class="hook-badge">useEngineStatus</span>
+    <span class="endpoint-badge">GET /api/entity-digest</span>
+    <span class="endpoint-badge">GET /api/engine/status</span>
+    <span class="endpoint-badge">GET /api/engine/metrics</span>
+    <span class="endpoint-badge">GET /api/engine/runs</span>
+    <span class="endpoint-badge">GET /api/engine/logs</span>
+  </div>
+  <details open>
+    <summary>Visual Elements (26 items)</summary>
+    <div class="detail-content">
+      <table class="visual-table">
+        <thead><tr><th>Visual Element</th><th>Type</th><th>What It Displays</th><th>Data Source</th></tr></thead>
+        <tbody>
+          <tr><td>Total Entities KPI</td><td>KPICard</td><td>Number e.g. "1,666"</td><td><span class="ds-badge ds-sqlite">SQLite</span> entity digest -> lz_entities + bronze + silver</td></tr>
+          <tr><td>Success Rate KPI</td><td>KPICard</td><td>Percentage e.g. "95%"</td><td><span class="ds-badge ds-inmemory">Computed</span> complete / total from digest</td></tr>
+          <tr><td>Success Rate donut</td><td>StatusPieChart</td><td>Succeeded/Failed/Other segments</td><td><span class="ds-badge ds-inmemory">Computed</span> from totalSummary</td></tr>
+          <tr><td>Last Run KPI</td><td>KPICard</td><td>Time ago + status badge + duration</td><td><span class="ds-badge ds-sqlite">SQLite</span> engine_runs via useEngineStatus</td></tr>
+          <tr><td>Active Errors KPI</td><td>KPICard</td><td>Error count + top error message</td><td><span class="ds-badge ds-sqlite">SQLite</span> entity digest + engine_task_log</td></tr>
+          <tr><td>Layer Health: LZ/Bronze/Silver bars</td><td>ProgressBar x3</td><td>Succeeded/Failed/Pending per layer</td><td><span class="ds-badge ds-inmemory">Computed</span> from digest entity statuses</td></tr>
+          <tr><td>Entity Matrix Table</td><td>EntityTable</td><td>Full entity list with all columns</td><td><span class="ds-badge ds-sqlite">SQLite</span> entity digest (6-table join)</td></tr>
+          <tr><td>Source filter dropdown</td><td>Select</td><td>Source system names</td><td><span class="ds-badge ds-sqlite">SQLite</span> deduplicated from digest</td></tr>
+          <tr><td>Error Summary: top errors</td><td>List</td><td>Error message + count</td><td><span class="ds-badge ds-sqlite">SQLite</span> engine_task_log via engine/metrics</td></tr>
+          <tr><td>Layer Throughput bar chart</td><td>BarChart</td><td>Succeeded/Failed per layer</td><td><span class="ds-badge ds-sqlite">SQLite</span> engine metrics</td></tr>
+          <tr><td>Slowest Entities panel</td><td>Cards x6</td><td>Name, duration, layer</td><td><span class="ds-badge ds-sqlite">SQLite</span> engine metrics</td></tr>
+          <tr><td>Time range selector</td><td>TimeRangeSelector</td><td>1h/6h/24h/7d</td><td><span class="ds-badge ds-inmemory">UI State</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</div>
+
+<!-- EngineControl -->
+<div id="EngineControl" class="page-section" data-page="EngineControl">
+  <div class="page-header">
+    <h2>EngineControl</h2>
+    <span class="tag tag-cluster">Core Operations</span>
+  </div>
+  <div class="page-meta">
+    <span class="endpoint-badge">GET /api/engine/status (5s poll)</span>
+    <span class="endpoint-badge">GET /api/engine/metrics</span>
+    <span class="endpoint-badge">GET /api/engine/runs</span>
+    <span class="endpoint-badge">GET /api/engine/entities</span>
+    <span class="endpoint-badge">GET /api/engine/plan</span>
+    <span class="endpoint-badge">GET /api/engine/health</span>
+    <span class="endpoint-badge">SSE /api/engine/logs/stream</span>
+    <span class="endpoint-badge">POST /api/engine/start</span>
+  </div>
+  <details>
+    <summary>Visual Elements (40+ items — largest page)</summary>
+    <div class="detail-content">
+      <table class="visual-table">
+        <thead><tr><th>Visual Element</th><th>Type</th><th>What It Displays</th><th>Data Source</th></tr></thead>
+        <tbody>
+          <tr><td>Engine status badge</td><td>Badge</td><td>Idle/Running/Stopping/Error</td><td><span class="ds-badge ds-sqlite">SQLite</span> engine_runs</td></tr>
+          <tr><td>Uptime, version, last run</td><td>Text</td><td>Duration, version string, status</td><td><span class="ds-badge ds-sqlite">SQLite</span> engine status</td></tr>
+          <tr><td>Entity selector table</td><td>Table</td><td>All entities with metadata</td><td><span class="ds-badge ds-sqlite">SQLite</span> /api/engine/entities</td></tr>
+          <tr><td>Plan result tables</td><td>Tables x3</td><td>Sources, layer plan, entity list</td><td><span class="ds-badge ds-sqlite">SQLite</span> /api/engine/plan</td></tr>
+          <tr><td>Live log stream</td><td>Scrollable log</td><td>Real-time log entries</td><td><span class="ds-badge ds-sse">SSE</span> /api/engine/logs/stream</td></tr>
+          <tr><td>Live progress counters</td><td>Numbers</td><td>Succeeded/failed/skipped/rows</td><td><span class="ds-badge ds-sse">SSE</span> entity_result events</td></tr>
+          <tr><td>Fabric notebook jobs</td><td>List</td><td>Job ID, layer, status, elapsed</td><td><span class="ds-badge ds-fabric-api">Fabric API</span> notebook job tracking</td></tr>
+          <tr><td>Health check panel</td><td>Checklist</td><td>Check name, passed/failed</td><td><span class="ds-badge ds-sqlite">SQLite</span> + <span class="ds-badge ds-onprem">On-Prem</span> + <span class="ds-badge ds-fabric-api">Fabric API</span></td></tr>
+          <tr><td>Run history table</td><td>Table</td><td>20 recent runs with stats</td><td><span class="ds-badge ds-sqlite">SQLite</span> engine_runs</td></tr>
+          <tr><td>RunSummaryModal: KPIs, by-source, by-layer, errors, all entities</td><td>Modal (5 sections)</td><td>Full run breakdown</td><td><span class="ds-badge ds-sqlite">SQLite</span> engine_task_log</td></tr>
+          <tr><td>Metrics: slowest entities, top errors</td><td>Cards</td><td>Performance outliers</td><td><span class="ds-badge ds-sqlite">SQLite</span> engine metrics</td></tr>
+          <tr><td>LZ parquet upload (engine execution)</td><td>Engine I/O</td><td>Write parquet to OneLake Landing Zone</td><td><span class="ds-badge ds-onelake">OneLake</span> filesystem-first (local mount) → <span class="ds-badge ds-fabric-api">Fabric API</span> ADLS SDK fallback</td></tr>
+          <tr><td>Bronze/Silver Delta writes (engine execution)</td><td>Engine I/O</td><td>Read/write Delta tables via OneLakeIO</td><td><span class="ds-badge ds-onelake">OneLake</span> filesystem-first (local mount) → <span class="ds-badge ds-fabric-api">Fabric API</span> ADLS SDK fallback</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</div>
+
+<!-- ControlPlane -->
+<div id="ControlPlane" class="page-section" data-page="ControlPlane">
+  <div class="page-header">
+    <h2>ControlPlane</h2>
+    <span class="tag tag-cluster">Core Operations</span>
+  </div>
+  <div class="page-meta">
+    <span class="endpoint-badge">GET /api/control-plane</span>
+    <span class="endpoint-badge">GET /api/load-config</span>
+  </div>
+  <details>
+    <summary>Visual Elements (30+ items)</summary>
+    <div class="detail-content">
+      <table class="visual-table">
+        <thead><tr><th>Visual Element</th><th>Type</th><th>What It Displays</th><th>Data Source</th></tr></thead>
+        <tbody>
+          <tr><td>Health status banner</td><td>Banner</td><td>All Systems Operational / Degraded / Critical</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> aggregated health query</td></tr>
+          <tr><td>Count pills (Connections, Sources, Entities, Pipelines, Lakehouses, Workspaces)</td><td>Pills x6</td><td>Active counts</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> config tables</td></tr>
+          <tr><td>Pipeline health: OK/FAIL/RUN + success rate</td><td>Stats</td><td>Pipeline execution stats</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> PipelineAudit</td></tr>
+          <tr><td>Entity Metadata table</td><td>Table</td><td>Source, Schema, Table, FileName, Load Type, Watermark, PKs, Bronze, Silver, Last Load</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> entity join query</td></tr>
+          <tr><td>Execution Log table</td><td>Table</td><td>Status, Pipeline, Layer, Trigger, Started, Duration, GUID</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> PipelineAudit</td></tr>
+          <tr><td>Sources tab: per-source detail</td><td>Collapsible list</td><td>Connections, data sources, entity counts per layer</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span></td></tr>
+          <tr><td>Infrastructure tab: Workspaces, Lakehouses, Pipelines</td><td>Cards</td><td>Names, counts, environments</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> config tables</td></tr>
+          <tr><td>Snapshot fallback indicator</td><td>Banner</td><td>"Cached snapshot" when SQL offline</td><td><span class="ds-badge ds-sqlite">SQLite</span> fallback</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</div>
+
+<!-- Remaining core pages (collapsed by default for brevity) -->
+<div id="ExecutionLog" class="page-section" data-page="ExecutionLog">
+  <div class="page-header"><h2>ExecutionLog</h2><span class="tag tag-cluster">Core Operations</span></div>
+  <div class="page-meta">
+    <span class="endpoint-badge">GET /api/pipeline-executions</span>
+    <span class="endpoint-badge">GET /api/copy-executions</span>
+    <span class="endpoint-badge">GET /api/notebook-executions</span>
+  </div>
+  <details><summary>Visual Elements (12 items)</summary><div class="detail-content">
+    <table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Displays</th><th>Source</th></tr></thead><tbody>
+      <tr><td>3 tab badges (Pipeline/Copy/Notebook counts)</td><td>Badges</td><td>Run counts per type</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> or <span class="ds-badge ds-sqlite">SQLite</span></td></tr>
+      <tr><td>Quick stats (Succeeded/Failed/Running)</td><td>Counters</td><td>Status counts</td><td><span class="ds-badge ds-inmemory">Computed</span></td></tr>
+      <tr><td>Business/Technical view toggle</td><td>Toggle</td><td>Display mode</td><td><span class="ds-badge ds-inmemory">UI State</span></td></tr>
+      <tr><td>Run cards or data table</td><td>Cards/Table</td><td>All fields per run</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> or <span class="ds-badge ds-sqlite">SQLite</span></td></tr>
+    </tbody></table>
+  </div></details>
+</div>
+
+<div id="LiveMonitor" class="page-section" data-page="LiveMonitor">
+  <div class="page-header"><h2>LiveMonitor</h2><span class="tag tag-cluster">Core Operations</span></div>
+  <div class="page-meta"><span class="endpoint-badge">GET /api/live-monitor?minutes=N</span></div>
+  <details><summary>Visual Elements (20+ items)</summary><div class="detail-content">
+    <table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Displays</th><th>Source</th></tr></thead><tbody>
+      <tr><td>Pipeline Running indicator</td><td>Pulsing badge</td><td>Active run detected</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> PipelineAudit</td></tr>
+      <tr><td>Pipeline Runs section</td><td>Card list</td><td>Name, layer, status, duration</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span></td></tr>
+      <tr><td>Entity Progress: LZ/Bronze/Silver bars</td><td>ProgressBars x3</td><td>Processed / Registered counts</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span></td></tr>
+      <tr><td>Notebook Executions list</td><td>Event list</td><td>Time, notebook, entity, layer</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span></td></tr>
+      <tr><td>Copy Activity: rows + bytes</td><td>Badge + list</td><td>Rows copied, data size</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> CopyActivityAudit + LogData JSON</td></tr>
+    </tbody></table>
+  </div></details>
+</div>
+
+<div id="LoadProgress" class="page-section" data-page="LoadProgress">
+  <div class="page-header"><h2>LoadProgress</h2><span class="tag tag-cluster">Core Operations</span></div>
+  <div class="page-meta"><span class="endpoint-badge">GET /api/load-progress</span><span class="hook-badge">useSourceConfig</span></div>
+  <details><summary>Visual Elements (20+ items)</summary><div class="detail-content">
+    <table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Displays</th><th>Source</th></tr></thead><tbody>
+      <tr><td>Hero: Loaded/Total + % Complete</td><td>Large KPIs</td><td>"1,234 / 1,666" + "95%"</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span></td></tr>
+      <tr><td>Per-source progress cards</td><td>Cards</td><td>% complete, loaded/pending/total</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span></td></tr>
+      <tr><td>Stacked progress bar by source</td><td>Stacked bar</td><td>Color segments per source</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span></td></tr>
+      <tr><td>Concurrency Timeline chart</td><td>SVG area chart</td><td>Concurrent threads over time</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> computed from copy timestamps</td></tr>
+      <tr><td>Live Activity table</td><td>Table</td><td>Time, Source, Table, Event, Rows, Duration</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> CopyActivityAudit</td></tr>
+      <tr><td>All Entities table</td><td>Table</td><td>Status, Source, Schema, Table, Rows, Duration, Type</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span></td></tr>
+    </tbody></table>
+  </div></details>
+</div>
+
+<div id="ExecutiveDashboard" class="page-section" data-page="ExecutiveDashboard">
+  <div class="page-header"><h2>ExecutiveDashboard</h2><span class="tag tag-cluster">Core Operations</span></div>
+  <div class="page-meta"><span class="endpoint-badge">GET /api/executive</span></div>
+  <details><summary>Visual Elements (20+ items)</summary><div class="detail-content">
+    <div class="finding finding-info" style="margin-bottom:12px">
+      <strong>FIXED 2026-03-16.</strong> Created <code>/api/executive</code> endpoint (previously did not exist — page was non-functional). All data sourced from SQLite. New <code>health_trend_snapshots</code> table added for 24h trend chart. Snapshot auto-inserted on each request.
+    </div>
+    <table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Displays</th><th>Source</th></tr></thead><tbody>
+      <tr><td>Health badge</td><td>Badge</td><td>Operational / Attention / Issues</td><td><span class="ds-badge ds-sqlite">SQLite</span> entity_status + engine_runs</td></tr>
+      <tr><td>StatCards (Total Entities, Bronze %, Silver %, Pipeline Success)</td><td>KPI x4</td><td>Counts + percentages</td><td><span class="ds-badge ds-sqlite">SQLite</span> lz/bronze/silver_entities + entity_status</td></tr>
+      <tr><td>Data Flow nodes (LZ -> Bronze -> Silver)</td><td>FlowNode x3</td><td>Loaded count, rows, completion</td><td><span class="ds-badge ds-sqlite">SQLite</span> entity_status + lakehouse_row_counts</td></tr>
+      <tr><td>Source System cards</td><td>Cards per source</td><td>Per-layer progress bars + row counts</td><td><span class="ds-badge ds-sqlite">SQLite</span> datasources JOIN entity_status</td></tr>
+      <tr><td>24h Trend chart (Bronze + Silver)</td><td>AreaChart</td><td>Entity counts over time</td><td><span class="ds-badge ds-sqlite">SQLite</span> health_trend_snapshots (NEW table)</td></tr>
+      <tr><td>Recent Activity timeline</td><td>List</td><td>Description, pipeline, layer, status, time</td><td><span class="ds-badge ds-sqlite">SQLite</span> pipeline_audit</td></tr>
+      <tr><td>Attention Needed: issues</td><td>Cards</td><td>Pipeline, error, time</td><td><span class="ds-badge ds-sqlite">SQLite</span> pipeline_audit WHERE error</td></tr>
+      <tr><td>Friendly pipeline names</td><td>Text</td><td>Business names for pipelines</td><td><span class="ds-badge ds-hardcoded">Hardcoded</span> FRIENDLY_PIPELINE_NAMES map</td></tr>
+    </tbody></table>
+  </div></details>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════ -->
+<!--  CLUSTER 2: DATA REGISTRY                          -->
+<!-- ════════════════════════════════════════════════════ -->
+<div id="cluster-registry" class="cluster-header">
+  <h2>Data Registry</h2>
+  <p>7 pages — Record counts, catalogs, journey, lineage, classification. Mix of SQLite + OneLake. All endpoints operational. Cross-page deep-linking between RecordCounts, DataJourney, DataBlender, and DataManager.</p>
+</div>
+
+<div id="RecordCounts" class="page-section" data-page="RecordCounts">
+  <div class="page-header"><h2>RecordCounts</h2><span class="tag tag-cluster">Data Registry</span></div>
+  <div class="page-meta">
+    <span class="hook-badge">useEntityDigest</span>
+    <span class="hook-badge">useSourceConfig</span>
+    <span class="endpoint-badge">GET /api/lakehouse-counts</span>
+    <span class="endpoint-badge">POST /api/lakehouse-counts/scan</span>
+    <span class="endpoint-badge">Reads ?search=</span>
+    <span class="link-badge">DataJourney /journey?table=X&amp;schema=Y</span>
+  </div>
+  <details><summary>Visual Elements (22 items)</summary><div class="detail-content">
+    <table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Displays</th><th>Source</th></tr></thead><tbody>
+      <tr><td>MatchRateRing SVG gauge</td><td>SVG Ring</td><td>Bronze↔Silver match rate percentage</td><td><span class="ds-badge ds-inmemory">Computed</span> from lakehouse counts</td></tr>
+      <tr><td>Source proportion cards</td><td>Cards (sized by entity count)</td><td>Per-source entity count, clickable for filtering</td><td><span class="ds-badge ds-sqlite">SQLite</span> via useSourceConfig + digest</td></tr>
+      <tr><td>Layer summary strip with StrataBar</td><td>StrataBar</td><td>LZ/Bronze/Silver layer counts</td><td><span class="ds-badge ds-sqlite">SQLite</span> via digest</td></tr>
+      <tr><td>Group-by-source toggle</td><td>Toggle</td><td>Collapsible source groups in table</td><td><span class="ds-badge ds-inmemory">UI State</span></td></tr>
+      <tr><td>Scan Files button</td><td>Action</td><td>Triggers background parquet scan</td><td><span class="ds-badge ds-onelake">OneLake</span> POST /api/lakehouse-counts/scan</td></tr>
+      <tr><td>Table: LZ Rows column</td><td>Table cell</td><td>Row count</td><td><span class="ds-badge ds-onelake">OneLake</span> polars scan_parquet → <span class="ds-badge ds-sqlite">SQLite</span> cache</td></tr>
+      <tr><td>Table: Bronze Rows column</td><td>Table cell</td><td>Row count</td><td><span class="ds-badge ds-onelake">OneLake</span> polars scan_parquet (delta parts) → <span class="ds-badge ds-sqlite">SQLite</span> cache</td></tr>
+      <tr><td>Table: Silver Rows column</td><td>Table cell</td><td>Row count</td><td><span class="ds-badge ds-onelake">OneLake</span> polars scan_parquet (delta parts) → <span class="ds-badge ds-sqlite">SQLite</span> cache</td></tr>
+      <tr><td>Table: Data Source column</td><td>Table cell</td><td>Source name</td><td><span class="ds-badge ds-sqlite">SQLite</span> via entity digest</td></tr>
+      <tr><td>Table: Delta column</td><td>Table cell</td><td>|Bronze - Silver|</td><td><span class="ds-badge ds-inmemory">Computed</span></td></tr>
+      <tr><td>Table: Status badge</td><td>Badge</td><td>match/mismatch/bronze-only/silver-only</td><td><span class="ds-badge ds-inmemory">Computed</span></td></tr>
+      <tr><td>Row → DataJourney cross-link</td><td>Link</td><td>Navigate to /journey?table=X&amp;schema=Y</td><td><span class="ds-badge ds-inmemory">Computed</span> uses resolveLabel() for display names</td></tr>
+      <tr><td>URL param: ?search=</td><td>Deep-link</td><td>Pre-fills search from DataJourney link</td><td><span class="ds-badge ds-inmemory">URL Param</span></td></tr>
+    </tbody></table>
+    <div class="finding finding-info" style="margin-top:12px">
+      <strong>Zero cloud dependencies.</strong> Row counts are read directly from local OneLake parquet/delta files via polars, cached to SQLite <code>lakehouse_row_counts</code> table. Filesystem discovery (table names) is instant via <code>os.listdir</code>. Background scan with 12 threads populates row counts. Pin OneLake files locally ("Always keep on this device") for fastest scans.
+    </div>
+  </div></details>
+</div>
+
+<div id="DataCatalog" class="page-section" data-page="DataCatalog">
+  <div class="page-header"><h2>DataCatalog</h2><span class="tag tag-cluster">Data Registry</span></div>
+  <div class="page-meta"><span class="hook-badge">useEntityDigest</span></div>
+  <details><summary>Visual Elements (15 items)</summary><div class="detail-content">
+    <table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Displays</th><th>Source</th></tr></thead><tbody>
+      <tr><td>Registered Entities / Data Sources / Loaded KPIs</td><td>KPICards x3</td><td>Counts + percentages</td><td><span class="ds-badge ds-sqlite">SQLite</span> via digest</td></tr>
+      <tr><td>Entity cards: name, schema, source, layers, last load</td><td>Card grid</td><td>Entity details</td><td><span class="ds-badge ds-sqlite">SQLite</span> via digest</td></tr>
+      <tr><td>EntityDetailModal: Overview, Columns, Lineage, Quality tabs</td><td>Modal tabs</td><td>Entity deep-dive</td><td>Overview: <span class="ds-badge ds-sqlite">SQLite</span>. Columns/Lineage/Quality: <span class="ds-badge ds-hardcoded">Placeholder</span></td></tr>
+    </tbody></table>
+  </div></details>
+</div>
+
+<div id="DataJourney" class="page-section" data-page="DataJourney">
+  <div class="page-header"><h2>DataJourney</h2><span class="tag tag-cluster">Data Registry</span></div>
+  <div class="page-meta">
+    <span class="hook-badge">useEntityDigest</span>
+    <span class="endpoint-badge">GET /api/journey?entity=N</span>
+    <span class="endpoint-badge">Reads ?entity=, ?table=, ?schema=</span>
+    <span class="link-badge">RecordCounts /record-counts?search=X</span>
+    <span class="link-badge">DataBlender /blender?table=X&amp;schema=Y&amp;layer=Z</span>
+    <span class="link-badge">DataProfiler (via ProfilePanel)</span>
+  </div>
+  <details><summary>Visual Elements (25+ items)</summary><div class="detail-content">
+    <div class="finding finding-info" style="margin-bottom:12px">
+      <strong>FIXED 2026-03-16.</strong> Endpoint now returns <code>bronze.columns[]</code>, <code>silver.columns[]</code>, <code>schemaDiff[]</code>, and <code>rowCount</code>. Columns from SQLite <code>column_metadata</code> cache (24h TTL). Row counts from SQLite <code>lakehouse_row_counts</code> cache.
+    </div>
+    <table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Displays</th><th>Source</th></tr></thead><tbody>
+      <tr><td>Entity selector dropdown</td><td>Select</td><td>Entities by source group</td><td><span class="ds-badge ds-sqlite">SQLite</span> via digest</td></tr>
+      <tr><td>Layer timeline (Source→LZ→Bronze→Silver)</td><td>Node chain</td><td>Names, file types, connections</td><td><span class="ds-badge ds-sqlite">SQLite</span> via /api/journey</td></tr>
+      <tr><td>StrataBar (count mode, lg)</td><td>StrataBar</td><td>Entity layer presence across LZ/Bronze/Silver</td><td><span class="ds-badge ds-sqlite">SQLite</span> via digest</td></tr>
+      <tr><td>LayerStatusDot indicators</td><td>Dot x3</td><td>LZ/Bronze/Silver pipeline status</td><td><span class="ds-badge ds-sqlite">SQLite</span> entity_status</td></tr>
+      <tr><td>Bronze/Silver: row count, column count</td><td>Text</td><td>"N rows - N cols"</td><td><span class="ds-badge ds-sqlite">SQLite</span> lakehouse_row_counts + column_metadata cache</td></tr>
+      <tr><td>Root cause trace section</td><td>Panel</td><td>Error details when entity has lastError</td><td><span class="ds-badge ds-sqlite">SQLite</span> entity_status.lastError</td></tr>
+      <tr><td>ProfilePanel with layer prop</td><td>Panel</td><td>Column profile + links to DataProfiler &amp; DataBlender</td><td><span class="ds-badge ds-sqlite">SQLite</span> column_metadata cache</td></tr>
+      <tr><td>Schema Diff Table</td><td>Table</td><td>Per-column comparison</td><td><span class="ds-badge ds-sqlite">SQLite</span> column_metadata cache (computed diff)</td></tr>
+      <tr><td>"View Counts" cross-link</td><td>Link</td><td>Navigate to /record-counts?search=X</td><td><span class="ds-badge ds-inmemory">Computed</span></td></tr>
+      <tr><td>"Profile in Blender" cross-link</td><td>Link</td><td>Navigate to /blender?table=X&amp;schema=Y&amp;layer=Z</td><td><span class="ds-badge ds-inmemory">Computed</span></td></tr>
+    </tbody></table>
+  </div></details>
+</div>
+
+<div id="ColumnEvolution" class="page-section" data-page="ColumnEvolution">
+  <div class="page-header"><h2>ColumnEvolution</h2><span class="tag tag-cluster">Data Registry</span></div>
+  <div class="page-meta"><span class="hook-badge">useEntityDigest</span><span class="endpoint-badge">GET /api/journey?entity=N</span></div>
+  <details><summary>Visual Elements — shares /api/journey with DataJourney</summary><div class="detail-content">
+    <div class="finding finding-info" style="margin-bottom:12px">
+      <strong>FIXED 2026-03-16.</strong> Now receives <code>bronze.columns[]</code> and <code>schemaDiff[]</code> from the restructured <code>/api/journey</code> endpoint. Column cards, diff summary bar, and type change indicators all functional.
+    </div>
+  </div></details>
+</div>
+
+<div id="DataLineage" class="page-section" data-page="DataLineage">
+  <div class="page-header"><h2>DataLineage</h2><span class="tag tag-cluster">Data Registry</span></div>
+  <div class="page-meta"><span class="hook-badge">useEntityDigest</span><span class="endpoint-badge">GET /api/lineage/columns/{id}</span></div>
+  <details><summary>Visual Elements (12 items)</summary><div class="detail-content">
+    <table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Displays</th><th>Source</th></tr></thead><tbody>
+      <tr><td>KPIs: Total, LZ, Bronze, Silver, Full Chain</td><td>KPICards x5</td><td>Entity counts + coverage %</td><td><span class="ds-badge ds-sqlite">SQLite</span> via digest</td></tr>
+      <tr><td>Entity table: LZ/Bronze/Silver status badges</td><td>Table</td><td>Load status per layer</td><td><span class="ds-badge ds-sqlite">SQLite</span> entity_status</td></tr>
+      <tr><td>Column Lineage: per-column presence across layers</td><td>Table</td><td>Column name + layer indicators</td><td><span class="ds-badge ds-onelake">OneLake</span> polars schema read via /api/lineage/columns (with <span class="ds-badge ds-sqlite">SQLite</span> cache, 24h TTL)</td></tr>
+      <tr><td>Gold status + Rows column</td><td>Text</td><td>Always "—"</td><td><span class="ds-badge ds-hardcoded">Hardcoded</span></td></tr>
+    </tbody></table>
+  </div></details>
+</div>
+
+<div id="DataClassification" class="page-section" data-page="DataClassification">
+  <div class="page-header"><h2>DataClassification</h2><span class="tag tag-cluster">Data Registry</span></div>
+  <div class="page-meta"><span class="hook-badge">useEntityDigest</span><span class="endpoint-badge">GET /api/classification/summary</span></div>
+  <details><summary>Visual Elements (10 items)</summary><div class="detail-content">
+    <table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Displays</th><th>Source</th></tr></thead><tbody>
+      <tr><td>KPIs: Total, Columns, Classified, PII, Confidential</td><td>KPICards x5</td><td>Classification counts</td><td><span class="ds-badge ds-sqlite">SQLite</span> column_classifications</td></tr>
+      <tr><td>Heatmap: Source x Sensitivity matrix</td><td>Heatmap</td><td>Count per cell</td><td><span class="ds-badge ds-sqlite">SQLite</span> classification summary</td></tr>
+      <tr><td>Entity table: Classification badge</td><td>Badge</td><td>Always "none"</td><td><span class="ds-badge ds-hardcoded">Hardcoded</span></td></tr>
+    </tbody></table>
+  </div></details>
+</div>
+
+<div id="DataManager" class="page-section" data-page="DataManager">
+  <div class="page-header"><h2>DataManager</h2><span class="tag tag-cluster">Data Registry</span></div>
+  <div class="page-meta">
+    <span class="endpoint-badge">GET /api/data-manager/tables</span>
+    <span class="endpoint-badge">GET /api/data-manager/table/{name}</span>
+    <span class="endpoint-badge">PUT /api/data-manager/table/{name}/{pk}</span>
+    <span class="endpoint-badge">Reads ?table=</span>
+    <span class="link-badge">DataJourney /journey?entity=X</span>
+  </div>
+  <details><summary>Visual Elements (16 items)</summary><div class="detail-content">
+    <table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Displays</th><th>Source</th></tr></thead><tbody>
+      <tr><td>Sidebar: table names + row counts</td><td>List</td><td>All SQLite tables</td><td><span class="ds-badge ds-sqlite">SQLite</span> sqlite_master + COUNT(*)</td></tr>
+      <tr><td>Category stat headers in sidebar</td><td>Text</td><td>Table count + total rows per category</td><td><span class="ds-badge ds-sqlite">SQLite</span></td></tr>
+      <tr><td>Category-specific empty state messages</td><td>Text</td><td>Contextual empty state per category</td><td><span class="ds-badge ds-hardcoded">Hardcoded</span></td></tr>
+      <tr><td>DataGrid: cell values (text, number, boolean, FK)</td><td>Table</td><td>Raw SQLite data</td><td><span class="ds-badge ds-sqlite">SQLite</span> direct table reads</td></tr>
+      <tr><td>Status column colored badges</td><td>Badge</td><td>Green/red/amber/gray based on value</td><td><span class="ds-badge ds-inmemory">Computed</span> from cell value</td></tr>
+      <tr><td>Entity row MapPin icon → DataJourney</td><td>Link icon</td><td>Navigate to /journey?entity=X</td><td><span class="ds-badge ds-inmemory">Computed</span></td></tr>
+      <tr><td>Header "Data Journey" button</td><td>Button</td><td>Navigate to DataJourney when viewing entity tables</td><td><span class="ds-badge ds-inmemory">Computed</span></td></tr>
+      <tr><td>Pagination + total rows</td><td>Navigation</td><td>Page X of Y</td><td><span class="ds-badge ds-sqlite">SQLite</span></td></tr>
+    </tbody></table>
+  </div></details>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════ -->
+<!--  REMAINING CLUSTERS (condensed for page length)    -->
+<!-- ════════════════════════════════════════════════════ -->
+
+<div id="cluster-explore" class="cluster-header">
+  <h2>Data Exploration</h2>
+  <p>7 pages — Blender, Microscope, Profiler, Database/SQL Explorer, Sankey, Flow. Blender/Profiler migrated to OneLake+polars. SqlExplorer handles both source-server and lakehouse deep-links. Cross-page deep-linking network connects SqlExplorer, DataBlender, FlowExplorer, SourceManager, and DataJourney.</p>
+</div>
+
+<div id="DataBlender" class="page-section" data-page="DataBlender"><div class="page-header"><h2>DataBlender</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/blender/tables</span><span class="endpoint-badge">GET /api/blender/profile</span><span class="endpoint-badge">POST /api/blender/query</span><span class="endpoint-badge">GET /api/purview/status</span><span class="endpoint-badge">Reads ?table=, ?schema=, ?layer=</span><span class="link-badge">SqlExplorer /sql-explorer?database=X&amp;schema=Y&amp;table=Z</span></div><details><summary>Visual Elements</summary><div class="detail-content"><div class="finding finding-info" style="margin-bottom:12px"><strong>FIXED 2026-03-16.</strong> Profile, sample, and query endpoints rewritten from Fabric SQL to local OneLake parquet via polars. Query uses <code>polars.SQLContext</code> for local SQL execution. No cloud dependency. Deep-link URL params auto-select table on arrival. Layer-to-lakehouse mapping includes <code>gold: 'LH_GOLD_LAYER'</code>.</div><table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Source</th></tr></thead><tbody><tr><td>Table browser sidebar</td><td>Tree</td><td><span class="ds-badge ds-sqlite">SQLite</span></td></tr><tr><td>Column profile stats</td><td>Table</td><td><span class="ds-badge ds-onelake">OneLake</span> polars schema + profiling (100k sample)</td></tr><tr><td>Sample rows</td><td>Table</td><td><span class="ds-badge ds-onelake">OneLake</span> polars scan_parquet</td></tr><tr><td>SQL Workbench results</td><td>Table</td><td><span class="ds-badge ds-onelake">OneLake</span> polars SQLContext (local SQL execution)</td></tr><tr><td>Purview status</td><td>Badge</td><td><span class="ds-badge ds-fabric-api">Fabric API</span> Purview</td></tr><tr><td>Blend Suggestions</td><td>Cards</td><td><span class="ds-badge ds-hardcoded">Mock data</span></td></tr><tr><td>Deep-link auto-select (table/schema/layer)</td><td>URL Params</td><td><span class="ds-badge ds-inmemory">URL Param</span> auto-selects table on arrival</td></tr><tr><td>"View Source Schema" cross-link</td><td>Link</td><td><span class="ds-badge ds-inmemory">Computed</span> → /sql-explorer?database=X&amp;schema=Y&amp;table=Z</td></tr></tbody></table></div></details></div>
+
+<div id="DataMicroscope" class="page-section" data-page="DataMicroscope"><div class="page-header"><h2>DataMicroscope</h2></div><div class="page-meta"><span class="hook-badge">useEntityDigest</span><span class="hook-badge">useMicroscope</span><span class="endpoint-badge">GET /api/microscope</span></div><details><summary>Visual Elements</summary><div class="detail-content"><div class="finding finding-info" style="margin-bottom:12px"><strong>FIXED 2026-03-16.</strong> Bronze/Silver rows now read from local OneLake delta/parquet files via polars. Silver returns all SCD2 versions.</div><table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Source</th></tr></thead><tbody><tr><td>Entity context + layer badges</td><td>Badges</td><td><span class="ds-badge ds-sqlite">SQLite</span></td></tr><tr><td>Source row values (DiffGrid)</td><td>Table</td><td><span class="ds-badge ds-onprem">On-Prem SQL</span> (VPN required)</td></tr><tr><td>Bronze row values</td><td>Table cells</td><td><span class="ds-badge ds-onelake">OneLake</span> polars scan_parquet (delta parts) — single row by PK</td></tr><tr><td>Silver row values (SCD2 versions)</td><td>Table cells</td><td><span class="ds-badge ds-onelake">OneLake</span> polars scan_parquet (delta parts) — all versions by RecordStartDate</td></tr><tr><td>PK autocomplete</td><td>Dropdown</td><td><span class="ds-badge ds-onprem">On-Prem SQL</span></td></tr><tr><td>Transformation cards</td><td>Cards</td><td><span class="ds-badge ds-inmemory">Computed</span> from PK metadata</td></tr></tbody></table></div></details></div>
+
+<div id="DataProfiler" class="page-section" data-page="DataProfiler"><div class="page-header"><h2>DataProfiler</h2></div><div class="page-meta"><span class="hook-badge">useEntityDigest</span><span class="endpoint-badge">GET /api/blender/profile</span></div><details><summary>Visual Elements</summary><div class="detail-content"><div class="finding finding-info" style="margin-bottom:12px"><strong>FIXED 2026-03-16.</strong> Profiling now runs locally via polars against OneLake parquet files (100k row sample). No Fabric SQL dependency.</div><table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Source</th></tr></thead><tbody><tr><td>KPIs: Rows, Columns, Profiled, Avg Completeness, Uniqueness</td><td>Stats</td><td><span class="ds-badge ds-onelake">OneLake</span> polars profiling</td></tr><tr><td>Column table: completeness/uniqueness bars, null/distinct counts, min/max</td><td>Table</td><td><span class="ds-badge ds-onelake">OneLake</span> polars profiling (100k sample)</td></tr><tr><td>MissingValueMatrix + QualityRanking charts</td><td>Charts</td><td><span class="ds-badge ds-inmemory">Computed</span> from polars data</td></tr></tbody></table></div></details></div>
+
+<div id="DatabaseExplorer" class="page-section" data-page="DatabaseExplorer"><div class="page-header"><h2>DatabaseExplorer</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/db-explorer/tables</span><span class="endpoint-badge">POST /api/db-explorer/query</span></div><details><summary>All data: <span class="ds-badge ds-sqlite">SQLite</span> exclusively</summary><div class="detail-content">Browses fmd_control_plane.db directly. Table list, schema (PRAGMA table_info), paginated data, ad-hoc SELECT queries.</div></details></div>
+
+<div id="SqlExplorer" class="page-section" data-page="SqlExplorer"><div class="page-header"><h2>SqlExplorer</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/sql-explorer/servers</span><span class="endpoint-badge">GET /api/sql-explorer/lakehouses</span><span class="endpoint-badge">Reads ?server=, ?database=, ?schema=, ?table=</span><span class="link-badge">DataBlender /blender?table=X&amp;schema=Y&amp;layer={detected}</span></div><details><summary>Visual Elements</summary><div class="detail-content"><div class="finding finding-info" style="margin-bottom:12px"><strong>Updated 2026-03-16.</strong> Now handles BOTH source server deep-links (<code>?server=X&amp;database=Y</code>) AND lakehouse deep-links (<code>?database=X</code> without <code>server</code>). ObjectTree has complete lakehouse deep-link expansion chain (expand lakehouse → schemas → tables → select). TableDetail "Profile in Blender" detects layer from lakehouse name (not hardcoded bronze). TypeDistributionStrip shows column type distribution.</div><table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Source</th></tr></thead><tbody><tr><td>Server tree (databases, schemas, tables)</td><td>Tree</td><td><span class="ds-badge ds-onprem">On-Prem SQL</span> (VPN)</td></tr><tr><td>Lakehouse tree (schemas, tables, files)</td><td>Tree</td><td><span class="ds-badge ds-fabric-sql">Fabric SQL</span> + <span class="ds-badge ds-onelake">OneLake FS</span></td></tr><tr><td>Column metadata + data preview</td><td>Table</td><td><span class="ds-badge ds-onprem">On-Prem SQL</span> or <span class="ds-badge ds-fabric-sql">Fabric SQL</span></td></tr><tr><td>TypeDistributionStrip</td><td>Bar</td><td>Column type distribution per table</td><td><span class="ds-badge ds-inmemory">Computed</span> from column metadata</td></tr><tr><td>Lakehouse deep-link expansion chain</td><td>Auto-expand</td><td>Expand lakehouse → schemas → tables → select</td><td><span class="ds-badge ds-inmemory">URL Param</span></td></tr><tr><td>"Profile in Blender" cross-link</td><td>Link</td><td>Navigate to /blender?table=X&amp;schema=Y&amp;layer={detected from lakehouse name}</td><td><span class="ds-badge ds-inmemory">Computed</span></td></tr></tbody></table></div></details></div>
+
+<div id="SankeyFlow" class="page-section" data-page="SankeyFlow"><div class="page-header"><h2>SankeyFlow</h2></div><div class="page-meta"><span class="hook-badge">useEntityDigest</span></div><details><summary>All visuals computed from <span class="ds-badge ds-sqlite">SQLite</span> digest data</summary><div class="detail-content">D3 Sankey diagram. Source nodes → Layer nodes. All counts computed in-memory from entity digest. Source panel shows entity lists + status summary.</div></details></div>
+
+<div id="FlowExplorer" class="page-section" data-page="FlowExplorer"><div class="page-header"><h2>FlowExplorer</h2></div><div class="page-meta"><span class="hook-badge">useEntityDigest</span><span class="endpoint-badge">GET /api/connections</span><span class="endpoint-badge">GET /api/pipelines</span><span class="endpoint-badge">Reads ?source=, ?table=</span><span class="link-badge">SourceManager /source-manager?source=X</span><span class="link-badge">DataJourney /journey?entity=X</span></div><details><summary>Two views: Data Flow + Framework Architecture</summary><div class="detail-content">Data Flow: entity lanes from <span class="ds-badge ds-sqlite">SQLite</span> digest. Framework: pipeline paths from <span class="ds-badge ds-sqlite">SQLite</span> pipelines table. Reads <code>?source=</code> and <code>?table=</code> URL params from SourceManager — auto-filters and auto-expands source group. "Manage Source" links to SourceManager. Entity rows link to DataJourney.</div></details></div>
+
+
+<!-- ═══ Quality & Testing ═══ -->
+<div id="cluster-quality" class="cluster-header">
+  <h2>Quality &amp; Testing</h2>
+  <p>8 pages — 4 are stubs. TestAudit/TestSwarm/MRI read from local filesystem. ValidationChecklist uses SQLite (via engine _db_query).</p>
+</div>
+
+<div id="DqScorecard" class="page-section" data-page="DqScorecard"><div class="page-header"><h2>DqScorecard</h2><span class="tag tag-stub">STUB</span></div><p style="color:var(--ink-muted);font-size:13px;padding:8px 0;">Pure placeholder. No API calls. All content is hardcoded "Coming Soon" text.</p></div>
+<div id="CleansingRuleEditor" class="page-section" data-page="CleansingRuleEditor"><div class="page-header"><h2>CleansingRuleEditor</h2><span class="tag tag-stub">STUB</span></div><p style="color:var(--ink-muted);font-size:13px;padding:8px 0;">Pure placeholder. No API calls.</p></div>
+<div id="ScdAudit" class="page-section" data-page="ScdAudit"><div class="page-header"><h2>ScdAudit</h2><span class="tag tag-stub">STUB</span></div><p style="color:var(--ink-muted);font-size:13px;padding:8px 0;">Pure placeholder. No API calls.</p></div>
+<div id="GoldMlvManager" class="page-section" data-page="GoldMlvManager"><div class="page-header"><h2>GoldMlvManager</h2><span class="tag tag-stub">STUB</span></div><p style="color:var(--ink-muted);font-size:13px;padding:8px 0;">Pure placeholder. No API calls.</p></div>
+
+<div id="TestAudit" class="page-section" data-page="TestAudit"><div class="page-header"><h2>TestAudit</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/audit/history</span><span class="endpoint-badge">GET /api/audit/status</span><span class="endpoint-badge">POST /api/audit/run</span></div><details><summary>Visual Elements (15+ items)</summary><div class="detail-content"><table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Source</th></tr></thead><tbody><tr><td>Pass Rate ring + progress bar</td><td>Gauges</td><td><span class="ds-badge ds-local-fs">Local FS</span> Playwright JSON results</td></tr><tr><td>KPIs: Total/Passed/Failed/Duration</td><td>Chips</td><td><span class="ds-badge ds-local-fs">Local FS</span></td></tr><tr><td>Pass/Fail Trend chart</td><td>AreaChart</td><td><span class="ds-badge ds-local-fs">Local FS</span> last 10 runs</td></tr><tr><td>Test cards with video/screenshot/trace</td><td>Cards</td><td><span class="ds-badge ds-local-fs">Local FS</span> artifacts</td></tr><tr><td>Test descriptions ("What Was Tested")</td><td>Text</td><td><span class="ds-badge ds-hardcoded">Hardcoded</span> TEST_CATALOG</td></tr></tbody></table></div></details></div>
+
+<div id="TestSwarm" class="page-section" data-page="TestSwarm"><div class="page-header"><h2>TestSwarm</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/test-swarm/runs</span><span class="endpoint-badge">GET /api/test-swarm/runs/{id}/convergence</span></div><details><summary>All data from <span class="ds-badge ds-local-fs">Local FS</span> (swarm JSON results)</summary><div class="detail-content">KPIs, convergence chart, test heatmap, iteration details — all from local filesystem JSON files. Polls every 10s.</div></details></div>
+
+<div id="MRI" class="page-section" data-page="MRI"><div class="page-header"><h2>MRI</h2></div><div class="page-meta"><span class="hook-badge">useMRI</span><span class="endpoint-badge">12+ MRI endpoints</span></div><details><summary>5-tab interface, all from <span class="ds-badge ds-local-fs">Local FS</span></summary><div class="detail-content">Overview (KPIs + heatmap + AI annotations + screenshots), Visual (diff viewer + baseline manager + flake graph), Backend (API test results), Swarm (embedded TestSwarm), History (cross-branch compare). All data from local MRI output directories.</div></details></div>
+
+<div id="ValidationChecklist" class="page-section" data-page="ValidationChecklist"><div class="page-header"><h2>ValidationChecklist</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/engine/validation</span><span class="endpoint-badge">POST /api/engine/start</span></div><details><summary>Visual Elements (20+ items)</summary><div class="detail-content"><div class="finding finding-info" style="margin-bottom:12px"><strong>Confirmed 2026-03-16.</strong> Engine validation endpoint uses <code>_db_query()</code> which reads from local SQLite — no Fabric SQL dependency. Badges corrected.</div><table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Source</th></tr></thead><tbody><tr><td>Summary cards (Total Active, LZ, Bronze, Silver)</td><td>KPI x4</td><td><span class="ds-badge ds-sqlite">SQLite</span> entity_status + lz_entities</td></tr><tr><td>Overall progress bar (Complete/Partial/Not Started)</td><td>Stacked bar</td><td><span class="ds-badge ds-sqlite">SQLite</span></td></tr><tr><td>Per-source breakdown with layer badges</td><td>Expandable list</td><td><span class="ds-badge ds-sqlite">SQLite</span></td></tr><tr><td>Entity table with LZ/Bronze/Silver status</td><td>Table</td><td><span class="ds-badge ds-sqlite">SQLite</span></td></tr><tr><td>6 validation checklist items</td><td>Checklist</td><td><span class="ds-badge ds-inmemory">Computed</span></td></tr></tbody></table></div></details></div>
+
+
+<!-- ═══ Pipeline & Analysis ═══ -->
+<div id="cluster-pipeline" class="cluster-header">
+  <h2>Pipeline &amp; Analysis</h2>
+  <p>6 pages — Pipeline runner/monitor, error intelligence, impact analysis. Mix of SQLite + Fabric REST API.</p>
+</div>
+
+<div id="PipelineRunner" class="page-section" data-page="PipelineRunner"><div class="page-header"><h2>PipelineRunner</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/runner/sources</span><span class="endpoint-badge">POST /api/runner/trigger</span></div><details><summary>3-step wizard</summary><div class="detail-content">Source cards from <span class="ds-badge ds-sqlite">SQLite</span>. Entity table from <span class="ds-badge ds-sqlite">SQLite</span>. Pipeline trigger via <span class="ds-badge ds-fabric-api">Fabric API</span>. Runner state in <span class="ds-badge ds-local-fs">Local JSON</span>.</div></details></div>
+
+<div id="PipelineMonitor" class="page-section" data-page="PipelineMonitor"><div class="page-header"><h2>PipelineMonitor</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/pipelines</span><span class="endpoint-badge">GET /api/fabric-jobs</span><span class="endpoint-badge">GET /api/pipeline-activity-runs</span><span class="endpoint-badge">GET /api/pipeline/failure-trace</span></div><details><summary>Heaviest Fabric API consumer</summary><div class="detail-content">Pipeline list from <span class="ds-badge ds-sqlite">SQLite</span>. All live job data from <span class="ds-badge ds-fabric-api">Fabric API</span> (polled with exponential backoff). Activity runs, failure traces, status badges all from Fabric. Execution logs from <span class="ds-badge ds-sqlite">SQLite</span>.</div></details></div>
+
+<div id="ErrorIntelligence" class="page-section" data-page="ErrorIntelligence"><div class="page-header"><h2>ErrorIntelligence</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/error-intelligence</span></div><details><summary>All from <span class="ds-badge ds-sqlite">SQLite</span></summary><div class="detail-content">Error aggregation from engine_task_log + pipeline_audit + copy_activity_audit. Pattern classification + severity ranking computed in Python backend. Suggestions are heuristic-based.</div></details></div>
+
+<div id="ImpactAnalysis" class="page-section" data-page="ImpactAnalysis"><div class="page-header"><h2>ImpactAnalysis</h2></div><div class="page-meta"><span class="hook-badge">useEntityDigest</span></div><details><summary>All from <span class="ds-badge ds-sqlite">SQLite</span> via digest</summary><div class="detail-content">KPIs (Total/Full Chain/Partial/Not Started), impact chain visualization, source impact overview table, at-risk entity grid — all computed from entity digest data.</div></details></div>
+
+<div id="ImpactPulse" class="page-section" data-page="ImpactPulse"><div class="page-header"><h2>ImpactPulse</h2></div><div class="page-meta"><span class="hook-badge">useEntityDigest</span><span class="endpoint-badge">GET /api/live-monitor</span></div><details><summary>React Flow graph</summary><div class="detail-content">Source nodes + layer nodes from <span class="ds-badge ds-sqlite">SQLite</span> digest. Activity glow effects from <span class="ds-badge ds-sqlite">SQLite</span> live-monitor. Layer drawer shows entity lists + recent events.</div></details></div>
+
+<div id="TransformationReplay" class="page-section" data-page="TransformationReplay"><div class="page-header"><h2>TransformationReplay</h2></div><div class="page-meta"><span class="hook-badge">useEntityDigest</span><span class="endpoint-badge">GET /api/microscope</span></div><details><summary>13 animated steps — mostly hardcoded</summary><div class="detail-content">13 REPLAY_STEPS are <span class="ds-badge ds-hardcoded">Hardcoded</span>. Before/after data (when entity+PK selected) from <span class="ds-badge ds-fabric-sql">Fabric SQL</span> via microscope. GSAP ScrollTrigger animations.</div></details></div>
+
+
+<!-- ═══ Business Portal ═══ -->
+<div id="cluster-business" class="cluster-header">
+  <h2>Business Portal</h2>
+  <p>7 pages — 100% SQLite-powered. Zero cloud dependencies. Most resilient cluster.</p>
+</div>
+
+<div id="BusinessOverview" class="page-section" data-page="BusinessOverview"><div class="page-header"><h2>BusinessOverview</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/overview/kpis (30s)</span><span class="endpoint-badge">GET /api/overview/sources (30s)</span><span class="endpoint-badge">GET /api/overview/activity (30s)</span></div><details><summary>Visual Elements</summary><div class="detail-content"><table class="visual-table"><thead><tr><th>Visual</th><th>Type</th><th>Source</th></tr></thead><tbody><tr><td>Data Freshness % + ProgressRing</td><td>KPI + Ring</td><td><span class="ds-badge ds-sqlite">SQLite</span> entity_status + lz_entities</td></tr><tr><td>Open Alerts count</td><td>KPI</td><td><span class="ds-badge ds-sqlite">SQLite</span> quality_scores</td></tr><tr><td>Sources Online fraction</td><td>KPI</td><td><span class="ds-badge ds-sqlite">SQLite</span> datasources</td></tr><tr><td>Total Tables count</td><td>KPI</td><td><span class="ds-badge ds-sqlite">SQLite</span> entity_status</td></tr><tr><td>Recent Alerts (severity, source, entity, layer)</td><td>Card list</td><td><span class="ds-badge ds-sqlite">SQLite</span></td></tr><tr><td>Source Health list (status, entity count)</td><td>Row list</td><td><span class="ds-badge ds-sqlite">SQLite</span></td></tr><tr><td>Recent Activity list</td><td>Row list</td><td><span class="ds-badge ds-sqlite">SQLite</span></td></tr></tbody></table></div></details></div>
+
+<div id="BusinessAlerts" class="page-section" data-page="BusinessAlerts"><div class="page-header"><h2>BusinessAlerts</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/alerts (30s)</span></div><details><summary>All from <span class="ds-badge ds-sqlite">SQLite</span></summary><div class="detail-content">KPIs (Critical/Warning/System Status), alert cards with severity badges, source badges, entity chips, timestamps. Server computes alert type + severity from entity_status + quality_scores.</div></details></div>
+
+<div id="BusinessCatalog" class="page-section" data-page="BusinessCatalog"><div class="page-header"><h2>BusinessCatalog</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/control-plane</span><span class="endpoint-badge">GET /api/gold/domains</span><span class="endpoint-badge">GET /api/mdm/quality/scores</span></div><details><summary>All 3 tabs functional — 100% SQLite</summary><div class="detail-content"><div class="finding finding-info" style="margin-bottom:12px"><strong>FIXED 2026-03-16.</strong> <code>/api/gold/domains</code> implemented (entity_annotations). <code>/api/mdm/quality/scores</code> alias added. All tabs now working.</div>Tables tab reads from <span class="ds-badge ds-sqlite">SQLite</span> via /api/control-plane. Data Collections tab reads from <span class="ds-badge ds-sqlite">SQLite</span> via /api/gold/domains (entity_annotations.domain). Quality tier badges from <span class="ds-badge ds-sqlite">SQLite</span> via /api/mdm/quality/scores.</div></details></div>
+
+<div id="BusinessHelp" class="page-section" data-page="BusinessHelp"><div class="page-header"><h2>BusinessHelp</h2><span class="tag tag-stub">STATIC</span></div><p style="color:var(--ink-muted);font-size:13px;padding:8px 0;">100% static content. 15 glossary terms + 5 getting-started guides, all hardcoded in component file. Zero API calls.</p></div>
+
+<div id="BusinessRequests" class="page-section" data-page="BusinessRequests"><div class="page-header"><h2>BusinessRequests</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/requests (30s)</span><span class="endpoint-badge">POST /api/requests</span></div><details><summary>All from <span class="ds-badge ds-sqlite">SQLite</span></summary><div class="detail-content">Request form + request cards. Source dropdown from /api/overview/sources. All stored in SQLite data_requests table.</div></details></div>
+
+<div id="BusinessSources" class="page-section" data-page="BusinessSources"><div class="page-header"><h2>BusinessSources</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/overview/kpis (30s)</span><span class="endpoint-badge">GET /api/overview/sources (30s)</span><span class="endpoint-badge">GET /api/control-plane (30s)</span></div><details><summary>All from <span class="ds-badge ds-sqlite">SQLite</span></summary><div class="detail-content">KPIs (Sources Connected, Total Tables, On Schedule, Quality). Source cards with status/entity count/last refresh. Full entity table list.</div></details></div>
+
+<div id="DatasetDetail" class="page-section" data-page="DatasetDetail"><div class="page-header"><h2>DatasetDetail</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/control-plane</span><span class="endpoint-badge">GET /api/glossary/entity/{id}</span><span class="endpoint-badge">GET /api/mdm/quality/scores</span></div><details><summary>All sections functional — 100% SQLite</summary><div class="detail-content"><div class="finding finding-info" style="margin-bottom:12px"><strong>FIXED 2026-03-16.</strong> <code>/api/mdm/quality/scores</code> alias added. Quality card now displays.</div>Entity name, source badge, about card (description, domain, tags), freshness card, technical details — all from <span class="ds-badge ds-sqlite">SQLite</span>. Quality card from <span class="ds-badge ds-sqlite">SQLite</span> via /api/mdm/quality/scores.</div></details></div>
+
+
+<!-- ═══ Admin & Settings ═══ -->
+<div id="cluster-admin" class="cluster-header">
+  <h2>Admin, Settings &amp; Setup</h2>
+  <p>15+ pages — Config management, deployment, setup wizard. Heavy Fabric REST API usage for live workspace/resource discovery.</p>
+</div>
+
+<div id="AdminGateway" class="page-section" data-page="AdminGateway"><div class="page-header"><h2>AdminGateway</h2></div><div class="page-meta"><span class="endpoint-badge">POST /api/admin/verify</span><span class="endpoint-badge">GET /api/admin/config</span></div><details><summary>Password-gated admin with 5 tabs</summary><div class="detail-content">Page visibility toggles from <span class="ds-badge ds-sqlite">SQLite</span>. Environment tab delegates to SetupSettings. Deployment tab delegates to DeploymentManager. Governance tab delegates to AdminGovernance.</div></details></div>
+
+<div id="AdminGovernance" class="page-section" data-page="AdminGovernance"><div class="page-header"><h2>AdminGovernance</h2></div><div class="page-meta"><span class="hook-badge">useEntityDigest</span><span class="endpoint-badge">GET /api/connections</span><span class="endpoint-badge">GET /api/datasources</span><span class="endpoint-badge">GET /api/pipelines</span><span class="endpoint-badge">GET /api/stats</span></div><details><summary>Framework topology visualization</summary><div class="detail-content">KPIs (Pipelines, Connections, Lakehouses, Entities) from <span class="ds-badge ds-fabric-sql">Fabric SQL</span>. Data lineage swim lanes computed from digest + connections. Pipeline inventory + workspace panels.</div></details></div>
+
+<div id="ConfigManager" class="page-section" data-page="ConfigManager"><div class="page-header"><h2>ConfigManager</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/config-manager</span><span class="endpoint-badge">POST /api/config-manager/update</span></div><details><summary>Cross-references 4 config sources</summary><div class="detail-content">Reads from: item_config.yaml (<span class="ds-badge ds-local-fs">Local FS</span>), config.json (<span class="ds-badge ds-local-fs">Local FS</span>), pipeline JSONs (<span class="ds-badge ds-local-fs">Local FS</span>), SQL metadata (<span class="ds-badge ds-fabric-sql">Fabric SQL</span>). Resolves Fabric display names via <span class="ds-badge ds-fabric-api">Fabric API</span>.</div></details></div>
+
+<div id="SourceManager" class="page-section" data-page="SourceManager"><div class="page-header"><h2>SourceManager</h2></div><div class="page-meta"><span class="hook-badge">useEntityDigest</span><span class="endpoint-badge">GET /api/gateway-connections</span><span class="endpoint-badge">GET /api/entities/cascade-impact</span><span class="endpoint-badge">Reads ?source=</span><span class="link-badge">FlowExplorer /flow-explorer?source=X&amp;table=Y</span><span class="link-badge">DataJourney /journey?entity=X</span></div><details><summary>Source onboarding + entity management</summary><div class="detail-content">Entity groups from <span class="ds-badge ds-sqlite">SQLite</span> digest. Gateway connections from <span class="ds-badge ds-fabric-api">Fabric API</span>. Load optimization analysis from <span class="ds-badge ds-onprem">On-Prem SQL</span> (VPN). Cascade impact from <span class="ds-badge ds-sqlite">SQLite</span>. Reads <code>?source=</code> URL param from FlowExplorer — auto-filters to that source. "View in Flow Explorer" links on entity rows and source headers. Entity rows link to DataJourney.</div></details></div>
+
+<div id="Settings" class="page-section" data-page="Settings"><div class="page-header"><h2>Settings</h2></div><details><summary>Labs flags from localStorage + Deploy wizard from Fabric API</summary><div class="detail-content">Labs feature toggles from <span class="ds-badge ds-inmemory">localStorage</span>. Deploy wizard dropdowns from <span class="ds-badge ds-fabric-api">Fabric API</span>. Job status polling from <span class="ds-badge ds-fabric-api">Fabric API</span>.</div></details></div>
+
+<div id="NotebookConfig" class="page-section" data-page="NotebookConfig"><div class="page-header"><h2>NotebookConfig</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/notebook-config</span><span class="endpoint-badge">POST /api/notebook/trigger</span></div><details><summary>Config files + Fabric Jobs API</summary><div class="detail-content">Reads item_config.yaml + variable library JSONs from <span class="ds-badge ds-local-fs">Local FS</span>. Triggers setup notebook via <span class="ds-badge ds-fabric-api">Fabric API</span> Jobs endpoint.</div></details></div>
+
+<div id="NotebookDebug" class="page-section" data-page="NotebookDebug"><div class="page-header"><h2>NotebookDebug</h2></div><div class="page-meta"><span class="endpoint-badge">GET /api/notebook-debug/entities</span><span class="endpoint-badge">POST /api/notebook-debug/run</span></div><details><summary>Entity list from Fabric SQL + notebook execution via Fabric API</summary><div class="detail-content">Entities from <span class="ds-badge ds-fabric-sql">Fabric SQL</span>. Notebook list from <span class="ds-badge ds-fabric-api">Fabric API</span>. Job execution + status from <span class="ds-badge ds-fabric-api">Fabric API</span>.</div></details></div>
+
+<div id="DeploymentManager" class="page-section" data-page="DeploymentManager"><div class="page-header"><h2>DeploymentManager</h2></div><div class="page-meta"><span class="endpoint-badge">POST /api/deploy/start</span><span class="endpoint-badge">SSE /api/deploy/stream</span></div><details><summary>Full deployment orchestration via SSE</summary><div class="detail-content">Pre-deployment config from <span class="ds-badge ds-inmemory">UI State</span>. Phase progress + live logs + post-deployment summary all from <span class="ds-badge ds-sse">SSE</span> stream. Backend runs deploy_from_scratch.py which provisions resources via <span class="ds-badge ds-fabric-api">Fabric API</span>.</div></details></div>
+
+<!-- ═══ Setup Wizard ═══ -->
+<div id="EnvironmentSetup" class="page-section" data-page="EnvironmentSetup"><div class="page-header"><h2>EnvironmentSetup</h2></div><details><summary>Mode selector (Provision/Wizard/Settings)</summary><div class="detail-content">Loads config from <span class="ds-badge ds-sqlite">SQLite</span> via /api/setup/current-config. Delegates to ProvisionAll, SetupWizard, or SetupSettings.</div></details></div>
+
+<div id="SetupWizard" class="page-section" data-page="SetupWizard"><div class="page-header"><h2>SetupWizard</h2></div><details><summary>6-step wizard — all dropdowns from <span class="ds-badge ds-fabric-api">Fabric API</span></summary><div class="detail-content">CapacityStep (capacities), WorkspaceStep (workspaces), LakehouseStep (lakehouses), DatabaseStep (SQL DBs), ConnectionStep (connections), ReviewStep (save to config files). All resource discovery from Fabric REST API.</div></details></div>
+
+<div id="ProvisionAll" class="page-section" data-page="ProvisionAll"><div class="page-header"><h2>ProvisionAll</h2></div><details><summary>One-click provisioning via <span class="ds-badge ds-fabric-api">Fabric API</span></summary><div class="detail-content">Creates 5 workspaces, 3 lakehouses, 1 SQL database. 11-step progress list. All via Fabric REST API.</div></details></div>
+
+
+</main>
+</div>
+
+<!-- ═══ Changelog ═══ -->
+<div style="max-width:960px; margin:48px auto 0; padding:0 32px 48px;">
+  <div style="border-top:1px solid var(--border-strong); padding-top:32px;">
+    <h2 style="font-family:'Instrument Serif',serif; font-size:24px; margin-bottom:16px; color:var(--ink-primary);">Changelog</h2>
+    <p style="font-size:13px; color:var(--ink-tertiary); margin-bottom:20px;">Data source changes logged here as they happen. Newest first.</p>
+    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead>
+        <tr style="border-bottom:2px solid var(--border-strong); text-align:left;">
+          <th style="padding:8px 12px; width:100px; color:var(--ink-tertiary); font-weight:600;">Date</th>
+          <th style="padding:8px 12px; width:160px; color:var(--ink-tertiary); font-weight:600;">Page / Component</th>
+          <th style="padding:8px 12px; color:var(--ink-tertiary); font-weight:600;">Change</th>
+          <th style="padding:8px 12px; width:200px; color:var(--ink-tertiary); font-weight:600;">Before → After</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;">7 Data pages (cross-page linking)</td>
+          <td style="padding:8px 12px;">Added bidirectional cross-page deep-links across all 7 Data pages: RecordCounts ↔ DataJourney ↔ DataBlender ↔ SqlExplorer ↔ FlowExplorer ↔ SourceManager ↔ DataManager. 17 URL parameters total. New visual elements: MatchRateRing, StrataBar, LayerStatusDot, ProfilePanel, TypeDistributionStrip, source proportion cards, group-by-source toggle, status colored badges, category stat headers.</td>
+          <td style="padding:8px 12px;">Isolated pages → Cross-linked navigation network</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;"><code>data_access.py</code> → DataBlender, DataProfiler</td>
+          <td style="padding:8px 12px;">Profile, sample, and query endpoints rewritten from Fabric SQL pyodbc to OneLake + polars. Profile uses 100k-row sample with per-column null/distinct/min/max. Query uses <code>polars.SQLContext</code> for local SQL execution against registered OneLake tables.</td>
+          <td style="padding:8px 12px;"><span class="ds-badge ds-fabric-sql">Fabric SQL</span> → <span class="ds-badge ds-onelake">OneLake</span> + polars</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;">ValidationChecklist</td>
+          <td style="padding:8px 12px;">Audit badge correction: engine/api.py <code>_db_query()</code> already reads from SQLite, not Fabric SQL. Badges updated to reflect actual source.</td>
+          <td style="padding:8px 12px;"><span class="ds-badge ds-fabric-sql">Fabric SQL</span> badge → <span class="ds-badge ds-sqlite">SQLite</span> badge (no code change — was already correct)</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;"><code>lineage.py</code> → DataLineage</td>
+          <td style="padding:8px 12px;">Column schema fallback rewritten from Fabric SQL INFORMATION_SCHEMA to OneLake + polars <code>scan_parquet</code> schema read. SQLite cache (24h TTL) unchanged. Supports delta Tables dirs and LZ flat parquet files.</td>
+          <td style="padding:8px 12px;"><span class="ds-badge ds-fabric-sql">Fabric SQL</span> fallback → <span class="ds-badge ds-onelake">OneLake</span> + polars</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;"><code>monitoring.py</code> → ExecutiveDashboard</td>
+          <td style="padding:8px 12px;">Created <code>/api/executive</code> endpoint (previously missing — page was non-functional). All visuals sourced from SQLite. New <code>health_trend_snapshots</code> table in <code>control_plane_db.py</code> for 24h trend chart. Auto-snapshots on each request.</td>
+          <td style="padding:8px 12px;"><span class="ds-badge" style="background:var(--fault-light);color:var(--fault);">Missing</span> → <span class="ds-badge ds-sqlite">SQLite</span></td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;"><code>engine/loader.py</code></td>
+          <td style="padding:8px 12px;">LZ parquet upload rewritten to filesystem-first with ADLS SDK as silent fallback. No UI or config changes.</td>
+          <td style="padding:8px 12px;"><span class="ds-badge ds-fabric-api">Fabric API</span> ADLS SDK only → <span class="ds-badge ds-onelake">OneLake</span> local mount + <span class="ds-badge ds-fabric-api">Fabric API</span> fallback</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;">RecordCounts</td>
+          <td style="padding:8px 12px;">Row counts rewritten from Fabric SQL to local OneLake parquet/delta files via polars. SQLite cache layer added. LZ column added to table.</td>
+          <td style="padding:8px 12px;"><span class="ds-badge ds-fabric-sql">Fabric SQL</span> → <span class="ds-badge ds-onelake">OneLake</span> + <span class="ds-badge ds-sqlite">SQLite</span> cache</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;">EngineControl</td>
+          <td style="padding:8px 12px;">Nav dot corrected from Fabric SQL (blue) to SQLite (green) — all visual elements are SQLite/SSE, not Fabric SQL.</td>
+          <td style="padding:8px 12px;"><span class="ds-badge ds-fabric-sql">Fabric SQL</span> dot → <span class="ds-badge ds-sqlite">SQLite</span> dot</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;"><code>quality.py</code> → BusinessCatalog, DatasetDetail</td>
+          <td style="padding:8px 12px;">Added <code>/api/mdm/quality/scores</code> alias route — second <code>@route</code> decorator on existing <code>get_quality_scores</code> handler. Business Portal pages that called this path now get data instead of 404.</td>
+          <td style="padding:8px 12px;"><span class="ds-badge" style="background:var(--fault-light);color:var(--fault);">404</span> → <span class="ds-badge ds-sqlite">SQLite</span> quality_scores</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;"><code>glossary.py</code> → BusinessCatalog</td>
+          <td style="padding:8px 12px;">Implemented <code>/api/gold/domains</code> endpoint — returns distinct domains from <code>entity_annotations</code> with entity counts. "Data Collections" tab no longer empty.</td>
+          <td style="padding:8px 12px;"><span class="ds-badge" style="background:var(--fault-light);color:var(--fault);">Missing</span> → <span class="ds-badge ds-sqlite">SQLite</span> entity_annotations</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;"><code>monitoring.py</code> → DataJourney, ColumnEvolution</td>
+          <td style="padding:8px 12px;">Rewrote <code>/api/journey</code> to return structured response matching frontend shape — includes <code>bronze.columns[]</code>, <code>silver.columns[]</code>, <code>schemaDiff[]</code>, and <code>rowCount</code>. Columns read from SQLite <code>column_metadata</code> cache (24h TTL, Fabric SQL fallback on miss). Row counts from SQLite <code>lakehouse_row_counts</code> cache.</td>
+          <td style="padding:8px 12px;"><span class="ds-badge" style="background:var(--fault-light);color:var(--fault);">BROKEN</span> raw rows → <span class="ds-badge ds-sqlite">SQLite</span> cache (columns + rows) + <span class="ds-badge ds-fabric-sql">Fabric SQL</span> fallback (first-load only)</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 12px; white-space:nowrap;">2026-03-16</td>
+          <td style="padding:8px 12px;"><code>microscope.py</code> → DataMicroscope</td>
+          <td style="padding:8px 12px;">Wired Bronze/Silver actual row data via local OneLake parquet/delta files using polars. Bronze: single row lookup by PK (tries original PK, then HashedPKColumn). Silver: all SCD2 versions sorted by RecordStartDate. Fails gracefully to null if OneLake mount unavailable.</td>
+          <td style="padding:8px 12px;"><span class="ds-badge" style="background:var(--fault-light);color:var(--fault);">null always</span> → <span class="ds-badge ds-onelake">OneLake</span> polars scan → actual row data</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ Back to Top ═══ -->
+<button class="back-top" onclick="window.scrollTo({top:0})" title="Back to top">&uarr;</button>
+
+<script>
+function filterPages(query) {
+  const q = query.toLowerCase();
+  document.querySelectorAll('.page-section').forEach(section => {
+    const text = section.textContent.toLowerCase();
+    section.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+  // Also filter sidebar links
+  document.querySelectorAll('.sidebar a[href^="#"]').forEach(link => {
+    const target = link.getAttribute('href').slice(1);
+    const section = document.getElementById(target);
+    if (section && section.classList.contains('page-section')) {
+      link.style.display = (!q || section.textContent.toLowerCase().includes(q)) ? '' : 'none';
+    }
+  });
+}
+</script>
+
+</body>
+</html>

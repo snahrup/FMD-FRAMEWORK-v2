@@ -34,20 +34,20 @@ gsap.registerPlugin(ScrollTrigger);
 
 const API = import.meta.env.VITE_API_URL || "";
 
-const LAYER_COLORS: Record<string, { color: string; bg: string; border: string; glow: string }> = {
-  source:  { color: "#64748b", bg: "bg-slate-500/10",  border: "border-slate-500/30",  glow: "shadow-slate-500/20" },
-  landing: { color: "#3b82f6", bg: "bg-blue-500/10",   border: "border-blue-500/30",   glow: "shadow-blue-500/20" },
-  bronze:  { color: "#f59e0b", bg: "bg-amber-500/10",  border: "border-amber-500/30",  glow: "shadow-amber-500/20" },
-  silver:  { color: "#8b5cf6", bg: "bg-violet-500/10", border: "border-violet-500/30",  glow: "shadow-violet-500/20" },
+const LAYER_COLORS: Record<string, { color: string; bgHex: string; borderHex: string }> = {
+  source:  { color: "#78716C", bgHex: "#EDEAE4", borderHex: "rgba(0,0,0,0.08)" },
+  landing: { color: "#B45624", bgHex: "#F4E8DF", borderHex: "#B45624" },
+  bronze:  { color: "#C27A1A", bgHex: "#FDF3E3", borderHex: "#C27A1A" },
+  silver:  { color: "#3D7C4F", bgHex: "#E7F3EB", borderHex: "#3D7C4F" },
 };
 
-const IMPACT_STYLES: Record<string, { label: string; cls: string }> = {
-  none:      { label: "Pass-through",  cls: "bg-slate-500/10 text-slate-400 border-slate-500/20" },
-  rename:    { label: "Rename",        cls: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
-  add:       { label: "Add Columns",   cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
-  transform: { label: "Transform",     cls: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
-  remove:    { label: "Remove Rows",   cls: "bg-red-500/10 text-red-400 border-red-500/20" },
-  merge:     { label: "Delta Merge",   cls: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
+const IMPACT_STYLES: Record<string, { label: string; colorHex: string; bgHex: string }> = {
+  none:      { label: "Pass-through",  colorHex: "#78716C", bgHex: "#EDEAE4" },
+  rename:    { label: "Rename",        colorHex: "#B45624", bgHex: "#F4E8DF" },
+  add:       { label: "Add Columns",   colorHex: "#3D7C4F", bgHex: "#E7F3EB" },
+  transform: { label: "Transform",     colorHex: "#C27A1A", bgHex: "#FDF3E3" },
+  remove:    { label: "Remove Rows",   colorHex: "#B93A2A", bgHex: "#FBEAE8" },
+  merge:     { label: "Delta Merge",   colorHex: "#9A4A1F", bgHex: "#F4E8DF" },
 };
 
 // ============================================================================
@@ -227,8 +227,8 @@ const REPLAY_STEPS: ReplayStep[] = [
 
 /** Build a gradient string that transitions through layer colors */
 function progressGradient(pct: number): string {
-  // Blue (landing) -> Amber (bronze) -> Violet (silver)
-  return `linear-gradient(90deg, #3b82f6 0%, #f59e0b 40%, #8b5cf6 70%, rgba(139,92,246,0.3) ${pct * 100}%, transparent ${pct * 100 + 0.1}%)`;
+  // Copper (landing) -> Caution (bronze) -> Operational (silver)
+  return `linear-gradient(90deg, #B45624 0%, #C27A1A 40%, #3D7C4F 70%, rgba(61,124,79,0.3) ${pct * 100}%, transparent ${pct * 100 + 0.1}%)`;
 }
 
 /** Determine which layer segment a step falls in for the timeline connector color */
@@ -308,25 +308,16 @@ function StepCard({
 
       {/* Right: card body */}
       <div
-        className={cn(
-          "flex-1 rounded-xl border p-5 mb-2 backdrop-blur-sm transition-all duration-300",
-          "bg-card hover:bg-card/80",
-          "border-border/30 hover:border-border/50",
-          "hover:shadow-lg",
-          layerStyle.glow,
-        )}
+        className="flex-1 rounded-lg p-5 mb-2 transition-all duration-300"
+        style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}
       >
         {/* Top row: layer badge + title + impact badge */}
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex items-center gap-3 min-w-0">
             {/* Layer color badge */}
             <div
-              className={cn(
-                "flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[10px] font-semibold uppercase tracking-wider flex-shrink-0",
-                layerStyle.bg,
-                layerStyle.border,
-              )}
-              style={{ color: layerStyle.color }}
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider flex-shrink-0"
+              style={{ color: layerStyle.color, background: layerStyle.bgHex, border: `1px solid ${layerStyle.borderHex}` }}
             >
               {layerDef && <layerDef.icon className="w-3 h-3" />}
               {step.layer}
@@ -335,7 +326,7 @@ function StepCard({
             {/* Title + icon */}
             <div className="flex items-center gap-2 min-w-0">
               <Icon className="w-4 h-4 flex-shrink-0" style={{ color: layerStyle.color }} />
-              <h3 className="font-display font-semibold text-sm text-foreground truncate">
+              <h3 className="text-sm truncate" style={{ fontFamily: 'var(--bp-font-body)', fontWeight: 600, color: 'var(--bp-ink-primary)' }}>
                 {step.title}
               </h3>
             </div>
@@ -343,24 +334,23 @@ function StepCard({
 
           {/* Impact badge */}
           <span
-            className={cn(
-              "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border flex-shrink-0",
-              impactStyle.cls,
-            )}
+            className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold flex-shrink-0"
+            style={{ color: impactStyle.colorHex, background: impactStyle.bgHex, border: `1px solid ${impactStyle.colorHex}` }}
           >
             {impactStyle.label}
           </span>
         </div>
 
         {/* Description */}
-        <p className="text-sm text-muted-foreground leading-relaxed mb-3">
+        <p className="text-sm leading-relaxed mb-3" style={{ color: 'var(--bp-ink-secondary)' }}>
           {step.description}
         </p>
 
         {/* Technical detail (expandable) */}
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 hover:text-muted-foreground transition-colors mb-3 cursor-pointer"
+          className="flex items-center gap-1.5 text-[11px] transition-colors mb-3 cursor-pointer"
+          style={{ color: 'var(--bp-ink-muted)' }}
         >
           <ChevronRight
             className={cn("w-3 h-3 transition-transform duration-200", expanded && "rotate-90")}
@@ -368,8 +358,8 @@ function StepCard({
           <span className="font-medium">Technical Detail</span>
         </button>
         {expanded && (
-          <div className="mb-3 px-3 py-2 rounded-md bg-muted border border-border/20">
-            <code className="text-[11px] font-mono text-muted-foreground leading-relaxed break-all">
+          <div className="mb-3 px-3 py-2 rounded-md" style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border-subtle)' }}>
+            <code className="text-[11px] leading-relaxed break-all" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-secondary)' }}>
               {step.technicalDetail}
             </code>
           </div>
@@ -381,7 +371,8 @@ function StepCard({
             {step.columnsAdded.map((col) => (
               <span
                 key={col}
-                className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-mono font-medium"
+                className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium"
+                style={{ background: 'var(--bp-operational-light)', color: 'var(--bp-operational)', border: '1px solid var(--bp-operational)', fontFamily: 'var(--bp-font-mono)' }}
               >
                 + {col}
               </span>
@@ -391,24 +382,25 @@ function StepCard({
 
         {/* Before/After comparison (from microscope API or step definition) */}
         {beforeAfter && beforeAfter.length > 0 && (
-          <div className="rounded-lg border border-border/20 overflow-hidden">
-            <div className="grid grid-cols-3 bg-muted border-b border-border/20 px-3 py-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Column</span>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-red-400/60">Before</span>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-400/60">After</span>
+          <div className="rounded-md overflow-hidden" style={{ border: '1px solid var(--bp-border)' }}>
+            <div className="grid grid-cols-3 px-3 py-1.5" style={{ background: 'var(--bp-surface-inset)', borderBottom: '1px solid var(--bp-border-subtle)' }}>
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Column</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-fault)' }}>Before</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-operational)' }}>After</span>
             </div>
             {beforeAfter.slice(0, 5).map((row, i) => (
               <div
                 key={i}
-                className="grid grid-cols-3 px-3 py-1.5 border-b border-border/10 last:border-b-0 hover:bg-muted/50"
+                className="grid grid-cols-3 px-3 py-1.5"
+                style={{ borderBottom: '1px solid var(--bp-border-subtle)' }}
               >
-                <span className="text-xs font-mono text-foreground/80 truncate">{row.column}</span>
-                <span className="text-xs font-mono text-red-400/70 truncate">{row.before}</span>
-                <span className="text-xs font-mono text-emerald-400/70 truncate">{row.after}</span>
+                <span className="text-xs truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }}>{row.column}</span>
+                <span className="text-xs truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-fault)' }}>{row.before}</span>
+                <span className="text-xs truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-operational)' }}>{row.after}</span>
               </div>
             ))}
             {beforeAfter.length > 5 && (
-              <div className="px-3 py-1 text-[10px] text-muted-foreground/40 text-center">
+              <div className="px-3 py-1 text-[10px] text-center" style={{ color: 'var(--bp-ink-muted)' }}>
                 + {beforeAfter.length - 5} more columns
               </div>
             )}
@@ -416,14 +408,14 @@ function StepCard({
         )}
 
         {/* Notebook reference */}
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/10">
-          <div className="flex items-center gap-2 text-muted-foreground/40">
+        <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: '1px solid var(--bp-border-subtle)' }}>
+          <div className="flex items-center gap-2" style={{ color: 'var(--bp-ink-muted)' }}>
             <span className="text-[10px]">Notebook:</span>
-            <code className="text-[10px] font-mono text-muted-foreground/60">
+            <code className="text-[10px]" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-tertiary)' }}>
               {step.notebook}
             </code>
           </div>
-          <span className="text-[10px] text-muted-foreground/30">
+          <span className="text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>
             Step {step.id} of {REPLAY_STEPS.length}
           </span>
         </div>
@@ -437,20 +429,20 @@ function StepSkeleton({ index }: { index: number }) {
   return (
     <div className="flex gap-4 md:gap-6 animate-pulse" style={{ animationDelay: `${index * 80}ms` }}>
       <div className="flex flex-col items-center flex-shrink-0 w-10">
-        <div className="w-9 h-9 rounded-full bg-muted" />
-        <div className="w-0.5 flex-1 mt-1 bg-muted" />
+        <div className="w-9 h-9 rounded-full" style={{ background: 'var(--bp-surface-inset)' }} />
+        <div className="w-0.5 flex-1 mt-1" style={{ background: 'var(--bp-surface-inset)' }} />
       </div>
-      <div className="flex-1 rounded-xl border border-border/20 bg-card p-5 mb-2">
+      <div className="flex-1 rounded-lg p-5 mb-2" style={{ border: '1px solid var(--bp-border-subtle)', background: 'var(--bp-surface-1)' }}>
         <div className="flex items-center gap-3 mb-3">
-          <div className="w-16 h-5 rounded bg-muted" />
-          <div className="w-32 h-5 rounded bg-muted" />
+          <div className="w-16 h-5 rounded" style={{ background: 'var(--bp-surface-inset)' }} />
+          <div className="w-32 h-5 rounded" style={{ background: 'var(--bp-surface-inset)' }} />
         </div>
         <div className="space-y-2">
-          <div className="w-full h-3 rounded bg-muted" />
-          <div className="w-3/4 h-3 rounded bg-muted/15" />
+          <div className="w-full h-3 rounded" style={{ background: 'var(--bp-surface-inset)' }} />
+          <div className="w-3/4 h-3 rounded" style={{ background: 'var(--bp-surface-inset)', opacity: 0.5 }} />
         </div>
         <div className="flex gap-1.5 mt-3">
-          <div className="w-20 h-4 rounded bg-muted/15" />
+          <div className="w-20 h-4 rounded" style={{ background: 'var(--bp-surface-inset)', opacity: 0.5 }} />
         </div>
       </div>
     </div>
@@ -619,13 +611,13 @@ export default function TransformationReplay() {
   }, []);
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-6 pb-12" style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
       {/* ── Progress bar (fixed at top of content) ── */}
       <div
         ref={progressBarRef}
         className="sticky top-0 z-30 -mx-6 md:-mx-8 -mt-6 md:-mt-8 px-0"
       >
-        <div className="h-1 bg-muted w-full overflow-hidden">
+        <div className="h-1 w-full overflow-hidden" style={{ background: 'var(--bp-surface-inset)' }}>
           <div
             className="h-full transition-all duration-100 ease-linear rounded-r-full"
             style={{
@@ -641,12 +633,12 @@ export default function TransformationReplay() {
         {/* Title row */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Clapperboard className="w-5 h-5 text-primary" />
+            <Clapperboard className="w-5 h-5" style={{ color: 'var(--bp-copper)' }} />
             <div>
-              <h1 className="font-display text-lg font-semibold text-foreground">
+              <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: 32, color: 'var(--bp-ink-primary)', fontWeight: 400, lineHeight: 1.2 }}>
                 Transformation Replay
               </h1>
-              <p className="text-xs text-muted-foreground/60 mt-0.5">
+              <p className="text-xs mt-0.5" style={{ color: 'var(--bp-ink-tertiary)' }}>
                 {subtitle}
               </p>
             </div>
@@ -654,12 +646,12 @@ export default function TransformationReplay() {
 
           {/* Progress indicator */}
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground/50">
-              <span className="font-mono font-medium text-foreground">
+            <div className="hidden sm:flex items-center gap-2 text-xs" style={{ color: 'var(--bp-ink-muted)' }}>
+              <span style={{ fontFamily: 'var(--bp-font-mono)', fontWeight: 500, color: 'var(--bp-ink-primary)' }}>
                 {currentStep}
               </span>
               <span>/</span>
-              <span className="font-mono">{REPLAY_STEPS.length}</span>
+              <span style={{ fontFamily: 'var(--bp-font-mono)' }}>{REPLAY_STEPS.length}</span>
               <span>steps</span>
             </div>
             {/* Layer mini-legend */}
@@ -667,18 +659,15 @@ export default function TransformationReplay() {
               {(["landing", "bronze", "silver"] as const).map((layer) => (
                 <div
                   key={layer}
-                  className={cn(
-                    "flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider",
-                    LAYER_COLORS[layer].bg,
-                  )}
-                  style={{ color: LAYER_COLORS[layer].color }}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider"
+                  style={{ color: LAYER_COLORS[layer].color, background: LAYER_COLORS[layer].bgHex }}
                 >
                   <div
                     className="w-1.5 h-1.5 rounded-full"
                     style={{ backgroundColor: LAYER_COLORS[layer].color }}
                   />
                   {layer}
-                  <span className="text-muted-foreground/40 ml-0.5">({layerSummary[layer] || 0})</span>
+                  <span className="ml-0.5" style={{ color: 'var(--bp-ink-muted)' }}>({layerSummary[layer] || 0})</span>
                 </div>
               ))}
             </div>
@@ -712,7 +701,8 @@ export default function TransformationReplay() {
                     }
                   }
                 }}
-                className="h-[42px] px-3 w-36 rounded-lg border border-border/50 bg-card text-sm text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-colors"
+                className="h-[42px] px-3 w-36 rounded-md text-sm outline-none transition-colors"
+                style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
               />
             </div>
           )}
@@ -720,7 +710,7 @@ export default function TransformationReplay() {
 
         {/* Microscope error banner */}
         {microscopeError && (
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-red-500/20 bg-red-500/5 text-red-400">
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-md" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)', color: 'var(--bp-fault)' }}>
             <AlertTriangle className="w-4 h-4 flex-shrink-0" />
             <span className="text-xs">{microscopeError}</span>
           </div>
@@ -735,8 +725,8 @@ export default function TransformationReplay() {
             {Array.from({ length: 5 }).map((_, i) => (
               <StepSkeleton key={i} index={i} />
             ))}
-            <div className="flex items-center justify-center gap-2 text-muted-foreground py-8">
-              <Loader2 className="w-4 h-4 animate-spin" />
+            <div className="flex items-center justify-center gap-2 py-8" style={{ color: 'var(--bp-ink-secondary)' }}>
+              <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--bp-copper)' }} />
               <span className="text-xs">Loading transformation data...</span>
             </div>
           </div>
@@ -793,14 +783,14 @@ export default function TransformationReplay() {
                         >
                           {step.layer}
                         </span>
-                        <ChevronRight className="w-3 h-3 text-muted-foreground/30" />
+                        <ChevronRight className="w-3 h-3" style={{ color: 'var(--bp-ink-muted)' }} />
                         <span
                           className="text-[10px] font-semibold uppercase tracking-wider"
                           style={{ color: layerColorHex(nextStep.layer) }}
                         >
                           {nextStep.layer}
                         </span>
-                        <span className="text-[10px] text-muted-foreground/30 ml-2">
+                        <span className="text-[10px] ml-2" style={{ color: 'var(--bp-ink-muted)' }}>
                           Layer transition
                         </span>
                       </div>
@@ -816,21 +806,21 @@ export default function TransformationReplay() {
         {!microscopeLoading && (
           <div className="flex gap-4 md:gap-6 mt-2">
             <div className="flex flex-col items-center flex-shrink-0 w-10">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center border-2 border-emerald-500/50 bg-emerald-500/10">
-                <span className="text-emerald-400 text-[10px] font-bold">FIN</span>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ border: '2px solid var(--bp-operational)', background: 'var(--bp-operational-light)' }}>
+                <span className="text-[10px] font-bold" style={{ color: 'var(--bp-operational)' }}>FIN</span>
               </div>
             </div>
-            <div className="flex-1 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-5">
-              <h3 className="font-display font-semibold text-sm text-emerald-400 mb-1">
+            <div className="flex-1 rounded-lg p-5" style={{ border: '1px solid var(--bp-operational)', background: 'var(--bp-operational-light)' }}>
+              <h3 className="text-sm mb-1" style={{ fontFamily: 'var(--bp-font-body)', fontWeight: 600, color: 'var(--bp-operational)' }}>
                 Transformation Complete
               </h3>
-              <p className="text-xs text-muted-foreground/60 leading-relaxed">
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--bp-ink-secondary)' }}>
                 Data has passed through all {REPLAY_STEPS.length} transformation steps across the
                 Landing Zone, Bronze, and Silver layers. The Silver table now contains clean,
                 deduplicated, versioned data with full SCD2 history tracking.
                 {selectedEntity && (
                   <span>
-                    {" "}Entity <code className="text-foreground/80 font-mono">{selectedEntity.tableName}</code> is
+                    {" "}Entity <code style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }}>{selectedEntity.tableName}</code> is
                     ready for Gold layer materialization.
                   </span>
                 )}

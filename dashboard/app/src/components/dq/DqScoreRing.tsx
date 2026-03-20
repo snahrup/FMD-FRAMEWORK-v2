@@ -10,15 +10,15 @@ interface DqScoreRingProps {
 }
 
 function scoreColor(score: number): string {
-  if (score >= 90) return "#34d399"; // emerald-400
-  if (score >= 70) return "#fbbf24"; // amber-400
-  return "#f87171";                   // red-400
+  if (score >= 90) return "#3D7C4F"; // BP green
+  if (score >= 70) return "#C27A1A"; // BP amber
+  return "#B93A2A";                   // BP red
 }
 
 function scoreGlow(score: number): string {
-  if (score >= 90) return "0 0 20px rgba(52,211,153,0.3)";
-  if (score >= 70) return "0 0 20px rgba(251,191,36,0.2)";
-  return "0 0 20px rgba(248,113,113,0.3)";
+  if (score >= 90) return "0 0 20px rgba(61,124,79,0.3)";
+  if (score >= 70) return "0 0 20px rgba(194,122,26,0.2)";
+  return "0 0 20px rgba(185,58,42,0.3)";
 }
 
 const trendArrow = {
@@ -28,8 +28,8 @@ const trendArrow = {
 };
 
 const trendColor = {
-  up: "text-emerald-400",
-  down: "text-red-400",
+  up: "text-[#3D7C4F]",
+  down: "text-[#B93A2A]",
   flat: "text-muted-foreground",
 };
 

@@ -99,7 +99,7 @@ const FRIENDLY_VAR_FMD: Record<string, string> = {
   key_vault_uri_name: "Key Vault URI",
   key_vault_tenant_id: "Tenant ID",
   key_vault_client_id: "Client ID (SP)",
-  key_vault_client_secret: "Client Secret Name (KV)",
+  kv_credential_ref: "Client Secret Name (KV)",
   lakehouse_schema_enabled: "Lakehouse Schemas Enabled",
 };
 
@@ -114,11 +114,12 @@ function CopyButton({ text }: { text: string }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       }}
-      className="text-muted-foreground hover:text-foreground transition-colors"
+      className="transition-colors"
+      style={{ color: copied ? 'var(--bp-operational)' : 'var(--bp-ink-muted)' }}
       title="Copy"
     >
       {copied ? (
-        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+        <CheckCircle2 className="h-3.5 w-3.5" />
       ) : (
         <Copy className="h-3.5 w-3.5" />
       )}
@@ -144,12 +145,12 @@ function SectionHeader({
         onClick={() => setOpen(!open)}
         className="flex items-center gap-3 w-full text-left"
       >
-        <Icon className="h-5 w-5 text-foreground/70" />
-        <h2 className="text-lg font-semibold text-foreground flex-1">{title}</h2>
+        <Icon className="h-5 w-5" style={{ color: 'var(--bp-ink-secondary)' }} />
+        <h2 className="flex-1" style={{ fontFamily: 'var(--bp-font-body)', fontSize: '18px', fontWeight: 600, color: 'var(--bp-ink-primary)' }}>{title}</h2>
         {open ? (
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          <ChevronDown className="h-4 w-4" style={{ color: 'var(--bp-ink-muted)' }} />
         ) : (
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          <ChevronRight className="h-4 w-4" style={{ color: 'var(--bp-ink-muted)' }} />
         )}
       </button>
       {open && <div className="mt-4">{children}</div>}
@@ -201,8 +202,8 @@ function EditableValue({
   return (
     <div className="flex flex-col gap-1 group">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-foreground">{label}</span>
-        <span className="text-xs text-muted-foreground font-mono">({technicalName})</span>
+        <span className="text-sm font-medium" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>{label}</span>
+        <span className="text-xs" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-mono)' }}>({technicalName})</span>
       </div>
       {editing ? (
         <div className="flex items-center gap-2">
@@ -217,13 +218,15 @@ function EditableValue({
                 setEditing(false);
               }
             }}
-            className="flex-1 px-3 py-1.5 bg-background border border-blue-500 rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            className="flex-1 px-3 py-1.5 rounded-lg text-sm focus:outline-none focus:ring-2"
+            style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-copper)', fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)', boxShadow: '0 0 0 2px rgba(180, 86, 36, 0.15)' }}
             autoFocus
           />
           <button
             onClick={handleSave}
             disabled={saving}
-            className="p-1.5 text-emerald-600 hover:text-emerald-500"
+            className="p-1.5"
+            style={{ color: 'var(--bp-operational)' }}
           >
             <Save className="h-4 w-4" />
           </button>
@@ -232,7 +235,8 @@ function EditableValue({
               setDraft(value);
               setEditing(false);
             }}
-            className="p-1.5 text-muted-foreground hover:text-foreground"
+            className="p-1.5"
+            style={{ color: 'var(--bp-ink-muted)' }}
           >
             <X className="h-4 w-4" />
           </button>
@@ -240,16 +244,17 @@ function EditableValue({
       ) : (
         <div className="flex items-center gap-2">
           {isEmpty ? (
-            <span className="text-sm font-mono px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700/50">
+            <span className="text-sm px-2 py-1 rounded" style={{ fontFamily: 'var(--bp-font-mono)', background: 'var(--bp-caution-light)', color: 'var(--bp-caution)', border: '1px solid var(--bp-caution)' }}>
               (empty — needs value)
             </span>
           ) : (
             <code
-              className={`text-sm font-mono px-2 py-1 rounded ${
-                isGuid
-                  ? "text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/20"
-                  : "text-foreground bg-muted"
-              }`}
+              className="text-sm px-2 py-1 rounded"
+              style={{
+                fontFamily: 'var(--bp-font-mono)',
+                color: isGuid ? 'var(--bp-copper)' : 'var(--bp-ink-primary)',
+                background: isGuid ? 'var(--bp-copper-light)' : 'var(--bp-surface-inset)',
+              }}
             >
               {isSensitive ? "••••••••" : value}
             </code>
@@ -260,7 +265,8 @@ function EditableValue({
               setDraft(value);
               setEditing(true);
             }}
-            className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-foreground transition-opacity"
+            className="opacity-0 group-hover:opacity-100 p-1 transition-opacity"
+            style={{ color: 'var(--bp-ink-muted)' }}
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -270,7 +276,8 @@ function EditableValue({
                 setDraft("");
                 setEditing(true);
               }}
-              className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+              className="text-xs hover:underline"
+              style={{ color: 'var(--bp-copper)' }}
             >
               Set value
             </button>
@@ -434,18 +441,19 @@ export default function NotebookConfig() {
   if (!hasLoadedOnce.current && loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <RefreshCw className="h-8 w-8 text-muted-foreground animate-spin" />
+        <RefreshCw className="h-8 w-8 animate-spin" style={{ color: 'var(--bp-ink-muted)' }} />
       </div>
     );
   }
   if (error && !data) {
     return (
       <div className="p-8">
-        <div className="bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-500/40 rounded-xl p-6 flex items-center justify-between">
-          <p className="text-red-700 dark:text-red-300">{error}</p>
+        <div className="rounded-xl p-6 flex items-center justify-between" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
+          <p style={{ color: 'var(--bp-fault)' }}>{error}</p>
           <button
             onClick={load}
-            className="flex items-center gap-2 px-4 py-2 bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 rounded-lg text-sm text-red-700 dark:text-red-300 border border-red-300 dark:border-red-500/30 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors"
+            style={{ background: 'var(--bp-fault-light)', color: 'var(--bp-fault)', border: '1px solid var(--bp-fault)' }}
           >
             <RefreshCw className="h-4 w-4" />
             Retry
@@ -471,14 +479,14 @@ export default function NotebookConfig() {
   const totalEmpty = emptyVarConfig + emptyVarFmd + emptyYaml;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ padding: '32px', maxWidth: '1280px' }}>
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-3">
+          <h1 className="flex items-center gap-3" style={{ fontFamily: 'var(--bp-font-display)', fontSize: '32px', color: 'var(--bp-ink-primary)' }}>
             <BookOpen className="h-7 w-7" /> Setup Notebook Configuration
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm mt-1" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
             Edit all values the NB_UTILITIES_SETUP_FMD notebook reads. Update here, then run the
             notebook in Fabric.
           </p>
@@ -486,7 +494,7 @@ export default function NotebookConfig() {
         <button
           onClick={load}
           disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-muted hover:bg-muted/80 rounded-lg text-sm text-foreground border border-border transition-colors"
+          className="bp-btn-ghost flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           Refresh
@@ -495,26 +503,26 @@ export default function NotebookConfig() {
 
       {/* ── Readiness Banner ── */}
       {totalEmpty > 0 ? (
-        <div className="bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-500/40 rounded-xl p-5 flex items-center gap-3">
-          <AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400" />
-          <span className="text-sm text-amber-700 dark:text-amber-300">
+        <div className="rounded-xl p-5 flex items-center gap-3" style={{ background: 'var(--bp-caution-light)', border: '1px solid var(--bp-caution)' }}>
+          <AlertTriangle className="h-6 w-6" style={{ color: 'var(--bp-caution)' }} />
+          <span className="text-sm" style={{ color: 'var(--bp-caution)', fontFamily: 'var(--bp-font-body)' }}>
             <strong>{totalEmpty} value{totalEmpty > 1 ? "s" : ""}</strong> still need to be set
             before running the setup notebook. Fill in the highlighted fields below.
           </span>
         </div>
       ) : (
-        <div className="bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-500/30 rounded-xl p-5 flex items-center gap-3">
-          <CheckCircle2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
-          <span className="text-sm text-emerald-700 dark:text-emerald-300">
+        <div className="rounded-xl p-5 flex items-center gap-3" style={{ background: 'var(--bp-operational-light)', border: '1px solid var(--bp-operational)' }}>
+          <CheckCircle2 className="h-6 w-6" style={{ color: 'var(--bp-operational)' }} />
+          <span className="text-sm" style={{ color: 'var(--bp-operational)', fontFamily: 'var(--bp-font-body)' }}>
             All configuration values are set. The setup notebook is ready to run.
           </span>
         </div>
       )}
 
       {/* ── One-Click Deploy ── */}
-      <div className="bg-card border border-border rounded-xl p-6">
+      <div className="rounded-xl p-6" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
         <SectionHeader icon={Rocket} title="Run Setup Notebook">
-          <p className="text-sm text-muted-foreground mb-4">
+          <p className="text-sm mb-4" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
             Trigger <strong>NB_UTILITIES_SETUP_FMD</strong> remotely via the Fabric Jobs API.
             This deploys the entire framework — workspaces, lakehouses, pipelines, connections,
             variable libraries, and the metadata database.
@@ -526,10 +534,9 @@ export default function NotebookConfig() {
               onClick={() => setDeployPhase("confirm")}
               disabled={totalEmpty > 0}
               className={`flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-medium transition-colors ${
-                totalEmpty > 0
-                  ? "bg-muted text-muted-foreground cursor-not-allowed"
-                  : "bg-blue-600 hover:bg-blue-700 text-white"
+                totalEmpty > 0 ? "cursor-not-allowed" : "bp-btn-primary"
               }`}
+              style={totalEmpty > 0 ? { background: 'var(--bp-surface-inset)', color: 'var(--bp-ink-muted)' } : undefined}
             >
               <Rocket className="h-5 w-5" />
               {totalEmpty > 0
@@ -540,14 +547,14 @@ export default function NotebookConfig() {
 
           {/* Confirm — are you sure? */}
           {deployPhase === "confirm" && (
-            <div className="bg-amber-50 dark:bg-amber-950 border border-amber-400 dark:border-amber-500/40 rounded-xl p-5 space-y-3">
+            <div className="rounded-xl p-5 space-y-3" style={{ background: 'var(--bp-caution-light)', border: '1px solid var(--bp-caution)' }}>
               <div className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="h-5 w-5" style={{ color: 'var(--bp-caution)' }} />
+                <span className="text-sm font-semibold" style={{ color: 'var(--bp-caution)', fontFamily: 'var(--bp-font-body)' }}>
                   This will deploy the entire FMD framework to Fabric.
                 </span>
               </div>
-              <p className="text-sm text-amber-700 dark:text-amber-400">
+              <p className="text-sm" style={{ color: 'var(--bp-caution)' }}>
                 The setup notebook will create/update workspaces, lakehouses, pipelines,
                 connections, and the SQL database. Existing items with matching names will
                 be updated in-place. This operation typically takes 5-15 minutes.
@@ -555,14 +562,14 @@ export default function NotebookConfig() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleTriggerNotebook}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                  className="bp-btn-primary flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors"
                 >
                   <Play className="h-4 w-4" />
                   Yes, Deploy Now
                 </button>
                 <button
                   onClick={() => setDeployPhase("idle")}
-                  className="px-4 py-2.5 bg-muted hover:bg-muted/80 text-foreground rounded-lg text-sm border border-border transition-colors"
+                  className="bp-btn-ghost px-4 py-2.5 rounded-lg text-sm transition-colors"
                 >
                   Cancel
                 </button>
@@ -572,9 +579,9 @@ export default function NotebookConfig() {
 
           {/* Triggering — sending to Fabric */}
           {deployPhase === "triggering" && (
-            <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-950 border border-blue-300 dark:border-blue-500/30 rounded-xl">
-              <Loader2 className="h-5 w-5 text-blue-600 dark:text-blue-400 animate-spin" />
-              <span className="text-sm text-blue-700 dark:text-blue-300">
+            <div className="flex items-center gap-3 p-4 rounded-xl" style={{ background: 'var(--bp-copper-light)', border: '1px solid var(--bp-border)' }}>
+              <Loader2 className="h-5 w-5 animate-spin" style={{ color: 'var(--bp-copper)' }} />
+              <span className="text-sm" style={{ color: 'var(--bp-copper)', fontFamily: 'var(--bp-font-body)' }}>
                 Triggering setup notebook via Fabric Jobs API...
               </span>
             </div>
@@ -583,18 +590,18 @@ export default function NotebookConfig() {
           {/* Running — live status */}
           {deployPhase === "running" && (
             <div className="space-y-3">
-              <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-950 border border-blue-300 dark:border-blue-500/30 rounded-xl">
-                <Loader2 className="h-5 w-5 text-blue-600 dark:text-blue-400 animate-spin" />
+              <div className="flex items-center gap-3 p-4 rounded-xl" style={{ background: 'var(--bp-copper-light)', border: '1px solid var(--bp-border)' }}>
+                <Loader2 className="h-5 w-5 animate-spin" style={{ color: 'var(--bp-copper)' }} />
                 <div className="flex-1">
-                  <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                  <span className="text-sm font-medium" style={{ color: 'var(--bp-copper)', fontFamily: 'var(--bp-font-body)' }}>
                     Setup notebook is running...
                   </span>
                   <div className="flex items-center gap-4 mt-1">
-                    <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                    <span className="text-xs flex items-center gap-1" style={{ color: 'var(--bp-ink-secondary)' }}>
                       <Clock className="h-3 w-3" /> Elapsed: {formatElapsed(elapsedSeconds)}
                     </span>
                     {jobStatus && (
-                      <span className="text-xs text-blue-600 dark:text-blue-400 font-mono">
+                      <span className="text-xs" style={{ color: 'var(--bp-ink-secondary)', fontFamily: 'var(--bp-font-mono)' }}>
                         Status: {jobStatus.status}
                       </span>
                     )}
@@ -602,13 +609,13 @@ export default function NotebookConfig() {
                 </div>
                 <button
                   onClick={() => { stopPolling(); setDeployPhase("idle"); }}
-                  className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-muted rounded-lg border border-border"
+                  className="bp-btn-ghost px-3 py-1.5 text-xs rounded-lg"
                 >
                   Dismiss
                 </button>
               </div>
               {notebookInfo && (
-                <p className="text-xs text-muted-foreground font-mono">
+                <p className="text-xs" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-mono)' }}>
                   Notebook: {notebookInfo.notebookId} &bull; Workspace: {notebookInfo.workspaceId}
                 </p>
               )}
@@ -618,18 +625,18 @@ export default function NotebookConfig() {
           {/* Completed */}
           {deployPhase === "completed" && (
             <div className="space-y-3">
-              <div className="flex items-center gap-3 p-4 bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-500/30 rounded-xl">
-                <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              <div className="flex items-center gap-3 p-4 rounded-xl" style={{ background: 'var(--bp-operational-light)', border: '1px solid var(--bp-operational)' }}>
+                <CheckCircle2 className="h-5 w-5" style={{ color: 'var(--bp-operational)' }} />
                 <div className="flex-1">
-                  <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                  <span className="text-sm font-medium" style={{ color: 'var(--bp-operational)', fontFamily: 'var(--bp-font-body)' }}>
                     Framework deployed successfully!
                   </span>
                   <div className="flex items-center gap-4 mt-1">
-                    <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                    <span className="text-xs" style={{ color: 'var(--bp-operational)' }}>
                       Completed in {formatElapsed(elapsedSeconds)}
                     </span>
                     {jobStatus?.endTime && !isNaN(new Date(jobStatus.endTime).getTime()) && (
-                      <span className="text-xs text-emerald-600 dark:text-emerald-400 font-mono">
+                      <span className="text-xs" style={{ color: 'var(--bp-operational)', fontFamily: 'var(--bp-font-mono)' }}>
                         Finished: {new Date(jobStatus.endTime).toLocaleTimeString()}
                       </span>
                     )}
@@ -637,7 +644,8 @@ export default function NotebookConfig() {
                 </div>
                 <button
                   onClick={() => { setDeployPhase("idle"); setJobStatus(null); }}
-                  className="px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg border border-emerald-300 dark:border-emerald-500/30 hover:bg-emerald-200 dark:hover:bg-emerald-900/60"
+                  className="px-3 py-1.5 text-xs rounded-lg transition-colors"
+                  style={{ color: 'var(--bp-operational)', background: 'var(--bp-operational-light)', border: '1px solid var(--bp-operational)' }}
                 >
                   Done
                 </button>
@@ -648,21 +656,22 @@ export default function NotebookConfig() {
           {/* Failed */}
           {deployPhase === "failed" && (
             <div className="space-y-3">
-              <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-500/30 rounded-xl">
-                <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+              <div className="flex items-center gap-3 p-4 rounded-xl" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
+                <XCircle className="h-5 w-5" style={{ color: 'var(--bp-fault)' }} />
                 <div className="flex-1">
-                  <span className="text-sm font-medium text-red-700 dark:text-red-300">
+                  <span className="text-sm font-medium" style={{ color: 'var(--bp-fault)', fontFamily: 'var(--bp-font-body)' }}>
                     Deployment failed
                   </span>
                   {deployError && (
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-mono">
+                    <p className="text-xs mt-1" style={{ color: 'var(--bp-fault)', fontFamily: 'var(--bp-font-mono)' }}>
                       {deployError}
                     </p>
                   )}
                 </div>
                 <button
                   onClick={() => { setDeployPhase("idle"); setDeployError(null); setJobStatus(null); }}
-                  className="px-3 py-1.5 text-xs text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/40 rounded-lg border border-red-300 dark:border-red-500/30 hover:bg-red-200 dark:hover:bg-red-900/60"
+                  className="px-3 py-1.5 text-xs rounded-lg transition-colors"
+                  style={{ color: 'var(--bp-fault)', background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}
                 >
                   Dismiss
                 </button>
@@ -673,9 +682,9 @@ export default function NotebookConfig() {
       </div>
 
       {/* ── Section 1: item_config.yaml — Workspaces ── */}
-      <div className="bg-card border border-border rounded-xl p-6">
+      <div className="rounded-xl p-6" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
         <SectionHeader icon={Layers3} title="Workspaces (item_config.yaml)">
-          <p className="text-sm text-muted-foreground mb-4">
+          <p className="text-sm mb-4" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
             Target workspace GUIDs for DEV and PROD environments. The setup notebook uses these to
             deploy items into the correct workspaces.
           </p>
@@ -696,9 +705,9 @@ export default function NotebookConfig() {
       </div>
 
       {/* ── Section 2: item_config.yaml — Connections ── */}
-      <div className="bg-card border border-border rounded-xl p-6">
+      <div className="rounded-xl p-6" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
         <SectionHeader icon={Cable} title="Connections (item_config.yaml)">
-          <p className="text-sm text-muted-foreground mb-4">
+          <p className="text-sm mb-4" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
             Connection GUIDs referenced by pipelines and the setup notebook. These must match the
             actual Fabric connection IDs.
           </p>
@@ -721,14 +730,15 @@ export default function NotebookConfig() {
             ))}
           </div>
           {missingConnections.length > 0 && (
-            <div className="mt-4 p-3 bg-amber-100 dark:bg-amber-900/30 rounded-lg border border-amber-300 dark:border-amber-700/50">
-              <p className="text-sm text-amber-700 dark:text-amber-400 font-medium mb-1">
+            <div className="mt-4 p-3 rounded-lg" style={{ background: 'var(--bp-caution-light)', border: '1px solid var(--bp-caution)' }}>
+              <p className="text-sm font-medium mb-1" style={{ color: 'var(--bp-caution)' }}>
                 Missing Connections (deactivated during deployment)
               </p>
               {missingConnections.map((c) => (
                 <code
                   key={c}
-                  className="text-xs font-mono text-amber-800 dark:text-amber-300 block"
+                  className="text-xs block"
+                  style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-caution)' }}
                 >
                   {c}
                 </code>
@@ -739,9 +749,9 @@ export default function NotebookConfig() {
       </div>
 
       {/* ── Section 3: item_config.yaml — Database ── */}
-      <div className="bg-card border border-border rounded-xl p-6">
+      <div className="rounded-xl p-6" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
         <SectionHeader icon={Database} title="SQL Database (item_config.yaml)">
-          <p className="text-sm text-muted-foreground mb-4">
+          <p className="text-sm mb-4" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
             SQL_FMD_FRAMEWORK database identifiers. The setup notebook creates/finds the database
             and populates these after deployment.
           </p>
@@ -762,12 +772,12 @@ export default function NotebookConfig() {
       </div>
 
       {/* ── Section 4: VAR_CONFIG_FMD ── */}
-      <div className="bg-card border border-border rounded-xl p-6">
+      <div className="rounded-xl p-6" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
         <SectionHeader icon={Server} title="Variable Library — VAR_CONFIG_FMD">
-          <p className="text-sm text-muted-foreground mb-4">
+          <p className="text-sm mb-4" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
             Framework configuration variables. These are set by the setup notebook after deploying
             the SQL database. Pipelines read them at runtime via{" "}
-            <code className="text-xs bg-muted px-1 py-0.5 rounded">
+            <code className="text-xs px-1 py-0.5 rounded" style={{ background: 'var(--bp-surface-inset)', fontFamily: 'var(--bp-font-mono)' }}>
               @pipeline().libraryVariables.VAR_CONFIG_FMD_*
             </code>
           </p>
@@ -792,9 +802,9 @@ export default function NotebookConfig() {
       </div>
 
       {/* ── Section 5: VAR_FMD ── */}
-      <div className="bg-card border border-border rounded-xl p-6">
+      <div className="rounded-xl p-6" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
         <SectionHeader icon={KeyRound} title="Variable Library — VAR_FMD">
-          <p className="text-sm text-muted-foreground mb-4">
+          <p className="text-sm mb-4" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
             Key Vault and runtime variables. These are passed to the setup notebook as parameters
             for service principal authentication.
           </p>
@@ -820,34 +830,34 @@ export default function NotebookConfig() {
       </div>
 
       {/* ── Section 6: Template → Real ID Mapping ── */}
-      <div className="bg-card border border-border rounded-xl p-6">
+      <div className="rounded-xl p-6" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
         <SectionHeader icon={GitBranch} title="Template → Real ID Mapping" defaultOpen={false}>
-          <p className="text-sm text-muted-foreground mb-4">
+          <p className="text-sm mb-4" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
             During deployment, template GUIDs from the Git source files are replaced with real
             deployed GUIDs per workspace. This mapping is used by both the setup notebook and the
             dashboard&apos;s Deploy function.
           </p>
           {Object.entries(templateMapping).map(([wsLabel, ws]) => (
             <div key={wsLabel} className="mb-6">
-              <h3 className="text-sm font-semibold text-purple-700 dark:text-purple-400 uppercase tracking-wider mb-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--bp-copper)' }}>
                 {wsLabel}{" "}
-                <span className="text-muted-foreground font-normal normal-case">
+                <span className="font-normal normal-case" style={{ color: 'var(--bp-ink-tertiary)' }}>
                   — {ws.replacementCount} ID replacements, {ws.pipelineCount} pipelines
                 </span>
               </h3>
-              <div className="bg-muted/50 rounded-lg p-3 max-h-60 overflow-y-auto">
-                <table className="w-full text-xs font-mono">
+              <div className="rounded-lg p-3 max-h-60 overflow-y-auto" style={{ background: 'var(--bp-surface-inset)' }}>
+                <table className="w-full text-xs" style={{ fontFamily: 'var(--bp-font-mono)', fontFeatureSettings: '"tnum"' }}>
                   <thead>
-                    <tr className="text-muted-foreground border-b border-border">
+                    <tr style={{ color: 'var(--bp-ink-muted)', borderBottom: '1px solid var(--bp-border)' }}>
                       <th className="text-left py-1 pr-4">Template ID</th>
                       <th className="text-left py-1">→ Real ID</th>
                     </tr>
                   </thead>
                   <tbody>
                     {Object.entries(ws.idReplacements).map(([tmpl, real]) => (
-                      <tr key={tmpl} className="border-b border-border/30">
-                        <td className="py-1 pr-4 text-red-700 dark:text-red-400/70">{tmpl}</td>
-                        <td className="py-1 text-emerald-700 dark:text-emerald-400/70">{real}</td>
+                      <tr key={tmpl} style={{ borderBottom: '1px solid var(--bp-border-subtle)' }}>
+                        <td className="py-1 pr-4" style={{ color: 'var(--bp-fault)' }}>{tmpl}</td>
+                        <td className="py-1" style={{ color: 'var(--bp-operational)' }}>{real}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -860,17 +870,18 @@ export default function NotebookConfig() {
 
       {/* ── Update Log ── */}
       {updateLog.length > 0 && (
-        <div className="bg-card border border-border rounded-xl p-6">
+        <div className="rounded-xl p-6" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
           <SectionHeader icon={BookOpen} title="Update Log" defaultOpen={false}>
             <div className="space-y-1 max-h-40 overflow-y-auto">
               {updateLog.map((msg, i) => (
                 <div
                   key={i}
-                  className={`text-xs font-mono px-2 py-1 rounded ${
-                    msg.startsWith("ERROR")
-                      ? "text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30"
-                      : "text-muted-foreground bg-muted/50"
-                  }`}
+                  className="text-xs px-2 py-1 rounded"
+                  style={{
+                    fontFamily: 'var(--bp-font-mono)',
+                    color: msg.startsWith("ERROR") ? 'var(--bp-fault)' : 'var(--bp-ink-tertiary)',
+                    background: msg.startsWith("ERROR") ? 'var(--bp-fault-light)' : 'var(--bp-surface-inset)',
+                  }}
                 >
                   {msg}
                 </div>

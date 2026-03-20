@@ -99,7 +99,7 @@ def main():
 
     for e in incremental:
         eid = e['id']
-        incr_col = e['incr_col'].replace("'", "''")  # SQL escape
+        incr_col = e['incr_col']
         try:
             cursor.execute(
                 "UPDATE integration.LandingzoneEntity "

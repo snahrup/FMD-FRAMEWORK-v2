@@ -34,30 +34,30 @@ import { cn } from "@/lib/utils";
 const LAYER_META = {
   source: {
     label: "Source",
-    color: "text-slate-600 dark:text-slate-400",
-    bg: "bg-slate-500/10",
-    border: "border-slate-500/30",
+    color: "text-[var(--bp-ink-muted)]",
+    bg: "bg-[var(--bp-surface-inset)]",
+    border: "border-[var(--bp-border)]",
     icon: Database,
   },
   landing: {
     label: "Landing Zone",
-    color: "text-blue-600 dark:text-blue-400",
-    bg: "bg-blue-500/10",
-    border: "border-blue-500/30",
+    color: "text-[var(--bp-ink-muted)]",
+    bg: "bg-[var(--bp-surface-inset)]",
+    border: "border-[var(--bp-border)]",
     icon: HardDrive,
   },
   bronze: {
     label: "Bronze",
-    color: "text-amber-600 dark:text-amber-400",
-    bg: "bg-amber-500/10",
-    border: "border-amber-500/30",
+    color: "text-[#9A4A1F]",
+    bg: "bg-[#EDCFBD]/30",
+    border: "border-[#9A4A1F]/30",
     icon: Table2,
   },
   silver: {
     label: "Silver",
-    color: "text-violet-600 dark:text-violet-400",
-    bg: "bg-violet-500/10",
-    border: "border-violet-500/30",
+    color: "text-[#475569]",
+    bg: "bg-[#E2E8F0]/50",
+    border: "border-[#475569]/30",
     icon: Sparkles,
   },
 } as const;
@@ -171,32 +171,28 @@ function getCellStatus(
 }
 
 function getCellClasses(status: CellStatus, isSystem: boolean): string {
-  const base = "px-3 py-2 font-mono text-sm border-b border-border/30 ";
+  const base = "px-3 py-2 text-sm ";
+  const borderStyle = "border-b border-[var(--bp-border)] ";
+  const mono = "font-[var(--bp-font-mono)] ";
   if (isSystem) {
     switch (status) {
       case "added":
-        return (
-          base +
-          "bg-violet-500/10 text-emerald-600 dark:text-emerald-400"
-        );
+        return base + borderStyle + mono + "bg-[#E2E8F0]/30 text-[var(--bp-operational)]";
       case "not_present":
-        return base + "bg-muted text-muted-foreground/30";
+        return base + borderStyle + mono + "bg-[var(--bp-surface-inset)] text-[var(--bp-ink-muted)] opacity-30";
       default:
-        return base + "bg-violet-500/5 text-foreground/80";
+        return base + borderStyle + mono + "bg-[#E2E8F0]/15 text-[var(--bp-ink-primary)]";
     }
   }
   switch (status) {
     case "changed":
-      return (
-        base +
-        "bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20"
-      );
+      return base + borderStyle + mono + "bg-[var(--bp-caution-light)] text-[var(--bp-caution)] ring-1 ring-inset ring-[var(--bp-border)]";
     case "added":
-      return base + "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+      return base + borderStyle + mono + "bg-[var(--bp-operational-light)] text-[var(--bp-operational)]";
     case "not_present":
-      return base + "bg-muted text-muted-foreground/30";
+      return base + borderStyle + mono + "bg-[var(--bp-surface-inset)] text-[var(--bp-ink-muted)] opacity-30";
     default:
-      return base + "text-foreground";
+      return base + borderStyle + mono + "text-[var(--bp-ink-primary)]";
   }
 }
 
@@ -282,13 +278,14 @@ function CellPopover({
   return (
     <div
       ref={popoverRef}
-      className="absolute z-50 mt-1 w-80 rounded-lg border border-border bg-popover shadow-2xl p-4 animate-in fade-in-0 zoom-in-95"
+      className="absolute z-50 mt-1 w-80 rounded-lg shadow-2xl p-4 animate-in fade-in-0 zoom-in-95"
+      style={{ border: "1px solid rgba(0,0,0,0.08)", backgroundColor: "#FEFDFB" }}
     >
       <div className="flex items-center justify-between mb-3">
-        <h4 className="font-semibold text-sm text-foreground">{colName}</h4>
+        <h4 className="font-semibold text-sm" style={{ color: "#1C1917" }}>{colName}</h4>
         <button
           onClick={onClose}
-          className="text-muted-foreground hover:text-foreground"
+          style={{ color: "#78716C" }}
         >
           <X className="w-4 h-4" />
         </button>
@@ -297,14 +294,14 @@ function CellPopover({
       <div className="space-y-2 text-xs">
         {operation && (
           <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Operation:</span>
-            <span className="font-medium text-foreground">{operation}</span>
+            <span style={{ color: "#78716C" }}>Operation:</span>
+            <span className="font-medium" style={{ color: "#1C1917" }}>{operation}</span>
           </div>
         )}
         {notebook && (
           <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Notebook:</span>
-            <code className="text-[11px] px-1.5 py-0.5 rounded bg-muted font-mono">
+            <span style={{ color: "#78716C" }}>Notebook:</span>
+            <code className="text-[11px] px-1.5 py-0.5 rounded font-mono" style={{ backgroundColor: "#EDEAE4" }}>
               {notebook}
             </code>
           </div>
@@ -313,17 +310,17 @@ function CellPopover({
         {beforeValue !== null && afterValue !== null && (
           <div className="mt-2 space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-muted-foreground shrink-0">Before:</span>
-              <code className="text-[11px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-600 dark:text-red-400 font-mono truncate max-w-48">
+              <span className="shrink-0" style={{ color: "#78716C" }}>Before:</span>
+              <code className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--bp-fault-light)] text-[var(--bp-fault)] font-mono truncate max-w-48">
                 {beforeValue}
               </code>
             </div>
             <div className="flex items-center gap-2">
-              <ArrowRight className="w-3 h-3 text-muted-foreground" />
+              <ArrowRight className="w-3 h-3" style={{ color: "#78716C" }} />
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-muted-foreground shrink-0">After:</span>
-              <code className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono truncate max-w-48">
+              <span className="shrink-0" style={{ color: "#78716C" }}>After:</span>
+              <code className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--bp-operational-light)] text-[var(--bp-operational)] font-mono truncate max-w-48">
                 {afterValue}
               </code>
             </div>
@@ -331,10 +328,10 @@ function CellPopover({
         )}
 
         {matchingStep && (
-          <div className="mt-2 pt-2 border-t border-border/50">
-            <p className="text-muted-foreground">{matchingStep.description}</p>
+          <div className="mt-2 pt-2" style={{ borderTop: "1px solid rgba(0,0,0,0.04)" }}>
+            <p style={{ color: "#78716C" }}>{matchingStep.description}</p>
             {matchingStep.details && (
-              <p className="mt-1 text-muted-foreground/70 italic">
+              <p className="mt-1 italic" style={{ color: "#A8A29E" }}>
                 {matchingStep.details}
               </p>
             )}
@@ -429,16 +426,20 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
 
   const renderRow = (colName: string, isSystem: boolean) => {
     return (
-      <tr key={colName} className={cn(isSystem && "bg-violet-500/5")}>
+      <tr key={colName} className={cn(isSystem && "bg-[#E2E8F0]/20")}>
         <td
           className={cn(
-            "px-3 py-2 text-sm font-mono border-b border-border/30 sticky left-0 bg-card z-10 min-w-[200px]",
-            isSystem && "bg-violet-500/5 text-violet-600 dark:text-violet-400"
+            "px-3 py-2 text-sm font-mono sticky left-0 z-10 min-w-[200px]"
           )}
+          style={{
+            borderBottom: "1px solid rgba(0,0,0,0.04)",
+            backgroundColor: isSystem ? "rgba(226,232,240,0.2)" : "#FEFDFB",
+            color: isSystem ? "#475569" : undefined,
+          }}
         >
           <div className="flex items-center gap-1.5">
             {isSystem && (
-              <span className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-violet-500/20 text-violet-500">
+              <span className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#E2E8F0] text-[#475569]">
                 SYS
               </span>
             )}
@@ -463,16 +464,16 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
               className={cn(
                 getCellClasses(status, isSystem),
                 isClickable &&
-                  "cursor-pointer hover:ring-2 hover:ring-primary/30 transition-all relative"
+                  "cursor-pointer hover:ring-2 hover:ring-[var(--bp-border)] transition-all relative"
               )}
               onClick={() => handleCellClick(colName, layer, status)}
             >
               <div className="flex items-center gap-1 max-w-[200px]">
                 {status === "added" && (
-                  <Plus className="w-3 h-3 text-emerald-500 shrink-0" />
+                  <Plus className="w-3 h-3 text-[var(--bp-operational)] shrink-0" />
                 )}
                 {status === "not_present" ? (
-                  <span className="text-muted-foreground/30">&mdash;</span>
+                  <span style={{ color: "rgba(168,162,158,0.3)" }}>&mdash;</span>
                 ) : (
                   <span className="truncate" title={value ?? undefined}>
                     {value ?? "NULL"}
@@ -500,17 +501,18 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
   };
 
   return (
-    <div className="border border-border/50 rounded-lg overflow-hidden">
+    <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(0,0,0,0.04)" }}>
       {/* SCD2 version selector */}
       {data.silver.versions.length > 1 && (
-        <div className="px-4 py-2 bg-violet-500/5 border-b border-border/30 flex items-center gap-3">
-          <span className="text-xs text-muted-foreground font-medium">
+        <div className="px-4 py-2 bg-[#E2E8F0]/20 flex items-center gap-3" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+          <span className="text-xs font-medium" style={{ color: "#78716C" }}>
             Silver Version:
           </span>
           <select
             value={clampedIdx}
             onChange={(e) => setSilverVersionIdx(Number(e.target.value))}
-            className="text-xs px-2 py-1 rounded border border-border bg-card text-foreground"
+            className="text-xs px-2 py-1 rounded"
+            style={{ border: "1px solid rgba(0,0,0,0.08)", backgroundColor: "#FEFDFB", color: "#1C1917" }}
           >
             {data.silver.versions.map((v, i) => {
               const ver = v as Record<string, unknown>;
@@ -527,7 +529,7 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
               );
             })}
           </select>
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[10px]" style={{ color: "#78716C" }}>
             {data.silver.versions.length} version(s)
           </span>
         </div>
@@ -536,8 +538,8 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
       <div className="overflow-x-auto">
         <table className="w-full text-left">
           <thead>
-            <tr className="bg-muted/50">
-              <th className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground sticky left-0 bg-muted/50 z-10 min-w-[200px]">
+            <tr style={{ backgroundColor: "#EDEAE4" }}>
+              <th className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider sticky left-0 z-10 min-w-[200px]" style={{ color: "#78716C", backgroundColor: "#EDEAE4" }}>
                 Column Name
               </th>
               {layers.map((layer) => {
@@ -566,7 +568,8 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
               <tr>
                 <td
                   colSpan={5}
-                  className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 bg-muted border-b border-border/30"
+                  className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest"
+                  style={{ color: "#A8A29E", backgroundColor: "#EDEAE4", borderBottom: "1px solid rgba(0,0,0,0.04)" }}
                 >
                   Original Columns ({originalCols.length})
                 </td>
@@ -579,7 +582,8 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
               <tr>
                 <td
                   colSpan={5}
-                  className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-violet-500/60 bg-violet-500/5 border-b border-border/30"
+                  className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest"
+                  style={{ color: "rgba(71,85,105,0.6)", backgroundColor: "rgba(226,232,240,0.2)", borderBottom: "1px solid rgba(0,0,0,0.04)" }}
                 >
                   System Columns ({systemCols.length})
                 </td>
@@ -624,42 +628,43 @@ function TransformationCards({
   const impactIcon = (impact: string) => {
     switch (impact) {
       case "add":
-        return <Plus className="w-3.5 h-3.5 text-emerald-500" />;
+        return <Plus className="w-3.5 h-3.5 text-[var(--bp-operational)]" />;
       case "rename":
-        return <ArrowRight className="w-3.5 h-3.5 text-blue-500" />;
+        return <ArrowRight className="w-3.5 h-3.5 text-[var(--bp-copper)]" />;
       case "transform":
-        return <Sparkles className="w-3.5 h-3.5 text-amber-500" />;
+        return <Sparkles className="w-3.5 h-3.5 text-[var(--bp-caution)]" />;
       case "none":
-        return <Minus className="w-3.5 h-3.5 text-muted-foreground/40" />;
+        return <Minus className="w-3.5 h-3.5" style={{ color: "rgba(168,162,158,0.4)" }} />;
       default:
-        return <Info className="w-3.5 h-3.5 text-muted-foreground" />;
+        return <Info className="w-3.5 h-3.5" style={{ color: "#78716C" }} />;
     }
   };
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-        <ArrowRight className="w-4 h-4 text-primary" />
+      <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: "#1C1917" }}>
+        <ArrowRight className="w-4 h-4 text-[var(--bp-copper)]" />
         Transformation Pipeline ({steps.length} steps)
       </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {steps.map((step) => (
           <div
             key={step.step}
-            className="rounded-lg border border-border/50 bg-card p-3 hover:bg-card/80 transition-colors"
+            className="rounded-lg p-3 transition-colors"
+            style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB" }}
           >
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px] font-bold text-muted-foreground/50 w-5 h-5 rounded-full bg-muted flex items-center justify-center">
+              <span className="text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center" style={{ color: "rgba(168,162,158,0.5)", backgroundColor: "#EDEAE4" }}>
                 {step.step}
               </span>
               {impactIcon(step.impact)}
               {layerBadge(step.layer)}
             </div>
-            <p className="text-sm font-medium text-foreground mb-1">
+            <p className="text-sm font-medium mb-1" style={{ color: "#1C1917" }}>
               {step.description}
             </p>
             {step.details && (
-              <p className="text-xs text-muted-foreground line-clamp-2">
+              <p className="text-xs line-clamp-2" style={{ color: "#78716C" }}>
                 {step.details}
               </p>
             )}
@@ -668,13 +673,14 @@ function TransformationCards({
                 {step.columns.slice(0, 5).map((col) => (
                   <code
                     key={col}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-muted font-mono text-muted-foreground"
+                    className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+                    style={{ backgroundColor: "#EDEAE4", color: "#78716C" }}
                   >
                     {col}
                   </code>
                 ))}
                 {step.columns.length > 5 && (
-                  <span className="text-[10px] text-muted-foreground/50">
+                  <span className="text-[10px]" style={{ color: "rgba(168,162,158,0.5)" }}>
                     +{step.columns.length - 5} more
                   </span>
                 )}
@@ -745,14 +751,14 @@ function PkSearchInput({
     <div ref={containerRef} className="relative max-w-md">
       <div className="flex items-center gap-2">
         <div
-          className={cn(
-            "flex-1 flex items-center border rounded-lg transition-colors",
-            showDropdown
-              ? "border-primary/50 bg-card/80 ring-1 ring-primary/20"
-              : "border-border/50 bg-card hover:border-border"
-          )}
+          className="flex-1 flex items-center rounded-lg transition-colors"
+          style={{
+            border: showDropdown ? "1px solid var(--bp-copper)" : "1px solid rgba(0,0,0,0.04)",
+            backgroundColor: showDropdown ? "rgba(254,253,251,0.8)" : "#FEFDFB",
+            ...(showDropdown ? { boxShadow: "0 0 0 1px rgba(0,0,0,0.08)" } : {}),
+          }}
         >
-          <Search className="w-4 h-4 text-muted-foreground/50 ml-3 flex-shrink-0" />
+          <Search className="w-4 h-4 ml-3 flex-shrink-0" style={{ color: "rgba(168,162,158,0.5)" }} />
           <input
             type="text"
             placeholder={
@@ -767,10 +773,11 @@ function PkSearchInput({
             }}
             onFocus={() => setShowDropdown(true)}
             onKeyDown={handleKeyDown}
-            className="w-full px-3 py-2.5 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 outline-none font-mono"
+            className="w-full px-3 py-2.5 bg-transparent text-sm outline-none font-mono"
+            style={{ color: "#1C1917" }}
           />
           {loading && (
-            <Loader2 className="w-4 h-4 text-muted-foreground/50 mr-3 animate-spin" />
+            <Loader2 className="w-4 h-4 mr-3 animate-spin" style={{ color: "rgba(168,162,158,0.5)" }} />
           )}
           {searchInput && !loading && (
             <button
@@ -778,7 +785,8 @@ function PkSearchInput({
                 setSearchInput("");
                 setShowDropdown(false);
               }}
-              className="mr-3 text-muted-foreground/40 hover:text-muted-foreground"
+              className="mr-3"
+              style={{ color: "rgba(168,162,158,0.4)" }}
             >
               <X className="w-4 h-4" />
             </button>
@@ -788,10 +796,10 @@ function PkSearchInput({
 
       {/* PK dropdown */}
       {showDropdown && pks.length > 0 && (
-        <div className="absolute z-[200] mt-1 w-full max-h-60 overflow-y-auto rounded-lg border border-border/50 bg-popover shadow-2xl">
+        <div className="absolute z-[200] mt-1 w-full max-h-60 overflow-y-auto rounded-lg shadow-2xl" style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB" }}>
           {pkColumn && (
-            <div className="sticky top-0 px-3 py-2 bg-muted/80 backdrop-blur-sm border-b border-border/20">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+            <div className="sticky top-0 px-3 py-2 backdrop-blur-sm" style={{ backgroundColor: "rgba(237,234,228,0.8)", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--bp-copper)]">
                 {pkColumn}
               </span>
             </div>
@@ -801,8 +809,8 @@ function PkSearchInput({
               key={pk}
               onClick={() => handleSelect(pk)}
               className={cn(
-                "w-full text-left px-3 py-2 hover:bg-primary/5 transition-colors text-sm font-mono",
-                selectedPk === pk && "bg-primary/10 border-l-2 border-primary"
+                "w-full text-left px-3 py-2 hover:bg-[var(--bp-copper-light)] transition-colors text-sm font-mono",
+                selectedPk === pk && "bg-[var(--bp-copper-light)] border-l-2 border-[var(--bp-copper)]"
               )}
             >
               {pk}
@@ -875,14 +883,14 @@ export default function DataMicroscope() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-              <ScanSearch className="h-5 w-5 text-primary" />
+            <div className="h-10 w-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: "var(--bp-copper-light)" }}>
+              <ScanSearch className="h-5 w-5" style={{ color: "var(--bp-copper)" }} />
             </div>
             <div>
-              <h1 className="text-xl font-display font-semibold tracking-tight">
+              <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>
                 Data Microscope
               </h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm" style={{ color: "var(--bp-ink-secondary)" }}>
                 Cross-layer row inspection
               </p>
             </div>
@@ -899,13 +907,13 @@ export default function DataMicroscope() {
         />
 
         <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="h-20 w-20 rounded-2xl bg-muted/50 flex items-center justify-center mb-6">
-            <ScanSearch className="h-10 w-10 text-muted-foreground/30" />
+          <div className="h-20 w-20 rounded-2xl flex items-center justify-center mb-6" style={{ backgroundColor: "var(--bp-surface-inset)" }}>
+            <ScanSearch className="h-10 w-10" style={{ color: "var(--bp-ink-muted)" }} />
           </div>
-          <h2 className="text-lg font-semibold text-foreground mb-2">
+          <h2 className="text-lg font-semibold mb-2" style={{ color: "var(--bp-ink-primary)" }}>
             Select an entity and primary key
           </h2>
-          <p className="text-sm text-muted-foreground max-w-md">
+          <p className="text-sm max-w-md" style={{ color: "var(--bp-ink-secondary)" }}>
             Choose an entity from the selector above, then enter a primary key
             value to inspect data as it flows through Source, Landing Zone,
             Bronze, and Silver layers.
@@ -923,14 +931,14 @@ export default function DataMicroscope() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-            <ScanSearch className="h-5 w-5 text-primary" />
+          <div className="h-10 w-10 rounded-lg bg-[var(--bp-copper-light)] flex items-center justify-center">
+            <ScanSearch className="h-5 w-5 text-[var(--bp-copper)]" />
           </div>
           <div>
-            <h1 className="text-xl font-display font-semibold tracking-tight">
+            <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>
               Data Microscope
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm" style={{ color: "#57534E" }}>
               Cross-layer row inspection
             </p>
           </div>
@@ -939,7 +947,8 @@ export default function DataMicroscope() {
           <button
             onClick={refresh}
             disabled={microscopeLoading}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 bg-card text-sm text-muted-foreground hover:text-foreground hover:bg-card transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors disabled:opacity-50"
+            style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB", color: "#78716C" }}
           >
             <RefreshCw
               className={cn(
@@ -970,13 +979,13 @@ export default function DataMicroscope() {
             onSelect={handlePkSelect}
           />
           {selectedEntity && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs" style={{ color: "#78716C" }}>
               <span className="font-mono">
                 {selectedEntity.source}.{selectedEntity.tableName}
               </span>
               {selectedEntity.bronzePKs && (
                 <>
-                  <span className="text-border">|</span>
+                  <span style={{ color: "rgba(0,0,0,0.08)" }}>|</span>
                   <span>
                     PK: <code className="font-mono">{selectedEntity.bronzePKs}</code>
                   </span>
@@ -989,9 +998,9 @@ export default function DataMicroscope() {
 
       {/* Source unavailable banner */}
       {microscopeData && !microscopeData.source.available && pkParam && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/5">
-          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-          <p className="text-sm text-amber-700 dark:text-amber-400">
+        <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-[var(--bp-border)] bg-[var(--bp-caution-light)]">
+          <AlertTriangle className="w-4 h-4 text-[var(--bp-caution)] shrink-0" />
+          <p className="text-sm text-[var(--bp-caution)]">
             Source system unavailable (VPN required). Showing Landing Zone,
             Bronze, and Silver data only.
           </p>
@@ -1001,13 +1010,13 @@ export default function DataMicroscope() {
       {/* No PK prompt */}
       {showPkPrompt && !microscopeLoading && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="h-16 w-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
-            <Search className="h-8 w-8 text-muted-foreground/30" />
+          <div className="h-16 w-16 rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: "var(--bp-surface-inset)" }}>
+            <Search className="h-8 w-8" style={{ color: "var(--bp-ink-muted)" }} />
           </div>
-          <h2 className="text-base font-semibold text-foreground mb-1">
+          <h2 className="text-base font-semibold mb-1" style={{ color: "var(--bp-ink-primary)" }}>
             Enter a primary key value
           </h2>
-          <p className="text-sm text-muted-foreground max-w-md">
+          <p className="text-sm max-w-md" style={{ color: "var(--bp-ink-secondary)" }}>
             Search for a specific row by its primary key to inspect the data
             across all medallion layers.
           </p>
@@ -1017,8 +1026,8 @@ export default function DataMicroscope() {
       {/* Loading state */}
       {microscopeLoading && pkParam && (
         <div className="flex flex-col items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 text-primary animate-spin mb-4" />
-          <p className="text-sm text-muted-foreground">
+          <Loader2 className="w-8 h-8 animate-spin mb-4" style={{ color: "var(--bp-copper)" }} />
+          <p className="text-sm" style={{ color: "#78716C" }}>
             Querying across layers...
           </p>
         </div>
@@ -1026,9 +1035,9 @@ export default function DataMicroscope() {
 
       {/* Error state */}
       {microscopeError && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-destructive/30 bg-destructive/5">
-          <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
-          <p className="text-sm text-destructive">{microscopeError}</p>
+        <div className="flex items-center gap-3 px-4 py-3 rounded-lg" style={{ border: "1px solid rgba(185,58,42,0.3)", backgroundColor: "#FBEAE8" }}>
+          <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "#B93A2A" }} />
+          <p className="text-sm" style={{ color: "#B93A2A" }}>{microscopeError}</p>
         </div>
       )}
 
@@ -1064,34 +1073,35 @@ export default function DataMicroscope() {
                   <div
                     key={layer}
                     className={cn(
-                      "flex items-center gap-2 px-3 py-2 rounded-lg border text-xs",
-                      available ? meta.bg : "bg-muted",
-                      available ? meta.border : "border-border/30"
+                      "flex items-center gap-2 px-3 py-2 rounded-lg text-xs",
+                      available ? meta.bg : "",
+                      available ? meta.border : ""
                     )}
+                    style={!available ? { backgroundColor: "#EDEAE4", border: "1px solid rgba(0,0,0,0.04)" } : { border: "1px solid rgba(0,0,0,0.04)" }}
                   >
                     <Icon
                       className={cn(
                         "w-3.5 h-3.5",
-                        available
-                          ? meta.color
-                          : "text-muted-foreground/30"
+                        available ? meta.color : ""
                       )}
+                      style={!available ? { color: "rgba(168,162,158,0.3)" } : undefined}
                     />
                     <span
                       className={cn(
                         "font-medium",
-                        available ? meta.color : "text-muted-foreground/30"
+                        available ? meta.color : ""
                       )}
+                      style={!available ? { color: "rgba(168,162,158,0.3)" } : undefined}
                     >
                       {meta.label}
                     </span>
                     {detail && (
-                      <span className="text-muted-foreground/50 truncate max-w-[150px]">
+                      <span className="truncate max-w-[150px]" style={{ color: "rgba(168,162,158,0.5)" }}>
                         {detail}
                       </span>
                     )}
                     {!available && (
-                      <span className="text-[10px] text-muted-foreground/40">
+                      <span className="text-[10px]" style={{ color: "rgba(168,162,158,0.4)" }}>
                         unavailable
                       </span>
                     )}
@@ -1107,12 +1117,12 @@ export default function DataMicroscope() {
             microscopeData.source.row) ? (
             <DiffGrid data={microscopeData} />
           ) : (
-            <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg border border-border/30 bg-card">
-              <AlertTriangle className="w-8 h-8 text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">
+            <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg" style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB" }}>
+              <AlertTriangle className="w-8 h-8 mb-3" style={{ color: "rgba(168,162,158,0.3)" }} />
+              <p className="text-sm" style={{ color: "#78716C" }}>
                 No row data found for PK value "{pkParam}" across any layer.
               </p>
-              <p className="text-xs text-muted-foreground/60 mt-1">
+              <p className="text-xs mt-1" style={{ color: "rgba(168,162,158,0.6)" }}>
                 The value may not exist, or the entity may not have been loaded yet.
               </p>
             </div>

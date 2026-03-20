@@ -24,15 +24,15 @@ function timeAgo(ts: string): { text: string; level: "fresh" | "stale" | "critic
 }
 
 const levelStyles = {
-  fresh: "text-emerald-400",
-  stale: "text-amber-400",
-  critical: "text-red-400",
+  fresh: "text-[#3D7C4F]",
+  stale: "text-[#C27A1A]",
+  critical: "text-[#B93A2A]",
 };
 
 const levelBg = {
-  fresh: "bg-emerald-400/10",
-  stale: "bg-amber-400/10",
-  critical: "bg-red-400/10",
+  fresh: "bg-[#E7F3EB]",
+  stale: "bg-[#FDF3E3]",
+  critical: "bg-[#FBEAE8]",
 };
 
 export function FreshnessIndicator({ timestamp, className = "" }: FreshnessIndicatorProps) {
