@@ -422,6 +422,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_runs_status       ON engine_runs(Status);
             CREATE INDEX IF NOT EXISTS idx_tasklog_run       ON engine_task_log(RunId);
             CREATE INDEX IF NOT EXISTS idx_tasklog_entity    ON engine_task_log(EntityId);
+            CREATE INDEX IF NOT EXISTS idx_tasklog_entity_layer_ts ON engine_task_log(EntityId, Layer, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_plz_entity        ON pipeline_lz_entity(LandingzoneEntityId);
             CREATE INDEX IF NOT EXISTS idx_pbronze_entity    ON pipeline_bronze_entity(BronzeLayerEntityId);
             CREATE INDEX IF NOT EXISTS idx_estatus_layer     ON entity_status(Layer);
@@ -1661,6 +1662,10 @@ def get_engine_task_log(run_id: str = None, entity_id: int = None) -> list[dict]
 
 
 def get_entity_status_all() -> list[dict]:
+    """DEPRECATED: entity_status is no longer read by any endpoint.
+    Status is now derived from engine_task_log via get_canonical_entity_status().
+    Kept for admin table browser (data_manager) and legacy tests only.
+    """
     conn = _get_conn()
     try:
         rows = conn.execute("SELECT * FROM entity_status").fetchall()
