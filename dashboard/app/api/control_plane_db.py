@@ -444,7 +444,14 @@ def init_db():
             CREATE TABLE IF NOT EXISTS gs_specimens (
                 id              INTEGER PRIMARY KEY,
                 name            TEXT NOT NULL,
-                type            TEXT NOT NULL CHECK(type IN ('rdl','pbix','pbip','tmdl','bim','sql')),
+                type            TEXT NOT NULL CHECK(type IN (
+                    'rdl','pbix','pbip','tmdl','bim','sql',
+                    'excel','csv','screenshot','note','other'
+                )),
+                source_class    TEXT NOT NULL DEFAULT 'structural' CHECK(source_class IN (
+                    'structural','supporting','contextual'
+                )),
+                manual_context  TEXT CHECK(manual_context IS NULL OR json_valid(manual_context)),
                 division        TEXT NOT NULL,
                 source_system   TEXT,
                 steward         TEXT NOT NULL,
@@ -454,7 +461,8 @@ def init_db():
                 file_path       TEXT,
                 job_state       TEXT DEFAULT 'queued' CHECK(job_state IN (
                     'queued','extracting','schema_discovery','extracted',
-                    'parse_warning','parse_failed','needs_connection','schema_pending'
+                    'parse_warning','parse_failed','needs_connection','schema_pending',
+                    'accepted'
                 )),
                 created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -787,7 +795,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS gs_audit_log (
                 id              INTEGER PRIMARY KEY,
                 object_type     TEXT NOT NULL CHECK(object_type IN (
-                    'specimen','entity','cluster','canonical','spec','validation','catalog'
+                    'specimen','entity','cluster','canonical','spec','validation','catalog','domain_workspace','report_coverage'
                 )),
                 object_id       INTEGER NOT NULL,
                 action          TEXT NOT NULL,
@@ -811,6 +819,46 @@ def init_db():
                 measure_name    TEXT,
                 usage_type      TEXT CHECK(usage_type IN ('axis','value','filter','slicer','tooltip','detail')),
                 created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- Domain Workspaces (1 table) ----------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_domain_workspaces (
+                id              INTEGER PRIMARY KEY,
+                name            TEXT NOT NULL UNIQUE,
+                display_name    TEXT NOT NULL,
+                description     TEXT,
+                readiness_state TEXT DEFAULT 'not_started' CHECK(readiness_state IN (
+                    'not_started','in_progress','partially_covered',
+                    'ready_for_recreation','recreated','reconciled'
+                )),
+                source_coverage TEXT CHECK(source_coverage IS NULL OR json_valid(source_coverage)),
+                metadata        TEXT CHECK(metadata IS NULL OR json_valid(metadata)),
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- Report Recreation Coverage (1 table) -------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_report_recreation_coverage (
+                id              INTEGER PRIMARY KEY,
+                domain          TEXT NOT NULL,
+                report_name     TEXT NOT NULL,
+                report_description TEXT,
+                report_type     TEXT CHECK(report_type IN ('power_bi','ssrs','excel','other')),
+                coverage_status TEXT DEFAULT 'not_analyzed' CHECK(coverage_status IN (
+                    'not_analyzed','analyzed','partially_covered',
+                    'fully_covered','recreated','reconciled'
+                )),
+                contributing_specimen_ids TEXT CHECK(contributing_specimen_ids IS NULL OR json_valid(contributing_specimen_ids)),
+                contributing_canonical_ids TEXT CHECK(contributing_canonical_ids IS NULL OR json_valid(contributing_canonical_ids)),
+                contributing_spec_ids TEXT CHECK(contributing_spec_ids IS NULL OR json_valid(contributing_spec_ids)),
+                unresolved_metrics TEXT CHECK(unresolved_metrics IS NULL OR json_valid(unresolved_metrics)),
+                notes           TEXT,
+                assessed_by     TEXT,
+                assessed_at     DATETIME,
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
             -- Gold Studio indexes -------------------------------------------
@@ -903,6 +951,120 @@ def init_db():
                              (display, row[0]))
             conn.commit()
             log.info("Migration: seeded DisplayName for %d connections", len(conn_needs_seed))
+
+        # Add source_class, manual_context to gs_specimens if missing
+        sp_cols = {r[1] for r in conn.execute("PRAGMA table_info(gs_specimens)").fetchall()}
+        if "source_class" not in sp_cols:
+            conn.execute("ALTER TABLE gs_specimens ADD COLUMN source_class TEXT DEFAULT 'structural'")
+            conn.execute("ALTER TABLE gs_specimens ADD COLUMN manual_context TEXT")
+            conn.commit()
+            log.info("Migration: added source_class, manual_context to gs_specimens")
+        # Drop evidence_type if it exists from earlier migration (redundant with type)
+        if "evidence_type" in sp_cols:
+            # SQLite doesn't support DROP COLUMN before 3.35; just leave it — it's unused
+            log.info("Note: evidence_type column exists but is deprecated (use type + source_class instead)")
+
+        # ── Migration: Recreate gs_specimens if CHECK constraints are stale ──
+        # The original table was created before source_class/manual_context/accepted
+        # were part of the spec, and ALTER TABLE ADD COLUMN can't add CHECK/NOT NULL.
+        # Detect drift by checking if type CHECK includes 'excel'.
+        sp_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='gs_specimens'"
+        ).fetchone()
+        if sp_sql and "'excel'" not in (sp_sql[0] or ""):
+            sp_count = conn.execute("SELECT COUNT(*) FROM gs_specimens").fetchone()[0]
+            log.info("Migration: gs_specimens CHECK constraints are stale (missing new types). "
+                     "Rows: %d. Recreating table.", sp_count)
+            conn.execute("ALTER TABLE gs_specimens RENAME TO _gs_specimens_old")
+            conn.execute("""
+                CREATE TABLE gs_specimens (
+                    id              INTEGER PRIMARY KEY,
+                    name            TEXT NOT NULL,
+                    type            TEXT NOT NULL CHECK(type IN (
+                        'rdl','pbix','pbip','tmdl','bim','sql',
+                        'excel','csv','screenshot','note','other'
+                    )),
+                    source_class    TEXT NOT NULL DEFAULT 'structural' CHECK(source_class IN (
+                        'structural','supporting','contextual'
+                    )),
+                    manual_context  TEXT CHECK(manual_context IS NULL OR json_valid(manual_context)),
+                    division        TEXT NOT NULL,
+                    source_system   TEXT,
+                    steward         TEXT NOT NULL,
+                    imported_by     TEXT,
+                    description     TEXT,
+                    tags            TEXT CHECK(tags IS NULL OR json_valid(tags)),
+                    file_path       TEXT,
+                    job_state       TEXT DEFAULT 'queued' CHECK(job_state IN (
+                        'queued','extracting','schema_discovery','extracted',
+                        'parse_warning','parse_failed','needs_connection','schema_pending',
+                        'accepted'
+                    )),
+                    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at      DATETIME
+                )
+            """)
+            if sp_count > 0:
+                conn.execute("""
+                    INSERT INTO gs_specimens
+                        (id, name, type, source_class, manual_context, division,
+                         source_system, steward, imported_by, description, tags,
+                         file_path, job_state, created_at, updated_at, deleted_at)
+                    SELECT id, name, type,
+                           COALESCE(source_class, 'structural'),
+                           manual_context, division,
+                           source_system, steward, imported_by, description, tags,
+                           file_path, job_state, created_at, updated_at, deleted_at
+                    FROM _gs_specimens_old
+                """)
+            conn.execute("DROP TABLE _gs_specimens_old")
+            conn.commit()
+            log.info("Migration: gs_specimens recreated with correct CHECK constraints")
+
+        # ── Migration: Recreate gs_audit_log if CHECK constraints are stale ──
+        al_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='gs_audit_log'"
+        ).fetchone()
+        if al_sql and "'domain_workspace'" not in (al_sql[0] or ""):
+            al_count = conn.execute("SELECT COUNT(*) FROM gs_audit_log").fetchone()[0]
+            log.info("Migration: gs_audit_log CHECK constraints are stale (missing domain_workspace). "
+                     "Rows: %d. Recreating table.", al_count)
+            conn.execute("ALTER TABLE gs_audit_log RENAME TO _gs_audit_log_old")
+            conn.execute("""
+                CREATE TABLE gs_audit_log (
+                    id              INTEGER PRIMARY KEY,
+                    object_type     TEXT NOT NULL CHECK(object_type IN (
+                        'specimen','entity','cluster','canonical','spec','validation','catalog',
+                        'domain_workspace','report_coverage'
+                    )),
+                    object_id       INTEGER NOT NULL,
+                    action          TEXT NOT NULL,
+                    previous_value  TEXT CHECK(previous_value IS NULL OR json_valid(previous_value)),
+                    new_value       TEXT CHECK(new_value IS NULL OR json_valid(new_value)),
+                    performed_by    TEXT NOT NULL,
+                    performed_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    notes           TEXT
+                )
+            """)
+            if al_count > 0:
+                conn.execute("""
+                    INSERT INTO gs_audit_log
+                        (id, object_type, object_id, action, previous_value,
+                         new_value, performed_by, performed_at, notes)
+                    SELECT id, object_type, object_id, action, previous_value,
+                           new_value, performed_by, performed_at, notes
+                    FROM _gs_audit_log_old
+                """)
+            conn.execute("DROP TABLE _gs_audit_log_old")
+            # Recreate index
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_audit_log_lookup
+                ON gs_audit_log(object_type, object_id, performed_at)
+            """)
+            conn.commit()
+            log.info("Migration: gs_audit_log recreated with correct CHECK constraints")
+
     finally:
         conn.close()
     log.info(f'Control-plane DB initialized at {DB_PATH}')
@@ -1498,6 +1660,49 @@ def get_entity_status_all() -> list[dict]:
     conn = _get_conn()
     try:
         rows = conn.execute("SELECT * FROM entity_status").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_canonical_entity_status() -> list[dict]:
+    """Derive entity status from engine_task_log — the ONLY trustworthy source.
+
+    Returns rows shaped like entity_status:
+      {LandingzoneEntityId, Layer, Status, LoadEndDateTime, ErrorMessage, UpdatedBy}
+
+    For each (EntityId, Layer) pair, picks the most recent row.
+    Priority: succeeded > failed > skipped (within the same timestamp).
+    """
+    conn = _get_conn()
+    try:
+        rows = conn.execute("""
+            WITH ranked AS (
+                SELECT
+                    EntityId       AS LandingzoneEntityId,
+                    Layer,
+                    Status,
+                    created_at     AS LoadEndDateTime,
+                    ErrorMessage,
+                    'engine'       AS UpdatedBy,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY EntityId, Layer
+                        ORDER BY created_at DESC,
+                                 CASE Status
+                                     WHEN 'succeeded' THEN 1
+                                     WHEN 'failed'    THEN 2
+                                     WHEN 'skipped'   THEN 3
+                                     ELSE 4
+                                 END
+                    ) AS rn
+                FROM engine_task_log
+            )
+            SELECT LandingzoneEntityId, Layer, Status, LoadEndDateTime,
+                   CASE WHEN Status = 'succeeded' THEN NULL ELSE ErrorMessage END AS ErrorMessage,
+                   UpdatedBy
+            FROM ranked
+            WHERE rn = 1
+        """).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
