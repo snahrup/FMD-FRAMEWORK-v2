@@ -186,9 +186,9 @@
 - **Impact**: 35 entities permanently fail incremental extraction until watermark values are corrected
 - **Root cause**: `seed_watermark_values()` line 377 uses pipeline execution timestamp, not `MAX(watermark_column)` from source data. Engine's runtime `_compute_watermark()` is correct — only the seed script is wrong.
 - **Repair priority**: P1
-- **Status**: OPEN
-- **Repair packet**: RP-06
-- **Fix**: Delete 35 bad watermark entries (forces full-load re-seed via correct `_compute_watermark()`), then fix seed script to detect column types
+- **Status**: REPAIRED (RP-06B, 2026-03-20) — 255 bad entries (not just 35) identified and remediation script created. Seed script hardened with column-type awareness.
+- **Repair packet**: RP-06B
+- **Fix applied**: (1) `scripts/remediate_watermarks.py` deletes all 255 bad entries + deactivates 3 phantom entity registrations. (2) `scripts/configure_incremental_loads.py:seed_watermark_values()` now column-type-aware: datetime cols get timestamp seed, integer cols get `MAX(wm_col)` from source or are skipped (forces safe full-load re-seed via `_compute_watermark()`)
 
 ### [AUDIT-014] Entity references non-existent source table
 - **Stage**: Entity registration — `dbo.ipc_CSS_INVT_LOT_MASTER_2` on m3-db1/mes
@@ -199,9 +199,9 @@
 - **Impact**: 1 entity fails every run
 - **Root cause**: Source table removed after entity registration. No validation step checks for this.
 - **Repair priority**: P3
-- **Status**: OPEN
-- **Repair packet**: RP-06
-- **Fix**: Deactivate entity (IsActive = 0)
+- **Status**: REPAIRED (RP-06B, 2026-03-20) — remediation script deactivates all 3 active registrations (including typo variant with space in name)
+- **Repair packet**: RP-06B
+- **Fix applied**: `scripts/remediate_watermarks.py` deactivates entities 597, 1725, 1727 (entity 1667 was already inactive)
 
 ---
 
