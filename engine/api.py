@@ -29,6 +29,7 @@ Endpoints:
 
 import json
 import logging
+import sys
 import threading
 import time
 import urllib.parse
@@ -196,8 +197,9 @@ class _SSELoggingHandler(logging.Handler):
         try:
             level = self.LEVEL_MAP.get(record.levelno, "INFO")
             _publish_log(level, record.getMessage())
-        except Exception:
-            pass  # Never let logging crash the engine
+        except Exception as e:
+            # Cannot use logging here (would recurse); write to stderr as last resort
+            print(f"SSE log handler error: {e}", file=sys.stderr)
 
 
 _sse_logging_handler: _SSELoggingHandler | None = None

@@ -55,7 +55,7 @@ export default function PreDeploymentPanel({ onStart, disabled }: Props) {
       {/* Environment + Dry Run row */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wider block mb-1.5" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>
             Environment
           </label>
           <div className="flex gap-1.5">
@@ -63,11 +63,13 @@ export default function PreDeploymentPanel({ onStart, disabled }: Props) {
               <button
                 key={e}
                 onClick={() => setEnv(e)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
-                  env === e
-                    ? 'bg-primary/15 text-primary border-primary/30'
-                    : 'bg-card text-muted-foreground border-border hover:text-foreground'
-                }`}
+                className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer"
+                style={{
+                  background: env === e ? 'var(--bp-copper-light)' : 'var(--bp-surface-1)',
+                  color: env === e ? 'var(--bp-copper)' : 'var(--bp-ink-tertiary)',
+                  border: env === e ? '1px solid var(--bp-copper)' : '1px solid var(--bp-border)',
+                  fontFamily: 'var(--bp-font-body)',
+                }}
               >
                 {e.toUpperCase()}
               </button>
@@ -75,28 +77,32 @@ export default function PreDeploymentPanel({ onStart, disabled }: Props) {
           </div>
         </div>
         <div>
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wider block mb-1.5" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>
             Mode
           </label>
           <div className="flex gap-1.5">
             <button
               onClick={() => setDryRun(false)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
-                !dryRun
-                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                  : 'bg-card text-muted-foreground border-border hover:text-foreground'
-              }`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer"
+              style={{
+                background: !dryRun ? 'var(--bp-operational-light)' : 'var(--bp-surface-1)',
+                color: !dryRun ? 'var(--bp-operational)' : 'var(--bp-ink-tertiary)',
+                border: !dryRun ? '1px solid var(--bp-operational)' : '1px solid var(--bp-border)',
+                fontFamily: 'var(--bp-font-body)',
+              }}
             >
               <Rocket className="w-3 h-3" />
               Deploy
             </button>
             <button
               onClick={() => setDryRun(true)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
-                dryRun
-                  ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
-                  : 'bg-card text-muted-foreground border-border hover:text-foreground'
-              }`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer"
+              style={{
+                background: dryRun ? 'var(--bp-copper-light)' : 'var(--bp-surface-1)',
+                color: dryRun ? 'var(--bp-copper)' : 'var(--bp-ink-tertiary)',
+                border: dryRun ? '1px solid var(--bp-copper)' : '1px solid var(--bp-border)',
+                fontFamily: 'var(--bp-font-body)',
+              }}
             >
               <TestTube className="w-3 h-3" />
               Dry Run
@@ -108,27 +114,29 @@ export default function PreDeploymentPanel({ onStart, disabled }: Props) {
       {/* Capacity */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
-            Capacity ID <span className="text-muted-foreground/50">(optional)</span>
+          <label className="text-xs font-semibold uppercase tracking-wider block mb-1.5" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>
+            Capacity ID <span style={{ color: 'var(--bp-ink-muted)' }}>(optional)</span>
           </label>
           <input
             type="text"
             value={capacityId}
             onChange={(e) => setCapacityId(e.target.value)}
             placeholder="Auto-detect"
-            className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground/40 focus:ring-1 focus:ring-primary/40 focus:border-primary/40"
+            className="w-full px-3 py-1.5 text-xs rounded-md focus:ring-1"
+            style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-inset)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
           />
         </div>
         <div>
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
-            Capacity Name <span className="text-muted-foreground/50">(optional)</span>
+          <label className="text-xs font-semibold uppercase tracking-wider block mb-1.5" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>
+            Capacity Name <span style={{ color: 'var(--bp-ink-muted)' }}>(optional)</span>
           </label>
           <input
             type="text"
             value={capacityName}
             onChange={(e) => setCapacityName(e.target.value)}
             placeholder="Match by name"
-            className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground/40 focus:ring-1 focus:ring-primary/40 focus:border-primary/40"
+            className="w-full px-3 py-1.5 text-xs rounded-md focus:ring-1"
+            style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-inset)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
           />
         </div>
       </div>
@@ -136,17 +144,18 @@ export default function PreDeploymentPanel({ onStart, disabled }: Props) {
       {/* Advanced toggle */}
       <button
         onClick={() => setShowAdvanced(!showAdvanced)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 text-xs transition-colors cursor-pointer"
+        style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}
       >
         {showAdvanced ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         Advanced Options
       </button>
 
       {showAdvanced && (
-        <div className="space-y-4 pl-4 border-l-2 border-border/50">
+        <div className="space-y-4 pl-4" style={{ borderLeft: '2px solid var(--bp-border)' }}>
           {/* Skip Phases */}
           <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">
+            <label className="text-xs font-semibold uppercase tracking-wider block mb-2" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>
               <SkipForward className="w-3 h-3 inline mr-1" />
               Skip Phases
             </label>
@@ -155,11 +164,14 @@ export default function PreDeploymentPanel({ onStart, disabled }: Props) {
                 <button
                   key={p.num}
                   onClick={() => toggleSkipPhase(p.num)}
-                  className={`text-left px-2 py-1 text-[10px] rounded border transition-colors cursor-pointer ${
-                    skipPhases.includes(p.num)
-                      ? 'bg-red-500/10 text-red-400 border-red-500/20 line-through'
-                      : 'bg-card text-muted-foreground border-border hover:text-foreground'
-                  }`}
+                  className="text-left px-2 py-1 text-[10px] rounded transition-colors cursor-pointer"
+                  style={{
+                    background: skipPhases.includes(p.num) ? 'var(--bp-fault-light)' : 'var(--bp-surface-1)',
+                    color: skipPhases.includes(p.num) ? 'var(--bp-fault)' : 'var(--bp-ink-tertiary)',
+                    border: skipPhases.includes(p.num) ? '1px solid var(--bp-fault)' : '1px solid var(--bp-border)',
+                    textDecoration: skipPhases.includes(p.num) ? 'line-through' : 'none',
+                    fontFamily: 'var(--bp-font-body)',
+                  }}
                 >
                   {p.num}. {p.name}
                 </button>
@@ -169,16 +181,16 @@ export default function PreDeploymentPanel({ onStart, disabled }: Props) {
 
           {/* Manual Connection GUIDs */}
           <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">
+            <label className="text-xs font-semibold uppercase tracking-wider block mb-2" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>
               <Server className="w-3 h-3 inline mr-1" />
               Manual Connection GUIDs
             </label>
-            <p className="text-[10px] text-muted-foreground/60 mb-2">
+            <p className="text-[10px] mb-2" style={{ color: 'var(--bp-ink-muted)' }}>
               Pre-fill GUIDs for connections that can't be auto-created (Phase 4 won't prompt).
             </p>
             {Object.entries(manualConnections).map(([name, value]) => (
               <div key={name} className="flex gap-2 mb-1.5">
-                <span className="text-[10px] text-muted-foreground w-48 py-1 truncate flex-shrink-0">
+                <span className="text-[10px] w-48 py-1 truncate flex-shrink-0" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>
                   {name}
                 </span>
                 <input
@@ -188,7 +200,8 @@ export default function PreDeploymentPanel({ onStart, disabled }: Props) {
                     setManualConnections((prev) => ({ ...prev, [name]: e.target.value }))
                   }
                   placeholder="GUID or leave empty to skip"
-                  className="flex-1 px-2 py-1 text-[10px] font-mono rounded border border-border bg-background text-foreground placeholder:text-muted-foreground/40"
+                  className="flex-1 px-2 py-1 text-[10px] rounded"
+                  style={{ fontFamily: 'var(--bp-font-mono)', border: '1px solid var(--bp-border)', background: 'var(--bp-surface-inset)', color: 'var(--bp-ink-primary)' }}
                 />
               </div>
             ))}
@@ -200,11 +213,15 @@ export default function PreDeploymentPanel({ onStart, disabled }: Props) {
       <button
         onClick={handleStart}
         disabled={disabled}
-        className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
-          dryRun
-            ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25'
-            : 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm'
-        } disabled:opacity-40 disabled:cursor-not-allowed`}
+        className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+          dryRun ? '' : 'bp-btn-primary'
+        }`}
+        style={dryRun ? {
+          background: 'var(--bp-copper-light)',
+          color: 'var(--bp-copper)',
+          border: '1px solid var(--bp-copper)',
+          fontFamily: 'var(--bp-font-body)',
+        } : { fontFamily: 'var(--bp-font-body)' }}
       >
         {dryRun ? (
           <>
@@ -220,7 +237,7 @@ export default function PreDeploymentPanel({ onStart, disabled }: Props) {
       </button>
 
       {dryRun && (
-        <p className="text-[10px] text-sky-400/60 text-center -mt-2">
+        <p className="text-[10px] text-center -mt-2" style={{ color: 'var(--bp-copper)' }}>
           Dry run mode — no resources will be created or modified
         </p>
       )}

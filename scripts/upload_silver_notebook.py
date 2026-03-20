@@ -1,4 +1,5 @@
 """
+import os
 Upload NB_FMD_LOAD_BRONZE_SILVER notebook to Fabric workspace (CODE Dev).
 Parses notebook-content.py into cells, builds ipynb, uploads via Fabric REST API.
 """
@@ -6,7 +7,7 @@ import json, base64, urllib.request, urllib.parse, os, sys, re
 
 TENANT = 'ca81e9fd-06dd-49cf-b5a9-ee7441ff5303'
 CLIENT = 'ac937c5d-4bdd-438f-be8b-84a850021d2d'
-SECRET = 'Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu'
+SECRET = os.environ["FABRIC_CLIENT_SECRET"]
 WS_CODE = '146fe38c-f6c3-4e9d-a18c-5c01cad5941e'
 
 NB_NAME = 'NB_FMD_LOAD_BRONZE_SILVER'

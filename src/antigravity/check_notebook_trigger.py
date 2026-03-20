@@ -1,3 +1,4 @@
+import os
 import urllib.request
 import urllib.parse
 from urllib.error import HTTPError
@@ -6,7 +7,7 @@ import time
 
 TENANT_ID = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
 CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
-SECRET = "Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu"
+SECRET = os.environ["FABRIC_CLIENT_SECRET"]
 WORKSPACE_ID = "c0366b24-e6f8-4994-b4df-b765ecb5bbf8"
 
 def get_token(scope="https://api.fabric.microsoft.com/.default"):

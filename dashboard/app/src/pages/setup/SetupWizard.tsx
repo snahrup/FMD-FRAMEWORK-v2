@@ -131,7 +131,7 @@ export function SetupWizard({ config, onConfigChange }: SetupWizardProps) {
       </div>
 
       {/* Navigation */}
-      <div className="flex items-center justify-between border-t border-border/30 pt-4">
+      <div className="flex items-center justify-between pt-4" style={{ borderTop: '1px solid var(--bp-border-subtle)' }}>
         <Button
           variant="ghost"
           onClick={goBack}
@@ -142,7 +142,7 @@ export function SetupWizard({ config, onConfigChange }: SetupWizardProps) {
           Back
         </Button>
 
-        <span className="text-xs text-muted-foreground/50">
+        <span className="text-xs" style={{ color: 'var(--bp-ink-muted)' }}>
           Step {step} of {STEPS.length}
         </span>
 

@@ -192,7 +192,7 @@ def get_health_trends(hours: int = 24) -> list[dict]:
                 try:
                     d['recent_errors'] = json.loads(d['recent_errors'])
                 except (json.JSONDecodeError, TypeError):
-                    pass
+                    pass  # intentionally suppressed: keep raw string if JSON parse fails
             result.append(d)
         return result
     finally:

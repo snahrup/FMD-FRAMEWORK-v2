@@ -3,14 +3,28 @@
 SECURITY NOTES:
 - Table names in FROM/PRAGMA use f-string interpolation because SQLite doesn't
   support parameterized table names. All table names are validated against
-  sqlite_master before use, preventing arbitrary table injection.
+  sqlite_master before use AND sanitized to strip unsafe characters, preventing
+  arbitrary table injection.
 - The read-only SQL console allows only SELECT/PRAGMA statements. SQLite's
   cursor.execute() runs only one statement (no stacked queries), which prevents
   "SELECT 1; DROP TABLE x" attacks. load_extension() is disabled by default in
   Python's sqlite3 module unless explicitly enabled.
 """
+import re
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
+
+
+def _sanitize_identifier(name: str) -> str:
+    """Strip any characters that are not alphanumeric, underscore, or space.
+
+    Raises HttpError if the sanitized name is empty (all chars stripped).
+    """
+    cleaned = re.sub(r"[^\w ]", "", name)
+    if not cleaned:
+        raise HttpError(f"Invalid SQL identifier: {name!r}", 400)
+    # Escape embedded right-brackets to prevent bracket-escape injection
+    return cleaned.replace("]", "]]")
 
 
 def _validate_table_name(table: str) -> bool:
@@ -28,7 +42,8 @@ def list_tables(params):
     )
     result = []
     for r in rows:
-        count = db.query(f"SELECT COUNT(*) as cnt FROM [{r['name']}]")
+        safe_name = _sanitize_identifier(r["name"])
+        count = db.query("SELECT COUNT(*) as cnt FROM [" + safe_name + "]")
         result.append({"name": r["name"], "row_count": count[0]["cnt"]})
     return result
 
@@ -43,8 +58,9 @@ def get_table_data(params):
     if not _validate_table_name(table):
         raise HttpError("Table not found", 404)
 
-    rows = db.query(f"SELECT * FROM [{table}] LIMIT ? OFFSET ?", (per_page, offset))
-    total = db.query(f"SELECT COUNT(*) as cnt FROM [{table}]")
+    safe_table = _sanitize_identifier(table)
+    rows = db.query("SELECT * FROM [" + safe_table + "] LIMIT ? OFFSET ?", (per_page, offset))
+    total = db.query("SELECT COUNT(*) as cnt FROM [" + safe_table + "]")
     return {"rows": rows, "total": total[0]["cnt"], "page": page, "per_page": per_page}
 
 
@@ -53,7 +69,8 @@ def get_table_schema(params):
     table = params["name"]
     if not _validate_table_name(table):
         raise HttpError("Table not found", 404)
-    rows = db.query(f"PRAGMA table_info([{table}])")
+    safe_table = _sanitize_identifier(table)
+    rows = db.query(f"PRAGMA table_info([{safe_table}])")
     return [{"name": r["name"], "type": r["type"], "notnull": r["notnull"], "pk": r["pk"]} for r in rows]
 
 

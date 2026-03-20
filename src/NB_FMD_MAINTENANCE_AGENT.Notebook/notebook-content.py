@@ -123,10 +123,13 @@ def run_query(conn, sql):
     return rows
 
 
-def run_exec(conn, sql):
+def run_exec(conn, sql, params=None):
     """Execute a statement (INSERT/UPDATE/DELETE) and return rowcount."""
     cursor = conn.cursor()
-    cursor.execute(sql)
+    if params:
+        cursor.execute(sql, params)
+    else:
+        cursor.execute(sql)
     rc = cursor.rowcount
     conn.commit()
     return rc
@@ -208,8 +211,8 @@ def scan_lz_files():
                 if fname.endswith('.parquet'):
                     table = fname.replace('.parquet', '')
                     found.add((ns_name, table))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: failed to list namespace '{ns_name}': {e}")
 
     return found
 
@@ -249,10 +252,10 @@ def scan_lakehouse_tables(lakehouse_id):
                         delta_check = notebookutils.fs.ls(f"{sub_path}/{table_name}")
                         if any(d.name.rstrip('/') == '_delta_log' for d in delta_check):
                             found.add((item_name, table_name))
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as e:
+                        print(f"Warning: failed to check delta table '{sub_path}/{table_name}': {e}")
+        except Exception as e:
+            print(f"Warning: failed to list item '{item_name}' in Tables/: {e}")
 
     return found
 
@@ -419,37 +422,41 @@ total_fixed = 0
 
 # 6a. Delete orphan rows
 if orphans:
-    id_list = ','.join(str(oid) for oid in orphans)
+    # Use parameterized query — one ? placeholder per orphan ID
+    _orphan_ids = [int(oid) for oid in orphans]
+    _placeholders = ','.join('?' for _ in _orphan_ids)
     rc = run_exec(conn, f"""
         DELETE FROM execution.EntityStatusSummary
-        WHERE LandingzoneEntityId IN ({id_list})
-    """)
+        WHERE LandingzoneEntityId IN ({_placeholders})
+    """, _orphan_ids)
     total_fixed += rc
     print(f"[FIX] Deleted {rc} orphan rows from EntityStatusSummary")
 
 # 6b. Insert missing entities
 if missing:
-    # Build batch INSERT
-    values = []
+    # Use parameterized INSERT — one row at a time for safety
+    VALID_STATUSES = {'not_started', 'loaded'}
+    _insert_sql = (
+        "INSERT INTO execution.EntityStatusSummary "
+        "(LandingzoneEntityId, LzStatus, LzLastLoad, BronzeStatus, BronzeLastLoad, "
+        "SilverStatus, SilverLastLoad) VALUES "
+        "(?, ?, CASE WHEN ? = 'not_started' THEN NULL ELSE GETUTCDATE() END, "
+        "?, CASE WHEN ? = 'not_started' THEN NULL ELSE GETUTCDATE() END, "
+        "?, CASE WHEN ? = 'not_started' THEN NULL ELSE GETUTCDATE() END)"
+    )
     for eid in missing:
         exp = expected_status.get(eid, {'lz': 'not_started', 'bronze': 'not_started', 'silver': 'not_started'})
-        values.append(
-            f"({eid}, '{exp['lz']}', "
-            f"{'NULL' if exp['lz'] == 'not_started' else 'GETUTCDATE()'}, "
-            f"'{exp['bronze']}', "
-            f"{'NULL' if exp['bronze'] == 'not_started' else 'GETUTCDATE()'}, "
-            f"'{exp['silver']}', "
-            f"{'NULL' if exp['silver'] == 'not_started' else 'GETUTCDATE()'})"
-        )
-    # Insert in batches of 500
-    for i in range(0, len(values), 500):
-        batch = values[i:i+500]
-        sql = (
-            "INSERT INTO execution.EntityStatusSummary "
-            "(LandingzoneEntityId, LzStatus, LzLastLoad, BronzeStatus, BronzeLastLoad, "
-            "SilverStatus, SilverLastLoad) VALUES\n" + ",\n".join(batch)
-        )
-        rc = run_exec(conn, sql)
+        # Validate status values against allowlist
+        for layer_key in ('lz', 'bronze', 'silver'):
+            if exp[layer_key] not in VALID_STATUSES:
+                exp[layer_key] = 'not_started'
+        _params = [
+            int(eid),
+            exp['lz'], exp['lz'],
+            exp['bronze'], exp['bronze'],
+            exp['silver'], exp['silver'],
+        ]
+        rc = run_exec(conn, _insert_sql, _params)
         total_fixed += rc
     print(f"[FIX] Inserted {len(missing)} missing entity rows")
 
@@ -461,20 +468,22 @@ LAYER_COL_MAP = {
 }
 
 for eid, layer, old_status, new_status in fixes:
+    # Safe: column names from hardcoded LAYER_COL_MAP dict, not user input
     status_col, load_col = LAYER_COL_MAP[layer]
     if new_status == 'loaded':
         sql = (
             f"UPDATE execution.EntityStatusSummary "
-            f"SET {status_col} = 'loaded', {load_col} = GETUTCDATE() "
-            f"WHERE LandingzoneEntityId = {eid}"
+            f"SET {status_col} = ?, {load_col} = GETUTCDATE() "
+            f"WHERE LandingzoneEntityId = ?"
         )
+        run_exec(conn, sql, ('loaded', int(eid)))
     else:
         sql = (
             f"UPDATE execution.EntityStatusSummary "
-            f"SET {status_col} = 'not_started', {load_col} = NULL "
-            f"WHERE LandingzoneEntityId = {eid}"
+            f"SET {status_col} = ?, {load_col} = NULL "
+            f"WHERE LandingzoneEntityId = ?"
         )
-    run_exec(conn, sql)
+        run_exec(conn, sql, ('not_started', int(eid)))
     total_fixed += 1
 
 if fixes:

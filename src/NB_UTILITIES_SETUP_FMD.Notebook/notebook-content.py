@@ -130,6 +130,7 @@ def create_fabric_domain(domain_name):
             result=('Domain already exists, skip creation')
     assign_domain_description(domain_name)
     assign_domain_contributor_roles(domain_contributor_role, domain_name)
+    # SQL identifier — safe (from metadata, not user input)
     tasks.append({"task_name": f"Create or Update Domain {domain_name}","task_duration": int(time() - start),"status": "success"})
 
 def create_fabric_business_domain(domain_name, business_domain):
@@ -143,6 +144,7 @@ def create_fabric_business_domain(domain_name, business_domain):
     except Exception as e:
         print(f"❌ Failed to create sub domain: {e}")
     assign_domain_description(domain_name)
+    # SQL identifier — safe (from metadata, not user input)
     tasks.append({"task_name": f"Create or update Sub Domain {business_domain}","task_duration": int(time() - start),"status": "success"})
 
 def assign_fabric_domain(domain_name, workspace_name):
@@ -539,6 +541,7 @@ def deploy_workspaces(domain_name,workspace, workspace_name, environment_name, o
     if create_domains:
         assign_fabric_domain(domain_name, workspace_name) 
 
+    # SQL identifier — safe (from metadata, not user input)
     tasks.append({"task_name": f"Create or Update workspace {workspace_name}","task_duration": int(time() - start),"status": "success" })
 
 # -------------------------------
@@ -664,6 +667,7 @@ def deploy_item(workspace_name,name, mapping_table, environment_name, tasks, lak
     if it:
         mapping_table.append({"Description": name,"environment": environment_name,"ItemType": mapping_type, "old_id": it["id"],"new_id": new_id})
 
+    # SQL identifier — safe (from metadata, not user input)
     tasks.append({
         "task_name": f"Create or Update item Definition {workspace_name} - {name}","task_duration": int(time() - start),"status": result })
 
@@ -784,8 +788,8 @@ def set_workspace_icon(workspace_id, base64_png):
             response = invoke_fabric_request("put", f"{cluster_base_url}metadata/folders/{workspace_id}", payload)
             response.raise_for_status()
             return response.json()
-        except:
-            print(f"Could not set icon on workspace id {workspace_id}. Ensure that the user is admin on workspace.")
+        except Exception as e:
+            print(f"Could not set icon on workspace id {workspace_id}. Ensure that the user is admin on workspace. Error: {e}")
             return None
 # -------------------------------
 # FMD specific Icon functions
@@ -806,8 +810,8 @@ def fill_svg(base64_svg, fill_color):
         svg_data = base64.b64decode(base64_svg).decode('utf-8')
         modified_svg = re.sub(r'fill="[^"]+"', f'fill="{fill_color}"', svg_data)
         return base64.b64encode(modified_svg.encode('utf-8')).decode('utf-8')
-    except:
-        print("Failed colorfill of image. Skipping")
+    except Exception as e:
+        print(f"Failed colorfill of image. Skipping. Error: {e}")
 
 def display_workspace_icons(workspaces):
     html = "<table width='100%'>"
@@ -835,7 +839,7 @@ def add_letter_to_base64_png(base64_png, letter, font_size=20, text_color="black
     
     try:
         font = ImageFont.truetype("arial.ttf", font_size)
-    except IOError:
+    except (IOError, OSError):
         font = ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)
         
     padding = 0

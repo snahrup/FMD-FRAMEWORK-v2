@@ -15,7 +15,7 @@
 
 ### 1. Hardcoded SQL Credentials (SECURITY - CRITICAL)
 **File**: `SourceOnboardingWizard.tsx:150`
-**Was**: `useState({ username: 'UsrSQLRead', password: 'Ku7T@hoqFDmDPqG4deMgrrxQ9' })`
+**Was**: `useState({ username: 'UsrSQLRead', password: '[REDACTED]' })`
 **Fixed**: `useState({ username: '', password: '' })`
 **Impact**: Credentials were hardcoded as default state and visible in source control.
 

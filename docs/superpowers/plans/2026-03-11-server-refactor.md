@@ -1727,6 +1727,7 @@ def main():
     # Compare counts
     for sql, _ in TABLES_TO_SEED:
         table_name = sql.split("FROM")[1].strip().split()[0]
+        # NOTE: Identifier (table_name) can't be parameterized — comes from hardcoded TABLES_TO_SEED, not user input
         result = query_sql(f"SELECT COUNT(*) as cnt FROM {table_name}")
         fabric_count = int(result[0]["cnt"]) if result else 0
         print(f"  {table_name}: {fabric_count} rows in Fabric SQL")
@@ -2070,7 +2071,7 @@ def list_tables(params):
     )
     result = []
     for r in rows:
-        # Safe: r["name"] comes from sqlite_master, not user input
+        # NOTE: Identifier (table name) can't be parameterized — comes from sqlite_master, not user input
         count = db.query(f"SELECT COUNT(*) as cnt FROM [{r['name']}]")
         result.append({"name": r["name"], "row_count": count[0]["cnt"]})
     return result
@@ -2086,7 +2087,7 @@ def get_table_data(params):
     if not _validate_table_name(table):
         raise HttpError(f"Table not found", 404)
 
-    # Safe: table validated against sqlite_master above
+    # NOTE: Identifier (table) can't be parameterized — validated against sqlite_master above; values use ? placeholders
     rows = db.query(f"SELECT * FROM [{table}] LIMIT ? OFFSET ?", (per_page, offset))
     total = db.query(f"SELECT COUNT(*) as cnt FROM [{table}]")
     return {"rows": rows, "total": total[0]["cnt"], "page": page, "per_page": per_page}

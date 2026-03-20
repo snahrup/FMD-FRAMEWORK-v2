@@ -24,8 +24,8 @@ function ColumnLineageRow({ col, layers }: { col: string; layers: MedallionLayer
     : "source";
 
   return (
-    <div className="flex items-center gap-1 py-1 px-2 text-[11px] font-mono hover:bg-muted/50 rounded transition-colors">
-      <span className={cn("w-48 truncate", isSystem ? "text-muted-foreground italic" : "text-foreground")}>{col}</span>
+    <div className="flex items-center gap-1 py-1 px-2 text-[11px] rounded transition-colors" style={{ fontFamily: "var(--bp-font-mono)" }}>
+      <span className={cn("w-48 truncate", isSystem ? "italic" : "")} style={{ color: isSystem ? "var(--bp-ink-secondary)" : "var(--bp-ink-primary)" }}>{col}</span>
       {(["source", "landing", "bronze", "silver", "gold"] as MedallionLayer[]).map((layer) => {
         const present = layers.includes(layer);
         const isOrigin = layer === startsAt;
@@ -33,25 +33,31 @@ function ColumnLineageRow({ col, layers }: { col: string; layers: MedallionLayer
         return (
           <div key={layer} className="flex items-center gap-1">
             {layer !== "source" && (
-              <ArrowRight className={cn("h-3 w-3", present ? "text-muted-foreground/60" : "text-muted-foreground/20")} />
+              <ArrowRight className={cn("h-3 w-3")} style={{ color: present ? "var(--bp-ink-muted)" : "rgba(0,0,0,0.08)" }} />
             )}
             <div
               className={cn(
-                "w-16 h-5 rounded text-center text-[9px] leading-5 font-medium border",
+                "w-16 h-5 rounded text-center text-[9px] leading-5 font-medium",
                 present
                   ? isOrigin
-                    ? "border-current font-semibold"
+                    ? "font-semibold"
                     : "opacity-80"
-                  : "bg-muted text-muted-foreground/30 border-transparent"
+                  : ""
               )}
-              style={present ? { color: layerDef?.color, backgroundColor: `${layerDef?.color}15`, borderColor: `${layerDef?.color}40` } : undefined}
+              style={present ? { color: layerDef?.color, backgroundColor: `${layerDef?.color}15`, border: `1px solid ${layerDef?.color}40` } : { backgroundColor: "var(--bp-surface-inset)", color: "var(--bp-ink-muted)", opacity: 0.3, border: "1px solid transparent" }}
             >
-              {present ? (isSystem && isOrigin ? "NEW" : "✓") : "—"}
+              {present ? (isSystem && isOrigin ? "NEW" : "\u2713") : "\u2014"}
             </div>
           </div>
         );
       })}
-      <span className={cn("ml-2 text-[9px] px-1.5 py-0.5 rounded", isSystem ? "bg-violet-500/10 text-violet-400" : "bg-blue-500/10 text-blue-400")}>
+      <span
+        className="ml-2 text-[9px] px-1.5 py-0.5 rounded"
+        style={isSystem
+          ? { backgroundColor: "#E2E8F0", color: "#475569" }
+          : { backgroundColor: "var(--bp-copper-light)", color: "var(--bp-copper)" }
+        }
+      >
         {isSystem ? "computed" : "passthrough"}
       </span>
     </div>
@@ -68,7 +74,6 @@ function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClos
   const abortRef = useRef<AbortController | null>(null);
 
   const loadColumns = useCallback(async () => {
-    // Abort any in-flight request before starting a new one
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -90,7 +95,6 @@ function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClos
         setLoading(false);
         return;
       }
-      // Extract column names from microscope data
       const layerCols: { layer: string; columns: string[] }[] = [];
       for (const layer of ["source", "landing", "bronze", "silver"]) {
         if (data[layer]?.columns) {
@@ -109,7 +113,6 @@ function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClos
     }
   }, [entity.id]);
 
-  // Cleanup abort controller on unmount
   useEffect(() => {
     return () => { abortRef.current?.abort(); };
   }, []);
@@ -118,7 +121,6 @@ function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClos
     if (columnView && columns.length === 0) loadColumns();
   }, [columnView, columns.length, loadColumns]);
 
-  // All unique column names across all layers
   const allColumns = useMemo(() => {
     const set = new Set<string>();
     columns.forEach((lc) => lc.columns.forEach((c) => set.add(c)));
@@ -139,13 +141,13 @@ function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClos
   }, [entity]);
 
   return (
-    <Card className="border-l-2 border-l-[var(--cl-accent)]">
+    <Card style={{ borderLeft: "2px solid var(--bp-copper)", backgroundColor: "var(--bp-surface-1)" }}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-base font-display">{entity.sourceSchema}.{entity.tableName}</CardTitle>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              {resolveSourceLabel(entity.source)}{entity.connection ? ` · ${entity.connection.server}/${entity.connection.database}` : ""}
+            <CardTitle className="text-base" style={{ fontFamily: "var(--bp-font-display)", color: "var(--bp-ink-primary)" }}>{entity.sourceSchema}.{entity.tableName}</CardTitle>
+            <p className="text-[11px] mt-0.5" style={{ color: "var(--bp-ink-secondary)" }}>
+              {resolveSourceLabel(entity.source)}{entity.connection ? ` \u00b7 ${entity.connection.server}/${entity.connection.database}` : ""}
             </p>
           </div>
           <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0"><X className="h-4 w-4" /></Button>
@@ -161,7 +163,6 @@ function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClos
       </CardHeader>
       <CardContent>
         {!columnView ? (
-          // ── Table-level lineage ──
           <div className="space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
               {(["source", "landing", "bronze", "silver", "gold"] as MedallionLayer[]).map((layer, i) => {
@@ -170,13 +171,13 @@ function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClos
                 const Icon = layerDef?.icon ?? Database;
                 return (
                   <div key={layer} className="flex items-center gap-2">
-                    {i > 0 && <ArrowRight className={cn("h-4 w-4", isActive ? "text-muted-foreground" : "text-muted-foreground/20")} />}
+                    {i > 0 && <ArrowRight className={cn("h-4 w-4")} style={{ color: isActive ? "var(--bp-ink-secondary)" : "var(--bp-ink-muted)" }} />}
                     <div
                       className={cn(
-                        "flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-all",
-                        isActive ? "shadow-sm" : "opacity-30"
+                        "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all",
+                        isActive ? "" : "opacity-30"
                       )}
-                      style={isActive ? { color: layerDef?.color, backgroundColor: `${layerDef?.color}10`, borderColor: `${layerDef?.color}30` } : undefined}
+                      style={isActive ? { color: layerDef?.color, backgroundColor: `${layerDef?.color}10`, border: `1px solid ${layerDef?.color}30` } : { border: "1px solid var(--bp-border)" }}
                     >
                       <Icon className="h-3.5 w-3.5" />
                       {layerDef?.label ?? layer}
@@ -186,38 +187,33 @@ function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClos
               })}
             </div>
             <div className="grid grid-cols-3 gap-2 text-[11px]">
-              <div className="p-2 rounded bg-muted border">
-                <span className="text-muted-foreground">LZ Status</span>
-                <div className="mt-1"><StatusBadge status={entity.lzStatus || "none"} size="sm" /></div>
-                {entity.lzLastLoad && <div className="text-[10px] text-muted-foreground mt-1">{formatTimestamp(entity.lzLastLoad, { relative: true })}</div>}
-              </div>
-              <div className="p-2 rounded bg-muted border">
-                <span className="text-muted-foreground">Bronze Status</span>
-                <div className="mt-1"><StatusBadge status={entity.bronzeStatus || "none"} size="sm" /></div>
-                {entity.bronzeLastLoad && <div className="text-[10px] text-muted-foreground mt-1">{formatTimestamp(entity.bronzeLastLoad, { relative: true })}</div>}
-              </div>
-              <div className="p-2 rounded bg-muted border">
-                <span className="text-muted-foreground">Silver Status</span>
-                <div className="mt-1"><StatusBadge status={entity.silverStatus || "none"} size="sm" /></div>
-                {entity.silverLastLoad && <div className="text-[10px] text-muted-foreground mt-1">{formatTimestamp(entity.silverLastLoad, { relative: true })}</div>}
-              </div>
+              {[
+                { label: "LZ Status", status: entity.lzStatus, lastLoad: entity.lzLastLoad },
+                { label: "Bronze Status", status: entity.bronzeStatus, lastLoad: entity.bronzeLastLoad },
+                { label: "Silver Status", status: entity.silverStatus, lastLoad: entity.silverLastLoad },
+              ].map((item) => (
+                <div key={item.label} className="p-2 rounded" style={{ backgroundColor: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)" }}>
+                  <span style={{ color: "var(--bp-ink-secondary)" }}>{item.label}</span>
+                  <div className="mt-1"><StatusBadge status={item.status || "none"} size="sm" /></div>
+                  {item.lastLoad && <div className="text-[10px] mt-1" style={{ color: "var(--bp-ink-muted)" }}>{formatTimestamp(item.lastLoad, { relative: true })}</div>}
+                </div>
+              ))}
             </div>
-            <div className="text-[11px] text-muted-foreground">
-                Rows: —
+            <div className="text-[11px]" style={{ color: "var(--bp-ink-secondary)" }}>
+                Rows: \u2014
               </div>
           </div>
         ) : (
-          // ── Column-level lineage ──
           <div>
             {loading ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">Loading column data...</div>
+              <div className="text-center py-8 text-sm" style={{ color: "var(--bp-ink-secondary)" }}>Loading column data...</div>
             ) : fetchError ? (
-              <div className="text-center py-8 text-sm text-destructive">{fetchError}</div>
+              <div className="text-center py-8 text-sm" style={{ color: "var(--bp-fault)" }}>{fetchError}</div>
             ) : allColumns.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">No column data available. Run a load first to capture schema.</div>
+              <div className="text-center py-8 text-sm" style={{ color: "var(--bp-ink-secondary)" }}>No column data available. Run a load first to capture schema.</div>
             ) : (
               <div className="space-y-0.5 max-h-[400px] overflow-y-auto">
-                <div className="flex items-center gap-1 py-1 px-2 text-[9px] font-medium text-muted-foreground uppercase tracking-wider sticky top-0 bg-card z-10">
+                <div className="flex items-center gap-1 py-1 px-2 text-[9px] font-medium uppercase tracking-wider sticky top-0 z-10" style={{ color: "var(--bp-ink-tertiary)", backgroundColor: "var(--bp-surface-1)" }}>
                   <span className="w-48">Column</span>
                   {(["source", "landing", "bronze", "silver", "gold"] as MedallionLayer[]).map((layer) => (
                     <div key={layer} className="flex items-center gap-1">
@@ -277,32 +273,32 @@ export default function DataLineage() {
   const fullChain = allEntities.filter((e) => e.lzStatus === "loaded" && e.bronzeStatus === "loaded" && e.silverStatus === "loaded").length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ padding: "32px", maxWidth: "1280px" }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-display font-semibold flex items-center gap-2">
-            <GitBranch className="h-5 w-5 text-[var(--cl-accent)]" /> Data Lineage
+          <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }} className="flex items-center gap-2">
+            <GitBranch className="h-7 w-7" style={{ color: "var(--bp-copper)" }} /> Data Lineage
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Trace entity data flow across the medallion architecture — Source → Landing Zone → Bronze → Silver → Gold
+          <p className="text-sm mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
+            Trace entity data flow across the medallion architecture — Source &rarr; Landing Zone &rarr; Bronze &rarr; Silver &rarr; Gold
           </p>
         </div>
       </div>
 
       {/* KPIs */}
       <KpiRow>
-        <KpiCard label="Total Entities" value={formatRowCount(totalEntities)} icon={Database} iconColor="text-slate-400" />
-        <KpiCard label="Landing Zone" value={formatRowCount(withLz)} icon={HardDrive} iconColor="text-blue-400" subtitle={`${totalEntities ? ((withLz / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
-        <KpiCard label="Bronze" value={formatRowCount(withBronze)} icon={Table2} iconColor="text-amber-400" subtitle={`${totalEntities ? ((withBronze / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
-        <KpiCard label="Silver" value={formatRowCount(withSilver)} icon={Sparkles} iconColor="text-violet-400" subtitle={`${totalEntities ? ((withSilver / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
-        <KpiCard label="Full Chain" value={formatRowCount(fullChain)} icon={Crown} iconColor="text-emerald-400" subtitle="Source → Silver complete" />
+        <KpiCard label="Total Entities" value={formatRowCount(totalEntities)} icon={Database} iconColor="text-[var(--bp-ink-muted)]" />
+        <KpiCard label="Landing Zone" value={formatRowCount(withLz)} icon={HardDrive} iconColor="text-[var(--bp-ink-muted)]" subtitle={`${totalEntities ? ((withLz / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
+        <KpiCard label="Bronze" value={formatRowCount(withBronze)} icon={Table2} iconColor="text-[#9A4A1F]" subtitle={`${totalEntities ? ((withBronze / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
+        <KpiCard label="Silver" value={formatRowCount(withSilver)} icon={Sparkles} iconColor="text-[#475569]" subtitle={`${totalEntities ? ((withSilver / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
+        <KpiCard label="Full Chain" value={formatRowCount(fullChain)} icon={Crown} iconColor="text-[var(--bp-operational)]" subtitle="Source \u2192 Silver complete" />
       </KpiRow>
 
       {/* Filters */}
       <div className="flex gap-3 items-center">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />
           <Input
             placeholder="Search entities..."
             value={search}
@@ -337,12 +333,12 @@ export default function DataLineage() {
       {/* Main content */}
       <div className={cn("grid gap-4", selectedEntity ? "grid-cols-[1fr_420px]" : "grid-cols-1")}>
         {/* Entity list */}
-        <Card>
+        <Card style={{ backgroundColor: "var(--bp-surface-1)" }}>
           <CardContent className="p-0">
             <div className="max-h-[calc(100vh-340px)] overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-card z-10 border-b">
-                  <tr className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              <table className="w-full text-sm" style={{ fontFamily: "var(--bp-font-mono)" }}>
+                <thead className="sticky top-0 z-10" style={{ backgroundColor: "var(--bp-surface-1)", borderBottom: "1px solid var(--bp-border)" }}>
+                  <tr className="text-[10px] uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>
                     <th className="text-left py-2 px-3 font-medium">Entity</th>
                     <th className="text-left py-2 px-3 font-medium">Source</th>
                     <th className="text-center py-2 px-2 font-medium">LZ</th>
@@ -354,24 +350,25 @@ export default function DataLineage() {
                 </thead>
                 <tbody>
                   {digestLoading ? (
-                    <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">Loading entities...</td></tr>
+                    <tr><td colSpan={7} className="text-center py-8" style={{ color: "var(--bp-ink-secondary)" }}>Loading entities...</td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">No entities found</td></tr>
+                    <tr><td colSpan={7} className="text-center py-8" style={{ color: "var(--bp-ink-secondary)" }}>No entities found</td></tr>
                   ) : (
                     filtered.map((e) => {
                       const isSelected = selectedEntity?.id === e.id;
                       return (
                         <tr
                           key={e.id}
-                          className={cn(
-                            "border-b border-border/50 hover:bg-muted/50 cursor-pointer transition-colors",
-                            isSelected && "bg-muted/50 border-l-2 border-l-[var(--cl-accent)]"
-                          )}
+                          className="cursor-pointer transition-colors"
+                          style={{
+                            borderBottom: "1px solid rgba(0,0,0,0.04)",
+                            ...(isSelected ? { backgroundColor: "var(--bp-surface-inset)", borderLeft: "2px solid var(--bp-copper)" } : {}),
+                          }}
                           onClick={() => setSelectedEntity(isSelected ? null : e)}
                         >
                           <td className="py-1.5 px-3">
-                            <div className="font-mono text-xs">{e.tableName}</div>
-                            <div className="text-[10px] text-muted-foreground">{e.sourceSchema}</div>
+                            <div className="text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)" }}>{e.tableName}</div>
+                            <div className="text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>{e.sourceSchema}</div>
                           </td>
                           <td className="py-1.5 px-3">
                             <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: getSourceColor(resolveSourceLabel(e.source)), backgroundColor: `${getSourceColor(resolveSourceLabel(e.source))}15` }}>
@@ -381,8 +378,8 @@ export default function DataLineage() {
                           <td className="py-1.5 px-2 text-center"><StatusBadge status={e.lzStatus || "none"} size="sm" showIcon={false} /></td>
                           <td className="py-1.5 px-2 text-center"><StatusBadge status={e.bronzeStatus || "none"} size="sm" showIcon={false} /></td>
                           <td className="py-1.5 px-2 text-center"><StatusBadge status={e.silverStatus || "none"} size="sm" showIcon={false} /></td>
-                          <td className="py-1.5 px-2 text-center"><StatusBadge status="none" size="sm" showIcon={false} label="—" /></td>
-                          <td className="py-1.5 px-3 text-right font-mono text-xs text-muted-foreground">—</td>
+                          <td className="py-1.5 px-2 text-center"><StatusBadge status="none" size="sm" showIcon={false} label="\u2014" /></td>
+                          <td className="py-1.5 px-3 text-right text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-muted)" }}>\u2014</td>
                         </tr>
                       );
                     })

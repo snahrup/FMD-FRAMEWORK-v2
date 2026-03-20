@@ -135,14 +135,14 @@ def execute_with_outputs(exec_statement, driver, connstring, database, **params)
 
             try:
                 cursor.commit()
-            except:
-                pass
+            except Exception as e:
+                print(f"Warning: cursor.commit() failed (non-fatal): {e}")
 
     finally:
         try:
             conn.close()
-        except:
-            pass
+        except Exception as e:
+            print(f"Warning: conn.close() failed (non-fatal): {e}")
 
     return {
         "result_sets": result_sets,

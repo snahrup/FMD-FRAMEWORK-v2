@@ -219,26 +219,27 @@ export default function DeploymentManager() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Rocket className="w-5 h-5 text-primary" />
+        <Rocket className="w-5 h-5" style={{ color: 'var(--bp-copper)' }} />
         <div className="flex-1">
-          <h2 className="font-display text-base font-semibold">
+          <h2 style={{ fontFamily: 'var(--bp-font-body)', fontSize: '18px', fontWeight: 600, color: 'var(--bp-ink-primary)' }}>
             Deployment Manager
           </h2>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
             Full greenfield deployment of the FMD Framework to Microsoft Fabric.
           </p>
         </div>
         {uiState === 'running' && (
           <button
             onClick={handleCancel}
-            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md transition-colors cursor-pointer"
+            style={{ background: 'var(--bp-fault-light)', color: 'var(--bp-fault)', border: '1px solid var(--bp-fault)' }}
           >
             <StopCircle className="w-3 h-3" />
             Cancel
           </button>
         )}
         {isDryRun && uiState === 'running' && (
-          <span className="text-[9px] font-bold uppercase tracking-wider text-sky-400 bg-sky-500/10 border border-sky-500/20 rounded-full px-2 py-0.5">
+          <span className="text-[9px] font-bold uppercase tracking-wider rounded-full px-2 py-0.5" style={{ color: 'var(--bp-copper)', background: 'var(--bp-copper-light)', border: '1px solid var(--bp-border)' }}>
             <TestTube className="w-2.5 h-2.5 inline mr-0.5" />
             Dry Run
           </span>
@@ -260,14 +261,14 @@ export default function DeploymentManager() {
 
       {/* State machine views */}
       {(uiState === 'idle' || uiState === 'configuring') && !resumeInfo && (
-        <div className="rounded-lg border border-border bg-card px-5 py-5">
+        <div className="rounded-lg px-5 py-5" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
           <PreDeploymentPanel onStart={handleStart} />
         </div>
       )}
 
       {uiState === 'running' && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-border bg-card px-5 py-5">
+          <div className="rounded-lg px-5 py-5" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
             <PhaseProgressTracker phases={phases} currentPhase={currentPhase} />
           </div>
           <LiveLogPanel logs={logs} />
@@ -276,17 +277,18 @@ export default function DeploymentManager() {
 
       {uiState === 'completed' && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-emerald-500/20 bg-card px-5 py-5">
+          <div className="rounded-lg px-5 py-5" style={{ border: '1px solid var(--bp-operational)', background: 'var(--bp-surface-1)' }}>
             <PostDeploymentSummary result={result} dryRun={isDryRun} />
           </div>
-          <div className="rounded-lg border border-border bg-card px-5 py-5">
+          <div className="rounded-lg px-5 py-5" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
             <PhaseProgressTracker phases={phases} currentPhase={0} />
           </div>
           <LiveLogPanel logs={logs} />
           <div className="flex justify-center">
             <button
               onClick={handleReset}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              className="text-xs transition-colors cursor-pointer"
+              style={{ color: 'var(--bp-ink-tertiary)' }}
             >
               Start New Deployment
             </button>
@@ -296,34 +298,36 @@ export default function DeploymentManager() {
 
       {uiState === 'failed' && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-5 py-4">
+          <div className="rounded-lg px-5 py-4" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)' }}>
             <div className="flex items-start gap-3">
-              <XCircle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+              <XCircle className="w-5 h-5 mt-0.5 flex-shrink-0" style={{ color: 'var(--bp-fault)' }} />
               <div>
-                <h3 className="text-sm font-semibold text-red-400">
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--bp-fault)' }}>
                   Deployment Failed
                 </h3>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-tertiary)' }}>
                   {error || 'An error occurred during deployment.'}
                 </p>
               </div>
             </div>
           </div>
-          <div className="rounded-lg border border-border bg-card px-5 py-5">
+          <div className="rounded-lg px-5 py-5" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
             <PhaseProgressTracker phases={phases} currentPhase={0} />
           </div>
           <LiveLogPanel logs={logs} />
           <div className="flex gap-3 justify-center">
             <button
               onClick={handleResume}
-              className="text-xs text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+              className="text-xs transition-colors cursor-pointer"
+              style={{ color: 'var(--bp-caution)' }}
             >
               Resume from Last Phase
             </button>
-            <span className="text-muted-foreground/30">|</span>
+            <span style={{ color: 'var(--bp-ink-muted)', opacity: 0.3 }}>|</span>
             <button
               onClick={handleReset}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              className="text-xs transition-colors cursor-pointer"
+              style={{ color: 'var(--bp-ink-tertiary)' }}
             >
               Start Fresh
             </button>
@@ -333,34 +337,36 @@ export default function DeploymentManager() {
 
       {uiState === 'cancelled' && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-5 py-4">
+          <div className="rounded-lg px-5 py-4" style={{ border: '1px solid var(--bp-caution)', background: 'var(--bp-caution-light)' }}>
             <div className="flex items-center gap-3">
-              <StopCircle className="w-5 h-5 text-amber-400" />
+              <StopCircle className="w-5 h-5" style={{ color: 'var(--bp-caution)' }} />
               <div>
-                <h3 className="text-sm font-semibold text-amber-400">
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--bp-caution)' }}>
                   Deployment Cancelled
                 </h3>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-tertiary)' }}>
                   The deployment was stopped. Completed phases are preserved.
                 </p>
               </div>
             </div>
           </div>
-          <div className="rounded-lg border border-border bg-card px-5 py-5">
+          <div className="rounded-lg px-5 py-5" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
             <PhaseProgressTracker phases={phases} currentPhase={0} />
           </div>
           <LiveLogPanel logs={logs} />
           <div className="flex gap-3 justify-center">
             <button
               onClick={handleResume}
-              className="text-xs text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+              className="text-xs transition-colors cursor-pointer"
+              style={{ color: 'var(--bp-caution)' }}
             >
               Resume
             </button>
-            <span className="text-muted-foreground/30">|</span>
+            <span style={{ color: 'var(--bp-ink-muted)', opacity: 0.3 }}>|</span>
             <button
               onClick={handleReset}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              className="text-xs transition-colors cursor-pointer"
+              style={{ color: 'var(--bp-ink-tertiary)' }}
             >
               Start Fresh
             </button>

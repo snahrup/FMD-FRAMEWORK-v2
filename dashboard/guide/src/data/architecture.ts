@@ -13,6 +13,9 @@ export interface ArchEdge {
   animated?: boolean;
 }
 
+/** Known source system IDs — update this list when sources change */
+export const SOURCE_IDS = ['mes', 'etq', 'm3c', 'm3erp'] as const;
+
 export const architectureNodes: ArchNode[] = [
   {
     id: 'mes',

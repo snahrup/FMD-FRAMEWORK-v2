@@ -54,6 +54,19 @@ _COMPILED: dict[str, list[re.Pattern]] = {
 
 _STRING_TYPES = {"varchar", "nvarchar", "char", "nchar", "text"}
 
+# Regex for safe SQL identifiers (letters, digits, underscores, spaces, hyphens)
+_SAFE_IDENT_RE = re.compile(r"^[\w\s\-]+$", re.UNICODE)
+
+
+def _validate_identifier(name: str, kind: str = "identifier") -> str:
+    """Validate that a SQL identifier contains only safe characters.
+
+    Raises ValueError if the name contains characters outside the allow-list.
+    """
+    if not name or not _SAFE_IDENT_RE.match(name):
+        raise ValueError(f"Unsafe SQL {kind}: {name!r}")
+    return name
+
 
 # ---------------------------------------------------------------------------
 # Public helpers
@@ -161,19 +174,20 @@ def classify_by_presidio(entity_id: int | None = None) -> dict:
     try:
         # Get string columns — only from landing layer since source schema/table
         # names only match the landing lakehouse (bronze/silver use different schemas)
-        base_where = ("cm.entity_id = ? AND " if entity_id is not None else "") + \
-            "cm.layer = 'landing' AND LOWER(cm.data_type) IN " \
-            "('varchar','nvarchar','char','nchar','text')"
-        base_bind = (entity_id,) if entity_id is not None else ()
-        rows = conn.execute(
+        base_query = (
             "SELECT cm.entity_id, cm.layer, cm.column_name, cm.data_type, "
             "       e.SourceSchema, e.SourceName, lh.Name AS lakehouse_name "
             "FROM column_metadata cm "
             "JOIN lz_entities e ON cm.entity_id = e.LandingzoneEntityId "
             "JOIN lakehouses lh ON e.LakehouseId = lh.LakehouseId "
-            f"WHERE {base_where}",
-            base_bind,
-        ).fetchall()
+            "WHERE cm.layer = 'landing' AND LOWER(cm.data_type) IN "
+            "('varchar','nvarchar','char','nchar','text')"
+        )
+        if entity_id is not None:
+            base_query += " AND cm.entity_id = ?"
+            rows = conn.execute(base_query, (entity_id,)).fetchall()
+        else:
+            rows = conn.execute(base_query).fetchall()
 
         # Group columns by entity to batch queries per table
         from collections import defaultdict
@@ -186,19 +200,19 @@ def classify_by_presidio(entity_id: int | None = None) -> dict:
             if not lh_name or not table:
                 continue
 
-            s_schema = _sanitize(schema or "dbo")
-            s_table = _sanitize(table)
+            s_schema = _sanitize(_validate_identifier(schema or "dbo", "schema"))
+            s_table = _sanitize(_validate_identifier(table, "table"))
 
             # Build a single SELECT with all string columns for this table
             col_names = [row["column_name"] for row in col_rows]
 
             for col in col_names:
-                s_col = _sanitize(col)
+                s_col = _sanitize(_validate_identifier(col, "column"))
                 try:
                     sample_rows = _query_lakehouse(
                         lh_name,
-                        f"SELECT TOP 100 [{s_col}] FROM [{s_schema}].[{s_table}] "
-                        f"WHERE [{s_col}] IS NOT NULL",
+                        "SELECT TOP 100 [{}] FROM [{}].[{}] "
+                        "WHERE [{}] IS NOT NULL".format(s_col, s_schema, s_table, s_col),
                     )
                     scanned += 1
                 except Exception as exc:
@@ -220,8 +234,8 @@ def classify_by_presidio(entity_id: int | None = None) -> dict:
                             for r in results:
                                 if r.entity_type not in pii_entities:
                                     pii_entities.append(r.entity_type)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug("Presidio analysis failed for a sample value: %s", e)
 
                 if pii_found:
                     pii_str = ",".join(pii_entities[:10])

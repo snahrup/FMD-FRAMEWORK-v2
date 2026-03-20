@@ -74,7 +74,7 @@ const mdComponents = {
     <pre className="my-2 rounded-lg overflow-hidden" {...props} />
   ),
   a: (props: ComponentPropsWithoutRef<"a">) => (
-    <a className="text-primary hover:underline" {...props} />
+    <a className="hover:underline" style={{ color: 'var(--bp-copper)' }} {...props} />
   ),
   blockquote: (props: ComponentPropsWithoutRef<"blockquote">) => (
     <blockquote className="pl-3 my-2 text-xs italic" style={{ borderLeft: "2px solid var(--agent-border)", color: "var(--agent-content-fg-faint)" }} {...props} />
@@ -162,7 +162,7 @@ function FileLockBadge({ content }: { content: string }) {
 
   if (locks.length === 0) {
     return (
-      <div className="flex items-center gap-1.5 text-[10px] text-emerald-400/80 bg-emerald-400/5 border border-emerald-400/10 rounded-md px-2 py-1">
+      <div className="flex items-center gap-1.5 text-[10px] rounded-md px-2 py-1" style={{ color: 'var(--bp-operational)', background: 'var(--bp-operational-light)', border: '1px solid var(--bp-operational)' }}>
         <Unlock className="w-3 h-3" />
         No file locks active
       </div>
@@ -172,10 +172,10 @@ function FileLockBadge({ content }: { content: string }) {
   return (
     <div className="flex flex-col gap-1">
       {locks.map((lock, i) => (
-        <div key={i} className="flex items-center gap-1.5 text-[10px] text-amber-400/80 bg-amber-400/5 border border-amber-400/10 rounded-md px-2 py-1">
+        <div key={i} className="flex items-center gap-1.5 text-[10px] rounded-md px-2 py-1" style={{ color: 'var(--bp-caution)', background: 'var(--bp-caution-light)', border: '1px solid var(--bp-caution)' }}>
           <Lock className="w-3 h-3 shrink-0" />
-          <span className="font-mono truncate">{lock.file}</span>
-          <span className="text-amber-400/50 shrink-0">by {lock.agent}</span>
+          <span className="truncate" style={{ fontFamily: 'var(--bp-font-mono)' }}>{lock.file}</span>
+          <span className="shrink-0" style={{ opacity: 0.7 }}>by {lock.agent}</span>
         </div>
       ))}
     </div>
@@ -199,15 +199,15 @@ function LogPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="flex flex-col h-full min-h-0 rounded-xl border border-border/50 bg-card overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 rounded-xl overflow-hidden" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30 bg-card flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2.5 flex-shrink-0" style={{ borderBottom: '1px solid var(--bp-border-subtle)', background: 'var(--bp-surface-1)' }}>
         <div className="flex items-center gap-2">
-          <Icon className="w-4 h-4 text-primary" />
-          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          <Icon className="w-4 h-4" style={{ color: 'var(--bp-copper)' }} />
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>{title}</h2>
         </div>
         {data?.lastModified && (
-          <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+          <span className="text-[10px] flex items-center gap-1" style={{ color: 'var(--bp-ink-muted)' }}>
             <Clock className="w-2.5 h-2.5" />
             {data.lastModified}
           </span>
@@ -225,12 +225,12 @@ function LogPanel({
       >
         {loading && (
           <div className="flex items-center justify-center py-8">
-            <RefreshCw className="w-4 h-4 text-primary animate-spin" />
+            <RefreshCw className="w-4 h-4 animate-spin" style={{ color: 'var(--bp-copper)' }} />
             <span className="text-xs ml-2" style={{ color: "var(--agent-content-fg-faint)" }}>Loading...</span>
           </div>
         )}
         {error && (
-          <div className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg p-3">
+          <div className="text-xs rounded-lg p-3" style={{ color: 'var(--bp-fault)', background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
             {error}
           </div>
         )}
@@ -283,8 +283,8 @@ export default function AgentCollaboration() {
       {/* Header bar */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-bold text-foreground">Agent Collaboration</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h2 className="text-base font-bold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>Agent Collaboration</h2>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--bp-ink-tertiary)' }}>
             Real-time view of shared logs and bulletin board between AI agents
           </p>
         </div>
@@ -292,11 +292,11 @@ export default function AgentCollaboration() {
           {sharedLog && <FileLockBadge content={sharedLog.content} />}
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-md border transition-colors cursor-pointer ${
-              autoRefresh
-                ? "text-primary bg-primary/5 border-primary/20"
-                : "text-muted-foreground bg-card border-border/50"
-            }`}
+            className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-md transition-colors cursor-pointer"
+            style={autoRefresh
+              ? { color: 'var(--bp-copper)', background: 'var(--bp-copper-light)', border: '1px solid var(--bp-copper)' }
+              : { color: 'var(--bp-ink-tertiary)', background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }
+            }
           >
             <RefreshCw
               className={`w-3 h-3 ${autoRefresh ? "animate-spin" : ""}`}
@@ -306,7 +306,8 @@ export default function AgentCollaboration() {
           </button>
           <button
             onClick={fetchData}
-            className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground px-2.5 py-1.5 rounded-md border border-border/50 hover:border-border transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-md transition-colors cursor-pointer"
+            style={{ color: 'var(--bp-ink-tertiary)', border: '1px solid var(--bp-border)' }}
           >
             <RefreshCw className="w-3 h-3" />
             Refresh

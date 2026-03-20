@@ -48,7 +48,7 @@ function humanDuration(seconds: number | null | undefined): string {
 
 type StatusFilter = "all" | "succeeded" | "failed" | "never-run" | "pending";
 
-const DONUT_COLORS = ["#10b981", "#ef4444", "#71717a"]; // emerald, red, zinc
+const DONUT_COLORS = ["#3D7C4F", "#B93A2A", "#A8A29E"]; // operational, fault, muted
 
 // ============================================================================
 // COMPONENT
@@ -203,7 +203,7 @@ export default function ExecutionMatrix() {
   const engineBadge = () => {
     if (!engineStatus) {
       return (
-        <Badge className="bg-zinc-500/10 text-zinc-500 border-zinc-500/20 border">
+        <Badge style={{ background: "var(--bp-surface-inset)", color: "var(--bp-ink-muted)", border: "1px solid var(--bp-border)" }}>
           <Power className="w-3 h-3 mr-1" /> Offline
         </Badge>
       );
@@ -211,27 +211,27 @@ export default function ExecutionMatrix() {
     const s = engineStatus.status?.toLowerCase();
     if (s === "running" || s === "active") {
       return (
-        <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 border animate-pulse">
+        <Badge className="animate-pulse" style={{ background: "var(--bp-operational-light)", color: "var(--bp-operational)", border: "1px solid var(--bp-operational)" }}>
           <Activity className="w-3 h-3 mr-1" /> Running
         </Badge>
       );
     }
     if (s === "idle") {
       return (
-        <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20 border">
+        <Badge style={{ background: "var(--bp-copper-light)", color: "var(--bp-copper)", border: "1px solid var(--bp-copper)" }}>
           <Zap className="w-3 h-3 mr-1" /> Idle
         </Badge>
       );
     }
     if (s === "error") {
       return (
-        <Badge className="bg-red-500/10 text-red-400 border-red-500/20 border">
+        <Badge style={{ background: "var(--bp-fault-light)", color: "var(--bp-fault)", border: "1px solid var(--bp-fault)" }}>
           <AlertOctagon className="w-3 h-3 mr-1" /> Error
         </Badge>
       );
     }
     return (
-      <Badge className="bg-zinc-500/10 text-zinc-400 border-zinc-500/20 border">
+      <Badge style={{ background: "var(--bp-surface-inset)", color: "var(--bp-ink-muted)", border: "1px solid var(--bp-border)" }}>
         {engineStatus.status}
       </Badge>
     );
@@ -252,33 +252,33 @@ export default function ExecutionMatrix() {
     return (
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-1.5">
-          <span className="text-xs font-semibold text-foreground">{label}</span>
-          <span className="text-[10px] text-muted-foreground">
-            <span className="text-emerald-400">{fmt(counts.succeeded)}</span>
+          <span className="text-xs font-semibold" style={{ fontFamily: "var(--bp-font-body)", color: "var(--bp-ink-primary)" }}>{label}</span>
+          <span className="text-[10px]" style={{ fontFamily: "var(--bp-font-mono)", fontFeatureSettings: "'tnum'", color: "var(--bp-ink-muted)" }}>
+            <span style={{ color: "var(--bp-operational)" }}>{fmt(counts.succeeded)}</span>
             {" / "}
-            <span className="text-red-400">{fmt(counts.failed)}</span>
+            <span style={{ color: "var(--bp-fault)" }}>{fmt(counts.failed)}</span>
             {" / "}
-            <span className="text-zinc-400">{fmt(counts.pending)}</span>
+            <span style={{ color: "var(--bp-ink-muted)" }}>{fmt(counts.pending)}</span>
           </span>
         </div>
-        <div className="h-2.5 rounded-full overflow-hidden bg-zinc-800 flex">
+        <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: "var(--bp-surface-inset)" }}>
           {counts.succeeded > 0 && (
             <div
-              className="bg-emerald-500 transition-all duration-500"
-              style={{ width: `${pctSuccess}%` }}
+              className="transition-all duration-500"
+              style={{ width: `${pctSuccess}%`, background: "var(--bp-operational)" }}
             />
           )}
           {counts.failed > 0 && (
             <div
-              className="bg-red-500 transition-all duration-500"
-              style={{ width: `${pctFail}%` }}
+              className="transition-all duration-500"
+              style={{ width: `${pctFail}%`, background: "var(--bp-fault)" }}
             />
           )}
         </div>
         <div className="flex items-center gap-3 mt-1">
-          <span className="text-[9px] text-emerald-400/70">{Math.round(pctSuccess)}% ok</span>
+          <span className="text-[9px]" style={{ color: "var(--bp-operational)" }}>{Math.round(pctSuccess)}% ok</span>
           {counts.failed > 0 && (
-            <span className="text-[9px] text-red-400/70">{Math.round(pctFail)}% fail</span>
+            <span className="text-[9px]" style={{ color: "var(--bp-fault)" }}>{Math.round(pctFail)}% fail</span>
           )}
         </div>
       </div>
@@ -306,13 +306,13 @@ export default function ExecutionMatrix() {
   const isInitialLoading = digestLoading && engineLoading && !digestData;
 
   return (
-    <div className="space-y-6" data-testid="execution-matrix">
+    <div className="space-y-6" style={{ padding: "32px", maxWidth: "1280px" }} data-testid="execution-matrix">
       {/* ================================================================ */}
       {/* HEADER BAR */}
       {/* ================================================================ */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="font-display text-xl font-semibold tracking-tight">Execution Matrix</h1>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>Execution Matrix</h1>
           {engineBadge()}
         </div>
 
@@ -408,20 +408,22 @@ export default function ExecutionMatrix() {
       {/* Error filter active banner */}
       {errorFilter && (
         <div
-          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-500/20 bg-amber-500/5"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg border"
+          style={{ borderColor: "var(--bp-caution)", background: "var(--bp-caution-light)" }}
           data-testid="error-filter-banner"
         >
-          <Filter className="w-4 h-4 text-amber-400" />
-          <span className="text-xs text-amber-400">
+          <Filter className="w-4 h-4" style={{ color: "var(--bp-caution)" }} />
+          <span className="text-xs" style={{ color: "var(--bp-caution)" }}>
             Filtered to entities matching error:{" "}
-            <strong className="font-mono">
+            <strong style={{ fontFamily: "var(--bp-font-mono)" }}>
               {errorFilter.slice(0, 80)}
               {errorFilter.length > 80 ? "..." : ""}
             </strong>
           </span>
           <button
             onClick={() => setErrorFilter(null)}
-            className="ml-auto text-xs text-amber-400 hover:text-amber-300 underline"
+            className="ml-auto text-xs underline"
+            style={{ color: "var(--bp-caution)" }}
           >
             Clear
           </button>
@@ -445,7 +447,7 @@ export default function ExecutionMatrix() {
             {/* Card 1: Total Entities */}
             <KPICard
               icon={<Database className="w-4 h-4" />}
-              iconColor="text-blue-400"
+              iconColor="text-[var(--bp-copper)]"
               label="Total Entities"
               value={fmt(totalSummary.total)}
               detail={
@@ -463,10 +465,10 @@ export default function ExecutionMatrix() {
             {/* Card 2: Success Rate with mini donut */}
             <KPICard
               icon={<TrendingUp className="w-4 h-4" />}
-              iconColor="text-emerald-400"
+              iconColor="text-[var(--bp-operational)]"
               label="Success Rate"
               value={`${successRate}%`}
-              valueColor="text-emerald-400"
+              valueColor="text-[var(--bp-operational)]"
               inline={
                 <StatusPieChart
                   data={donutData}
@@ -483,7 +485,7 @@ export default function ExecutionMatrix() {
             {/* Card 3: Last Run */}
             <KPICard
               icon={<Clock className="w-4 h-4" />}
-              iconColor="text-amber-400"
+              iconColor="text-[var(--bp-caution)]"
               label="Last Run"
               value={
                 engineStatus?.last_run ? (
@@ -498,15 +500,14 @@ export default function ExecutionMatrix() {
                 engineStatus?.last_run ? (
                   <div className="flex items-center gap-2">
                     <span
-                      className={cn(
-                        "text-[10px] px-1.5 py-0.5 rounded border font-mono",
-                        engineStatus.last_run.status === "completed" ||
-                          engineStatus.last_run.status === "succeeded"
-                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                      className="text-[10px] px-1.5 py-0.5 rounded border font-mono"
+                      style={{
+                        ...(engineStatus.last_run.status === "completed" || engineStatus.last_run.status === "succeeded"
+                          ? { background: "var(--bp-operational-light)", color: "var(--bp-operational)", borderColor: "var(--bp-operational)" }
                           : engineStatus.last_run.status === "failed"
-                            ? "bg-red-500/10 text-red-400 border-red-500/20"
-                            : "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                      )}
+                            ? { background: "var(--bp-fault-light)", color: "var(--bp-fault)", borderColor: "var(--bp-fault)" }
+                            : { background: "var(--bp-copper-light)", color: "var(--bp-copper)", borderColor: "var(--bp-copper)" }),
+                      }}
                     >
                       {engineStatus.last_run.status}
                     </span>
@@ -523,10 +524,10 @@ export default function ExecutionMatrix() {
             {/* Card 4: Active Errors */}
             <KPICard
               icon={<AlertTriangle className="w-4 h-4" />}
-              iconColor="text-red-400"
+              iconColor="text-[var(--bp-fault)]"
               label="Active Errors"
               value={fmt(totalSummary.error)}
-              valueColor={totalSummary.error > 0 ? "text-red-400" : undefined}
+              valueColor={totalSummary.error > 0 ? "text-[var(--bp-fault)]" : undefined}
               detail={
                 engineMetrics?.top_errors && engineMetrics.top_errors.length > 0 ? (
                   <span className="truncate">
@@ -551,12 +552,12 @@ export default function ExecutionMatrix() {
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Layer Health
                 </span>
-                <span className="text-[9px] text-muted-foreground ml-auto">
-                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1 align-middle" />
+                <span className="text-[9px] ml-auto" style={{ color: "var(--bp-ink-muted)" }}>
+                  <span className="inline-block w-2 h-2 rounded-full mr-1 align-middle" style={{ background: "var(--bp-operational)" }} />
                   succeeded
-                  <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1 ml-3 align-middle" />
+                  <span className="inline-block w-2 h-2 rounded-full mr-1 ml-3 align-middle" style={{ background: "var(--bp-fault)" }} />
                   failed
-                  <span className="inline-block w-2 h-2 rounded-full bg-zinc-600 mr-1 ml-3 align-middle" />
+                  <span className="inline-block w-2 h-2 rounded-full mr-1 ml-3 align-middle" style={{ background: "var(--bp-ink-muted)" }} />
                   never run
                 </span>
               </div>
@@ -585,8 +586,8 @@ export default function ExecutionMatrix() {
             <Card data-testid="error-panel">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2">
-                  <AlertOctagon className="w-4 h-4 text-red-400" />
-                  <span className="text-sm font-semibold">Top Errors</span>
+                  <AlertOctagon className="w-4 h-4" style={{ color: "var(--bp-fault)" }} />
+                  <span style={{ fontSize: "18px", fontWeight: 600, color: "#1C1917" }}>Top Errors</span>
                   <span className="text-[10px] text-muted-foreground font-normal ml-1">
                     (last {timeRange})
                   </span>
@@ -603,23 +604,23 @@ export default function ExecutionMatrix() {
                       className={cn(
                         "w-full flex items-center gap-3 px-3 py-2 rounded-md border text-left transition-colors",
                         errorFilter === err.error_message
-                          ? "border-red-500/30 bg-red-500/10"
-                          : "border-border bg-muted/30 hover:bg-muted/50"
+                          ? "border"
+                          : "hover:opacity-80"
                       )}
+                      style={errorFilter === err.error_message
+                        ? { borderColor: "var(--bp-fault)", background: "var(--bp-fault-light)" }
+                        : { borderColor: "var(--bp-border)", background: "var(--bp-surface-2)" }
+                      }
                     >
-                      <span className="flex-shrink-0 w-8 h-8 rounded-md bg-red-500/10 flex items-center justify-center">
-                        <span className="text-sm font-bold text-red-400">{err.count}</span>
+                      <span className="flex-shrink-0 w-8 h-8 rounded-md flex items-center justify-center" style={{ background: "var(--bp-fault-light)" }}>
+                        <span className="text-sm font-bold" style={{ color: "var(--bp-fault)", fontFamily: "var(--bp-font-mono)" }}>{err.count}</span>
                       </span>
-                      <span className="text-xs text-muted-foreground truncate flex-1 font-mono">
+                      <span className="text-xs truncate flex-1" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-secondary)" }}>
                         {err.error_message || "Unknown error"}
                       </span>
                       <Filter
-                        className={cn(
-                          "w-3.5 h-3.5 flex-shrink-0",
-                          errorFilter === err.error_message
-                            ? "text-red-400"
-                            : "text-muted-foreground/30"
-                        )}
+                        className="w-3.5 h-3.5 flex-shrink-0"
+                        style={{ color: errorFilter === err.error_message ? "var(--bp-fault)" : "var(--bp-ink-muted)" }}
                       />
                     </button>
                   ))}
@@ -635,8 +636,8 @@ export default function ExecutionMatrix() {
             <Card data-testid="throughput-chart">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm font-semibold">Layer Throughput</span>
+                  <Activity className="w-4 h-4" style={{ color: "var(--bp-copper)" }} />
+                  <span style={{ fontSize: "18px", fontWeight: 600, color: "#1C1917" }}>Layer Throughput</span>
                   <span className="text-[10px] text-muted-foreground font-normal ml-1">
                     (last {timeRange} &mdash; {engineMetrics.runs} runs)
                   </span>
@@ -651,28 +652,28 @@ export default function ExecutionMatrix() {
                     >
                       <XAxis
                         dataKey="Layer"
-                        tick={{ fontSize: 11, fill: "#a0a0a0" }}
+                        tick={{ fontSize: 11, fill: "#78716C" }}
                         axisLine={false}
                         tickLine={false}
                       />
                       <YAxis
-                        tick={{ fontSize: 10, fill: "#71717a" }}
+                        tick={{ fontSize: 10, fill: "#A8A29E" }}
                         axisLine={false}
                         tickLine={false}
                         width={40}
                       />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: "#1a1a2e",
-                          border: "1px solid #333",
+                          backgroundColor: "#FEFDFB",
+                          border: "1px solid rgba(0,0,0,0.08)",
                           borderRadius: "8px",
                           fontSize: "12px",
                         }}
-                        labelStyle={{ color: "#eaeaea", fontWeight: 600 }}
-                        itemStyle={{ color: "#a0a0a0" }}
+                        labelStyle={{ color: "#1C1917", fontWeight: 600 }}
+                        itemStyle={{ color: "#57534E" }}
                       />
-                      <Bar dataKey="Succeeded" fill="#10b981" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Failed" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Succeeded" fill="#3D7C4F" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Failed" fill="#B93A2A" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -687,7 +688,7 @@ export default function ExecutionMatrix() {
                           key={i}
                           className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/30 border border-border"
                         >
-                          <span className="text-[10px] text-amber-400 font-mono font-bold">
+                          <span className="text-[10px] font-bold" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-caution)" }}>
                             {humanDuration(se.duration_seconds)}
                           </span>
                           <span className="text-[10px] text-muted-foreground truncate flex-1">

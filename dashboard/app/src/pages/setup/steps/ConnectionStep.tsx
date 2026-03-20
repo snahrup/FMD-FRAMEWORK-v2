@@ -23,17 +23,17 @@ export function ConnectionStep({ connections, onChange }: ConnectionStepProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <Cable className="h-4 w-4 text-purple-400" />
-        <h3 className="text-sm font-semibold">Select Connections</h3>
+        <Cable className="h-4 w-4" style={{ color: 'var(--bp-copper)' }} />
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>Select Connections</h3>
       </div>
-      <p className="text-xs text-muted-foreground leading-relaxed">
+      <p className="text-xs leading-relaxed" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
         Map existing Fabric connections to their FMD roles. Connections are created in the Fabric
         portal — select the matching one from the dropdown.
       </p>
 
       <div className="space-y-3">
         {CONNECTION_FIELDS.map((field) => (
-          <div key={field.key} className="rounded-md border border-border/40 bg-card p-3">
+          <div key={field.key} className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
             <FabricDropdown
               label={field.label}
               endpoint="/fabric/connections"
@@ -47,8 +47,8 @@ export function ConnectionStep({ connections, onChange }: ConnectionStepProps) {
         ))}
       </div>
 
-      <div className="rounded-md border border-border/30 bg-muted p-3">
-        <p className="text-[10px] text-muted-foreground/70">
+      <div className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-inset)' }}>
+        <p className="text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>
           Connections use Service Principal authentication. Create them in the Fabric portal
           under Settings → Manage connections and gateways, then select them here.
         </p>

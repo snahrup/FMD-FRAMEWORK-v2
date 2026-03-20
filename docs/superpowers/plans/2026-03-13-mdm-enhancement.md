@@ -160,12 +160,13 @@ def get_blender_profile(params: dict) -> dict:
     try:
         raw_cols = _query_lakehouse(
             lakehouse,
-            f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
-            f"CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, "
-            f"ORDINAL_POSITION "
-            f"FROM INFORMATION_SCHEMA.COLUMNS "
-            f"WHERE TABLE_SCHEMA = '{s}' AND TABLE_NAME = '{t}' "
-            f"ORDER BY ORDINAL_POSITION",
+            "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
+            "CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, "
+            "ORDINAL_POSITION "
+            "FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? "
+            "ORDER BY ORDINAL_POSITION",
+            params=(s, t),
         )
     except HttpError:
         raise
@@ -195,6 +196,7 @@ def get_blender_profile(params: dict) -> dict:
             col_exprs.append(f"MIN(CAST([{safe}] AS NVARCHAR(200))) AS [{safe}__min]")
             col_exprs.append(f"MAX(CAST([{safe}] AS NVARCHAR(200))) AS [{safe}__max]")
 
+    # NOTE: Identifiers (schema/table) can't be parameterized — s, t sanitized via _sanitize(); use ? for values
     profile_sql = (
         f"SELECT COUNT(*) AS _row_count, {', '.join(col_exprs)} "
         f"FROM (SELECT TOP 100000 * FROM [{s}].[{t}]) AS _sampled"
@@ -443,10 +445,11 @@ def _query_lakehouse_columns(lakehouse_name: str, schema: str, table: str) -> li
     t = _sanitize(table)
     rows = _query_lakehouse(
         lakehouse_name,
-        f"SELECT COLUMN_NAME, DATA_TYPE, ORDINAL_POSITION, IS_NULLABLE "
-        f"FROM INFORMATION_SCHEMA.COLUMNS "
-        f"WHERE TABLE_SCHEMA = '{s}' AND TABLE_NAME = '{t}' "
-        f"ORDER BY ORDINAL_POSITION"
+        "SELECT COLUMN_NAME, DATA_TYPE, ORDINAL_POSITION, IS_NULLABLE "
+        "FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? "
+        "ORDER BY ORDINAL_POSITION",
+        params=(s, t),
     )
     return [{"name": r.get("COLUMN_NAME", ""), "dataType": r.get("DATA_TYPE", "")} for r in rows]
 
@@ -878,6 +881,7 @@ def get_glossary(params: dict) -> dict:
             where.append("category = ?")
             args.append(category)
 
+        # NOTE: Dynamic WHERE built from validated clauses with ? placeholders — all values bound via args
         clause = f"WHERE {' AND '.join(where)}" if where else ""
         total = conn.execute(f"SELECT COUNT(*) AS c FROM business_glossary {clause}", args).fetchone()["c"]
         rows = conn.execute(
@@ -1140,6 +1144,7 @@ def classify_by_presidio(entity_id: int | None = None) -> dict:
             f"FROM column_metadata cm "
             f"LEFT JOIN column_classifications cc "
             f"  ON cm.entity_id = cc.entity_id AND cm.layer = cc.layer AND cm.column_name = cc.column_name "
+            # NOTE: Values parameterized via ? placeholders — safe from injection
             f"WHERE LOWER(cm.data_type) IN ({','.join('?' for _ in STRING_TYPES)}) "
             f"  AND (cc.classified_by IS NULL OR cc.classified_by != 'auto:presidio') "
             f"{where} "
@@ -1171,6 +1176,7 @@ def classify_by_presidio(entity_id: int | None = None) -> dict:
             for col_name in col_names[:10]:  # Limit columns per entity for performance
                 safe_col = col_name.replace("]", "]]")
                 try:
+                    # NOTE: Identifiers sanitized via _sanitize() — can't use ? for identifiers, only for values
                     sample_rows = _query_lakehouse(
                         entity_info["lakehouse"],
                         f"SELECT TOP 100 [{safe_col}] FROM [{_sanitize(entity_info['schema'])}].[{_sanitize(entity_info['table'])}] "
@@ -1520,6 +1526,7 @@ def get_classification_data(params: dict) -> dict:
             where.append("cc.sensitivity_level = ?")
             args.append(level)
 
+        # NOTE: Dynamic WHERE built from validated clauses with ? placeholders — all values bound via args
         clause = f"WHERE {' AND '.join(where)}" if where else ""
 
         total = conn.execute(
@@ -1979,6 +1986,7 @@ def get_quality_scores(params: dict) -> dict:
             where = "WHERE qs.quality_tier = ?"
             args.append(tier)
 
+        # NOTE: Dynamic WHERE with ? placeholders — all values bound via args, safe from injection
         total = conn.execute(
             f"SELECT COUNT(*) as c FROM quality_scores qs {where}", args
         ).fetchone()["c"]

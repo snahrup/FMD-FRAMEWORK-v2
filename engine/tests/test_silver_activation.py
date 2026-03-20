@@ -120,7 +120,7 @@ def sql_conn():
     """Provide a live Fabric SQL connection, or skip the entire module."""
     try:
         import pyodbc
-    except ImportError:
+    except ImportError:  # noqa: expected – skip if pyodbc unavailable
         pytest.skip("pyodbc not installed -- cannot run Silver activation integration tests")
 
     try:

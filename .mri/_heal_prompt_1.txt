@@ -1,0 +1,1379 @@
+You are a Senior Bug Fix Engineer. Fix ALL bugs listed below in priority order.
+Rules: No scope creep. Fix the bug, nothing else. Test each fix.
+This is ITERATION 1 of the self-healing loop.
+
+═══ CRITICAL (fix first) ═══
+- SEC-010: build_guid_map.py:8 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-011: check_board.py:2 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-012: check_m3_progress.py:10 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-013: check_silver_status.py:17 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-078: dashboard/app/src/pages/ConfigManager.tsx:184 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-079: dashboard/app/src/pages/NotebookConfig.tsx:102 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-080: delete_board.py:2 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-091: deploy_prod.py:12 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-093: diag_fmd.py:11 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-094: diag_pipeline.py:11 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-155: finalize_deployment.py:18 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-159: fix_prod_guids.py:13 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-161: FMD_FRAMEWORK_DEPLOYMENT.md:109 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-162: fmd_pipeline_check.py:15 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-164: list_boards.py:2 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-165: miro_board.py:22 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-166: PRD.md:11 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-169: PRD_optiva.yaml:35 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-170: PRD_optiva.yaml:312 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-171: PRD_optiva.yaml:411 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-172: PRD_optiva.yaml:505 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-173: PRD_optiva.yaml:563 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-174: PRD_optiva.yaml:599 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-183: scripts/check_bronze_pipeline.py:6 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-184: scripts/check_entity_paths.py:28 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-185: scripts/check_lz_and_runs.py:9 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-186: scripts/check_notebook_jobs.py:12 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-187: scripts/check_onelake_detailed.py:9 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-188: scripts/check_onelake_detailed.py:118 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-189: scripts/check_onelake_files.py:23 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-196: scripts/deploy_signal_procs.py:13 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-201: scripts/diagnose_bronze.py:8 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-202: scripts/fix_and_retrigger_lz.py:19 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-207: scripts/fix_case_sensitivity.py:44 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-214: scripts/fix_metadata_reactivate.py:6 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-216: scripts/fix_optiva_bad_entities.py:13 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-219: scripts/fix_pipeline_and_upload_nb.py:10 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-235: scripts/gap_analysis.py:6 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-239: scripts/gap_report.py:25 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-240: scripts/get_actual_run.py:9 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-241: scripts/investigate_bronze_silver.py:23 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-243: scripts/investigate_bronze_silver_followup.py:17 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-244: scripts/investigate_bronze_silver_views.py:6 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-246: scripts/investigate_bronze_unprocessed.py:17 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-247: scripts/investigate_lz_failure.py:7 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-248: scripts/investigate_mes_bug.py:5 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-249: scripts/jira_close_mt37_mt17.py:8 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-250: scripts/jira_digest_update.py:13 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-251: scripts/jira_hours_audit.py:14 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-252: scripts/jira_hours_audit_v2.py:14 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-255: scripts/jira_update_20260306.py:17 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-261: scripts/jira_update_mt86.py:6 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-262: scripts/live_monitor.py:19 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-277: scripts/optiva_lz_retry.py:19 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-286: scripts/upload_pipelines.py:22 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-287: scripts/upload_silver_notebook.py:9 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-290: src/antigravity/check_notebook_trigger.py:9 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-291: src/antigravity/check_sp.py:10 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-292: src/antigravity/extract_m3_schema.py:11 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-293: src/antigravity/extract_m3_schema.py:32 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-294: src/antigravity/fabric_notebook_runner.py:11 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-295: src/antigravity/standalone_register_entities.py:10 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- SEC-328: upload_notebooks.py:11 — Potential hardcoded secret/credential
+  FIX: Remove hardcoded value and use environment variable or config file.
+- COMP-025: check_m3_progress.py:38 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-026: check_silver_status.py:28 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-027: dashboard/app/api/routes/data_access.py:407 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-028: deploy_from_scratch.py:1577 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-029: deploy_from_scratch.py:1965 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-030: deploy_from_scratch.py:2253 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-031: deploy_from_scratch.py:2493 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-032: deploy_from_scratch.py:2830 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-033: diag_fmd.py:21 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-034: diag_lakehouse.py:38 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-035: diag_ldz_failure.py:122 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-036: diag_pipeline.py:16 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-037: diag_run_details.py:52 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-038: diag_sp_check.py:48 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-039: docs/FULL_LOAD_PIPELINE_AUDIT.md:69 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-040: docs/load-audit-report.md:11 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-041: docs/load-audit-report.md:386 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-042: finalize_deployment.py:193 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-043: fix_entity_names.py:26 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-044: fix_ldz_issues.py:102 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-045: fmd_pipeline_check.py:18 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-046: knowledge/BURNED-BRIDGES.md:243 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-047: knowledge/ipcorp/fabric-environment.md:76 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-048: memory/bronze-pipeline-debugging.md:43 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-049: memory/bulletin_board.md:73 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-050: PRD.yaml:95 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-051: QA_SWARM_REPORT.html:295 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-052: QA_SWARM_REPORT.html:393 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-053: QA_SWARM_REPORT.html:547 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-054: QA_SWARM_REPORT.html:596 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-055: scripts/configure_incremental_loads.py:108 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-056: scripts/create_silver_entity_proc.py:31 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-057: scripts/deploy_monitoring_views.py:48 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-058: scripts/deploy_schema_direct.py:72 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-059: scripts/diagnose_and_fix_queues.py:36 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-060: scripts/diagnose_sourcename.py:37 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-061: scripts/diagnose_sourcename_v2.py:35 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-062: scripts/fix_and_retrigger_lz.py:44 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-063: scripts/fix_entity_paths.py:61 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-064: scripts/fix_null_sourcename.py:51 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-065: scripts/fix_optiva_bad_entities.py:43 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-066: scripts/fix_rowversion_watermarks.py:68 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-067: scripts/fix_silver_proc.py:45 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-068: scripts/fix_sourcename_cleanup.py:46 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-069: scripts/investigate_bronze_silver.py:37 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-070: scripts/investigate_bronze_silver_followup.py:26 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-071: scripts/investigate_bronze_silver_views.py:13 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-072: scripts/investigate_bronze_unprocessed.py:51 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-073: scripts/investigate_lz_failure.py:26 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-074: scripts/migrate_datasource_namespace.py:52 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-075: scripts/migrate_onelake_paths.py:87 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-076: scripts/monitor_final_lz.py:40 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-077: scripts/monitor_lz_pipeline.py:30 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-078: scripts/optiva_full_load.py:56 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-079: scripts/optiva_lz_retry.py:64 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-080: scripts/overnight_deploy_and_load.py:62 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-081: scripts/preflight_path_audit.py:74 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-082: scripts/reset_bronze_for_silver.py:41 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-083: specs/pending/001-verify-bronze-silver-100-entity-activation.md:247 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-084: src/antigravity/check_sp.py:14 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-085: src/antigravity/extract_m3_schema.py:13 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+- COMP-086: src/antigravity/standalone_register_entities.py:14 — Wrong SP auth scope: database.windows.net instead of analysis.windows.net/powerbi/api
+  FIX: Replace with 'https://analysis.windows.net/powerbi/api/.default'
+
+═══ HIGH ═══
+- SEC-001: .semgrep.yml:69 — XSS risk: dangerouslySetInnerHTML usage
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-002: .semgrep.yml:70 — XSS risk: dangerouslySetInnerHTML usage
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-003: AUDIT_ACTION_PLAN.md:201 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-004: AUDIT_ACTION_PLAN.md:207 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-005: AUDIT_ACTION_PLAN.md:259 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-006: AUDIT_ACTION_PLAN.md:265 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-007: AUDIT_ACTION_PLAN.md:346 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-008: AUDIT_ACTION_PLAN.md:421 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-009: AUDIT_SUMMARY.md:130 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-014: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:470 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-015: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:523 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-016: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:528 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-017: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:546 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-018: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:574 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-019: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:586 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-020: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:599 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-021: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:1034 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-022: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:1060 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-023: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:1063 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-024: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:1102 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-025: COMPREHENSIVE_PIPELINE_AUDIT.md:972 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-026: CRITICAL_BUGS_BLOCKING_FULL_LOAD.md:61 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-027: CRITICAL_BUGS_BLOCKING_FULL_LOAD.md:63 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-028: CRITICAL_BUGS_BLOCKING_FULL_LOAD.md:85 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-029: CRITICAL_BUGS_BLOCKING_FULL_LOAD.md:89 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-030: CRITICAL_BUGS_BLOCKING_FULL_LOAD.md:475 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-031: dashboard/app/api/control_plane_db.py:1216 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-032: dashboard/app/api/delta_ingest.py:81 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-033: dashboard/app/api/lakehouse_counts_cache.json:1 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-034: dashboard/app/api/parquet_sync.py:109 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-035: dashboard/app/api/routes/data_manager.py:350 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-036: dashboard/app/api/routes/data_manager.py:380 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-037: dashboard/app/api/routes/data_manager.py:397 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-038: dashboard/app/api/routes/data_manager.py:439 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-039: dashboard/app/api/routes/data_manager.py:449 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-040: dashboard/app/api/routes/data_manager.py:453 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-041: dashboard/app/api/routes/data_manager.py:547 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-042: dashboard/app/api/routes/data_manager.py:564 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-043: dashboard/app/api/routes/db_explorer.py:31 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-044: dashboard/app/api/routes/db_explorer.py:46 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-045: dashboard/app/api/routes/db_explorer.py:47 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-046: dashboard/app/api/routes/entities.py:572 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-047: dashboard/app/api/routes/entities.py:640 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-048: dashboard/app/api/routes/glossary.py:114 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-049: dashboard/app/api/routes/microscope.py:125 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-050: dashboard/app/api/routes/microscope.py:171 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-051: dashboard/app/api/routes/microscope.py:173 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-052: dashboard/app/api/routes/microscope.py:179 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-053: dashboard/app/api/routes/requests.py:211 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-054: dashboard/app/api/routes/sql_explorer.py:291 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-055: dashboard/app/api/routes/sql_explorer.py:358 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-056: dashboard/app/api/routes/sql_explorer.py:462 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-057: dashboard/app/api/routes/sql_explorer.py:563 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-058: dashboard/app/api/routes/sql_explorer.py:591 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-059: dashboard/app/api/routes/sql_explorer.py:595 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-060: dashboard/app/api/routes/sql_explorer.py:622 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-061: dashboard/app/api/routes/sql_explorer.py:626 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-062: dashboard/app/api/services/classification_engine.py:174 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-063: dashboard/app/api/services/classification_engine.py:200 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-064: dashboard/app/api/services/classification_engine.py:201 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-065: dashboard/app/AUDIT-ConfigManager.md:91 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-066: dashboard/app/AUDIT-DataMicroscope.md:90 — XSS risk: dangerouslySetInnerHTML usage
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-067: dashboard/app/audits/AUDIT-SqlExplorer.md:138 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-068: dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:1 — Dangerous exec() with string concatenation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-069: dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:4 — Dangerous exec() with string concatenation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-070: dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:11 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-071: dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:15 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-072: dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:25 — Dangerous exec() with string concatenation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-073: dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:28 — Dangerous exec() with string concatenation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-074: dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:31 — Dangerous exec() with string concatenation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-075: dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:32 — Dangerous exec() with string concatenation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-076: dashboard/app/playwright-report/trace/index.BDwrLSGN.js:1 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-077: dashboard/app/playwright-report/trace/sw.bundle.js:1 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-081: delete_board.py:10 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-082: deploy_from_scratch.py:907 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-083: deploy_from_scratch.py:1011 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-084: deploy_from_scratch.py:1039 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-085: deploy_from_scratch.py:1150 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-086: deploy_from_scratch.py:1177 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-087: deploy_from_scratch.py:1384 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-088: deploy_from_scratch.py:2853 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-089: deploy_from_scratch.py:2861 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-090: deploy_from_scratch.py:2980 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-092: deploy_prod.py:205 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-095: docs/AUDIT-SUMMARY-2026-03-17.md:83 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-096: docs/AUDIT-SUMMARY-2026-03-17.md:86 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-097: docs/audits/BUG-LOCATION-REFERENCE.md:76 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-098: docs/audits/BUG-LOCATION-REFERENCE.md:78 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-099: docs/audits/BUG-LOCATION-REFERENCE.md:86 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-100: docs/audits/BUG-LOCATION-REFERENCE.md:88 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-101: docs/audits/BUG-REPRODUCTION-DIAGNOSTIC-GUIDE.md:269 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-102: docs/audits/BUG-REPRODUCTION-DIAGNOSTIC-GUIDE.md:271 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-103: docs/audits/BUG-REPRODUCTION-DIAGNOSTIC-GUIDE.md:277 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-104: docs/audits/BUG-REPRODUCTION-DIAGNOSTIC-GUIDE.md:279 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-105: docs/audits/EXPANDED-AUDIT-TRACE-2026-03-17-COMPREHENSIVE.md:52 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-106: docs/audits/EXPANDED-AUDIT-TRACE-2026-03-17-COMPREHENSIVE.md:54 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-107: docs/audits/EXPANDED-AUDIT-TRACE-2026-03-17-COMPREHENSIVE.md:73 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-108: docs/audits/EXPANDED-AUDIT-TRACE-2026-03-17-COMPREHENSIVE.md:76 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-109: docs/audits/EXTENDED-LOAD-PIPELINE-AUDIT-TRACE-2026-03-17.md:57 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-110: docs/audits/LOAD-PIPELINE-COMPREHENSIVE-AUDIT-2026-03-17.md:188 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-111: docs/audits/LOAD-PIPELINE-COMPREHENSIVE-AUDIT-2026-03-17.md:190 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-112: docs/audits/LOAD-PIPELINE-COMPREHENSIVE-AUDIT-2026-03-17.md:209 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-113: docs/audits/LOAD-PIPELINE-COMPREHENSIVE-AUDIT-2026-03-17.md:843 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-114: docs/audits/LOAD-PIPELINE-COMPREHENSIVE-AUDIT-2026-03-17.md:851 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-115: docs/audits/LOAD-PIPELINE-COMPREHENSIVE-AUDIT-2026-03-17.md:854 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-116: docs/audits/LOAD-PIPELINE-COMPREHENSIVE-AUDIT-2026-03-17.md:856 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-117: docs/audits/LOAD-PIPELINE-COMPREHENSIVE-AUDIT-2026-03-17.md:1094 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-118: docs/audits/LOAD-PIPELINE-EXPANDED-AUDIT-2026-03-17.md:403 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-119: docs/audits/LOAD-PIPELINE-EXPANDED-AUDIT-2026-03-17.md:405 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-120: docs/audits/LOAD-PIPELINE-EXPANDED-AUDIT-2026-03-17.md:444 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-121: docs/audits/LOAD-PIPELINE-EXPANDED-AUDIT-2026-03-17.md:447 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-122: docs/audits/LOAD-PIPELINE-SUPPLEMENTAL-AUDIT-2026-03-17.md:101 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-123: docs/audits/LOAD-PIPELINE-SUPPLEMENTAL-AUDIT-2026-03-17.md:103 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-124: docs/CRITICAL-CODE-FIXES-REFERENCE.md:235 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-125: docs/CRITICAL-CODE-FIXES-REFERENCE.md:238 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-126: docs/CRITICAL-CODE-FIXES-REFERENCE.md:249 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-127: docs/CRITICAL-CODE-FIXES-REFERENCE.md:253 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-128: docs/CRITICAL-FIXES-ACTION-PLAN-2026-03-17.md:105 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-129: docs/CRITICAL-FIXES-ACTION-PLAN-2026-03-17.md:111 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-130: docs/CRITICAL-FIXES-ACTION-PLAN-2026-03-17.md:113 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-131: docs/CRITICAL-FIXES-ACTION-PLAN-2026-03-17.md:121 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-132: docs/CRITICAL-FIXES-ACTION-PLAN-2026-03-17.md:124 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-133: docs/load-audit-report.md:85 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-134: docs/load-audit-report.md:479 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-135: docs/superpowers/plans/2026-03-11-server-refactor.md:1730 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-136: docs/superpowers/plans/2026-03-11-server-refactor.md:2074 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-137: docs/superpowers/plans/2026-03-11-server-refactor.md:2090 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-138: docs/superpowers/plans/2026-03-11-server-refactor.md:2091 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-139: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:167 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-140: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:199 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-141: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:200 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-142: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:448 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-143: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:881 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-144: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:882 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-145: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:1143 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-146: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:1176 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-147: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:1177 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-148: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:1523 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-149: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:1983 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-150: docs/superpowers/specs/2026-03-11-server-refactor-design.md:263 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-151: engine/metadata_analyzer.py:374 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-152: engine/models.py:57 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-153: engine/models.py:62 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-154: engine/orchestrator.py:240 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-156: fix_ldz_issues.py:171 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-157: fix_ldz_issues.py:233 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-158: fix_pipeline_guids.py:191 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-160: fix_prod_guids.py:167 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-163: knowledge/devops/audit-deployment.md:308 — XSS risk: dangerouslySetInnerHTML usage
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-167: PRD.yaml:166 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-168: PRD.yaml:169 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-175: run_load_analysis.py:21 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-176: run_load_analysis.py:168 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-177: scripts/analysis/00_METADATA_EXTRACTOR.py:179 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-178: scripts/analysis/03_VALIDATE_JOINS.py:190 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-179: scripts/analyze_optiva_tables.py:300 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-180: scripts/centralized_id_registry.py:70 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-181: scripts/centralized_id_registry.py:103 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-182: scripts/centralized_id_registry.py:106 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-190: scripts/configure_incremental_loads.py:309 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-191: scripts/cross_source_join_analysis.py:300 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-192: scripts/deploy_digest_engine.py:154 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-193: scripts/deploy_digest_engine.py:159 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-194: scripts/deploy_lz_copy_pipeline.py:112 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-195: scripts/deploy_schema_direct.py:339 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-197: scripts/deploy_signal_procs.py:48 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-198: scripts/diag_bronze_notebook.py:366 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-199: scripts/diagnose_and_fix_queues.py:127 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-200: scripts/diagnose_and_fix_queues.py:146 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-203: scripts/fix_and_retrigger_lz.py:102 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-204: scripts/fix_and_retrigger_lz.py:103 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-205: scripts/fix_bronze_silver_queue.py:102 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-206: scripts/fix_bronze_silver_queue.py:129 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-208: scripts/fix_case_sensitivity.py:79 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-209: scripts/fix_entity_paths.py:199 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-210: scripts/fix_entity_paths.py:207 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-211: scripts/fix_entity_paths.py:248 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-212: scripts/fix_entity_paths.py:255 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-213: scripts/fix_foreach_batch_count.py:87 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-215: scripts/fix_null_sourcename.py:295 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-217: scripts/fix_optiva_bad_entities.py:216 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-218: scripts/fix_optiva_bad_entities.py:242 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-220: scripts/fix_pipeline_and_upload_nb.py:82 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-221: scripts/fix_pipeline_and_upload_nb.py:215 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-222: scripts/fix_pipeline_timeouts.py:207 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-223: scripts/fix_rowversion_watermarks.py:199 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-224: scripts/fix_silver_proc.py:84 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-225: scripts/fix_silver_proc.py:102 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-226: scripts/fix_silver_proc.py:178 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-227: scripts/fix_sourcename_cleanup.py:136 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-228: scripts/fix_sourcename_cleanup.py:156 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-229: scripts/fix_sourcename_cleanup.py:181 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-230: scripts/fix_sourcename_cleanup.py:215 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-231: scripts/fix_sourcename_cleanup.py:225 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-232: scripts/fix_sourcename_cleanup.py:228 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-233: scripts/fix_sourcename_cleanup.py:253 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-234: scripts/fix_sourcename_cleanup.py:280 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-236: scripts/gap_analysis.py:217 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-237: scripts/gap_analysis.py:238 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-238: scripts/gap_analysis.py:260 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-242: scripts/investigate_bronze_silver.py:210 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-245: scripts/investigate_bronze_silver_views.py:39 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-253: scripts/jira_hours_fix_20260303.py:96 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-254: scripts/jira_update_20260302_engine.py:70 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-256: scripts/jira_update_comments.py:69 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-257: scripts/jira_update_comments.py:85 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-258: scripts/jira_update_comments.py:88 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-259: scripts/jira_update_comments.py:101 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-260: scripts/jira_update_descriptions.py:83 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-263: scripts/migrate_datasource_namespace.py:147 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-264: scripts/nuke_environment.py:160 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-265: scripts/nuke_environment.py:163 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-266: scripts/nuke_environment.py:165 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-267: scripts/nuke_environment.py:253 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-268: scripts/nuke_environment.py:255 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-269: scripts/nuke_environment.py:306 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-270: scripts/nuke_environment.py:312 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-271: scripts/nuke_environment.py:325 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-272: scripts/nuke_environment.py:351 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-273: scripts/nuke_environment.py:356 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-274: scripts/optiva_full_load.py:204 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-275: scripts/optiva_full_load.py:211 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-276: scripts/optiva_full_load.py:252 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-278: scripts/overnight_push_flags.py:157 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-279: scripts/overnight_push_flags.py:289 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-280: scripts/push_incremental_flags.py:119 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-281: scripts/push_incremental_flags.py:130 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-282: scripts/refresh_load_analysis.py:299 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-283: scripts/register_missing_sources.py:317 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-284: scripts/seed_demo_runs.py:297 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-285: scripts/upload_lz_notebook.py:188 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-288: scripts/upload_silver_notebook.py:184 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-289: specs/pending/002-execute-full-bronze-silver-load-and-verify-success.md:451 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-296: src/antigravity/standalone_register_entities.py:95 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-297: src/NB_FMD_LOAD_BRONZE_SILVER.Notebook/notebook-content.py:866 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-298: src/NB_FMD_LOAD_BRONZE_SILVER.Notebook/notebook-content.py:1091 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-299: src/NB_FMD_LOAD_BRONZE_SILVER.Notebook/notebook-content.py:1193 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-300: src/NB_FMD_LOAD_BRONZE_SILVER.Notebook/notebook-content.py:1232 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-301: src/NB_FMD_LOAD_LANDING_BRONZE.Notebook/notebook-content.py:989 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-302: src/NB_FMD_LOAD_LANDING_BRONZE.Notebook/notebook-content.py:1102 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-303: src/NB_FMD_LOAD_LANDING_BRONZE.Notebook/notebook-content.py:1107 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-304: src/NB_FMD_LOAD_LANDINGZONE_MAIN.Notebook/notebook-content.py:500 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-305: src/NB_FMD_LOAD_LANDINGZONE_MAIN.Notebook/notebook-content.py:519 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-306: src/NB_FMD_LOAD_LANDINGZONE_MAIN.Notebook/notebook-content.py:684 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-307: src/NB_FMD_MAINTENANCE_AGENT.Notebook/notebook-content.py:428 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-308: src/NB_FMD_MAINTENANCE_AGENT.Notebook/notebook-content.py:454 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-309: src/NB_FMD_MAINTENANCE_AGENT.Notebook/notebook-content.py:469 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-310: src/NB_FMD_MAINTENANCE_AGENT.Notebook/notebook-content.py:475 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-311: src/NB_FMD_MAINTENANCE_AGENT.Notebook/notebook-content.py:481 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-312: src/NB_FMD_MAINTENANCE_AGENT.Notebook/notebook-content.py:533 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-313: src/NB_FMD_PROCESSING_LANDINGZONE_MAIN.Notebook/notebook-content.py:181 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-314: src/NB_UTILITIES_SETUP_FMD.Notebook/notebook-content.py:133 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-315: src/NB_UTILITIES_SETUP_FMD.Notebook/notebook-content.py:146 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-316: src/NB_UTILITIES_SETUP_FMD.Notebook/notebook-content.py:542 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-317: src/NB_UTILITIES_SETUP_FMD.Notebook/notebook-content.py:668 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-318: tasks/001-verify-bronze-silver-100-entity-activation.md:337 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-319: tasks/002-execute-full-bronze-silver-load-and-verify-success.md:415 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-320: tasks/002-execute-full-bronze-silver-load-and-verify-success.md:418 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-321: tasks/002-execute-full-bronze-silver-load-and-verify-success.md:421 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-322: tasks/002-execute-full-bronze-silver-load-and-verify-success.md:445 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-323: tasks/002-execute-full-bronze-silver-load-and-verify-success.md:448 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-324: tasks/002-execute-full-bronze-silver-load-and-verify-success.md:451 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-325: tasks/002-execute-full-bronze-silver-load-and-verify-success.md:472 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-326: tasks/002-execute-full-bronze-silver-load-and-verify-success.md:475 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- SEC-327: tasks/002-execute-full-bronze-silver-load-and-verify-success.md:478 — Potential SQL injection via f-string interpolation
+  FIX: Use parameterized queries instead of string interpolation.
+- QUAL-065: AUDIT_VERIFICATION_TESTS.md:248 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-066: AUDIT_VERIFICATION_TESTS.md:269 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-069: BUG_FIXES_IMPLEMENTED.md:230 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-071: COMPREHENSIVE_LOAD_PIPELINE_AUDIT.md:1356 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-072: COMPREHENSIVE_PIPELINE_AUDIT.md:497 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-074: CRITICAL_BUGS_BLOCKING_FULL_LOAD.md:568 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-076: dashboard/app/api/delta_ingest.py:100 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-077: dashboard/app/api/delta_ingest.py:117 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-078: dashboard/app/api/router.py:107 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-079: dashboard/app/api/routes/admin.py:179 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-080: dashboard/app/api/routes/alerts.py:206 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-081: dashboard/app/api/routes/config_manager.py:149 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-082: dashboard/app/api/routes/config_manager.py:415 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-085: dashboard/app/api/routes/control_plane.py:78 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-086: dashboard/app/api/routes/data_access.py:84 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-087: dashboard/app/api/routes/data_access.py:160 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-088: dashboard/app/api/routes/data_access.py:174 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-089: dashboard/app/api/routes/data_access.py:257 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-090: dashboard/app/api/routes/data_access.py:318 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-091: dashboard/app/api/routes/data_access.py:481 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-092: dashboard/app/api/routes/data_access.py:511 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-093: dashboard/app/api/routes/data_access.py:656 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-094: dashboard/app/api/routes/data_access.py:672 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-095: dashboard/app/api/routes/data_access.py:686 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-096: dashboard/app/api/routes/data_access.py:991 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-097: dashboard/app/api/routes/data_access.py:1045 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-098: dashboard/app/api/routes/data_access.py:1108 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-099: dashboard/app/api/routes/data_access.py:1169 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-100: dashboard/app/api/routes/data_access.py:1185 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-101: dashboard/app/api/routes/data_access.py:1200 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-102: dashboard/app/api/routes/data_manager.py:323 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-103: dashboard/app/api/routes/data_manager.py:353 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-104: dashboard/app/api/routes/data_manager.py:382 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-105: dashboard/app/api/routes/data_manager.py:399 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-106: dashboard/app/api/routes/engine.py:38 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-107: dashboard/app/api/routes/engine.py:255 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-108: dashboard/app/api/routes/lineage.py:63 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-109: dashboard/app/api/routes/lineage.py:202 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-111: dashboard/app/api/routes/microscope.py:69 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-112: dashboard/app/api/routes/microscope.py:106 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-113: dashboard/app/api/routes/microscope.py:148 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-114: dashboard/app/api/routes/microscope.py:153 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-115: dashboard/app/api/routes/microscope.py:387 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-116: dashboard/app/api/routes/microscope.py:417 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-117: dashboard/app/api/routes/microscope.py:424 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-118: dashboard/app/api/routes/monitoring.py:113 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-119: dashboard/app/api/routes/monitoring.py:799 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-120: dashboard/app/api/routes/mri.py:193 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-121: dashboard/app/api/routes/mri.py:364 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-123: dashboard/app/api/routes/notebook.py:37 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-124: dashboard/app/api/routes/notebook.py:150 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-125: dashboard/app/api/routes/notebook.py:321 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-126: dashboard/app/api/routes/notebook.py:350 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-127: dashboard/app/api/routes/notebook.py:418 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-128: dashboard/app/api/routes/notebook.py:491 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-129: dashboard/app/api/routes/overview.py:206 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-130: dashboard/app/api/routes/overview.py:267 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-131: dashboard/app/api/routes/pipeline.py:53 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-132: dashboard/app/api/routes/pipeline.py:81 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-133: dashboard/app/api/routes/pipeline.py:163 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-134: dashboard/app/api/routes/pipeline.py:165 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-135: dashboard/app/api/routes/requests.py:96 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-136: dashboard/app/api/routes/requests.py:152 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-137: dashboard/app/api/routes/requests.py:222 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-138: dashboard/app/api/routes/requests.py:224 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-139: dashboard/app/api/routes/source_manager.py:56 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-140: dashboard/app/api/routes/source_manager.py:325 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-141: dashboard/app/api/routes/source_manager.py:639 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-142: dashboard/app/api/routes/sql_explorer.py:58 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-143: dashboard/app/api/routes/sql_explorer.py:120 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-144: dashboard/app/api/routes/sql_explorer.py:295 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-145: dashboard/app/api/routes/sql_explorer.py:300 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-146: dashboard/app/api/routes/sql_explorer.py:425 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-147: dashboard/app/api/routes/sql_explorer.py:430 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-148: dashboard/app/api/routes/sql_explorer.py:477 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-149: dashboard/app/api/routes/sql_explorer.py:482 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-150: dashboard/app/api/routes/sql_explorer.py:545 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-151: dashboard/app/api/routes/sql_explorer.py:565 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-152: dashboard/app/api/routes/sql_explorer.py:598 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-153: dashboard/app/api/routes/sql_explorer.py:602 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-154: dashboard/app/api/routes/sql_explorer.py:629 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-155: dashboard/app/api/routes/sql_explorer.py:633 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-156: dashboard/app/api/routes/test_audit.py:91 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-157: dashboard/app/api/routes/test_audit.py:126 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-158: dashboard/app/api/routes/test_audit.py:184 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-159: dashboard/app/api/routes/test_audit.py:197 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-161: dashboard/app/api/server.py:104 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-162: dashboard/app/api/server.py:108 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-163: dashboard/app/api/server.py:154 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-165: dashboard/app/api/server.py:304 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-166: dashboard/app/api/server.py:311 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-167: dashboard/app/api/server.py:317 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-168: dashboard/app/api/services/classification_engine.py:142 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-169: dashboard/app/api/services/classification_engine.py:223 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-172: dashboard/app/AUDIT-FlowExplorer.md:69 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-209: deploy_from_scratch.py:37 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-211: deploy_from_scratch.py:217 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-212: deploy_from_scratch.py:431 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-213: deploy_from_scratch.py:1572 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-214: deploy_from_scratch.py:1960 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-215: deploy_from_scratch.py:2248 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-216: deploy_from_scratch.py:2419 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-217: deploy_from_scratch.py:2436 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-218: deploy_from_scratch.py:2489 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-219: deploy_from_scratch.py:2864 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-220: deploy_from_scratch.py:2870 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-221: deploy_from_scratch.py:3002 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-222: deploy_prod.py:73 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-223: deploy_prod.py:107 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-226: diag_lakehouse.py:19 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-229: diag_ldz_failure.py:93 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-230: diag_ldz_failure.py:109 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-231: diag_ldz_failure.py:118 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-236: docs/AUDIT-SUMMARY-2026-03-17.md:67 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-237: docs/audits/BUG-LOCATION-REFERENCE.md:119 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-238: docs/audits/BUG-LOCATION-REFERENCE.md:145 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-239: docs/audits/BUG-LOCATION-REFERENCE.md:213 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-240: docs/audits/LOAD-PIPELINE-COMPREHENSIVE-AUDIT-2026-03-17.md:661 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-241: docs/audits/LOAD-PIPELINE-COMPREHENSIVE-AUDIT-2026-03-17.md:953 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-242: docs/audits/LOAD-PIPELINE-EXPANDED-AUDIT-2026-03-17.md:40 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-243: docs/audits/LOAD-PIPELINE-EXPANDED-AUDIT-2026-03-17.md:166 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-245: docs/CRITICAL-CODE-FIXES-REFERENCE.md:180 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-258: docs/gateway_connections.md:41 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-264: docs/superpowers/plans/2026-03-11-server-refactor.md:237 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-267: docs/superpowers/plans/2026-03-11-server-refactor.md:1630 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-268: docs/superpowers/plans/2026-03-11-server-refactor.md:1643 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-269: docs/superpowers/plans/2026-03-12-local-bronze-silver.md:382 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-270: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:170 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-271: docs/superpowers/plans/2026-03-13-mdm-enhancement.md:1126 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-273: docs/superpowers/plans/2026-03-16-gold-cleansing-dq.md:1292 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-274: docs/superpowers/plans/2026-03-16-gold-cleansing-dq.md:1430 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-275: docs/superpowers/plans/2026-03-16-gold-cleansing-dq.md:1451 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-276: docs/superpowers/plans/2026-03-16-gold-cleansing-dq.md:1473 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-277: docs/superpowers/specs/2026-03-11-server-refactor-design.md:268 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-278: engine/api.py:199 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-279: engine/api.py:371 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-281: engine/auth.py:133 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-282: engine/auth.py:184 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-283: engine/extractor.py:269 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-284: engine/extractor.py:296 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-285: engine/loader.py:195 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-286: engine/loader.py:285 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-287: engine/loader.py:365 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-288: engine/metadata_analyzer.py:337 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-289: engine/metadata_analyzer.py:360 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-290: engine/metadata_analyzer.py:376 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-291: engine/onelake_io.py:369 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-292: engine/optimizer.py:491 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-293: engine/optimizer.py:509 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-294: engine/orchestrator.py:205 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-297: engine/orchestrator.py:323 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-298: engine/orchestrator.py:1058 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-299: engine/pipeline_runner.py:260 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-302: engine/tests/test_extractor.py:127 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-303: engine/tests/test_extractor.py:133 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-304: engine/tests/test_extractor.py:148 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-305: engine/tests/test_extractor.py:163 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-306: engine/tests/test_extractor.py:183 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-307: engine/tests/test_extractor.py:198 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-308: engine/tests/test_extractor.py:209 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-309: engine/tests/test_silver_activation.py:123 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-311: fix_ldz_issues.py:95 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-312: fix_ldz_issues.py:139 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-314: fix_pipeline_guids.py:86 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-315: fix_pipeline_guids.py:104 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-316: fix_prod_guids.py:59 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-333: miro_board.py:19 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-340: run_load_analysis.py:162 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-345: scripts/analysis/00_METADATA_EXTRACTOR.py:290 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-346: scripts/analysis/03_VALIDATE_JOINS.py:193 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-347: scripts/analysis/03_VALIDATE_JOINS.py:201 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-348: scripts/analyze_optiva_tables.py:181 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-349: scripts/check_entity_paths.py:19 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-350: scripts/check_lz_and_runs.py:85 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-353: scripts/check_notebook_jobs.py:157 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-354: scripts/check_onelake_detailed.py:83 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-355: scripts/check_onelake_files.py:17 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-358: scripts/configure_incremental_loads.py:285 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-359: scripts/cross_source_join_analysis.py:302 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-360: scripts/deploy_pipelines.py:299 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-362: scripts/deploy_schema_direct.py:228 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-364: scripts/deploy_signal_procs.py:216 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-365: scripts/diag_bronze_notebook.py:226 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-366: scripts/diag_bronze_notebook.py:231 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-367: scripts/find_never_loaded_entities.py:365 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-368: scripts/fix_and_retrigger_lz.py:265 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-369: scripts/fix_case_sensitivity.py:226 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-371: scripts/gap_report.py:988 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-409: scripts/live_monitor.py:172 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-410: scripts/live_monitor.py:308 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-411: scripts/live_monitor.py:384 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-412: scripts/live_monitor.py:429 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-413: scripts/live_monitor.py:491 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-414: scripts/live_monitor.py:503 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-415: scripts/live_monitor.py:508 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-416: scripts/migrate_datasource_namespace.py:23 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-417: scripts/migrate_datasource_namespace.py:29 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-419: scripts/migrate_onelake_paths.py:164 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-420: scripts/optiva_lz_retry.py:88 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-421: scripts/optiva_lz_retry.py:694 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-424: scripts/overnight_deploy_and_load.py:107 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-425: scripts/overnight_deploy_and_load.py:198 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-427: scripts/overnight_final_report.py:754 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-432: scripts/ralph_discipline_hook.py:18 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-433: scripts/ralph_setup.py:46 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-434: scripts/ralph_stop_hook.py:55 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-435: scripts/ralph_stop_hook.py:62 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-436: scripts/refresh_load_analysis.py:111 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-437: scripts/refresh_load_analysis.py:127 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-438: scripts/register_missing_sources.py:312 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-439: scripts/run_load_all.py:163 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-440: scripts/run_load_all.py:247 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-441: scripts/run_load_optimization.py:186 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-442: scripts/run_load_optimization.py:201 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-443: scripts/seed_glossary.py:386 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-444: scripts/seed_sqlite_from_fabric.py:456 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-445: scripts/test_schema_notebook.py:321 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-448: scripts/upload_notebooks_to_fabric.py:87 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-450: scripts/upload_variable_libs_to_fabric.py:85 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-454: specs/pending/002-execute-full-bronze-silver-load-and-verify-success.md:454 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-456: src/NB_FMD_LOAD_BRONZE_SILVER.Notebook/notebook-content.py:286 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-457: src/NB_FMD_LOAD_BRONZE_SILVER.Notebook/notebook-content.py:292 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-458: src/NB_FMD_LOAD_LANDING_BRONZE.Notebook/notebook-content.py:293 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-459: src/NB_FMD_LOAD_LANDING_BRONZE.Notebook/notebook-content.py:299 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-460: src/NB_FMD_LOAD_LANDINGZONE_MAIN.Notebook/notebook-content.py:265 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-461: src/NB_FMD_LOAD_LANDINGZONE_MAIN.Notebook/notebook-content.py:271 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-462: src/NB_FMD_MAINTENANCE_AGENT.Notebook/notebook-content.py:211 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-463: src/NB_FMD_MAINTENANCE_AGENT.Notebook/notebook-content.py:252 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-464: src/NB_FMD_MAINTENANCE_AGENT.Notebook/notebook-content.py:254 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-465: src/NB_FMD_ORCHESTRATOR.Notebook/notebook-content.py:144 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-466: src/NB_FMD_PROCESSING_LANDINGZONE_MAIN.Notebook/notebook-content.py:115 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-467: src/NB_FMD_PROCESSING_PARALLEL_MAIN.Notebook/notebook-content.py:121 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-468: src/NB_FMD_PROCESSING_PARALLEL_MAIN.Notebook/notebook-content.py:213 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-469: src/NB_FMD_PROCESSING_PARALLEL_MAIN.Notebook/notebook-content.py:450 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-470: src/NB_FMD_PROCESSING_PARALLEL_MAIN.Notebook/notebook-content.py:519 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-471: src/NB_FMD_UTILITY_FUNCTIONS.Notebook/notebook-content.py:138 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-472: src/NB_FMD_UTILITY_FUNCTIONS.Notebook/notebook-content.py:144 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-473: src/NB_UTILITIES_SETUP_FMD.Notebook/notebook-content.py:787 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-474: src/NB_UTILITIES_SETUP_FMD.Notebook/notebook-content.py:809 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-475: src/NB_UTILITIES_SETUP_FMD.Notebook/notebook-content.py:838 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-481: upload_notebooks.py:69 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- QUAL-482: upload_notebooks.py:101 — Empty except block — errors will be silently swallowed
+  FIX: Add proper error handling or remove dead code.
+- COMP-001: dashboard/app/src/components/sources/SourceOnboardingWizard.tsx:1020 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-002: dashboard/app/src/pages/business/BusinessHelp.tsx:31 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-003: dashboard/app/tests/fmd-dashboard-audit.spec.ts:572 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-004: dashboard/app/tests/fmd-dashboard-audit.spec.ts:573 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-005: dashboard/app/tests/fmd-dashboard-audit.spec.ts:574 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-006: dashboard/app/tests/fmd-dashboard-audit.spec.ts:578 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-007: dashboard/app/tests/fmd-dashboard-audit.spec.ts:579 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-008: dashboard/app/tests/fmd-dashboard-audit.spec.ts:669 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-009: dashboard/app/tests/fmd-dashboard-audit.spec.ts:810 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-010: dashboard/app/tests/fmd-dashboard-audit.spec.ts:811 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-011: dashboard/app/tests/fmd-dashboard-audit.spec.ts:838 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-012: dashboard/app/tests/fmd-dashboard-audit.spec.ts:839 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-013: dashboard/app/tests/fmd-dashboard-audit.spec.ts:857 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-014: dashboard/app/tests/fmd-dashboard-audit.spec.ts:858 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-015: dashboard/app/tests/fmd-dashboard-audit.spec.ts:893 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-016: dashboard/app/tests/fmd-dashboard-audit.spec.ts:894 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-017: dashboard/app/tests/mri-test-plan.spec.ts:124 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-018: dashboard/app/tests/mri-test-plan.spec.ts:206 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-019: dashboard/app/tests/mri-test-plan.spec.ts:221 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-020: dashboard/guide/src/components/ArchitectureSection.tsx:198 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-021: dashboard/guide/src/components/DataJourneySection.tsx:23 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-022: dashboard/guide/src/data/architecture.ts:29 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-023: dashboard/guide/src/data/capabilities.ts:28 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- COMP-024: dashboard/guide/src/data/pages.ts:156 — Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+- UI-003: dashboard/app/src/components/layout/AppLayout.tsx:420 — onClick on non-interactive element without role/tabIndex — not keyboard accessible
+  FIX: Add role="button" tabIndex={0} and onKeyDown handler.
+- UI-012: dashboard/app/src/pages/BusinessOverview.tsx:330 — Hash-based href link — use React Router <Link> instead
+  FIX: Replace href="#/path" with <Link to="/path">
+- UI-013: dashboard/app/src/pages/BusinessOverview.tsx:417 — Hash-based href link — use React Router <Link> instead
+  FIX: Replace href="#/path" with <Link to="/path">
+- UI-015: dashboard/app/src/pages/ConfigManager.tsx:512 — onClick on non-interactive element without role/tabIndex — not keyboard accessible
+  FIX: Add role="button" tabIndex={0} and onKeyDown handler.
+- UI-021: dashboard/app/src/pages/PipelineMonitor.tsx:936 — onClick on non-interactive element without role/tabIndex — not keyboard accessible
+  FIX: Add role="button" tabIndex={0} and onKeyDown handler.
+- UI-023: dashboard/app/src/pages/SourceManager.tsx:1267 — onClick on non-interactive element without role/tabIndex — not keyboard accessible
+  FIX: Add role="button" tabIndex={0} and onKeyDown handler.
+- UI-024: dashboard/app/src/pages/SourceManager.tsx:1347 — onClick on non-interactive element without role/tabIndex — not keyboard accessible
+  FIX: Add role="button" tabIndex={0} and onKeyDown handler.
+- PERF-021: dashboard/app/playwright-report/trace/index.BDwrLSGN.js:2 — setInterval without matching clearInterval — potential memory leak
+  FIX: Return clearInterval from useEffect cleanup function.
+- PERF-022: dashboard/app/playwright-report/trace/uiMode.CQJ9SCIQ.js:5 — setInterval without matching clearInterval — potential memory leak
+  FIX: Return clearInterval from useEffect cleanup function.
+
+═══ MEDIUM ═══
+- QUAL-001: agents/api-lead/HEARTBEAT.md:30 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-002: agents/api-lead/TOOLS.md:104 — Hardcoded localhost URL: http://localhost:8787
+  FIX: Add proper error handling or remove dead code.
+- QUAL-003: agents/ceo/HEARTBEAT.md:13 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-004: agents/ceo/HEARTBEAT.md:38 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-005: agents/ceo/HEARTBEAT.md:53 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-006: agents/ceo/HEARTBEAT.md:82 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-007: agents/ceo/HEARTBEAT.md:184 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-008: agents/ceo/HEARTBEAT.md:198 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-009: agents/ceo/TOOLS.md:31 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-010: agents/ceo/TOOLS.md:120 — Hardcoded localhost URL: http://localhost:8787
+  FIX: Add proper error handling or remove dead code.
+- QUAL-011: agents/ceo/TOOLS.md:125 — Hardcoded localhost URL: http://localhost:8787
+  FIX: Add proper error handling or remove dead code.
+- QUAL-012: agents/devops-lead/HEARTBEAT.md:31 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-013: agents/engine-lead/HEARTBEAT.md:13 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-014: agents/engine-lead/HEARTBEAT.md:19 — Hardcoded localhost URL: http://localhost:8787
+  FIX: Add proper error handling or remove dead code.
+- QUAL-015: agents/engine-lead/HEARTBEAT.md:68 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-016: agents/engine-lead/HEARTBEAT.md:97 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-017: agents/engine-lead/HEARTBEAT.md:202 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-018: agents/engine-lead/HEARTBEAT.md:219 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-019: agents/engine-lead/TOOLS.md:28 — Hardcoded localhost URL: http://localhost:3777
+  FIX: Add proper error handling or remove dead code.
+- QUAL-020: agents/engine-lead/TOOLS.md:174 — Hardcoded localhost URL: http://localhost:8787
+  FIX: Add proper error handling or remove dead code.

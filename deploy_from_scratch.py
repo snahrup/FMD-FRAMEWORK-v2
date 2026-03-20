@@ -214,8 +214,8 @@ def fabric_request(method, path, payload=None, poll_lro=True):
         body = ""
         try:
             body = e.read().decode()
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"Warning: failed to read HTTP error body: {exc}")
         return e.code, {"error": body}
 
 
@@ -428,7 +428,8 @@ def find_workspace(display_name):
         try:
             resp = urlopen(req)
             data = json.loads(resp.read())
-        except HTTPError:
+        except HTTPError as exc:
+            print(f"Warning: HTTP error finding workspace '{display_name}': {exc}")
             return None
         for ws in data.get("value", []):
             if ws["displayName"] == display_name:
@@ -1376,8 +1377,8 @@ def phase9_deploy_pipelines(state, args):
                 deactivated = _deactivate_missing_connections(data_obj, missing_connections)
 
                 content = json.dumps(data_obj)
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as _json_err:
+                _ = _json_err  # raw content is used as-is if not valid JSON
 
             # Upload definition
             encoded = base64.b64encode(content.encode()).decode()
@@ -1574,7 +1575,7 @@ def phase10_sql_metadata(state, args):
         return
 
     # Get SQL token
-    sql_token = get_token("https://database.windows.net/.default")
+    sql_token = get_token("https://analysis.windows.net/powerbi/api/.default")
     token_bytes = sql_token.encode("utf-16-le")
     token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
 
@@ -1962,7 +1963,7 @@ def phase13_register_entities(state, args):
         return
 
     # Connect to metadata DB
-    sql_token = get_token("https://database.windows.net/.default")
+    sql_token = get_token("https://analysis.windows.net/powerbi/api/.default")
     token_bytes = sql_token.encode("utf-16-le")
     token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
     server_conn = f"{server},1433" if ",1433" not in server else server
@@ -2022,15 +2023,17 @@ def phase13_register_entities(state, args):
             try:
                 # 1. Register LZ entity (upsert) — all params required by dacpac proc
                 cursor.execute(
-                    f"EXEC [integration].[sp_UpsertLandingzoneEntity] "
-                    f"@LandingzoneEntityId = 0, @DataSourceId = {ds_id}, "
-                    f"@LakehouseId = {lz_lh or 1}, "
-                    f"@SourceSchema = '{safe_schema}', @SourceName = '{safe_table}', "
-                    f"@SourceCustomSelect = '', "
-                    f"@FileName = '{safe_table}.parquet', @FilePath = '{ds_namespace}', "
-                    f"@FileType = 'parquet', @IsIncremental = 0, "
-                    f"@IsIncrementalColumn = '', @CustomNotebookName = '', "
-                    f"@IsActive = 1"
+                    "EXEC [integration].[sp_UpsertLandingzoneEntity] "
+                    "@LandingzoneEntityId = 0, @DataSourceId = ?, "
+                    "@LakehouseId = ?, "
+                    "@SourceSchema = ?, @SourceName = ?, "
+                    "@SourceCustomSelect = '', "
+                    "@FileName = ?, @FilePath = ?, "
+                    "@FileType = 'parquet', @IsIncremental = 0, "
+                    "@IsIncrementalColumn = '', @CustomNotebookName = '', "
+                    "@IsActive = 1",
+                    (ds_id, lz_lh or 1, safe_schema, safe_table,
+                     f"{safe_table}.parquet", ds_namespace)
                 )
                 cursor.commit()
                 total_lz += 1
@@ -2054,11 +2057,12 @@ def phase13_register_entities(state, args):
                     )
                     if not cursor.fetchone():
                         cursor.execute(
-                            f"EXEC [integration].[sp_UpsertBronzeLayerEntity] "
-                            f"@BronzeLayerEntityId = 0, @LandingzoneEntityId = {lz_eid}, "
-                            f"@LakehouseId = {bronze_lh}, @Schema = '{safe_schema}', "
-                            f"@Name = '{safe_table}', @PrimaryKeys = 'N/A', "
-                            f"@FileType = 'Delta', @IsActive = 1"
+                            "EXEC [integration].[sp_UpsertBronzeLayerEntity] "
+                            "@BronzeLayerEntityId = 0, @LandingzoneEntityId = ?, "
+                            "@LakehouseId = ?, @Schema = ?, "
+                            "@Name = ?, @PrimaryKeys = 'N/A', "
+                            "@FileType = 'Delta', @IsActive = 1",
+                            (lz_eid, bronze_lh, safe_schema, safe_table)
                         )
                         cursor.commit()
                         total_bronze += 1
@@ -2080,10 +2084,11 @@ def phase13_register_entities(state, args):
                             )
                             if not cursor.fetchone():
                                 cursor.execute(
-                                    f"EXEC [integration].[sp_UpsertSilverLayerEntity] "
-                                    f"@SilverLayerEntityId = 0, @BronzeLayerEntityId = {b_eid}, "
-                                    f"@LakehouseId = {silver_lh}, @Schema = '{safe_schema}', "
-                                    f"@Name = '{safe_table}', @FileType = 'delta', @IsActive = 1"
+                                    "EXEC [integration].[sp_UpsertSilverLayerEntity] "
+                                    "@SilverLayerEntityId = 0, @BronzeLayerEntityId = ?, "
+                                    "@LakehouseId = ?, @Schema = ?, "
+                                    "@Name = ?, @FileType = 'delta', @IsActive = 1",
+                                    (b_eid, silver_lh, safe_schema, safe_table)
                                 )
                                 cursor.commit()
                                 total_silver += 1
@@ -2250,7 +2255,7 @@ def phase13_5_load_optimization(state, args):
         return
 
     # Connect to metadata DB
-    sql_token = get_token("https://database.windows.net/.default")
+    sql_token = get_token("https://analysis.windows.net/powerbi/api/.default")
     token_bytes = sql_token.encode("utf-16-le")
     token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
     server_conn = f"{server},1433" if ",1433" not in server else server
@@ -2416,8 +2421,8 @@ def phase13_5_load_optimization(state, args):
                         (pk_str, eid)
                     )
                     meta_cursor.commit()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(f"Warning: failed to update PrimaryKeys for entity {eid}: {exc}")
 
             # Determine incremental load strategy
             watermarks = sorted(wm_map.get(key, []), key=lambda w: w[1])
@@ -2433,8 +2438,8 @@ def phase13_5_load_optimization(state, args):
                         (best_wm[0], eid)
                     )
                     meta_cursor.commit()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(f"Warning: failed to update incremental config for entity {eid}: {exc}")
 
         print(f"  {len(entities)} entities: {ds_pks} PKs, {ds_inc} incremental")
 
@@ -2490,7 +2495,7 @@ def phase15_digest_engine(state, args):
         print("  [SKIP] pyodbc not installed")
         return
 
-    sql_token = get_token("https://database.windows.net/.default")
+    sql_token = get_token("https://analysis.windows.net/powerbi/api/.default")
     token_bytes = sql_token.encode("utf-16-le")
     token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
     server_conn = f"{server},1433" if ",1433" not in server else server
@@ -2827,7 +2832,7 @@ def phase14_validate(state, args):
     if server and database:
         try:
             import pyodbc
-            sql_token = get_token("https://database.windows.net/.default")
+            sql_token = get_token("https://analysis.windows.net/powerbi/api/.default")
             token_bytes = sql_token.encode("utf-16-le")
             token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
             server_conn = f"{server},1433" if ",1433" not in server else server
@@ -2849,20 +2854,24 @@ def phase14_validate(state, args):
                   f"Found {proc_count} procs")
 
             # Check metadata counts
-            for table_name in ["Connection", "DataSource", "Workspace", "Pipeline", "Lakehouse"]:
-                cursor.execute(f"SELECT COUNT(*) FROM integration.{table_name}")
+            METADATA_TABLES = ["Connection", "DataSource", "Workspace", "Pipeline", "Lakehouse"]
+            for table_name in METADATA_TABLES:
+                # table_name is from a hardcoded list — safe for identifier interpolation
+                cursor.execute("SELECT COUNT(*) FROM integration." + table_name)
                 count = cursor.fetchone()[0]
                 check(f"Metadata: integration.{table_name}", count > 0,
                       f"{count} records")
 
             # Check entity counts
-            for table_name in ["LandingzoneEntity", "BronzeLayerEntity", "SilverLayerEntity"]:
+            ENTITY_TABLES = ["LandingzoneEntity", "BronzeLayerEntity", "SilverLayerEntity"]
+            for table_name in ENTITY_TABLES:
                 try:
-                    cursor.execute(f"SELECT COUNT(*) FROM integration.{table_name}")
+                    # table_name is from a hardcoded list — safe for identifier interpolation
+                    cursor.execute("SELECT COUNT(*) FROM integration." + table_name)
                     count = cursor.fetchone()[0]
                     print(f"  [INFO] integration.{table_name}: {count} records")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(f"Warning: failed to query integration.{table_name}: {exc}")
 
             cursor.close()
             db_conn.close()

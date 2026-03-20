@@ -156,19 +156,30 @@ import struct, pyodbc
 
 # CELL ********************
 
+_SAFE_PROC_RE = re.compile(r'^[\w.\[\]]+$')
+
+def _safe_proc_name(name):
+    """Validate stored procedure name to prevent SQL injection."""
+    if not name or not _SAFE_PROC_RE.match(name):
+        raise ValueError(f"Invalid stored procedure name: {name!r}")
+    return name
+
 def build_exec_statement(proc_name, **params):
+    safe_proc = _safe_proc_name(proc_name)
     param_strs = []
     for key, value in params.items():
         if value is not None:
+            if not re.match(r'^\w+$', key):
+                raise ValueError(f"Invalid parameter name: {key!r}")
             if isinstance(value, str):
-                param_strs.append(f"@{key}='{value}'")
+                param_strs.append(f"@{key}='{value.replace(chr(39), chr(39)+chr(39))}'")
             else:
                 param_strs.append(f"@{key}={value}")
 
     if param_strs:
-        return f"EXEC {proc_name}, " + ", ".join(param_strs)
+        return f"EXEC {safe_proc}, " + ", ".join(param_strs)
     else:
-        return f"EXEC {proc_name}"
+        return f"EXEC {safe_proc}"
 
 # METADATA ********************
 
@@ -262,14 +273,14 @@ def execute_with_outputs(exec_statement, driver, connstring, database, **params)
 
             try:
                 cursor.commit()
-            except:
-                pass
+            except Exception as e:
+                print(f"Warning: cursor.commit() failed (non-fatal): {e}")
 
     finally:
         try:
             conn.close()
-        except:
-            pass
+        except Exception as e:
+            print(f"Warning: conn.close() failed (non-fatal): {e}")
 
     return {
         "result_sets": result_sets,
@@ -389,11 +400,15 @@ def _write_audit_to_delta(table_name: str, data: dict):
 # CELL ********************
 
 # Build the WHERE filter — use the SAME view the pipelines use
+# Use parameterized queries to prevent SQL injection from filter inputs
+_query_params = []
 where_clauses = ["1=1"]
 if DataSourceFilter:
-    where_clauses.append(f"DataSourceNamespace = '{DataSourceFilter}'")
+    where_clauses.append("DataSourceNamespace = ?")
+    _query_params.append(str(DataSourceFilter))
 if DataSourceIdFilter and DataSourceIdFilter > 0:
-    where_clauses.append(f"DataSourceId = {DataSourceIdFilter}")
+    where_clauses.append("DataSourceId = ?")
+    _query_params.append(int(DataSourceIdFilter))
 
 where_sql = " AND ".join(where_clauses)
 
@@ -405,7 +420,7 @@ ORDER BY DataSourceId, SourceSchema, SourceName
 """
 
 print(f"Querying vw_LoadSourceToLandingzone with filter: {where_sql}")
-entities = query_metadata(entity_sql)
+entities = query_metadata(entity_sql, _query_params if _query_params else None)
 print(f"Found {len(entities)} active entities")
 
 # Print column names on first run so we can verify
@@ -493,28 +508,43 @@ if missing_connections:
 
 # CELL ********************
 
+_SAFE_IDENTIFIER_RE = re.compile(r'^[\w\s\-\.]+$')
+
+def _validate_sql_identifier(name, label='identifier'):
+    """Validate that a SQL identifier contains only safe characters."""
+    if not name or not _SAFE_IDENTIFIER_RE.match(name):
+        raise ValueError(f"Invalid SQL {label}: {name!r}")
+    return name
+
+
 def build_source_query(entity):
     """Build the SELECT query for extracting data from the source table."""
-    schema = entity['SourceSchema'] or 'dbo'
-    table = entity['SourceName']
+    # Safe: identifiers from metadata DB, validated with regex
+    schema = _validate_sql_identifier(entity['SourceSchema'] or 'dbo', 'schema')
+    table = _validate_sql_identifier(entity['SourceName'], 'table')
     return f"SELECT * FROM [{schema}].[{table}]"
 
 
 def build_incremental_query(entity, last_load_value):
     """Build incremental SELECT with WHERE clause on watermark column."""
-    schema = entity['SourceSchema'] or 'dbo'
-    table = entity['SourceName']
-    incr_col = entity.get('IsIncrementalColumn', '')
+    # Safe: identifiers from metadata DB, validated with regex
+    schema = _validate_sql_identifier(entity['SourceSchema'] or 'dbo', 'schema')
+    table = _validate_sql_identifier(entity['SourceName'], 'table')
+    incr_col = _validate_sql_identifier(entity.get('IsIncrementalColumn', ''), 'column') if entity.get('IsIncrementalColumn') else ''
 
     if not incr_col or not last_load_value:
         return build_source_query(entity)
 
+    # Sanitize watermark value — query is sent via REST API to Fabric pipeline
+    # (not via cursor.execute), so parameterized queries are not applicable here.
+    safe_value = str(last_load_value).replace("'", "''")
+
     # Quote the value — handle both datetime and numeric watermarks
     try:
         float(last_load_value)
-        where = f"[{incr_col}] > {last_load_value}"
+        where = f"[{incr_col}] > {safe_value}"
     except (ValueError, TypeError):
-        where = f"[{incr_col}] > '{last_load_value}'"
+        where = f"[{incr_col}] > '{safe_value}'"
 
     return f"SELECT * FROM [{schema}].[{table}] WHERE {where}"
 

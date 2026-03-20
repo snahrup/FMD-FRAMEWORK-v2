@@ -66,8 +66,8 @@ def get_registered_connections() -> list[dict]:
     if _cpdb_available():
         try:
             return cpdb.get_connections()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning(f"Control plane DB lookup failed, falling back to SQL: {e}")
     return query_sql('SELECT ConnectionId, ...')
 ```
 

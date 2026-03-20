@@ -34,7 +34,8 @@ def _get_config() -> dict:
         try:
             cfg_path = Path(__file__).parent.parent / "config.json"
             _CONFIG = json.loads(cfg_path.read_text())
-        except Exception:
+        except Exception as e:
+            log.warning("Failed to load config.json: %s", e)
             _CONFIG = {}
     return _CONFIG
 
@@ -149,6 +150,7 @@ def get_notebooks(params: dict) -> dict:
         return {"notebooks": notebooks}
     except HttpError:
         # Token / config issues — fall back to config-based list
+        log.exception("Token/config error listing Fabric notebooks, using config fallback")
         return {"notebooks": _list_notebooks_from_config()}
     except Exception as e:
         log.warning("Failed to list Fabric notebooks, using config fallback: %s", e)
@@ -348,6 +350,7 @@ def get_debug_job_status(params: dict) -> dict:
     try:
         token = _get_fabric_token()
     except HttpError:
+        log.exception("Failed to acquire Fabric token for job status poll")
         return {"status": "Unknown", "error": "Could not acquire Fabric token"}
 
     # If a specific job ID was given, get its status directly
@@ -415,8 +418,8 @@ def _find_setup_notebook(workspace_id: str, token: str) -> str | None:
         for nb in notebooks:
             if nb["name"] == _SETUP_NOTEBOOK_NAME:
                 return nb["id"]
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("Failed to find setup notebook: %s", e)
     return None
 
 
@@ -489,6 +492,7 @@ def get_setup_job_status(params: dict) -> dict:
     try:
         token = _get_fabric_token()
     except HttpError:
+        log.exception("Failed to acquire Fabric token for setup job status")
         return {"error": "Could not acquire Fabric token", "jobs": []}
 
     try:

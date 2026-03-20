@@ -31,7 +31,7 @@ def _queue_export(table: str):
         from dashboard.app.api.parquet_sync import queue_export
         queue_export(table)
     except (ImportError, Exception):
-        pass
+        log.debug("Parquet export queue unavailable for table %s", table)
 
 # ---------------------------------------------------------------------------
 # Path helpers
@@ -91,7 +91,7 @@ def get_config_manager(params: dict) -> dict:
         "FROM datasources ORDER BY DataSourceId"
     )
     db_pipelines = db.query(
-        "SELECT PipelineId, Name, IsActive FROM pipelines ORDER BY PipelineId"
+        "SELECT PipelineId, PipelineGuid, WorkspaceGuid, Name, IsActive FROM pipelines ORDER BY PipelineId"
     )
 
     # item_config.yaml
@@ -146,8 +146,8 @@ def get_config_manager(params: dict) -> dict:
     if cfg_path.is_file():
         try:
             dash_config = json.loads(cfg_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("Failed to load dashboard config.json: %s", e)
 
     # Mismatch detection
     mismatches: list[dict] = []
@@ -273,6 +273,9 @@ def post_config_update(params: dict) -> dict:
         if params.get("newGuid"):
             db.execute("UPDATE pipelines SET PipelineGuid = ? WHERE PipelineId = ?",
                        (params["newGuid"].strip(), p_id))
+        if params.get("newWorkspaceGuid"):
+            db.execute("UPDATE pipelines SET WorkspaceGuid = ? WHERE PipelineId = ?",
+                       (params["newWorkspaceGuid"].strip(), p_id))
         if params.get("newName"):
             db.execute("UPDATE pipelines SET Name = ? WHERE PipelineId = ?",
                        (params["newName"].strip(), p_id))
@@ -412,10 +415,10 @@ def get_config_references(params: dict) -> dict:
                             "params": {"pipelineName": pipeline_name},
                             "field": "newGuid",
                         })
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("Failed to scan pipeline file %s for GUID: %s", pdir.name, e)
 
-    return {"guid": guid, "references": refs}
+    return {"guid": guid, "references": refs, "count": len(refs)}
 
 
 # ---------------------------------------------------------------------------

@@ -35,7 +35,8 @@ def _get_config() -> dict:
         try:
             from engine.config import load_config
             _CONFIG = load_config().__dict__
-        except Exception:
+        except Exception as e:
+            log.warning("Failed to load engine config: %s", e)
             _CONFIG = {}
     return _CONFIG
 
@@ -253,6 +254,7 @@ def post_engine_optimize_all(params: dict) -> dict:
     try:
         from dashboard.app.api import control_plane_db as cpdb
     except ImportError:
+        log.debug("control_plane_db not found via package import, trying direct import")
         import control_plane_db as cpdb  # type: ignore
 
     SQL_DRIVER = "ODBC Driver 18 for SQL Server"

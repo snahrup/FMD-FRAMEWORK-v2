@@ -32,10 +32,10 @@ function SettingsSection({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-border/40 bg-card">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/20">
+    <div className="rounded-lg" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+      <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: '1px solid var(--bp-border-subtle)' }}>
         {icon}
-        <h3 className="text-sm font-semibold">{title}</h3>
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>{title}</h3>
       </div>
       <div className="p-4 space-y-3">{children}</div>
     </div>
@@ -71,7 +71,7 @@ export function SetupSettings({ config, onConfigChange }: SetupSettingsProps) {
     <div className="space-y-6">
       {/* Workspaces */}
       <SettingsSection
-        icon={<FolderOpen className="h-4 w-4 text-amber-400" />}
+        icon={<FolderOpen className="h-4 w-4" style={{ color: 'var(--bp-copper)' }} />}
         title="Workspaces"
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -98,7 +98,7 @@ export function SetupSettings({ config, onConfigChange }: SetupSettingsProps) {
 
       {/* Lakehouses */}
       <SettingsSection
-        icon={<Database className="h-4 w-4 text-emerald-400" />}
+        icon={<Database className="h-4 w-4" style={{ color: 'var(--bp-copper)' }} />}
         title="Lakehouses"
       >
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -135,7 +135,7 @@ export function SetupSettings({ config, onConfigChange }: SetupSettingsProps) {
 
       {/* SQL Database */}
       <SettingsSection
-        icon={<Server className="h-4 w-4 text-cyan-400" />}
+        icon={<Server className="h-4 w-4" style={{ color: 'var(--bp-copper)' }} />}
         title="SQL Database"
       >
         <FabricDropdown
@@ -155,7 +155,7 @@ export function SetupSettings({ config, onConfigChange }: SetupSettingsProps) {
 
       {/* Connections */}
       <SettingsSection
-        icon={<Cable className="h-4 w-4 text-purple-400" />}
+        icon={<Cable className="h-4 w-4" style={{ color: 'var(--bp-copper)' }} />}
         title="Connections"
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -174,7 +174,7 @@ export function SetupSettings({ config, onConfigChange }: SetupSettingsProps) {
 
       {/* Notebooks */}
       <SettingsSection
-        icon={<FileCode2 className="h-4 w-4 text-orange-400" />}
+        icon={<FileCode2 className="h-4 w-4" style={{ color: 'var(--bp-copper)' }} />}
         title="Notebooks"
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -200,7 +200,7 @@ export function SetupSettings({ config, onConfigChange }: SetupSettingsProps) {
 
       {/* Pipelines */}
       <SettingsSection
-        icon={<Workflow className="h-4 w-4 text-blue-400" />}
+        icon={<Workflow className="h-4 w-4" style={{ color: 'var(--bp-copper)' }} />}
         title="Pipelines"
       >
         <FabricDropdown

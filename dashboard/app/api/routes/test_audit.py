@@ -88,8 +88,8 @@ def _wait_for_proc(proc: subprocess.Popen) -> None:
     global _audit_proc, _last_exit_code
     try:
         proc.wait()
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("Error waiting for audit process: %s", e)
     with _lock:
         _last_exit_code = proc.returncode
         _audit_proc = None
@@ -182,6 +182,7 @@ def serve_audit_artifact(handler, run_id: str, test_dir: str, filename: str) -> 
     try:
         file_path.resolve().relative_to(_HISTORY_DIR.resolve())
     except ValueError:
+        log.exception("Artifact path escapes history directory: %s", file_path)
         return False
 
     if not file_path.is_file():
@@ -195,6 +196,7 @@ def serve_audit_artifact(handler, run_id: str, test_dir: str, filename: str) -> 
     try:
         data = file_path.read_bytes()
     except OSError:
+        log.exception("Failed to read artifact file: %s", file_path)
         return False
 
     handler.send_response(200)

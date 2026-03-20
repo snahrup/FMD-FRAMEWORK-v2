@@ -259,7 +259,7 @@ def _export_loop():
             _dirty_tables.clear()
         for table in tables:
             try:
-                # table is validated against EXPORTABLE_TABLES on queue_export
+                # NOTE: Identifier (table) can't be parameterized — validated against EXPORTABLE_TABLES allowlist
                 rows = db.query(f"SELECT * FROM [{table}]")
                 df = pd.DataFrame(rows)
                 path = ONELAKE_DIR / f"{table}.parquet"

@@ -12,20 +12,24 @@ export default function SqlExplorer() {
   const sidebarWidthRef = useRef(sidebarWidth);
   sidebarWidthRef.current = sidebarWidth;
   const isResizing = useRef(false);
-  // Track active listeners so useEffect cleanup can remove them on unmount
   const cleanupRef = useRef<(() => void) | null>(null);
 
-  // Deep-link support: read ?server=X&database=Y&schema=Z&table=T from URL
   const initialSelection = useMemo<SelectedTable | null>(() => {
     const server = searchParams.get('server');
     const database = searchParams.get('database');
     const schema = searchParams.get('schema');
     const table = searchParams.get('table');
-    if (!server) return null;
-    return { server, database: database || '', schema: schema || 'dbo', table: table || '' };
+    // Source server deep-link: ?server=X&database=Y&schema=Z&table=W
+    if (server) {
+      return { server, database: database || '', schema: schema || 'dbo', table: table || '', type: 'source' };
+    }
+    // Lakehouse deep-link (from DataBlender): ?database=X&schema=Y&table=Z (no server)
+    if (database) {
+      return { server: database, database, schema: schema || 'dbo', table: table || '', type: 'lakehouse' };
+    }
+    return null;
   }, [searchParams]);
 
-  // Cleanup document listeners on unmount to prevent memory leaks
   useEffect(() => {
     return () => {
       cleanupRef.current?.();
@@ -58,17 +62,16 @@ export default function SqlExplorer() {
     document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-    // Store cleanup so unmount can remove listeners if resize is in-progress
     cleanupRef.current = onMouseUp;
   }, []);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)] bg-background">
+    <div className="flex flex-col h-[calc(100vh-3rem)]" style={{ backgroundColor: "var(--bp-canvas)" }}>
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <div
-          className="border-r border-border bg-card flex-shrink-0 overflow-hidden flex flex-col"
-          style={{ width: sidebarWidth }}
+          className="flex-shrink-0 overflow-hidden flex flex-col"
+          style={{ width: sidebarWidth, borderRight: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-2)" }}
         >
           <ObjectTree
             selectedTable={selectedTable}
@@ -80,12 +83,13 @@ export default function SqlExplorer() {
         {/* Resize handle */}
         <div
           onMouseDown={handleMouseDown}
-          className="w-[3px] flex-shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+          className="w-[3px] flex-shrink-0 cursor-col-resize transition-colors"
+          style={{ backgroundColor: "transparent" }}
           title="Drag to resize"
         />
 
         {/* Detail panel */}
-        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0" style={{ backgroundColor: "var(--bp-surface-1)" }}>
           {selectedTable ? (
             <TableDetail table={selectedTable} />
           ) : (
@@ -99,23 +103,23 @@ export default function SqlExplorer() {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center h-full bg-background text-muted-foreground select-none">
+    <div className="flex flex-col items-center justify-center h-full select-none" style={{ backgroundColor: "var(--bp-canvas)", color: "var(--bp-ink-secondary)" }}>
       {/* Icon */}
       <div className="relative mb-6">
-        <div className="flex items-center justify-center h-16 w-16 rounded-xl border border-border bg-card">
-          <Database className="h-7 w-7 text-muted-foreground/60" />
+        <div className="flex items-center justify-center h-16 w-16 rounded-xl" style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
+          <Database className="h-7 w-7" style={{ color: "var(--bp-ink-muted)" }} />
         </div>
-        <div className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary" />
+        <div className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full" style={{ backgroundColor: "var(--bp-copper)" }} />
       </div>
 
-      <h2 className="text-base font-semibold text-foreground mb-1.5">SQL Object Explorer</h2>
-      <p className="text-sm text-muted-foreground max-w-sm text-center leading-relaxed mb-5">
+      <h2 className="text-base font-semibold mb-1.5" style={{ fontFamily: "var(--bp-font-display)", color: "var(--bp-ink-primary)" }}>SQL Object Explorer</h2>
+      <p className="text-sm max-w-sm text-center leading-relaxed mb-5" style={{ color: "var(--bp-ink-secondary)" }}>
         Browse databases, schemas, and tables across your connected servers.
         Select any table to inspect its schema or preview data.
       </p>
 
       {/* Flow hint */}
-      <div className="flex items-center gap-2.5 text-xs text-muted-foreground/60 mb-6">
+      <div className="flex items-center gap-2.5 text-xs mb-6" style={{ color: "var(--bp-ink-muted)" }}>
         <div className="flex items-center gap-1.5">
           <Server className="h-3.5 w-3.5" />
           <span>Server</span>
@@ -132,7 +136,7 @@ function EmptyState() {
         </div>
       </div>
 
-      <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider border border-primary/20 text-primary bg-primary/5">
+      <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider" style={{ border: "1px solid rgba(180,86,36,0.2)", color: "var(--bp-copper)", backgroundColor: "var(--bp-copper-light)" }}>
         Read-Only Mode
       </span>
     </div>

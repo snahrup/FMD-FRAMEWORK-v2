@@ -8,9 +8,15 @@ interface Props {
 }
 
 const LEVEL_COLORS: Record<string, string> = {
-  info: 'text-foreground/80',
-  warning: 'text-amber-400',
-  error: 'text-red-400',
+  info: '#93c5fd',
+  warning: '#fbbf24',
+  error: '#f87171',
+};
+
+const MSG_COLORS: Record<string, string> = {
+  info: '#e2e8f0',
+  warning: '#fde68a',
+  error: '#fca5a5',
 };
 
 export default function LiveLogPanel({ logs, maxLines = 500 }: Props) {
@@ -34,28 +40,32 @@ export default function LiveLogPanel({ logs, maxLines = 500 }: Props) {
   const visible = logs.slice(-maxLines);
 
   return (
-    <div className="rounded-lg border border-border bg-[#0d1117] overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50 bg-card">
-        <Terminal className="w-3.5 h-3.5 text-muted-foreground" />
-        <span className="text-xs font-semibold text-muted-foreground tracking-wide uppercase">
+    <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--bp-border)', background: '#0d1117' }}>
+      <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+        <Terminal className="w-3.5 h-3.5" style={{ color: 'var(--bp-ink-muted)' }} />
+        <span className="text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>
           Live Output
         </span>
-        <span className="ml-auto text-[10px] text-muted-foreground/60 tabular-nums">
+        <span className="ml-auto text-[10px]" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-mono)', fontFeatureSettings: '"tnum"' }}>
           {logs.length} lines
         </span>
       </div>
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="h-48 overflow-y-auto px-3 py-2 font-mono text-[11px] leading-[1.6] scrollbar-thin scrollbar-thumb-border"
+        className="h-[400px] overflow-y-auto px-4 py-3 text-[13px] leading-[1.7] scrollbar-thin scrollbar-thumb-border"
+        style={{ fontFamily: 'var(--bp-font-mono)' }}
       >
         {visible.length === 0 && (
-          <div className="text-muted-foreground/40 text-center py-8">
+          <div className="text-center py-8" style={{ color: 'rgba(255,255,255,0.3)' }}>
             Waiting for output...
           </div>
         )}
         {visible.map((entry, i) => (
-          <div key={i} className={`whitespace-pre-wrap break-all ${LEVEL_COLORS[entry.level] || LEVEL_COLORS.info}`}>
+          <div key={i} className="whitespace-pre-wrap break-words py-[2px]" style={{ color: MSG_COLORS[entry.level] || MSG_COLORS.info }}>
+            <span style={{ color: LEVEL_COLORS[entry.level] || LEVEL_COLORS.info, fontWeight: 600, fontSize: '11px', marginRight: '8px' }}>
+              {entry.level.toUpperCase()}
+            </span>
             {entry.message}
           </div>
         ))}

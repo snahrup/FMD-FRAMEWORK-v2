@@ -141,8 +141,8 @@ for name in ["LOAD_LANDINGZONE", "LOAD_BRONZE", "LOAD_SILVER"]:
     # Refresh token between long pipelines
     try:
         token = get_token()
-    except:
-        pass
+    except Exception as e:
+        log(f"  Token refresh failed (non-fatal): {e}")
 
 # Summary
 total_duration = time.time() - total_start

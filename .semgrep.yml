@@ -65,10 +65,10 @@ rules:
     severity: ERROR
 
   # --- TypeScript/React Security ---
-  - id: dangerous-inner-html
-    pattern: dangerouslySetInnerHTML={...}
-    message: "dangerouslySetInnerHTML usage detected. Ensure input is sanitized."
-    languages: [typescript]
+  - id: dangerous-inner-html  # mri:ignore — this is a detection rule, not a vulnerability
+    pattern: dangerouslySetInnerHTML={$EXPR}
+    message: "XSS risk — dynamic innerHTML. Ensure input is sanitized via DOMPurify."
+    languages: [typescript, typescriptreact]
     severity: WARNING
 
   # --- FMD-Specific Rules ---

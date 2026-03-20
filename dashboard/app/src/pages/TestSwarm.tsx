@@ -196,26 +196,25 @@ export default function TestSwarm() {
   }
 
   return (
-    <div className="space-y-6" style={{ contain: "layout style" }}>
+    <div className="space-y-6" style={{ contain: "layout style", padding: 32, maxWidth: 1280, margin: '0 auto' }}>
       {/* Run selector (if multiple runs) */}
       {runs.length > 1 && (
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
-          <History className="h-4 w-4 text-muted-foreground shrink-0" />
+          <History className="h-4 w-4 shrink-0" style={{ color: 'var(--bp-ink-muted)' }} />
           {runs.slice(0, 10).map(run => (
             <button
               key={run.runId}
               onClick={() => setSelectedRunId(run.runId)}
-              className={cn(
-                "flex items-center gap-2 rounded-[var(--radius)] px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap",
-                selectedRunId === run.runId
-                  ? "bg-primary/10 text-primary border border-primary/20"
-                  : "text-muted-foreground hover:text-foreground border border-border/30"
-              )}
+              className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap"
+              style={selectedRunId === run.runId
+                ? { background: 'var(--bp-copper-light)', color: 'var(--bp-copper)', border: '1px solid var(--bp-copper)' }
+                : { color: 'var(--bp-ink-tertiary)', border: '1px solid var(--bp-border)' }
+              }
             >
               <SwarmStatusBadge status={(run.summary?.status || "idle") as never} className="scale-90" />
               <span>{run.runId.substring(0, 16)}</span>
               {run.summary && (
-                <span className="text-muted-foreground">
+                <span style={{ color: 'var(--bp-ink-muted)' }}>
                   {run.summary.testsAfter.passed}/{run.summary.testsAfter.total}
                 </span>
               )}
@@ -226,19 +225,19 @@ export default function TestSwarm() {
 
       {/* Error state */}
       {error && !summary && (
-        <div className="rounded-[var(--radius-lg)] border border-[var(--cl-error)]/20 bg-[var(--cl-error)]/5 p-6 text-center">
-          <p className="text-sm text-[var(--cl-error)]">{error}</p>
-          <p className="text-xs text-muted-foreground mt-2">Make sure the dashboard API is running and test-swarm has been used at least once.</p>
+        <div className="rounded-md p-6 text-center" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)' }}>
+          <p className="text-sm" style={{ color: 'var(--bp-fault)' }}>{error}</p>
+          <p className="text-xs mt-2" style={{ color: 'var(--bp-ink-secondary)' }}>Make sure the dashboard API is running and test-swarm has been used at least once.</p>
         </div>
       )}
 
       {/* No runs state */}
       {!error && runs.length === 0 && (
-        <div className="rounded-[var(--radius-lg)] border border-border/30 bg-card backdrop-blur-sm p-12 text-center space-y-3">
-          <RefreshCw className="h-10 w-10 text-muted-foreground/30 mx-auto" />
-          <p className="text-sm text-muted-foreground">No test-swarm runs found</p>
-          <p className="text-xs text-muted-foreground/70">
-            Run <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-foreground">/test-swarm</code> in Claude Code to get started
+        <div className="rounded-md p-12 text-center space-y-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+          <RefreshCw className="h-10 w-10 mx-auto" style={{ color: 'var(--bp-ink-muted)' }} />
+          <p className="text-sm" style={{ color: 'var(--bp-ink-secondary)' }}>No test-swarm runs found</p>
+          <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>
+            Run <code className="px-1.5 py-0.5 rounded" style={{ background: 'var(--bp-surface-inset)', fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }}>/test-swarm</code> in Claude Code to get started
           </p>
         </div>
       )}
@@ -277,7 +276,7 @@ export default function TestSwarm() {
                 isActive={isActive}
               />
             </div>
-            <div className="lg:col-span-1 rounded-[var(--radius-lg)] border border-border/30 bg-card backdrop-blur-sm p-4 flex items-center justify-center">
+            <div className="lg:col-span-1 rounded-md p-4 flex items-center justify-center" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
               <ConvergenceGauge
                 passed={summary.testsAfter.passed}
                 total={summary.testsAfter.total || summary.testsBefore.total}
@@ -297,7 +296,7 @@ export default function TestSwarm() {
           {/* Iteration details */}
           {convergence.length > 0 && (
             <div className="space-y-3">
-              <h3 className="text-sm font-medium text-muted-foreground tracking-wide uppercase">Iteration Details</h3>
+              <h3 className="text-sm tracking-wide uppercase" style={{ fontFamily: 'var(--bp-font-body)', fontWeight: 600, fontSize: 18, color: 'var(--bp-ink-primary)' }}>Iteration Details</h3>
               {convergence
                 .filter(c => c.iteration > 0)
                 .map(c => (
@@ -316,7 +315,7 @@ export default function TestSwarm() {
                   />
                 ))}
               {convergence.filter(c => c.iteration > 0).length === 0 && (
-                <div className="text-center text-sm text-muted-foreground py-4">
+                <div className="text-center text-sm py-4" style={{ color: 'var(--bp-ink-secondary)' }}>
                   All tests passed on the initial run — no fix iterations needed
                 </div>
               )}

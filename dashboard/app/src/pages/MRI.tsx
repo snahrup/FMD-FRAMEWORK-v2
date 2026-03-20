@@ -86,22 +86,22 @@ export default function MRI() {
   }, [mri.visualDiffs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
       {/* ═══ SCANNING BANNER — Sticky, non-blocking, always visible during scan ═══ */}
       {mri.scanning && (
-        <div className="sticky top-0 z-40 -mx-6 -mt-6 mb-2">
-          <div className="bg-primary/5 border-b-2 border-primary/40 px-6 py-3">
+        <div className="sticky top-0 z-40 -mx-8 -mt-8 mb-2">
+          <div className="px-6 py-3" style={{ background: 'var(--bp-copper-light)', borderBottom: '2px solid var(--bp-copper)' }}>
             <div className="flex items-center justify-between">
               {/* Left: status + phase */}
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" style={{ animationDuration: "2s" }} />
-                  <BrainCircuit className="h-5 w-5 text-primary relative z-10 animate-pulse" />
+                  <div className="absolute inset-0 rounded-full animate-ping" style={{ background: 'var(--bp-copper-light)', animationDuration: "2s" }} />
+                  <BrainCircuit className="h-5 w-5 relative z-10 animate-pulse" style={{ color: 'var(--bp-copper)' }} />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">MRI Scan Running</span>
-                    <Badge variant="outline" className="text-[10px] font-mono animate-pulse">
+                    <span className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)' }}>MRI Scan Running</span>
+                    <Badge variant="outline" className="text-[10px] animate-pulse" style={{ fontFamily: 'var(--bp-font-mono)', borderColor: 'var(--bp-copper)', color: 'var(--bp-copper)' }}>
                       {phase.label}
                     </Badge>
                   </div>
@@ -114,13 +114,14 @@ export default function MRI() {
                           className={cn(
                             "h-1.5 rounded-full transition-all duration-500",
                             mri.scanElapsed >= p.after
-                              ? "w-4 bg-primary"
-                              : "w-1.5 bg-muted-foreground/20"
+                              ? "w-4"
+                              : "w-1.5"
                           )}
+                          style={{ background: mri.scanElapsed >= p.after ? 'var(--bp-copper)' : 'var(--bp-border)' }}
                         />
                       ))}
                     </div>
-                    <span className="text-xs text-muted-foreground font-mono">
+                    <span className="text-xs" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-mono)' }}>
                       <PhaseIcon className="inline h-3 w-3 mr-1 animate-spin" style={{ animationDuration: "3s" }} />
                       {phase.label}...
                     </span>
@@ -130,16 +131,17 @@ export default function MRI() {
 
               {/* Right: timer */}
               <div className="flex items-center gap-3">
-                <span className="font-mono text-lg font-bold tabular-nums text-primary">
+                <span className="text-lg font-bold" style={{ fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums', color: 'var(--bp-copper)' }}>
                   {formatElapsed(mri.scanElapsed)}
                 </span>
                 {/* Scanning progress bar */}
-                <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className="w-24 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bp-surface-inset)' }}>
                   <div
-                    className="h-full bg-primary rounded-full"
+                    className="h-full rounded-full"
                     style={{
                       width: `${Math.min(95, (mri.scanElapsed / 60) * 80 + 5)}%`,
                       transition: "width 1s ease",
+                      background: 'var(--bp-copper)',
                     }}
                   />
                 </div>
@@ -153,24 +155,24 @@ export default function MRI() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-display font-semibold tracking-tight">MRI</h1>
-            <Badge variant="outline" className="text-[10px] font-mono tracking-wider">
+            <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: 32, color: 'var(--bp-ink-primary)', fontWeight: 400, lineHeight: 1.2 }}>MRI</h1>
+            <Badge variant="outline" className="text-[10px] tracking-wider" style={{ fontFamily: 'var(--bp-font-mono)', borderColor: 'var(--bp-border-strong)', color: 'var(--bp-ink-tertiary)' }}>
               Machine Regression Intelligence
             </Badge>
             {mri.scanning && (
-              <Badge className="gap-1.5 bg-primary/90 animate-pulse">
+              <Badge className="gap-1.5 animate-pulse" style={{ background: 'var(--bp-copper)', color: '#fff' }}>
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Scanning · {formatElapsed(mri.scanElapsed)}
               </Badge>
             )}
             {!mri.scanning && mri.status?.active && (
-              <Badge className="gap-1 animate-pulse">
+              <Badge className="gap-1 animate-pulse" style={{ background: 'var(--bp-operational)', color: '#fff' }}>
                 <Activity className="h-3 w-3" />
                 Running
               </Badge>
             )}
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm mt-1" style={{ color: 'var(--bp-ink-secondary)' }}>
             Visual testing, backend API tests, AI analysis, and autonomous fix loop
           </p>
         </div>
@@ -200,34 +202,29 @@ export default function MRI() {
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 border-b border-border">
+      {/* Tab bar — BP chip/toggle pattern */}
+      <div className="flex items-center gap-2 pb-1" style={{ borderBottom: '1px solid var(--bp-border)' }}>
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setActiveTab(id)}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors relative cursor-pointer",
-              "hover:text-foreground",
-              activeTab === id
-                ? "text-foreground"
-                : "text-muted-foreground"
-            )}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors cursor-pointer rounded-md"
+            style={activeTab === id
+              ? { background: 'var(--bp-copper-light)', border: '1px solid var(--bp-copper)', color: 'var(--bp-copper)', fontFamily: 'var(--bp-font-body)' }
+              : { background: 'transparent', border: '1px solid transparent', color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }
+            }
           >
             <Icon className="h-4 w-4" />
             {label}
-            {activeTab === id && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
-            )}
           </button>
         ))}
       </div>
 
       {/* Error state */}
       {mri.error && (
-        <div className="rounded-[var(--radius-md)] border border-destructive/30 bg-destructive/5 px-4 py-3 flex items-center gap-3">
-          <XCircle className="h-4 w-4 text-destructive shrink-0" />
-          <p className="text-sm text-destructive">{mri.error}</p>
+        <div className="rounded-md px-4 py-3 flex items-center gap-3" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)' }}>
+          <XCircle className="h-4 w-4 shrink-0" style={{ color: 'var(--bp-fault)' }} />
+          <p className="text-sm" style={{ color: 'var(--bp-fault)' }}>{mri.error}</p>
         </div>
       )}
 
@@ -250,8 +247,8 @@ export default function MRI() {
             />
 
             {/* AI Risk Summary */}
-            <div className="rounded-[var(--radius-lg)] border border-border bg-card p-4">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+            <div className="rounded-lg p-4" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+              <h4 className="text-xs uppercase tracking-wider mb-3" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)', fontWeight: 600 }}>
                 AI Risk Analysis
               </h4>
               <AIAnnotationCard analyses={mri.aiAnalyses} compact />
@@ -261,7 +258,7 @@ export default function MRI() {
           {/* Screenshot gallery preview (mismatches + new only) */}
           {mri.visualDiffs.filter(d => d.status !== "match").length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold mb-3">Visual Diffs Needing Attention</h3>
+              <h3 className="text-sm mb-3" style={{ fontFamily: 'var(--bp-font-body)', fontWeight: 600, fontSize: 18, color: 'var(--bp-ink-primary)' }}>Visual Diffs Needing Attention</h3>
               <ScreenshotGallery
                 diffs={mri.visualDiffs.filter(d => d.status !== "match")}
                 aiAnalyses={mri.aiAnalyses}
@@ -322,7 +319,7 @@ export default function MRI() {
                   )}
                 </>
               ) : (
-                <div className="flex flex-col items-center justify-center py-20 text-muted-foreground border border-dashed border-border rounded-[var(--radius-lg)]">
+                <div className="flex flex-col items-center justify-center py-20 rounded-lg" style={{ color: 'var(--bp-ink-muted)', border: '1px dashed var(--bp-border)' }}>
                   <Eye className="h-8 w-8 mb-2 opacity-40" />
                   <p className="text-sm">Select a screenshot to view the diff</p>
                 </div>
@@ -346,7 +343,7 @@ export default function MRI() {
       {activeTab === "backend" && (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">API Test Results</h3>
+            <h3 style={{ fontFamily: 'var(--bp-font-body)', fontWeight: 600, fontSize: 18, color: 'var(--bp-ink-primary)' }}>API Test Results</h3>
             <Button variant="outline" size="sm" onClick={mri.triggerApiTests} className="gap-1.5">
               <Play className="h-3.5 w-3.5" />
               Run API Tests
@@ -360,7 +357,7 @@ export default function MRI() {
         <Suspense
           fallback={
             <div className="flex items-center justify-center py-20">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--bp-ink-muted)' }} />
             </div>
           }
         >

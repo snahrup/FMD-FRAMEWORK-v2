@@ -27,3 +27,8 @@ test-results/
 playwright-report/
 audit-history/
 tests/.audit-data.json
+
+# Codebase Mapper (auto-generated)
+CODEBASE.md
+CODEBASE.html
+.codebase-map-dirty

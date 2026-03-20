@@ -379,7 +379,8 @@ class OneLakeIO:
             from deltalake import DeltaTable
             DeltaTable(uri, storage_options=storage_options)
             return True
-        except Exception:
+        except Exception as e:
+            logging.warning(f"Delta table validation failed: {e}")
             return False
 ```
 

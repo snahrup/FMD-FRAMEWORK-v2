@@ -18,6 +18,9 @@ import { test, expect, type Page } from '@playwright/test';
 const BASE = 'http://127.0.0.1:8787';
 const API  = 'http://127.0.0.1:8787';
 
+/** Known source systems — update this list when sources change */
+const KNOWN_SOURCES = ['MES', 'ETQ', 'M3_ERP', 'M3C', 'OPTIVA'] as const;
+
 // ─── Helpers ──────────────────────────────────────────────────
 
 async function waitForContent(page: Page, timeout = 8000) {
@@ -120,8 +123,9 @@ test.describe('P0: Execution Matrix (homepage)', () => {
   test('shows source breakdown', async ({ page }) => {
     await navigateAndWait(page, '/');
     const body = await page.locator('body').innerText();
-    // Should show registered sources (MES, ETQ, M3C, or OPTIVA)
-    expect(body).toMatch(/MES|ETQ|M3C|OPTIVA/i);
+    // Should show registered sources
+    const sourcePattern = new RegExp(KNOWN_SOURCES.join('|'), 'i');
+    expect(body).toMatch(sourcePattern);
   });
 
   test('Target Schema and Data Source columns visible (recent addition)', async ({ page }) => {
@@ -203,7 +207,8 @@ test.describe('P1: Record Counts (digest migration target)', () => {
   test('shows source-level breakdown', async ({ page }) => {
     await navigateAndWait(page, '/counts');
     const body = await page.locator('body').innerText();
-    expect(body).toMatch(/MES|ETQ|M3C|OPTIVA/i);
+    const countsSourcePattern = new RegExp(KNOWN_SOURCES.join('|'), 'i');
+    expect(body).toMatch(countsSourcePattern);
   });
 
   test('screenshot', async ({ page }) => {
@@ -218,7 +223,8 @@ test.describe('P1: Source Manager', () => {
     await navigateAndWait(page, '/sources');
     const body = await page.locator('body').innerText();
     // Should show registered data sources
-    expect(body).toMatch(/MES|ETQ|M3|source/i);
+    const smSourcePattern = new RegExp(KNOWN_SOURCES.join('|') + '|source', 'i');
+    expect(body).toMatch(smSourcePattern);
   });
 
   test('screenshot', async ({ page }) => {

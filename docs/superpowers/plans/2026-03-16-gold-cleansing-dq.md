@@ -1289,8 +1289,8 @@ def batch_copy_rules(params: dict) -> dict:
                           rule["parameters"], rule["priority"], rule["is_active"]))
                     if cur.rowcount > 0:
                         copied += 1
-                except Exception:
-                    pass  # Skip errors silently
+                except Exception as e:
+                    logging.warning(f"Non-critical error copying rule: {e}")
 
         conn.commit()
         return {"copied": copied, "target_entities": len(target_ids),
@@ -1427,8 +1427,8 @@ In `dashboard/app/api/services/quality_engine.py`, add the following AFTER the `
                           qs["composite_score"], qs["completeness_score"],
                           qs["freshness_score"], qs["consistency_score"],
                           qs["volume_score"], qs["quality_tier"], computed_at))
-            except Exception:
-                pass  # Non-critical — don't break scoring for history
+            except Exception as e:
+                logging.warning(f"Non-critical error writing quality history: {e}")
 
         # Write dimension_details JSON for each scored entity
         for eid in entity_ids:
@@ -1448,8 +1448,8 @@ In `dashboard/app/api/services/quality_engine.py`, add the following AFTER the `
                     conn.execute(
                         "UPDATE quality_scores SET dimension_details = ? WHERE entity_id = ?",
                         (details, eid))
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning(f"Non-critical error writing dimension details: {e}")
 
         # Compute trend_7d for each entity
         seven_days_ago = (now_utc - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1470,8 +1470,8 @@ In `dashboard/app/api/services/quality_engine.py`, add the following AFTER the `
                         conn.execute(
                             "UPDATE quality_scores SET trend_7d = ? WHERE entity_id = ?",
                             (trend, eid))
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning(f"Non-critical error computing 7-day trend: {e}")
 
         # Prune history older than 90 days
         cutoff = (now_utc - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")

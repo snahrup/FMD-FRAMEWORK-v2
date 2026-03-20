@@ -151,27 +151,27 @@ function categorize(name: string): PipelineCategory {
 }
 
 const categoryColors: Record<PipelineCategory, string> = {
-  'Landing Zone': 'bg-blue-500',
-  'Bronze': 'bg-amber-500',
-  'Silver': 'bg-purple-500',
-  'Orchestration': 'bg-emerald-500',
-  'Utility': 'bg-slate-500',
+  'Landing Zone': 'bg-[var(--bp-copper)]',
+  'Bronze': 'bg-[var(--bp-caution)]',
+  'Silver': 'bg-[var(--bp-ink-secondary)]',
+  'Orchestration': 'bg-[var(--bp-operational)]',
+  'Utility': 'bg-[var(--bp-ink-muted)]',
 };
 
 const categoryChartColors: Record<PipelineCategory, string> = {
-  'Landing Zone': '#3b82f6',
-  'Bronze': '#f59e0b',
-  'Silver': '#a855f7',
-  'Orchestration': '#10b981',
-  'Utility': '#64748b',
+  'Landing Zone': '#B45624',
+  'Bronze': '#C27A1A',
+  'Silver': 'var(--bp-ink-secondary)',
+  'Orchestration': '#3D7C4F',
+  'Utility': 'var(--bp-ink-muted)',
 };
 
 const categoryBadgeColors: Record<PipelineCategory, string> = {
-  'Landing Zone': 'text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40',
-  'Bronze': 'text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/40',
-  'Silver': 'text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/40',
-  'Orchestration': 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/40',
-  'Utility': 'text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-900/40',
+  'Landing Zone': 'text-[var(--bp-copper)] bg-[var(--bp-copper-light)]',
+  'Bronze': 'text-[var(--bp-caution)] bg-[var(--bp-caution-light)]',
+  'Silver': 'text-[var(--bp-ink-secondary)] bg-[var(--bp-surface-2)]',
+  'Orchestration': 'text-[var(--bp-operational)] bg-[var(--bp-operational-light)]',
+  'Utility': 'text-[var(--bp-ink-muted)] bg-[var(--bp-surface-inset)]',
 };
 
 // ── Quick Action definitions ──
@@ -207,9 +207,9 @@ function MedallionProgress({ category }: { category: PipelineCategory }) {
       </div>
       <div className="flex items-center gap-1">
         {layers.map((layer, index) => {
-          let color = "bg-muted";
+          let color = "bg-[var(--bp-surface-inset)]";
           if (layerIndex >= 0 && index <= layerIndex) {
-            color = index === layerIndex ? categoryColors[category] : "bg-emerald-500/80";
+            color = index === layerIndex ? categoryColors[category] : "bg-[var(--bp-operational)]";
           }
           return (
             <div
@@ -263,67 +263,67 @@ const fabricStatusConfig: Record<FabricStatus, {
   completed: {
     label: 'Succeeded',
     icon: CheckCircle2,
-    color: 'text-emerald-600 dark:text-emerald-400',
-    bg: 'bg-emerald-50 dark:bg-emerald-950/30',
-    border: 'border-emerald-200 dark:border-emerald-800/50',
+    color: 'text-[var(--bp-operational)]',
+    bg: 'bg-[var(--bp-operational-light)]',
+    border: 'border-[var(--bp-operational)]',
   },
   failed: {
     label: 'Failed',
     icon: XCircle,
-    color: 'text-red-600 dark:text-red-400',
-    bg: 'bg-red-50 dark:bg-red-950/30',
-    border: 'border-red-200 dark:border-red-800/50',
+    color: 'text-[var(--bp-fault)]',
+    bg: 'bg-[var(--bp-fault-light)]',
+    border: 'border-[var(--bp-fault)]',
   },
   inprogress: {
     label: 'In Progress',
     icon: Loader2,
-    color: 'text-blue-600 dark:text-blue-400',
-    bg: 'bg-blue-50 dark:bg-blue-950/30',
-    border: 'border-blue-200 dark:border-blue-800/50',
+    color: 'text-[var(--bp-copper)]',
+    bg: 'bg-[var(--bp-copper-light)]',
+    border: 'border-[var(--bp-copper)]',
     pulse: true,
   },
   running: {
     label: 'Running',
     icon: Loader2,
-    color: 'text-blue-600 dark:text-blue-400',
-    bg: 'bg-blue-50 dark:bg-blue-950/30',
-    border: 'border-blue-200 dark:border-blue-800/50',
+    color: 'text-[var(--bp-copper)]',
+    bg: 'bg-[var(--bp-copper-light)]',
+    border: 'border-[var(--bp-copper)]',
     pulse: true,
   },
   notstarted: {
     label: 'Queued',
     icon: Timer,
-    color: 'text-amber-600 dark:text-amber-400',
-    bg: 'bg-amber-50 dark:bg-amber-950/30',
-    border: 'border-amber-200 dark:border-amber-800/50',
+    color: 'text-[var(--bp-caution)]',
+    bg: 'bg-[var(--bp-caution-light)]',
+    border: 'border-[var(--bp-caution)]',
   },
   cancelled: {
     label: 'Cancelled',
     icon: Ban,
-    color: 'text-slate-500 dark:text-slate-400',
-    bg: 'bg-slate-50 dark:bg-slate-950/30',
-    border: 'border-slate-200 dark:border-slate-800/50',
+    color: 'text-[var(--bp-ink-muted)]',
+    bg: 'bg-[var(--bp-surface-inset)]',
+    border: 'border-[var(--bp-border-subtle)]',
   },
   deduped: {
     label: 'Deduped',
     icon: SkipForward,
-    color: 'text-slate-500 dark:text-slate-400',
-    bg: 'bg-slate-50 dark:bg-slate-950/30',
-    border: 'border-slate-200 dark:border-slate-800/50',
+    color: 'text-[var(--bp-ink-muted)]',
+    bg: 'bg-[var(--bp-surface-inset)]',
+    border: 'border-[var(--bp-border-subtle)]',
   },
   unknown: {
     label: 'Unknown',
     icon: Info,
-    color: 'text-slate-500 dark:text-slate-400',
-    bg: 'bg-slate-50 dark:bg-slate-900/20',
-    border: 'border-slate-200 dark:border-slate-800/50',
+    color: 'text-[var(--bp-ink-muted)]',
+    bg: 'bg-[var(--bp-surface-inset)]',
+    border: 'border-[var(--bp-border-subtle)]',
   },
   none: {
     label: 'No runs',
     icon: Clock,
-    color: 'text-muted-foreground',
-    bg: 'bg-muted',
-    border: 'border-border',
+    color: 'text-[var(--bp-ink-muted)]',
+    bg: 'bg-[var(--bp-surface-2)]',
+    border: 'border-[var(--bp-border)]',
   },
 };
 
@@ -594,7 +594,7 @@ function FailureTracePanel({ workspaceGuid, jobInstanceId, pipelineName }: {
       <button
         onClick={(e) => { e.stopPropagation(); fetchTrace(); }}
         disabled={loading}
-        className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-400 transition-colors"
+        className="flex items-center gap-1.5 text-xs font-medium text-[var(--bp-fault)] hover:opacity-80 transition-colors"
       >
         {loading ? (
           <Loader2 className="w-3 h-3 animate-spin" />
@@ -621,8 +621,8 @@ function FailureTracePanel({ workspaceGuid, jobInstanceId, pipelineName }: {
                       <span className={cn(
                         "px-1.5 py-0.5 rounded font-mono",
                         isLast && isLeaf
-                          ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 font-semibold"
-                          : "bg-muted text-muted-foreground",
+                          ? "bg-[var(--bp-fault-light)] text-[var(--bp-fault)] font-semibold"
+                          : "bg-[var(--bp-surface-inset)] text-[var(--bp-ink-secondary)]",
                       )}>
                         {step.activityName}
                         {step.activityType && !isLeaf && (
@@ -637,10 +637,10 @@ function FailureTracePanel({ workspaceGuid, jobInstanceId, pipelineName }: {
               {/* Root cause interpretation */}
               {rootError && (
                 <div className="flex items-start gap-2 mt-1">
-                  <AlertCircle className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" />
+                  <AlertCircle className="w-3.5 h-3.5 text-[var(--bp-fault)] mt-0.5 flex-shrink-0" />
                   <div className="min-w-0">
-                    <p className="text-xs font-medium text-red-600 dark:text-red-400">{rootError.summary}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{rootError.suggestion}</p>
+                    <p className="text-xs font-medium text-[var(--bp-fault)]">{rootError.summary}</p>
+                    <p className="text-[11px] text-[var(--bp-ink-tertiary)] mt-0.5 leading-relaxed">{rootError.suggestion}</p>
                   </div>
                 </div>
               )}
@@ -696,7 +696,7 @@ function PipelineStatusDetail({ job }: { job?: FabricJob }) {
         return (
           <>
             <span className="text-border">|</span>
-            <span className="text-red-500 dark:text-red-400 truncate max-w-[200px]" title={reason}>
+            <span className="text-[var(--bp-fault)] truncate max-w-[200px]" title={reason}>
               {reason}
             </span>
           </>
@@ -734,11 +734,11 @@ interface ActivityRun {
 
 function ActivityStatusIcon({ status }: { status: string }) {
   const s = status.toLowerCase();
-  if (s === 'succeeded') return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
-  if (s === 'failed') return <AlertCircle className="w-4 h-4 text-red-500" />;
-  if (s === 'inprogress' || s === 'running') return <Loader2 className="w-4 h-4 animate-spin text-blue-500" />;
-  if (s === 'cancelled') return <XCircle className="w-4 h-4 text-amber-500" />;
-  return <Clock className="w-4 h-4 text-muted-foreground" />;
+  if (s === 'succeeded') return <CheckCircle2 className="w-4 h-4 text-[var(--bp-operational)]" />;
+  if (s === 'failed') return <AlertCircle className="w-4 h-4 text-[var(--bp-fault)]" />;
+  if (s === 'inprogress' || s === 'running') return <Loader2 className="w-4 h-4 animate-spin text-[var(--bp-copper)]" />;
+  if (s === 'cancelled') return <XCircle className="w-4 h-4 text-[var(--bp-caution)]" />;
+  return <Clock className="w-4 h-4 text-[var(--bp-ink-muted)]" />;
 }
 
 function activityTypeIcon(type: string): string {
@@ -867,23 +867,23 @@ function ExecutionLogModal({
   };
 
   const getStatusColor = (status: string | null) => {
-    if (!status) return 'text-muted-foreground';
+    if (!status) return 'text-[var(--bp-ink-muted)]';
     const s = status.toLowerCase();
-    if (s === 'succeeded' || s === 'completed' || s === 'success') return 'text-emerald-600 dark:text-emerald-400';
-    if (s === 'failed' || s === 'error') return 'text-red-600 dark:text-red-400';
-    if (s === 'inprogress' || s === 'running' || s === 'queued') return 'text-blue-600 dark:text-blue-400';
-    if (s === 'cancelled') return 'text-amber-600 dark:text-amber-400';
-    return 'text-foreground';
+    if (s === 'succeeded' || s === 'completed' || s === 'success') return 'text-[var(--bp-operational)]';
+    if (s === 'failed' || s === 'error') return 'text-[var(--bp-fault)]';
+    if (s === 'inprogress' || s === 'running' || s === 'queued') return 'text-[var(--bp-copper)]';
+    if (s === 'cancelled') return 'text-[var(--bp-caution)]';
+    return 'text-[var(--bp-ink-primary)]';
   };
 
   const getStatusIcon = (status: string | null) => {
-    if (!status) return <Clock className="w-3.5 h-3.5 text-muted-foreground" />;
+    if (!status) return <Clock className="w-3.5 h-3.5 text-[var(--bp-ink-muted)]" />;
     const s = status.toLowerCase();
-    if (s === 'succeeded' || s === 'completed' || s === 'success') return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
-    if (s === 'failed' || s === 'error') return <AlertCircle className="w-3.5 h-3.5 text-red-500" />;
-    if (s === 'inprogress' || s === 'running' || s === 'queued') return <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />;
-    if (s === 'cancelled') return <XCircle className="w-3.5 h-3.5 text-amber-500" />;
-    return <Clock className="w-3.5 h-3.5 text-muted-foreground" />;
+    if (s === 'succeeded' || s === 'completed' || s === 'success') return <CheckCircle2 className="w-3.5 h-3.5 text-[var(--bp-operational)]" />;
+    if (s === 'failed' || s === 'error') return <AlertCircle className="w-3.5 h-3.5 text-[var(--bp-fault)]" />;
+    if (s === 'inprogress' || s === 'running' || s === 'queued') return <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--bp-copper)]" />;
+    if (s === 'cancelled') return <XCircle className="w-3.5 h-3.5 text-[var(--bp-caution)]" />;
+    return <Clock className="w-3.5 h-3.5 text-[var(--bp-ink-muted)]" />;
   };
 
   const formatCellValue = (key: string, value: string | null): string => {
@@ -933,15 +933,15 @@ function ExecutionLogModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" role="button" tabIndex={0} onClick={onClose} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClose(); } }} />
 
       {/* Modal */}
       <div className="relative w-[90vw] max-w-6xl h-[80vh] bg-background border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted">
           <div className="flex items-center gap-4">
-            <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/40">
-              <Terminal className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <div className="p-2 rounded-lg bg-[var(--bp-copper-light)]">
+              <Terminal className="w-5 h-5 text-[var(--bp-copper)]" />
             </div>
             <div>
               <h2 className="text-lg font-bold">{displayName}</h2>
@@ -966,8 +966,8 @@ function ExecutionLogModal({
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--bp-copper)] opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--bp-copper)]" />
               </span>
               Live (4s)
             </div>
@@ -995,8 +995,8 @@ function ExecutionLogModal({
                 <span className={cn(
                   "ml-2 text-xs px-1.5 py-0.5 rounded-full",
                   tab.key === 'activities' && runningActivities > 0
-                    ? "bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400"
-                    : "bg-muted text-muted-foreground",
+                    ? "bg-[var(--bp-copper-light)] text-[var(--bp-copper)]"
+                    : "bg-[var(--bp-surface-inset)] text-[var(--bp-ink-muted)]",
                 )}>
                   {tab.count}
                 </span>
@@ -1011,8 +1011,8 @@ function ExecutionLogModal({
             // ── Activity Runs View ──
             activityLoading ? (
               <div className="flex items-center justify-center h-full gap-3">
-                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                <span className="text-muted-foreground">Loading activity runs from Fabric...</span>
+                <Loader2 className="w-6 h-6 animate-spin text-[var(--bp-copper)]" />
+                <span className="text-[var(--bp-ink-muted)]">Loading activity runs from Fabric...</span>
               </div>
             ) : activityRuns.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">
@@ -1034,20 +1034,20 @@ function ExecutionLogModal({
                     <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
                       <span>{completedActivities + failedActivities} of {totalActivities} activities completed</span>
                       <span>
-                        {completedActivities > 0 && <span className="text-emerald-500 mr-2">{completedActivities} succeeded</span>}
-                        {failedActivities > 0 && <span className="text-red-500 mr-2">{failedActivities} failed</span>}
-                        {runningActivities > 0 && <span className="text-blue-500">{runningActivities} running</span>}
+                        {completedActivities > 0 && <span className="text-[var(--bp-operational)] mr-2">{completedActivities} succeeded</span>}
+                        {failedActivities > 0 && <span className="text-[var(--bp-fault)] mr-2">{failedActivities} failed</span>}
+                        {runningActivities > 0 && <span className="text-[var(--bp-copper)]">{runningActivities} running</span>}
                       </span>
                     </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden flex">
+                    <div className="h-2 bg-[var(--bp-surface-inset)] rounded-full overflow-hidden flex">
                       {completedActivities > 0 && (
-                        <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${(completedActivities / totalActivities) * 100}%` }} />
+                        <div className="h-full bg-[var(--bp-operational)] transition-all duration-500" style={{ width: `${(completedActivities / totalActivities) * 100}%` }} />
                       )}
                       {runningActivities > 0 && (
-                        <div className="h-full bg-blue-500 animate-pulse transition-all duration-500" style={{ width: `${(runningActivities / totalActivities) * 100}%` }} />
+                        <div className="h-full bg-[var(--bp-copper)] animate-pulse transition-all duration-500" style={{ width: `${(runningActivities / totalActivities) * 100}%` }} />
                       )}
                       {failedActivities > 0 && (
-                        <div className="h-full bg-red-500 transition-all duration-500" style={{ width: `${(failedActivities / totalActivities) * 100}%` }} />
+                        <div className="h-full bg-[var(--bp-fault)] transition-all duration-500" style={{ width: `${(failedActivities / totalActivities) * 100}%` }} />
                       )}
                     </div>
                   </div>
@@ -1055,10 +1055,10 @@ function ExecutionLogModal({
 
                 {/* Data Summary — row counts across all activities */}
                 {hasAnyRowCounts && (
-                  <div className="flex items-center gap-6 p-3 bg-emerald-50/50 dark:bg-emerald-950/10 rounded-lg border border-emerald-200/50 dark:border-emerald-800/30">
+                  <div className="flex items-center gap-6 p-3 bg-[var(--bp-operational-light)] rounded-lg border border-[var(--bp-operational)]">
                     <div className="flex items-center gap-1.5">
-                      <Download className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Data Moved</span>
+                      <Download className="w-3.5 h-3.5 text-[var(--bp-operational)]" />
+                      <span className="text-xs font-semibold text-[var(--bp-operational)]">Data Moved</span>
                     </div>
                     {totalRowsRead > 0 && (
                       <div className="text-center">
@@ -1102,12 +1102,12 @@ function ExecutionLogModal({
                       className={cn(
                         "relative flex flex-col gap-0 rounded-lg border transition-all overflow-hidden",
                         isActive
-                          ? "bg-blue-50/50 dark:bg-blue-950/20 border-blue-300 dark:border-blue-700"
+                          ? "bg-[var(--bp-copper-light)] border-[var(--bp-copper)]"
                           : isFailed
-                            ? "bg-red-50/30 dark:bg-red-950/10 border-red-200 dark:border-red-900/50"
+                            ? "bg-[var(--bp-fault-light)] border-[var(--bp-fault)]"
                             : isSucceeded
-                              ? "bg-emerald-50/30 dark:bg-emerald-950/10 border-emerald-200 dark:border-emerald-900/50"
-                              : "bg-card border-border",
+                              ? "bg-[var(--bp-operational-light)] border-[var(--bp-operational)]"
+                              : "bg-[var(--bp-surface-1)] border-[var(--bp-border)]",
                       )}
                     >
                       <div className="flex items-center gap-4 p-3">
@@ -1132,7 +1132,7 @@ function ExecutionLogModal({
                             </span>
                           </div>
                           {isFailed && !activityErrorInfo && errorMsg && (
-                            <p className="text-xs text-red-500 dark:text-red-400 mt-0.5 truncate" title={errorMsg}>
+                            <p className="text-xs text-[var(--bp-fault)] mt-0.5 truncate" title={errorMsg}>
                               {errorMsg}
                             </p>
                           )}
@@ -1146,12 +1146,12 @@ function ExecutionLogModal({
                           {activity.rowCounts && (
                             <div className="flex items-center gap-3 mt-1">
                               {activity.rowCounts.rowsRead != null && activity.rowCounts.rowsRead > 0 && (
-                                <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
+                                <span className="text-[11px] font-mono text-[var(--bp-operational)]">
                                   {formatNumber(activity.rowCounts.rowsRead)} rows read
                                 </span>
                               )}
                               {activity.rowCounts.rowsWritten != null && activity.rowCounts.rowsWritten > 0 && (
-                                <span className="text-[11px] font-mono text-blue-600 dark:text-blue-400">
+                                <span className="text-[11px] font-mono text-[var(--bp-copper)]">
                                   → {formatNumber(activity.rowCounts.rowsWritten)} written
                                 </span>
                               )}
@@ -1168,7 +1168,7 @@ function ExecutionLogModal({
                         <div className="flex-shrink-0 text-right">
                           <span className={cn(
                             "text-sm font-mono font-medium",
-                            isActive ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground",
+                            isActive ? "text-[var(--bp-copper)]" : "text-[var(--bp-ink-muted)]",
                           )}>
                             {isActive
                               ? formatDuration(activity.startTime, undefined)
@@ -1176,7 +1176,7 @@ function ExecutionLogModal({
                           </span>
                           <p className={cn(
                             "text-[10px] font-semibold uppercase tracking-wider",
-                            isActive ? "text-blue-500" : isFailed ? "text-red-500" : isSucceeded ? "text-emerald-500" : "text-muted-foreground",
+                            isActive ? "text-[var(--bp-copper)]" : isFailed ? "text-[var(--bp-fault)]" : isSucceeded ? "text-[var(--bp-operational)]" : "text-[var(--bp-ink-muted)]",
                           )}>
                             {activity.status}
                           </p>
@@ -1189,12 +1189,12 @@ function ExecutionLogModal({
                       </div>
                       {/* Error interpretation for failed activities */}
                       {isFailed && activityErrorInfo && (
-                        <div className="px-3 pb-3 pt-0 ml-12 border-t border-red-200/50 dark:border-red-900/30">
+                        <div className="px-3 pb-3 pt-0 ml-12 border-t border-[var(--bp-fault)]">
                           <div className="flex items-start gap-2 mt-2">
-                            <Info className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" />
+                            <Info className="w-3.5 h-3.5 text-[var(--bp-fault)] mt-0.5 flex-shrink-0" />
                             <div className="min-w-0">
-                              <p className="text-xs font-medium text-red-600 dark:text-red-400">{activityErrorInfo.summary}</p>
-                              <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{activityErrorInfo.suggestion}</p>
+                              <p className="text-xs font-medium text-[var(--bp-fault)]">{activityErrorInfo.summary}</p>
+                              <p className="text-[11px] text-[var(--bp-ink-tertiary)] mt-0.5 leading-relaxed">{activityErrorInfo.suggestion}</p>
                             </div>
                           </div>
                         </div>
@@ -1208,8 +1208,8 @@ function ExecutionLogModal({
             // ── Table-based views (Pipeline Log, Copy, Notebook) ──
             loading ? (
               <div className="flex items-center justify-center h-full gap-3">
-                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                <span className="text-muted-foreground">Loading execution data...</span>
+                <Loader2 className="w-6 h-6 animate-spin text-[var(--bp-copper)]" />
+                <span className="text-[var(--bp-ink-muted)]">Loading execution data...</span>
               </div>
             ) : activeData.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">
@@ -1242,7 +1242,7 @@ function ExecutionLogModal({
                         key={rowIdx}
                         className={cn(
                           "border-b border-border/50 transition-colors hover:bg-muted/50",
-                          rowIdx === 0 && "bg-blue-50/50 dark:bg-blue-950/20",
+                          rowIdx === 0 && "bg-[var(--bp-copper-light)]",
                         )}
                       >
                         {columns.map((col) => {
@@ -1614,7 +1614,7 @@ export default function PipelineMonitor() {
   const hasExecutionData = executions.length > 0;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 p-8 max-w-[1280px] mx-auto">
       {/* Execution Log Modal */}
       {modalPipeline && (
         <ExecutionLogModal
@@ -1626,7 +1626,7 @@ export default function PipelineMonitor() {
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">Pipeline Monitor</h1>
+          <h1 className="text-[32px] font-[var(--bp-font-display)] font-bold tracking-tight text-[var(--bp-ink-primary)]">Pipeline Monitor</h1>
           <p className="text-muted-foreground mt-1">
             {runningCount > 0
               ? `${runningCount} pipeline${runningCount > 1 ? 's' : ''} running`
@@ -1662,7 +1662,7 @@ export default function PipelineMonitor() {
           { icon: 'notebook' as const, label: 'Transform', value: (categoryCounts['Bronze'] || 0) + (categoryCounts['Silver'] || 0), sub: 'Bronze + Silver pipelines' },
           { icon: 'dataflow' as const, label: 'Orchestration', value: categoryCounts['Orchestration'] || 0, sub: 'Load & taskflow pipelines' },
         ].map((stat) => (
-          <Card key={stat.label} className="shadow-sm hover:shadow-md transition-shadow">
+          <Card key={stat.label} className="bg-[var(--bp-surface-1)] border-[var(--bp-border)] transition-colors">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
                 <FabricIcon name={stat.icon} className="w-4 h-4" />
@@ -1703,8 +1703,8 @@ export default function PipelineMonitor() {
               {action.label}
               {isRunning && (
                 <span className="relative flex h-2 w-2 ml-1">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--bp-copper)] opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--bp-copper)]" />
                 </span>
               )}
             </Button>
@@ -1714,13 +1714,13 @@ export default function PipelineMonitor() {
 
       {/* ── Trigger Error ── */}
       {triggerError && (
-        <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-950/30 border-2 border-red-300 dark:border-red-700 rounded-lg">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+        <div className="flex items-center gap-3 p-4 bg-[var(--bp-fault-light)] border-2 border-[var(--bp-fault)] rounded-lg">
+          <AlertCircle className="w-5 h-5 text-[var(--bp-fault)] flex-shrink-0" />
           <div className="flex-1">
-            <p className="text-sm font-semibold text-red-800 dark:text-red-200">Pipeline trigger failed</p>
-            <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">{triggerError}</p>
+            <p className="text-sm font-semibold text-[var(--bp-fault)]">Pipeline trigger failed</p>
+            <p className="text-xs text-[var(--bp-ink-secondary)] mt-0.5">{triggerError}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => setTriggerError(null)} className="text-red-500">
+          <Button variant="ghost" size="sm" onClick={() => setTriggerError(null)} className="text-[var(--bp-fault)]">
             <XCircle className="w-4 h-4" />
           </Button>
         </div>
@@ -1729,16 +1729,16 @@ export default function PipelineMonitor() {
       {/* ── Monitoring Hub — Fabric API-backed job history ── */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold tracking-tight text-foreground flex items-center gap-2">
-            <Activity className="w-5 h-5 text-blue-500" />
+          <h2 className="text-[18px] font-[var(--bp-font-body)] font-semibold tracking-tight text-[var(--bp-ink-primary)] flex items-center gap-2">
+            <Activity className="w-5 h-5 text-[var(--bp-copper)]" />
             Monitoring Hub
             <span className="text-xs font-normal text-muted-foreground ml-1">Last 12 hours</span>
           </h2>
           {fabricJobs.length > 0 && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--bp-copper)] opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--bp-copper)]" />
               </span>
               Live from Fabric API
             </div>
@@ -1773,8 +1773,8 @@ export default function PipelineMonitor() {
               className={cn(
                 "px-3 py-1.5 rounded-full text-xs font-medium transition-all",
                 hubStatusFilter === key
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
+                  ? "bg-[var(--bp-copper)] text-white"
+                  : "bg-[var(--bp-surface-inset)] text-[var(--bp-ink-muted)] hover:bg-[var(--bp-canvas)] hover:text-[var(--bp-ink-primary)]",
                 count === 0 && hubStatusFilter !== key && "opacity-50",
               )}
             >
@@ -1842,8 +1842,8 @@ export default function PipelineMonitor() {
                         key={`${key}-main`}
                         className={cn(
                           "border-b border-border/50 hover:bg-muted/50 transition-colors cursor-pointer",
-                          isActive && "bg-blue-50/30 dark:bg-blue-950/10",
-                          isFailed && !errorInfo && "bg-red-50/20 dark:bg-red-950/10",
+                          isActive && "bg-[var(--bp-copper-light)]",
+                          isFailed && !errorInfo && "bg-[var(--bp-fault-light)]",
                         )}
                         onClick={() => setModalPipeline(job.pipelineName)}
                       >
@@ -1881,15 +1881,15 @@ export default function PipelineMonitor() {
                     if (isFailed) {
                       const jobId = (job.id as string) || '';
                       rows.push(
-                        <tr key={`${key}-error`} className="bg-red-50/40 dark:bg-red-950/20 border-b border-red-200/50 dark:border-red-900/30">
+                        <tr key={`${key}-error`} className="bg-[var(--bp-fault-light)] border-b border-[var(--bp-fault)]">
                           <td colSpan={6} className="px-4 py-2.5">
                             <div className="flex items-start gap-2.5">
-                              <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+                              <AlertCircle className="w-4 h-4 text-[var(--bp-fault)] mt-0.5 flex-shrink-0" />
                               <div className="min-w-0 flex-1 space-y-2">
                                 {errorInfo && (
                                   <>
-                                    <p className="text-sm font-medium text-red-600 dark:text-red-400">{errorInfo.summary}</p>
-                                    <p className="text-xs text-muted-foreground leading-relaxed">{errorInfo.suggestion}</p>
+                                    <p className="text-sm font-medium text-[var(--bp-fault)]">{errorInfo.summary}</p>
+                                    <p className="text-xs text-[var(--bp-ink-tertiary)] leading-relaxed">{errorInfo.suggestion}</p>
                                   </>
                                 )}
                                 {/* Recursive failure trace through nested pipelines */}
@@ -1930,11 +1930,11 @@ export default function PipelineMonitor() {
 
       {/* Execution status banner */}
       {!hasExecutionData && fabricJobs.length === 0 && (
-        <div className="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
-          <Info className="w-5 h-5 text-blue-500 flex-shrink-0" />
+        <div className="flex items-center gap-3 p-4 bg-[var(--bp-copper-light)] border border-[var(--bp-copper)] rounded-lg">
+          <Info className="w-5 h-5 text-[var(--bp-copper)] flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-blue-800 dark:text-blue-200">No execution data yet</p>
-            <p className="text-xs text-blue-600 dark:text-blue-400">
+            <p className="text-sm font-medium text-[var(--bp-ink-primary)]">No execution data yet</p>
+            <p className="text-xs text-[var(--bp-ink-secondary)]">
               Use the Quick Actions above to trigger a pipeline run, or register sources via Source Manager first.
             </p>
           </div>
@@ -1944,7 +1944,7 @@ export default function PipelineMonitor() {
       <div className="grid gap-8 md:grid-cols-3">
         {/* Main List */}
         <div className="md:col-span-2 space-y-6">
-          <div className="flex flex-col sm:flex-row items-center gap-4 bg-muted/40 p-4 rounded-lg border border-border shadow-sm">
+          <div className="flex flex-col sm:flex-row items-center gap-4 bg-[var(--bp-surface-2)] p-4 rounded-lg border border-[var(--bp-border)]">
             <Input
               placeholder="Search pipelines..."
               value={searchTerm}
@@ -1982,14 +1982,14 @@ export default function PipelineMonitor() {
                 <div
                   key={pipeline.PipelineId}
                   className={cn(
-                    "group flex flex-col p-4 rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer",
+                    "group flex flex-col p-4 rounded-xl border transition-all duration-200 cursor-pointer",
                     isJobActive
-                      ? "bg-blue-50/50 dark:bg-blue-950/20 border-blue-300 dark:border-blue-700"
+                      ? "bg-[var(--bp-copper-light)] border-[var(--bp-copper)]"
                       : isJobFailed
-                        ? "bg-red-50/30 dark:bg-red-950/10 border-red-200 dark:border-red-900/50"
+                        ? "bg-[var(--bp-fault-light)] border-[var(--bp-fault)]"
                         : running
-                          ? "bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-600"
-                          : "bg-card border-border hover:border-primary/30",
+                          ? "bg-[var(--bp-copper-light)] border-[var(--bp-copper)]"
+                          : "bg-[var(--bp-surface-1)] border-[var(--bp-border)] hover:border-[var(--bp-copper)]",
                   )}
                   onClick={() => setModalPipeline(pipeline.Name)}
                 >
@@ -2036,8 +2036,8 @@ export default function PipelineMonitor() {
                         className={cn(
                           "h-8 w-8 p-0 rounded-lg transition-all",
                           running || isJobActive
-                            ? "text-blue-500"
-                            : "text-muted-foreground hover:text-emerald-500 hover:bg-emerald-100 dark:hover:bg-emerald-900/30",
+                            ? "text-[var(--bp-copper)]"
+                            : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-operational)] hover:bg-[var(--bp-operational-light)]",
                         )}
                         title={running || isJobActive ? `${displayName} is running` : `Run ${displayName}`}
                       >
@@ -2071,7 +2071,7 @@ export default function PipelineMonitor() {
 
         {/* Sidebar / Stats */}
         <div className="space-y-6">
-          <Card className="bg-gradient-to-br from-blue-50 to-purple-50/50 dark:from-blue-950/20 dark:to-purple-950/10 border-blue-200/50 dark:border-blue-800/30 shadow-sm">
+          <Card className="bg-[var(--bp-surface-1)] border-[var(--bp-border)]">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FabricIcon name="data_factory" className="w-5 h-5" />
@@ -2100,7 +2100,7 @@ export default function PipelineMonitor() {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-emerald-50 to-blue-50/50 dark:from-emerald-950/20 dark:to-blue-950/10 border-emerald-200/50 dark:border-emerald-800/30 shadow-sm">
+          <Card className="bg-[var(--bp-surface-1)] border-[var(--bp-border)]">
             <CardHeader>
               <CardTitle className="text-primary flex items-center gap-2">
                 <FabricIcon name="fabric" className="w-5 h-5" />
@@ -2110,10 +2110,10 @@ export default function PipelineMonitor() {
             </CardHeader>
             <CardContent className="space-y-4">
               {[
-                { label: "Pipelines Deployed", value: `${activePipelines.length}`, color: "text-emerald-600 dark:text-emerald-400" },
-                { label: "Workspaces", value: `${workspaces.length}`, color: "text-blue-600 dark:text-blue-400" },
-                { label: "Active Runs", value: runningCount > 0 ? `${runningCount} running` : "None", color: runningCount > 0 ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground" },
-                { label: "Execution Logs", value: hasExecutionData ? `${executions.length} entries` : "Awaiting first run", color: hasExecutionData ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground" },
+                { label: "Pipelines Deployed", value: `${activePipelines.length}`, color: "text-[var(--bp-operational)]" },
+                { label: "Workspaces", value: `${workspaces.length}`, color: "text-[var(--bp-copper)]" },
+                { label: "Active Runs", value: runningCount > 0 ? `${runningCount} running` : "None", color: runningCount > 0 ? "text-[var(--bp-copper)]" : "text-[var(--bp-ink-muted)]" },
+                { label: "Execution Logs", value: hasExecutionData ? `${executions.length} entries` : "Awaiting first run", color: hasExecutionData ? "text-[var(--bp-operational)]" : "text-[var(--bp-ink-muted)]" },
               ].map((item) => (
                 <div key={item.label} className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">{item.label}</span>

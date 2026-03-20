@@ -121,9 +121,9 @@ export function FabricDropdown({
   if (disabled) {
     return (
       <div className="space-y-1">
-        <label className="text-xs font-medium text-muted-foreground">{label}</label>
-        <div className="h-9 rounded-md border border-border/50 bg-muted flex items-center px-3">
-          <span className="text-xs text-muted-foreground/60 italic">
+        <label className="text-xs font-medium" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>{label}</label>
+        <div className="h-9 rounded-md flex items-center px-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-inset)' }}>
+          <span className="text-xs italic" style={{ color: 'var(--bp-ink-muted)' }}>
             {disabledMessage || "Complete previous step first"}
           </span>
         </div>
@@ -134,11 +134,12 @@ export function FabricDropdown({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-muted-foreground">{label}</label>
+        <label className="text-xs font-medium" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>{label}</label>
         <button
           onClick={fetchOptions}
           disabled={loading}
-          className="text-muted-foreground/60 hover:text-foreground transition-colors"
+          className="transition-colors"
+          style={{ color: 'var(--bp-ink-muted)' }}
           title="Refresh"
         >
           <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
@@ -146,7 +147,7 @@ export function FabricDropdown({
       </div>
 
       {error ? (
-        <div className="flex items-center gap-2 text-xs text-destructive">
+        <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--bp-fault)' }}>
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">{error}</span>
           <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={fetchOptions}>
@@ -160,11 +161,16 @@ export function FabricDropdown({
             onChange={handleSelect}
             disabled={loading}
             className={cn(
-              "w-full h-9 rounded-md border border-border bg-background px-3 text-sm",
-              "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1",
+              "w-full h-9 rounded-md px-3 text-sm",
+              "focus:outline-none focus:ring-2 focus:ring-offset-1",
               "disabled:opacity-50 disabled:cursor-not-allowed",
-              !value && "text-muted-foreground",
             )}
+            style={{
+              border: '1px solid var(--bp-border)',
+              background: 'var(--bp-surface-inset)',
+              color: value ? 'var(--bp-ink-primary)' : 'var(--bp-ink-muted)',
+              fontFamily: 'var(--bp-font-body)',
+            }}
           >
             <option value="">
               {loading ? "Loading..." : "-- Select --"}
@@ -179,25 +185,25 @@ export function FabricDropdown({
             )}
           </select>
           {loading && (
-            <Loader2 className="absolute right-8 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+            <Loader2 className="absolute right-8 top-2.5 h-4 w-4 animate-spin" style={{ color: 'var(--bp-ink-muted)' }} />
           )}
         </div>
       )}
 
       {value && (
-        <p className="text-[10px] font-mono text-muted-foreground/50 truncate" title={value.id}>
+        <p className="text-[10px] truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-muted)' }} title={value.id}>
           {value.id}
         </p>
       )}
 
       {subtitle && !value && (
-        <p className="text-[10px] text-muted-foreground/50">{subtitle}</p>
+        <p className="text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>{subtitle}</p>
       )}
 
       {/* Inline create form */}
       {showCreate && (
-        <div className="rounded-md border border-dashed border-border/60 bg-muted p-3 space-y-2">
-          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="rounded-md border-dashed p-3 space-y-2" style={{ border: '1px dashed var(--bp-border)', background: 'var(--bp-surface-inset)' }}>
+          <label className="text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-tertiary)' }}>
             New {label}
           </label>
           <input
@@ -205,16 +211,22 @@ export function FabricDropdown({
             value={createName}
             onChange={(e) => setCreateName(e.target.value)}
             placeholder="Display name"
-            className="w-full h-8 rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full h-8 rounded-md px-3 text-sm focus:outline-none focus:ring-2"
+            style={{
+              border: '1px solid var(--bp-border)',
+              background: 'var(--bp-surface-1)',
+              color: 'var(--bp-ink-primary)',
+              fontFamily: 'var(--bp-font-body)',
+            }}
             onKeyDown={(e) => e.key === "Enter" && handleCreate()}
           />
           {createError && (
-            <p className="text-xs text-destructive">{createError}</p>
+            <p className="text-xs" style={{ color: 'var(--bp-fault)' }}>{createError}</p>
           )}
           <div className="flex items-center gap-2">
             <Button
               size="sm"
-              className="h-7 text-xs"
+              className="h-7 text-xs bp-btn-primary"
               onClick={handleCreate}
               disabled={creating || !createName.trim()}
             >
@@ -228,7 +240,7 @@ export function FabricDropdown({
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 text-xs"
+              className="h-7 text-xs bp-btn-ghost"
               onClick={() => setShowCreate(false)}
               disabled={creating}
             >

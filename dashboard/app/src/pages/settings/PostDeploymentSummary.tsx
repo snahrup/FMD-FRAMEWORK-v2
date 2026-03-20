@@ -36,13 +36,13 @@ function CopyButton({ value }: { value: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="p-0.5 rounded hover:bg-card transition-colors cursor-pointer"
+      className="p-0.5 rounded transition-colors cursor-pointer"
       title="Copy to clipboard"
     >
       {copied ? (
-        <Check className="w-3 h-3 text-emerald-400" />
+        <Check className="w-3 h-3" style={{ color: 'var(--bp-operational)' }} />
       ) : (
-        <Copy className="w-3 h-3 text-muted-foreground/40 hover:text-muted-foreground" />
+        <Copy className="w-3 h-3" style={{ color: 'var(--bp-ink-muted)' }} />
       )}
     </button>
   );
@@ -60,21 +60,21 @@ function SummarySection({
   if (entries.length === 0) return null;
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50 bg-card">
-        <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-        <span className="text-xs font-semibold text-muted-foreground tracking-wide uppercase">
+    <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+      <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid var(--bp-border-subtle)', background: 'var(--bp-surface-1)' }}>
+        <Icon className="w-3.5 h-3.5" style={{ color: 'var(--bp-ink-muted)' }} />
+        <span className="text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>
           {title}
         </span>
-        <span className="ml-auto text-[10px] text-muted-foreground/40">{entries.length}</span>
+        <span className="ml-auto text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>{entries.length}</span>
       </div>
-      <div className="divide-y divide-border/30">
-        {entries.map(({ label, value }) => (
-          <div key={label} className="flex items-center px-3 py-1.5 gap-3">
-            <span className="text-[11px] text-muted-foreground flex-shrink-0 w-36 truncate">
+      <div>
+        {entries.map(({ label, value }, i) => (
+          <div key={label} className="flex items-center px-3 py-1.5 gap-3" style={{ borderBottom: i < entries.length - 1 ? '1px solid var(--bp-border-subtle)' : 'none' }}>
+            <span className="text-[11px] flex-shrink-0 w-36 truncate" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
               {label}
             </span>
-            <span className="text-[10px] font-mono text-foreground/70 flex-1 truncate">
+            <span className="text-[10px] flex-1 truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-secondary)', fontFeatureSettings: '"tnum"' }}>
               {value}
             </span>
             <CopyButton value={value} />
@@ -112,12 +112,12 @@ export default function PostDeploymentSummary({ result, dryRun }: Props) {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-2">
-        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-        <h3 className="text-sm font-semibold text-foreground">
+        <CheckCircle2 className="w-5 h-5" style={{ color: 'var(--bp-operational)' }} />
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>
           {dryRun ? 'Dry Run Complete' : 'Deployment Complete'}
         </h3>
         {result.elapsed != null && (
-          <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+          <span className="ml-auto flex items-center gap-1 text-xs" style={{ color: 'var(--bp-ink-muted)' }}>
             <Clock className="w-3 h-3" />
             {result.elapsed.toFixed(1)}s
           </span>
@@ -125,13 +125,13 @@ export default function PostDeploymentSummary({ result, dryRun }: Props) {
       </div>
 
       {dryRun && (
-        <div className="text-xs text-sky-400/70 bg-sky-500/5 border border-sky-500/20 rounded-lg px-3 py-2">
+        <div className="text-xs rounded-lg px-3 py-2" style={{ color: 'var(--bp-copper)', background: 'var(--bp-copper-light)', border: '1px solid var(--bp-border)' }}>
           This was a dry run — no resources were created. Run without --dry-run to deploy.
         </div>
       )}
 
       {/* Stats bar */}
-      <div className="flex gap-4 text-[10px] text-muted-foreground">
+      <div className="flex gap-4 text-[10px]" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-mono)', fontFeatureSettings: '"tnum"' }}>
         <span>{result.item_count ?? 0} items deployed</span>
         <span>{result.mapping_count ?? 0} ID mappings</span>
       </div>

@@ -19,7 +19,7 @@ import glob
 # ── Config ──
 TENANT = 'ca81e9fd-06dd-49cf-b5a9-ee7441ff5303'
 CLIENT = 'ac937c5d-4bdd-438f-be8b-84a850021d2d'
-SECRET = 'Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu'
+SECRET = os.environ["FABRIC_CLIENT_SECRET"]
 TOKEN_URL = f'https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/token'
 SCOPE = 'https://api.fabric.microsoft.com/.default'
 WS_CODE = 'c0366b24-e6f8-4994-b4df-b765ecb5bbf8'

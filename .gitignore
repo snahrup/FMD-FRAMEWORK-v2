@@ -85,7 +85,7 @@ deployment_summary.json
 
 # Pytest cache
 .pytest_cache/
-.windsurf\rules\openmemory.md
+.coverage
 
 # Archive (stale scripts, audits, one-off files)
 archive/
@@ -94,6 +94,12 @@ archive/
 CODEBASE.md
 CODEBASE.html
 .codebase-map-dirty
-CLAUDE.md
-.windsurf\rules\openmemory.md
-CLAUDE.md
+
+# Claude tooling state (local only)
+.claude-flow/
+.claude/worktrees/
+.ruflo/
+.superpowers/
+
+# DB backups
+*.db.pre-demo-seed

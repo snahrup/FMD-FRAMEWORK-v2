@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useInView } from '../hooks/useInView';
 import { Database, Upload, Layers, Sparkles, BarChart3, ArrowRight } from 'lucide-react';
 
+/** Known source systems — update this list when sources change */
+const KNOWN_SOURCES = ['MES', 'ETQ', 'M3 Cloud', 'M3 ERP'] as const;
+
 interface JourneyStep {
   icon: typeof Database;
   layer: string;
@@ -20,7 +23,7 @@ const journeySteps: JourneyStep[] = [
     layer: 'SOURCE',
     title: 'On-Prem SQL Server',
     description:
-      'Data lives in production SQL Server databases on-premises. MES, ETQ, M3 Cloud, and M3 ERP — 4,777+ tables across 4 systems.',
+      `Data lives in production SQL Server databases on-premises. ${KNOWN_SOURCES.join(', ')} — 4,777+ tables across ${KNOWN_SOURCES.length} systems.`,
     techDetail:
       'Engine v3 connects via pyodbc through VPN. Builds a SELECT query based on metadata (full table or incremental WHERE clause using watermark column). Reads in 500K-row chunks via Polars DataFrames.',
     color: '#7A756B',

@@ -178,10 +178,10 @@ export function DeploymentOverlay() {
           {isRunning && (
             <>
               <div className="relative mx-auto w-20 h-20">
-                <div className="absolute inset-0 rounded-full border-4 border-blue-500/20" />
-                <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-blue-500 animate-spin" />
-                <div className="absolute inset-3 rounded-full border-4 border-transparent border-t-amber-500 animate-spin" style={{ animationDuration: "1.5s", animationDirection: "reverse" }} />
-                <Server className="absolute inset-0 m-auto h-6 w-6 text-blue-400" />
+                <div className="absolute inset-0 rounded-full border-4 border-[#F4E8DF]" />
+                <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-[#B45624] animate-spin" />
+                <div className="absolute inset-3 rounded-full border-4 border-transparent border-t-[#C27A1A] animate-spin" style={{ animationDuration: "1.5s", animationDirection: "reverse" }} />
+                <Server className="absolute inset-0 m-auto h-6 w-6 text-[#B45624]" />
               </div>
               <div>
                 <h2 className="text-xl font-semibold text-foreground">Environment Setup In Progress</h2>
@@ -194,7 +194,7 @@ export function DeploymentOverlay() {
           {isCompleted && (
             <>
               <div className="mx-auto w-20 h-20 flex items-center justify-center">
-                <CheckCircle2 className="h-16 w-16 text-emerald-500 animate-[fadeIn_0.5s_ease-out]" />
+                <CheckCircle2 className="h-16 w-16 text-[#3D7C4F] animate-[fadeIn_0.5s_ease-out]" />
               </div>
               <div>
                 <h2 className="text-xl font-semibold text-foreground">Environment Ready</h2>
@@ -212,11 +212,11 @@ export function DeploymentOverlay() {
           {isFailed && (
             <>
               <div className="mx-auto w-20 h-20 flex items-center justify-center">
-                <XCircle className="h-16 w-16 text-red-500" />
+                <XCircle className="h-16 w-16 text-[#B93A2A]" />
               </div>
               <div>
                 <h2 className="text-xl font-semibold text-foreground">Deployment Failed</h2>
-                <p className="text-sm text-red-400 mt-1">{status.message || "Unknown error"}</p>
+                <p className="text-sm text-[#B93A2A] mt-1">{status.message || "Unknown error"}</p>
                 {status.job?.id && (
                   <p className="text-xs text-muted-foreground/60 mt-2 font-mono">Job: {status.job.id}</p>
                 )}
@@ -229,7 +229,7 @@ export function DeploymentOverlay() {
         {wsEntries.length > 0 && (
           <div className="bg-card/50 border border-border rounded-lg p-4 space-y-3">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <FolderGit2 className="h-4 w-4 text-blue-400" />
+              <FolderGit2 className="h-4 w-4 text-[#B45624]" />
               <span>Workspaces</span>
               <span className="ml-auto text-xs text-muted-foreground">{wsFound}/{wsEntries.length} discovered</span>
             </div>
@@ -237,7 +237,7 @@ export function DeploymentOverlay() {
               {wsEntries.map(([key, val]) => (
                 <div key={key} className="flex items-center gap-2 text-xs">
                   {val ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                    <CheckCircle2 className="h-3.5 w-3.5 text-[#3D7C4F] flex-shrink-0" />
                   ) : (
                     <Loader2 className="h-3.5 w-3.5 text-muted-foreground/40 animate-spin flex-shrink-0" />
                   )}
@@ -257,9 +257,9 @@ export function DeploymentOverlay() {
         {status.newSqlEndpoint && (
           <div className="bg-card/50 border border-border rounded-lg p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <Database className="h-4 w-4 text-amber-400" />
+              <Database className="h-4 w-4 text-[#C27A1A]" />
               <span>SQL Database</span>
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 ml-auto" />
+              <CheckCircle2 className="h-3.5 w-3.5 text-[#3D7C4F] ml-auto" />
             </div>
             <div className="text-xs text-muted-foreground font-mono">
               {status.newSqlEndpoint.displayName}
@@ -271,7 +271,7 @@ export function DeploymentOverlay() {
         {status.newItems && Object.keys(status.newItems).length > 0 && (
           <div className="bg-card/50 border border-border rounded-lg p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <Cable className="h-4 w-4 text-purple-400" />
+              <Cable className="h-4 w-4 text-[#B45624]" />
               <span>Deployed Items</span>
             </div>
             <div className="grid grid-cols-2 gap-1.5">
@@ -290,7 +290,7 @@ export function DeploymentOverlay() {
           {applied && (
             <button
               onClick={() => window.location.reload()}
-              className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+              className="px-4 py-2 rounded-md bg-[#B45624] text-white text-sm font-medium hover:bg-[#9A4A1F] transition-colors"
             >
               Reload Dashboard
             </button>

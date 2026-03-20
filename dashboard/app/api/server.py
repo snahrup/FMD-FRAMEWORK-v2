@@ -102,10 +102,12 @@ try:
     from dashboard.app.api import control_plane_db as cpdb
     _CPDB_AVAILABLE = True
 except ImportError:
+    log.debug("control_plane_db not found via package import, trying direct import")
     try:
         import control_plane_db as cpdb  # type: ignore
         _CPDB_AVAILABLE = True
     except ImportError:
+        log.debug("control_plane_db not available — control plane features disabled")
         cpdb = None
         _CPDB_AVAILABLE = False
 
@@ -152,6 +154,7 @@ def serve_static(handler, url_path: str) -> bool:
     try:
         file_path.resolve().relative_to(STATIC_DIR.resolve())
     except ValueError:
+        log.warning("Blocked path traversal attempt: %s", clean)
         return False
     if file_path.is_file():
         ext = file_path.suffix.lower()
@@ -303,6 +306,8 @@ if __name__ == "__main__":
         start_export_thread()
     except ImportError:
         log.warning("parquet_sync not available (pyarrow missing?) — export disabled")
+    except Exception:
+        log.exception("Failed to start parquet export thread")
 
     # Start delta ingest background thread (every 30 minutes)
     try:
@@ -310,10 +315,12 @@ if __name__ == "__main__":
         start_ingest_thread(interval_seconds=1800)
     except ImportError:
         log.warning("delta_ingest not available — ingest disabled")
+    except Exception:
+        log.exception("Failed to start delta ingest thread")
 
     server = ThreadedHTTPServer((HOST, PORT), DashboardHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        log.info("Shutting down.")
+        log.info("Shutting down — KeyboardInterrupt received.")
         server.server_close()

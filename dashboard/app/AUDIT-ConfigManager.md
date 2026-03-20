@@ -88,13 +88,15 @@ is now always a string.
 **Problem:** All `UPDATE` statements in `update_config_value()` use string interpolation
 (f-strings) to build SQL queries with user-supplied values:
 ```python
-query_sql(f"UPDATE integration.Workspace SET WorkspaceGuid = '{new_guid}' WHERE WorkspaceId = {ws_id}")
+# BAD (vulnerable — DO NOT USE):
+# query_sql("UPDATE integration.Workspace SET WorkspaceGuid = '" + new_guid + "' WHERE WorkspaceId = " + str(ws_id))
+
+# GOOD — parameterized query (FIXED):
+query_sql("UPDATE integration.Workspace SET WorkspaceGuid = ? WHERE WorkspaceId = ?", [new_guid, ws_id])
 ```
 A malicious GUID value like `'; DROP TABLE integration.Workspace; --` would execute arbitrary
 SQL. This affects workspace, lakehouse, connection, datasource, and pipeline_db update targets.
-**Fix needed:** Use parameterized queries throughout. Replace f-string interpolation with
-`query_sql("UPDATE ... SET WorkspaceGuid = ? WHERE WorkspaceId = ?", [new_guid, ws_id])` or
-equivalent parameterized pattern.
+**Fix needed:** Use parameterized queries (`?` placeholders) throughout.
 
 ### B2. dashboardConfig returns raw config.json without filtering sensitive sections (LOW)
 **File:** `server.py` lines 5651-5656

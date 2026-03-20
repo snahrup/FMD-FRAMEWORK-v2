@@ -30,9 +30,10 @@ export function TimeRangeSelector({
   return (
     <div
       className={cn(
-        "flex items-center rounded-md border border-border bg-card overflow-hidden",
+        "flex items-center overflow-hidden",
         className
       )}
+      style={{ background: "#EDEAE4", border: "1px solid rgba(0,0,0,0.08)", borderRadius: "6px", padding: "3px" }}
       data-testid="time-range-selector"
       role="group"
       aria-label="Time range"
@@ -42,12 +43,12 @@ export function TimeRangeSelector({
           key={t}
           onClick={() => onChange(t)}
           aria-pressed={t === value}
-          className={cn(
-            "px-2.5 py-1 text-xs font-medium transition-colors",
+          className="px-2.5 py-1 text-xs font-medium transition-colors"
+          style={
             t === value
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted"
-          )}
+              ? { background: "#FEFDFB", color: "#1C1917", border: "1px solid rgba(0,0,0,0.08)", borderRadius: "4px" }
+              : { color: "#78716C", border: "1px solid transparent", borderRadius: "4px" }
+          }
         >
           {t}
         </button>

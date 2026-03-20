@@ -10,6 +10,9 @@ export interface DashboardPage {
   whyItMatters: string;
 }
 
+/** Known source systems — update this list when sources change */
+const KNOWN_SOURCES = ['MES', 'ETQ', 'M3_ERP', 'M3C', 'OPTIVA'] as const;
+
 export const dashboardPages: DashboardPage[] = [
   // === OPERATIONS ===
   {
@@ -153,7 +156,7 @@ export const dashboardPages: DashboardPage[] = [
     icon: 'Play',
     tagline: 'Scoped pipeline triggering',
     description:
-      'Manually trigger pipelines for specific data sources or entity subsets. Scope a run to just MES, just ETQ, or a hand-picked list of tables.',
+      `Manually trigger pipelines for specific data sources or entity subsets. Scope a run to just ${KNOWN_SOURCES[0]}, just ${KNOWN_SOURCES[1]}, or a hand-picked list of tables.`,
     keyFeatures: [
       'Data source selector with entity counts',
       'Entity-level selection for targeted runs',
@@ -163,7 +166,7 @@ export const dashboardPages: DashboardPage[] = [
     ],
     connectedTo: ['Runner API', 'Pipeline Trigger API', 'Entity Registry'],
     whyItMatters:
-      'You do not always want to run everything. Sometimes you need to reprocess 3 tables from MES. This lets you do exactly that.',
+      `You do not always want to run everything. Sometimes you need to reprocess 3 tables from ${KNOWN_SOURCES[0]}. This lets you do exactly that.`,
   },
   // === DATA ===
   {

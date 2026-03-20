@@ -108,10 +108,10 @@ type CheckStatus = "pass" | "warn" | "fail" | "pending";
 function statusIcon(s: CheckStatus, size: "sm" | "md" = "md") {
   const cls = size === "sm" ? "h-3.5 w-3.5" : "h-5 w-5";
   switch (s) {
-    case "pass": return <CheckCircle2 className={cn(cls, "text-emerald-500 shrink-0")} />;
-    case "warn": return <AlertTriangle className={cn(cls, "text-amber-500 shrink-0")} />;
-    case "fail": return <XCircle className={cn(cls, "text-red-500 shrink-0")} />;
-    case "pending": return <Loader2 className={cn(cls, "text-muted-foreground animate-spin shrink-0")} />;
+    case "pass": return <CheckCircle2 className={cn(cls, "shrink-0")} style={{ color: "var(--bp-operational)" }} />;
+    case "warn": return <AlertTriangle className={cn(cls, "shrink-0")} style={{ color: "var(--bp-caution)" }} />;
+    case "fail": return <XCircle className={cn(cls, "shrink-0")} style={{ color: "var(--bp-fault)" }} />;
+    case "pending": return <Loader2 className={cn(cls, "animate-spin shrink-0")} style={{ color: "var(--bp-ink-muted)" }} />;
   }
 }
 
@@ -307,8 +307,8 @@ export default function ValidationChecklist() {
   if (loading && !data) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-3 text-muted-foreground">Loading validation data...</span>
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: "var(--bp-copper)" }} />
+        <span className="ml-3" style={{ color: "var(--bp-ink-muted)" }}>Loading validation data...</span>
       </div>
     );
   }
@@ -316,40 +316,49 @@ export default function ValidationChecklist() {
   if (error && !data) {
     return (
       <div className="flex items-center justify-center py-24">
-        <XCircle className="h-8 w-8 text-red-500" />
-        <span className="ml-3 text-red-400">{error}</span>
+        <XCircle className="h-8 w-8" style={{ color: "var(--bp-fault)" }} />
+        <span className="ml-3" style={{ color: "var(--bp-fault)" }}>{error}</span>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 max-w-[1280px] mx-auto px-8 py-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2.5">
-            <ClipboardCheck className="h-7 w-7 text-emerald-500" />
+          <h1
+            className="flex items-center gap-2.5 font-semibold"
+            style={{ fontFamily: "var(--bp-font-display)", fontSize: 32, color: "var(--bp-ink-primary)" }}
+          >
+            <ClipboardCheck className="h-7 w-7" style={{ color: "var(--bp-operational)" }} />
             Validation Checklist
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <p className="text-sm mt-0.5" style={{ color: "var(--bp-ink-secondary)" }}>
             Real-time entity load status across all layers — select missing entities and run them
           </p>
         </div>
         <div className="flex items-center gap-3">
           {refreshing && (
-            <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            <RefreshCw className="h-3.5 w-3.5 animate-spin" style={{ color: "var(--bp-ink-muted)" }} />
           )}
           {lastUpdated && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>
               {lastUpdated.toLocaleTimeString()}
             </span>
           )}
           <Badge
             variant={overallStatus === "pass" ? "default" : overallStatus === "warn" ? "secondary" : "destructive"}
-            className={cn(
-              "text-xs",
-              overallStatus === "pass" && "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-            )}
+            className="text-xs"
+            style={
+              overallStatus === "pass"
+                ? { background: "var(--bp-operational-light)", color: "var(--bp-operational)", border: "1px solid rgba(61,124,79,0.2)" }
+                : overallStatus === "warn"
+                ? { background: "var(--bp-caution-light)", color: "var(--bp-caution)", border: "1px solid rgba(194,122,26,0.2)" }
+                : overallStatus === "fail"
+                ? { background: "var(--bp-fault-light)", color: "var(--bp-fault)", border: "1px solid rgba(185,58,42,0.2)" }
+                : {}
+            }
           >
             {overallStatus === "pass" ? "All Layers Complete"
               : overallStatus === "warn" ? "In Progress"
@@ -366,28 +375,28 @@ export default function ValidationChecklist() {
             label="Total Active"
             value={totals.active}
             sub={`of ${totals.entities} registered`}
-            icon={<Database className="h-4 w-4 text-blue-400" />}
+            icon={<Database className="h-4 w-4" style={{ color: "var(--bp-copper)" }} />}
           />
           <SummaryCard
             label="Landing Zone"
             value={totals.lzLoaded}
             sub={pct(totals.lzLoaded, totals.active) + " loaded"}
             status={layerCheck(totals.lzLoaded, totals.active)}
-            icon={<Layers className="h-4 w-4 text-cyan-400" />}
+            icon={<Layers className="h-4 w-4" style={{ color: "var(--bp-ink-tertiary)" }} />}
           />
           <SummaryCard
             label="Bronze"
             value={totals.bronzeLoaded}
             sub={pct(totals.bronzeLoaded, totals.active) + " loaded"}
             status={layerCheck(totals.bronzeLoaded, totals.active)}
-            icon={<Layers className="h-4 w-4 text-amber-400" />}
+            icon={<Layers className="h-4 w-4" style={{ color: "var(--bp-caution)" }} />}
           />
           <SummaryCard
             label="Silver"
             value={totals.silverLoaded}
             sub={pct(totals.silverLoaded, totals.active) + " loaded"}
             status={layerCheck(totals.silverLoaded, totals.active)}
-            icon={<Layers className="h-4 w-4 text-slate-300" />}
+            icon={<Layers className="h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />}
           />
         </div>
       )}
@@ -397,38 +406,38 @@ export default function ValidationChecklist() {
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-4 mb-2">
-              <span className="text-sm font-medium text-foreground">Overall Progress</span>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-sm font-medium" style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, color: "var(--bp-ink-primary)" }}>Overall Progress</span>
+              <span className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>
                 {totals.digestComplete} complete / {totals.digestPartial} partial / {totals.digestNotStarted} not started
               </span>
             </div>
-            <div className="w-full h-4 bg-muted rounded-full overflow-hidden flex">
+            <div className="w-full h-4 rounded-full overflow-hidden flex" style={{ background: "var(--bp-surface-inset)" }}>
               {totals.digestComplete > 0 && (
                 <div
-                  className="h-full bg-emerald-500 transition-all duration-700"
-                  style={{ width: pct(totals.digestComplete, totals.active) }}
+                  className="h-full transition-all duration-700"
+                  style={{ width: pct(totals.digestComplete, totals.active), background: "var(--bp-operational)" }}
                   title={`Complete: ${totals.digestComplete}`}
                 />
               )}
               {totals.digestPartial > 0 && (
                 <div
-                  className="h-full bg-amber-500 transition-all duration-700"
-                  style={{ width: pct(totals.digestPartial, totals.active) }}
+                  className="h-full transition-all duration-700"
+                  style={{ width: pct(totals.digestPartial, totals.active), background: "var(--bp-caution)" }}
                   title={`Partial: ${totals.digestPartial}`}
                 />
               )}
               {totals.digestNotStarted > 0 && (
                 <div
-                  className="h-full bg-red-500/60 transition-all duration-700"
-                  style={{ width: pct(totals.digestNotStarted, totals.active) }}
+                  className="h-full transition-all duration-700"
+                  style={{ width: pct(totals.digestNotStarted, totals.active), background: "var(--bp-fault)", opacity: 0.6 }}
                   title={`Not Started: ${totals.digestNotStarted}`}
                 />
               )}
             </div>
-            <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Complete</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" /> Partial</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500/60 inline-block" /> Not Started</span>
+            <div className="flex items-center gap-4 mt-2 text-xs" style={{ color: "var(--bp-ink-muted)" }}>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "var(--bp-operational)" }} /> Complete</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "var(--bp-caution)" }} /> Partial</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "var(--bp-fault)", opacity: 0.6 }} /> Not Started</span>
             </div>
           </CardContent>
         </Card>
@@ -438,10 +447,10 @@ export default function ValidationChecklist() {
       {data && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Source System Breakdown</CardTitle>
+            <CardTitle style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, fontSize: 18, color: "var(--bp-ink-primary)" }}>Source System Breakdown</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="divide-y divide-border">
+            <div className="divide-y" style={{ borderColor: "var(--bp-border)" }}>
               {data.overview.map((src) => {
                 const active = num(src.Active);
                 const dsName = src.DataSource as string;
@@ -464,24 +473,24 @@ export default function ValidationChecklist() {
                   <div key={dsName}>
                     <button
                       onClick={() => setExpandedSource(isExpanded ? null : dsName)}
-                      className="w-full flex items-center gap-3 py-3 px-1 hover:bg-muted/50 transition-colors text-left"
+                      className="w-full flex items-center gap-3 py-3 px-1 transition-colors text-left hover:bg-[var(--bp-surface-2)]"
                     >
                       {statusIcon(
                         lzS === "pass" && brS === "pass" && svS === "pass"
                           ? "pass" : lzLoaded > 0 ? "warn" : "fail"
                       )}
                       <div className="flex-1 min-w-0">
-                        <span className="text-sm font-medium text-foreground">{dsName}</span>
-                        <span className="text-xs text-muted-foreground ml-2">{active} active</span>
+                        <span className="text-sm font-medium" style={{ color: "var(--bp-ink-primary)" }}>{dsName}</span>
+                        <span className="text-xs ml-2" style={{ color: "var(--bp-ink-muted)" }}>{active} active</span>
                       </div>
                       <div className="hidden md:flex items-center gap-2">
-                        <LayerBadge label="LZ" loaded={lzLoaded} total={active} />
-                        <LayerBadge label="BR" loaded={brLoaded} total={active} />
-                        <LayerBadge label="SV" loaded={svLoaded} total={active} />
+                        <VLayerBadge label="LZ" loaded={lzLoaded} total={active} />
+                        <VLayerBadge label="BR" loaded={brLoaded} total={active} />
+                        <VLayerBadge label="SV" loaded={svLoaded} total={active} />
                       </div>
                       {isExpanded
-                        ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                        : <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        ? <ChevronUp className="h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />
+                        : <ChevronDown className="h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />
                       }
                     </button>
                     {isExpanded && (
@@ -492,7 +501,7 @@ export default function ValidationChecklist() {
                           <LayerDetail layer="Silver" loaded={svLoaded} failed={num(sv?.SilverFailed)} neverAttempted={num(sv?.SilverNeverAttempted)} total={active} />
                         </div>
                         {stuckCount > 0 && (
-                          <div className="flex items-center gap-2 text-xs text-amber-400">
+                          <div className="flex items-center gap-2 text-xs" style={{ color: "var(--bp-caution)" }}>
                             <AlertTriangle className="h-3.5 w-3.5" />
                             {stuckCount} entities stuck at LZ (Bronze never processed)
                           </div>
@@ -512,17 +521,17 @@ export default function ValidationChecklist() {
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Filter className="h-4 w-4 text-primary" />
+              <CardTitle className="flex items-center gap-2" style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, fontSize: 18, color: "var(--bp-ink-primary)" }}>
+                <Filter className="h-4 w-4" style={{ color: "var(--bp-copper)" }} />
                 Entity Layer Status
-                <span className="text-xs font-normal text-muted-foreground ml-1">
+                <span className="text-xs font-normal ml-1" style={{ color: "var(--bp-ink-muted)" }}>
                   {filteredEntities.length} of {data.entities.length}
                 </span>
               </CardTitle>
               <div className="flex items-center gap-2">
                 {selected.size > 0 && (
                   <>
-                    <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+                    <span className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>{selected.size} selected</span>
                     <Button variant="ghost" size="sm" onClick={clearSelection} className="text-xs h-7">
                       Clear
                     </Button>
@@ -548,7 +557,7 @@ export default function ValidationChecklist() {
             {/* Filters */}
             <div className="flex items-center gap-2 flex-wrap">
               <div className="relative flex-1 min-w-[200px] max-w-sm">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5" style={{ color: "var(--bp-ink-muted)" }} />
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
@@ -560,7 +569,8 @@ export default function ValidationChecklist() {
               <select
                 value={sourceFilter}
                 onChange={(e) => setSourceFilter(e.target.value)}
-                className="h-8 rounded-md border border-input bg-background px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                className="h-8 rounded-md px-2.5 text-xs focus:outline-none focus:ring-1"
+                style={{ border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)", color: "var(--bp-ink-primary)" }}
               >
                 <option value="all">All Sources</option>
                 {sources.map(s => <option key={s} value={s}>{s}</option>)}
@@ -569,7 +579,8 @@ export default function ValidationChecklist() {
               <select
                 value={layerFilter}
                 onChange={(e) => setLayerFilter(e.target.value as LayerFilter)}
-                className="h-8 rounded-md border border-input bg-background px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                className="h-8 rounded-md px-2.5 text-xs focus:outline-none focus:ring-1"
+                style={{ border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)", color: "var(--bp-ink-primary)" }}
               >
                 <option value="all">All Statuses</option>
                 <option value="missing_lz">Missing LZ</option>
@@ -583,13 +594,25 @@ export default function ValidationChecklist() {
                 <Button variant="outline" size="sm" className="text-xs h-7" onClick={selectAllFiltered}>
                   Select Filtered
                 </Button>
-                <Button variant="outline" size="sm" className="text-xs h-7 text-red-400 border-red-500/30 hover:bg-red-500/10" onClick={() => selectMissingLayer("lz")}>
+                <Button
+                  variant="outline" size="sm" className="text-xs h-7"
+                  style={{ color: "var(--bp-fault)", borderColor: "rgba(185,58,42,0.3)" }}
+                  onClick={() => selectMissingLayer("lz")}
+                >
                   All Missing LZ
                 </Button>
-                <Button variant="outline" size="sm" className="text-xs h-7 text-amber-400 border-amber-500/30 hover:bg-amber-500/10" onClick={() => selectMissingLayer("bronze")}>
+                <Button
+                  variant="outline" size="sm" className="text-xs h-7"
+                  style={{ color: "var(--bp-caution)", borderColor: "rgba(194,122,26,0.3)" }}
+                  onClick={() => selectMissingLayer("bronze")}
+                >
                   All Missing Bronze
                 </Button>
-                <Button variant="outline" size="sm" className="text-xs h-7 text-slate-300 border-slate-400/30 hover:bg-slate-500/10" onClick={() => selectMissingLayer("silver")}>
+                <Button
+                  variant="outline" size="sm" className="text-xs h-7"
+                  style={{ color: "var(--bp-ink-muted)", borderColor: "var(--bp-border)" }}
+                  onClick={() => selectMissingLayer("silver")}
+                >
                   All Missing Silver
                 </Button>
               </div>
@@ -597,19 +620,22 @@ export default function ValidationChecklist() {
 
             {/* Launch result banner */}
             {launchResult && (
-              <div className={cn(
-                "text-xs px-3 py-2 rounded-md",
-                launchResult.startsWith("Failed") ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400",
-              )}>
+              <div
+                className="text-xs px-3 py-2 rounded-md"
+                style={launchResult.startsWith("Failed")
+                  ? { background: "var(--bp-fault-light)", color: "var(--bp-fault)" }
+                  : { background: "var(--bp-operational-light)", color: "var(--bp-operational)" }
+                }
+              >
                 {launchResult}
               </div>
             )}
 
             {/* Table */}
-            <div className="rounded-md border border-border overflow-hidden">
+            <div className="rounded-md overflow-hidden" style={{ border: "1px solid var(--bp-border)" }}>
               <div className="max-h-[500px] overflow-auto">
                 <table className="w-full text-xs">
-                  <thead className="bg-muted/50 sticky top-0">
+                  <thead className="sticky top-0" style={{ background: "var(--bp-surface-2)" }}>
                     <tr>
                       <th className="px-2 py-2 text-left w-8">
                         <input
@@ -628,16 +654,16 @@ export default function ValidationChecklist() {
                           className="rounded"
                         />
                       </th>
-                      <th className="px-2 py-2 text-left text-muted-foreground font-medium w-14">ID</th>
-                      <th className="px-2 py-2 text-left text-muted-foreground font-medium">Entity</th>
-                      <th className="px-2 py-2 text-left text-muted-foreground font-medium">Schema</th>
-                      <th className="px-2 py-2 text-left text-muted-foreground font-medium">Source</th>
-                      <th className="px-2 py-2 text-center text-muted-foreground font-medium w-16">LZ</th>
-                      <th className="px-2 py-2 text-center text-muted-foreground font-medium w-16">Bronze</th>
-                      <th className="px-2 py-2 text-center text-muted-foreground font-medium w-16">Silver</th>
+                      <th className="px-2 py-2 text-left font-medium w-14" style={{ color: "var(--bp-ink-tertiary)" }}>ID</th>
+                      <th className="px-2 py-2 text-left font-medium" style={{ color: "var(--bp-ink-tertiary)" }}>Entity</th>
+                      <th className="px-2 py-2 text-left font-medium" style={{ color: "var(--bp-ink-tertiary)" }}>Schema</th>
+                      <th className="px-2 py-2 text-left font-medium" style={{ color: "var(--bp-ink-tertiary)" }}>Source</th>
+                      <th className="px-2 py-2 text-center font-medium w-16" style={{ color: "var(--bp-ink-tertiary)" }}>LZ</th>
+                      <th className="px-2 py-2 text-center font-medium w-16" style={{ color: "var(--bp-ink-tertiary)" }}>Bronze</th>
+                      <th className="px-2 py-2 text-center font-medium w-16" style={{ color: "var(--bp-ink-tertiary)" }}>Silver</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border">
+                  <tbody className="divide-y" style={{ borderColor: "var(--bp-border-subtle)" }}>
                     {filteredEntities.slice(0, 200).map((e) => {
                       const id = num(e.EntityId);
                       const isSelected = selected.has(id);
@@ -645,10 +671,10 @@ export default function ValidationChecklist() {
                         <tr
                           key={id}
                           onClick={() => toggleSelect(id)}
-                          className={cn(
-                            "cursor-pointer transition-colors",
-                            isSelected ? "bg-primary/5" : "hover:bg-muted/50",
-                          )}
+                          className="cursor-pointer transition-colors"
+                          style={isSelected ? { background: "var(--bp-copper-light)" } : {}}
+                          onMouseEnter={(ev) => { if (!isSelected) (ev.currentTarget as HTMLElement).style.background = "var(--bp-surface-2)"; }}
+                          onMouseLeave={(ev) => { if (!isSelected) (ev.currentTarget as HTMLElement).style.background = ""; }}
                         >
                           <td className="px-2 py-1.5">
                             <input
@@ -659,12 +685,12 @@ export default function ValidationChecklist() {
                               className="rounded"
                             />
                           </td>
-                          <td className="px-2 py-1.5 font-mono text-muted-foreground">{id}</td>
-                          <td className="px-2 py-1.5 font-medium text-foreground truncate max-w-[200px]">
+                          <td className="px-2 py-1.5" style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-ink-muted)" }}>{id}</td>
+                          <td className="px-2 py-1.5 font-medium truncate max-w-[200px]" style={{ color: "var(--bp-ink-primary)" }}>
                             {e.SourceName || "(empty)"}
                           </td>
-                          <td className="px-2 py-1.5 text-muted-foreground">{e.SourceSchema || "—"}</td>
-                          <td className="px-2 py-1.5 text-muted-foreground">{e.DataSource}</td>
+                          <td className="px-2 py-1.5" style={{ color: "var(--bp-ink-tertiary)" }}>{e.SourceSchema || "\u2014"}</td>
+                          <td className="px-2 py-1.5" style={{ color: "var(--bp-ink-tertiary)" }}>{e.DataSource}</td>
                           <td className="px-2 py-1.5 text-center">
                             {statusIcon(layerCellStatus(num(e.LzStatus)), "sm")}
                           </td>
@@ -681,7 +707,7 @@ export default function ValidationChecklist() {
                 </table>
               </div>
               {filteredEntities.length > 200 && (
-                <div className="text-xs text-muted-foreground text-center py-2 border-t border-border bg-muted">
+                <div className="text-xs text-center py-2" style={{ color: "var(--bp-ink-muted)", background: "var(--bp-surface-inset)", borderTop: "1px solid var(--bp-border)" }}>
                   Showing 200 of {filteredEntities.length} — use filters to narrow results
                 </div>
               )}
@@ -694,10 +720,10 @@ export default function ValidationChecklist() {
       {totals && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Checklist</CardTitle>
+            <CardTitle style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, fontSize: 18, color: "var(--bp-ink-primary)" }}>Checklist</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="divide-y divide-border">
+            <div className="divide-y" style={{ borderColor: "var(--bp-border)" }}>
               <CheckItem
                 status={totals.active > 0 ? "pass" : "fail"}
                 label="Entity registration"
@@ -745,32 +771,37 @@ function SummaryCard({ label, value, sub, icon, status }: {
   label: string; value: number; sub: string; icon: React.ReactNode; status?: CheckStatus;
 }) {
   return (
-    <Card className={cn(
-      "transition-colors",
-      status === "pass" && "border-emerald-500/30",
-      status === "fail" && "border-red-500/30",
-    )}>
+    <Card
+      className="transition-colors"
+      style={
+        status === "pass" ? { borderColor: "rgba(61,124,79,0.3)" }
+        : status === "fail" ? { borderColor: "rgba(185,58,42,0.3)" }
+        : {}
+      }
+    >
       <CardContent className="py-3 px-4">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+          <span className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5" style={{ color: "var(--bp-ink-tertiary)" }}>
             {icon} {label}
           </span>
           {status && statusIcon(status)}
         </div>
-        <div className="text-2xl font-bold tabular-nums">{value.toLocaleString()}</div>
-        <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>
+        <div className="text-2xl font-bold" style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-ink-primary)" }}>{value.toLocaleString()}</div>
+        <div className="text-xs mt-0.5" style={{ color: "var(--bp-ink-muted)" }}>{sub}</div>
       </CardContent>
     </Card>
   );
 }
 
-function LayerBadge({ label, loaded, total }: { label: string; loaded: number; total: number }) {
+function VLayerBadge({ label, loaded, total }: { label: string; loaded: number; total: number }) {
   const ratio = total > 0 ? loaded / total : 0;
-  const color = ratio >= 1 ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-    : ratio > 0 ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
-    : "bg-red-500/20 text-red-400 border-red-500/30";
+  const style = ratio >= 1
+    ? { background: "var(--bp-operational-light)", color: "var(--bp-operational)", border: "1px solid rgba(61,124,79,0.3)" }
+    : ratio > 0
+    ? { background: "var(--bp-caution-light)", color: "var(--bp-caution)", border: "1px solid rgba(194,122,26,0.3)" }
+    : { background: "var(--bp-fault-light)", color: "var(--bp-fault)", border: "1px solid rgba(185,58,42,0.3)" };
   return (
-    <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-mono", color)}>
+    <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ ...style, fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums" }}>
       {label} {loaded}/{total}
     </span>
   );
@@ -784,14 +815,14 @@ function LayerDetail({ layer, loaded, failed, neverAttempted, total }: {
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5">
         {statusIcon(check)}
-        <span className="text-xs font-medium">{layer}</span>
+        <span className="text-xs font-medium" style={{ color: "var(--bp-ink-primary)" }}>{layer}</span>
       </div>
-      <div className="space-y-0.5 text-xs text-muted-foreground pl-6">
-        <div className="flex justify-between"><span>Loaded</span><span className="font-mono text-emerald-400">{loaded}</span></div>
-        <div className="flex justify-between"><span>Pending</span><span className="font-mono text-amber-400">{failed}</span></div>
-        <div className="flex justify-between"><span>Never attempted</span><span className="font-mono text-red-400">{neverAttempted}</span></div>
-        <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden mt-1">
-          <div className="h-full bg-emerald-500 transition-all duration-700" style={{ width: total > 0 ? `${(loaded / total) * 100}%` : "0%" }} />
+      <div className="space-y-0.5 text-xs pl-6" style={{ color: "var(--bp-ink-tertiary)" }}>
+        <div className="flex justify-between"><span>Loaded</span><span style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-operational)" }}>{loaded}</span></div>
+        <div className="flex justify-between"><span>Pending</span><span style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-caution)" }}>{failed}</span></div>
+        <div className="flex justify-between"><span>Never attempted</span><span style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-fault)" }}>{neverAttempted}</span></div>
+        <div className="w-full h-1.5 rounded-full overflow-hidden mt-1" style={{ background: "var(--bp-surface-inset)" }}>
+          <div className="h-full transition-all duration-700" style={{ width: total > 0 ? `${(loaded / total) * 100}%` : "0%", background: "var(--bp-operational)" }} />
         </div>
       </div>
     </div>
@@ -802,8 +833,13 @@ function CheckItem({ status, label, detail }: { status: CheckStatus; label: stri
   return (
     <div className="flex items-center gap-3 py-2.5">
       {statusIcon(status)}
-      <div className="flex-1 min-w-0"><span className="text-sm font-medium text-foreground">{label}</span></div>
-      <span className={cn("text-xs", status === "pass" ? "text-muted-foreground" : status === "warn" ? "text-amber-400" : "text-red-400")}>
+      <div className="flex-1 min-w-0"><span className="text-sm font-medium" style={{ color: "var(--bp-ink-primary)" }}>{label}</span></div>
+      <span
+        className="text-xs"
+        style={{
+          color: status === "pass" ? "var(--bp-ink-muted)" : status === "warn" ? "var(--bp-caution)" : "var(--bp-fault)",
+        }}
+      >
         {detail}
       </span>
     </div>

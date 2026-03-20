@@ -36,16 +36,16 @@ function EntityDetailModal({ entity, open, onClose }: { entity: DigestEntity | n
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden" style={{ backgroundColor: "var(--bp-surface-1)" }}>
         {/* Fixed header */}
         <div className="px-6 pt-6 pb-0">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 font-display text-base pr-8">
-              <Table2 className="h-5 w-5 text-[var(--cl-accent)] shrink-0" />
-              <span className="font-mono truncate">{entity.tableName}</span>
+            <DialogTitle className="flex items-center gap-2 text-base pr-8" style={{ fontFamily: "var(--bp-font-display)", color: "var(--bp-ink-primary)" }}>
+              <Table2 className="h-5 w-5 shrink-0" style={{ color: "var(--bp-copper)" }} />
+              <span style={{ fontFamily: "var(--bp-font-mono)" }} className="truncate">{entity.tableName}</span>
             </DialogTitle>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5 flex-wrap">
-              <span className="font-mono text-foreground/70">{entity.sourceSchema}</span>
+            <div className="flex items-center gap-2 text-xs mt-1.5 flex-wrap" style={{ color: "var(--bp-ink-secondary)" }}>
+              <span style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)", opacity: 0.7 }}>{entity.sourceSchema}</span>
               <span>·</span>
               <span
                 className="px-1.5 py-0.5 rounded font-medium"
@@ -61,7 +61,7 @@ function EntityDetailModal({ entity, open, onClose }: { entity: DigestEntity | n
           </DialogHeader>
 
           {/* Tabs */}
-          <div className="flex gap-1 border-b mt-4">
+          <div className="flex gap-1 mt-4" style={{ borderBottom: "1px solid var(--bp-border)" }}>
             {(["overview", "columns", "lineage", "quality"] as const).map((t) => (
               <button
                 key={t}
@@ -69,9 +69,10 @@ function EntityDetailModal({ entity, open, onClose }: { entity: DigestEntity | n
                 className={cn(
                   "px-3 py-2 text-xs font-medium border-b-2 transition-colors capitalize",
                   tab === t
-                    ? "border-[var(--cl-accent)] text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
+                    ? "text-[var(--bp-ink-primary)]"
+                    : "border-transparent hover:text-[var(--bp-ink-primary)]"
                 )}
+                style={tab === t ? { borderColor: "var(--bp-copper)", color: "var(--bp-ink-primary)" } : { color: "var(--bp-ink-secondary)" }}
               >
                 {t}
               </button>
@@ -85,30 +86,32 @@ function EntityDetailModal({ entity, open, onClose }: { entity: DigestEntity | n
             <div className="space-y-5">
               {/* Layer Coverage */}
               <div>
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Layer Coverage</h4>
+                <h4 className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: "var(--bp-ink-tertiary)" }}>Layer Coverage</h4>
                 <div className="grid grid-cols-3 gap-3">
                   {layers.map((l) => {
                     const isLoaded = l.status === "loaded";
                     return (
                       <div
                         key={l.key}
-                        className={cn(
-                          "p-3 rounded-lg border transition-colors",
-                          isLoaded ? "bg-emerald-500/5 border-emerald-500/20" : "bg-muted border-border"
-                        )}
+                        className="p-3 rounded-lg transition-colors"
+                        style={{
+                          border: isLoaded ? "1px solid var(--bp-operational)" : "1px solid var(--bp-border)",
+                          backgroundColor: isLoaded ? "var(--bp-operational-light)" : "var(--bp-surface-inset)",
+                          opacity: isLoaded ? 1 : 0.85,
+                        }}
                       >
                         <div className="flex items-center justify-between mb-1.5">
                           <LayerBadge layer={l.key === "lz" ? "landing" : l.key} size="sm" />
                           {isLoaded ? (
                             <StatusBadge status="loaded" size="sm" />
                           ) : (
-                            <span className="text-[10px] text-muted-foreground/60 italic">Not loaded</span>
+                            <span className="text-[10px] italic" style={{ color: "var(--bp-ink-muted)" }}>Not loaded</span>
                           )}
                         </div>
                         {l.loaded ? (
-                          <p className="text-[10px] text-muted-foreground">{formatTimestamp(l.loaded, { relative: true })}</p>
+                          <p className="text-[10px]" style={{ color: "var(--bp-ink-secondary)" }}>{formatTimestamp(l.loaded, { relative: true })}</p>
                         ) : (
-                          <p className="text-[10px] text-muted-foreground/40">Awaiting first load</p>
+                          <p className="text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>Awaiting first load</p>
                         )}
                       </div>
                     );
@@ -118,34 +121,29 @@ function EntityDetailModal({ entity, open, onClose }: { entity: DigestEntity | n
 
               {/* Source Connection */}
               <div>
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Source Connection</h4>
+                <h4 className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: "var(--bp-ink-tertiary)" }}>Source Connection</h4>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2.5 rounded-lg bg-muted border">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Server</span>
-                    <p className="font-mono mt-1 text-foreground">{entity.connection?.server || "—"}</p>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-muted border">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Database</span>
-                    <p className="font-mono mt-1 text-foreground">{entity.connection?.database || "—"}</p>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-muted border">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Schema</span>
-                    <p className="font-mono mt-1 text-foreground">{entity.sourceSchema}</p>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-muted border">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Load Type</span>
-                    <p className="font-mono mt-1 text-foreground">{entity.isIncremental ? "Incremental" : "Full"}</p>
-                  </div>
+                  {[
+                    { label: "Server", value: entity.connection?.server || "\u2014" },
+                    { label: "Database", value: entity.connection?.database || "\u2014" },
+                    { label: "Schema", value: entity.sourceSchema },
+                    { label: "Load Type", value: entity.isIncremental ? "Incremental" : "Full" },
+                  ].map((item) => (
+                    <div key={item.label} className="p-2.5 rounded-lg" style={{ backgroundColor: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)" }}>
+                      <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>{item.label}</span>
+                      <p className="mt-1" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)" }}>{item.value}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               {/* Primary Keys — only show when we have real PK data */}
               {hasPKs && (
                 <div>
-                  <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Primary Keys</h4>
+                  <h4 className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: "var(--bp-ink-tertiary)" }}>Primary Keys</h4>
                   <div className="flex gap-1.5 flex-wrap">
                     {entity.bronzePKs.split(",").map((pk: string) => (
-                      <span key={pk} className="text-[10px] font-mono px-2 py-1 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                      <span key={pk} className="text-[10px] px-2 py-1 rounded-md" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-copper)", backgroundColor: "var(--bp-copper-light)", border: "1px solid var(--bp-copper)", borderColor: "rgba(180, 86, 36, 0.2)" }}>
                         {pk.trim()}
                       </span>
                     ))}
@@ -156,18 +154,18 @@ function EntityDetailModal({ entity, open, onClose }: { entity: DigestEntity | n
               {/* Entity metadata */}
               {(entity.watermarkColumn || entity.lastError) && (
                 <div>
-                  <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Metadata</h4>
+                  <h4 className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: "var(--bp-ink-tertiary)" }}>Metadata</h4>
                   <div className="space-y-2 text-xs">
                     {entity.watermarkColumn && (
                       <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">Watermark:</span>
-                        <span className="font-mono text-foreground">{entity.watermarkColumn}</span>
+                        <span style={{ color: "var(--bp-ink-secondary)" }}>Watermark:</span>
+                        <span style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)" }}>{entity.watermarkColumn}</span>
                       </div>
                     )}
                     {entity.lastError && (
-                      <div className="p-2.5 rounded-lg bg-red-500/5 border border-red-500/20">
-                        <span className="text-red-400 font-medium text-[10px] uppercase">Last Error</span>
-                        <p className="font-mono text-red-300/80 mt-1 text-[11px] break-all">{typeof entity.lastError === "string" ? entity.lastError : entity.lastError.message ?? "Unknown error"}</p>
+                      <div className="p-2.5 rounded-lg" style={{ backgroundColor: "var(--bp-fault-light)", border: "1px solid var(--bp-fault)", borderColor: "rgba(185, 58, 42, 0.2)" }}>
+                        <span className="font-medium text-[10px] uppercase" style={{ color: "var(--bp-fault)" }}>Last Error</span>
+                        <p className="mt-1 text-[11px] break-all" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-fault)", opacity: 0.8 }}>{typeof entity.lastError === "string" ? entity.lastError : entity.lastError.message ?? "Unknown error"}</p>
                       </div>
                     )}
                   </div>
@@ -177,34 +175,34 @@ function EntityDetailModal({ entity, open, onClose }: { entity: DigestEntity | n
           )}
 
           {tab === "columns" && (
-            <div className="text-center py-10 text-muted-foreground text-sm">
+            <div className="text-center py-10 text-sm" style={{ color: "var(--bp-ink-secondary)" }}>
               <Columns3 className="h-8 w-8 mx-auto mb-3 opacity-30" />
-              <p className="font-medium text-foreground/60">Column metadata not yet captured</p>
+              <p className="font-medium" style={{ color: "var(--bp-ink-tertiary)" }}>Column metadata not yet captured</p>
               <p className="text-xs mt-1.5 max-w-sm mx-auto">
                 Schema capture runs automatically during Bronze/Silver loads.
-                Check the <span className="font-mono text-[var(--cl-accent)]">integration.ColumnMetadata</span> table after the next run.
+                Check the <span style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-copper)" }}>integration.ColumnMetadata</span> table after the next run.
               </p>
             </div>
           )}
 
           {tab === "lineage" && (
-            <div className="text-center py-10 text-muted-foreground text-sm">
+            <div className="text-center py-10 text-sm" style={{ color: "var(--bp-ink-secondary)" }}>
               <Sparkles className="h-8 w-8 mx-auto mb-3 opacity-30" />
-              <p className="font-medium text-foreground/60">Table-level lineage</p>
+              <p className="font-medium" style={{ color: "var(--bp-ink-tertiary)" }}>Table-level lineage</p>
               <p className="text-xs mt-1.5">
                 View this entity's full pipeline lineage on the{" "}
-                <a href="/lineage" className="text-[var(--cl-accent)] underline hover:text-[var(--cl-accent)]/80">Data Lineage</a> page.
+                <a href="/lineage" style={{ color: "var(--bp-copper)" }} className="underline hover:opacity-80">Data Lineage</a> page.
               </p>
             </div>
           )}
 
           {tab === "quality" && (
-            <div className="text-center py-10 text-muted-foreground text-sm">
+            <div className="text-center py-10 text-sm" style={{ color: "var(--bp-ink-secondary)" }}>
               <Sparkles className="h-8 w-8 mx-auto mb-3 opacity-30" />
-              <p className="font-medium text-foreground/60">Quality scoring not configured</p>
+              <p className="font-medium" style={{ color: "var(--bp-ink-tertiary)" }}>Quality scoring not configured</p>
               <p className="text-xs mt-1.5">
                 DQ rules need to be set up first. See{" "}
-                <a href="/labs/dq-scorecard" className="text-[var(--cl-accent)] underline hover:text-[var(--cl-accent)]/80">Labs → DQ Scorecard</a>.
+                <a href="/labs/dq-scorecard" style={{ color: "var(--bp-copper)" }} className="underline hover:opacity-80">Labs &rarr; DQ Scorecard</a>.
               </p>
             </div>
           )}
@@ -254,26 +252,26 @@ export default function DataCatalog() {
   const loadedPct = allEntities.length > 0 ? (allEntities.filter((e) => e.lzStatus === "loaded").length / allEntities.length) * 100 : 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ padding: "32px", maxWidth: "1280px" }}>
       <div>
-        <h1 className="text-xl font-display font-semibold flex items-center gap-2">
-          <BookOpen className="h-5 w-5 text-[var(--cl-accent)]" /> Data Catalog
+        <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }} className="flex items-center gap-2">
+          <BookOpen className="h-7 w-7" style={{ color: "var(--bp-copper)" }} /> Data Catalog
         </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
+        <p className="text-sm mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
           Browse all registered entities with business context, ownership, and cross-references
         </p>
       </div>
 
       <KpiRow>
-        <KpiCard label="Registered Entities" value={formatRowCount(allEntities.length)} icon={Database} iconColor="text-slate-400" />
-        <KpiCard label="Data Sources" value={sources.length.toString()} icon={HardDrive} iconColor="text-blue-400" />
-        <KpiCard label="Loaded" value={formatPercent(loadedPct, 0)} icon={Sparkles} iconColor="text-emerald-400" />
+        <KpiCard label="Registered Entities" value={formatRowCount(allEntities.length)} icon={Database} iconColor="text-[var(--bp-ink-muted)]" />
+        <KpiCard label="Data Sources" value={sources.length.toString()} icon={HardDrive} iconColor="text-[var(--bp-copper)]" />
+        <KpiCard label="Loaded" value={formatPercent(loadedPct, 0)} icon={Sparkles} iconColor="text-[var(--bp-operational)]" />
       </KpiRow>
 
       {/* Filters */}
       <div className="flex gap-3 items-center flex-wrap">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />
           <Input placeholder="Search entities, schemas, sources..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-8 text-sm" />
         </div>
         <div className="flex gap-1.5">
@@ -302,12 +300,12 @@ export default function DataCatalog() {
 
       {/* Error state */}
       {error && !hasLoadedOnce.current && (
-        <Card className="border-red-500/30 bg-red-500/5">
+        <Card style={{ border: "1px solid rgba(185, 58, 42, 0.3)", backgroundColor: "var(--bp-fault-light)" }}>
           <CardContent className="p-6 flex items-center gap-3">
-            <AlertCircle className="h-5 w-5 text-red-400 shrink-0" />
+            <AlertCircle className="h-5 w-5 shrink-0" style={{ color: "var(--bp-fault)" }} />
             <div>
-              <p className="text-sm font-medium text-red-400">Failed to load entity digest</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
+              <p className="text-sm font-medium" style={{ color: "var(--bp-fault)" }}>Failed to load entity digest</p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--bp-ink-secondary)" }}>{error}</p>
             </div>
           </CardContent>
         </Card>
@@ -322,21 +320,22 @@ export default function DataCatalog() {
             </Card>
           ))
         ) : filtered.length === 0 ? (
-          <div className="col-span-3 text-center py-12 text-muted-foreground">No entities match your search.</div>
+          <div className="col-span-3 text-center py-12" style={{ color: "var(--bp-ink-muted)" }}>No entities match your search.</div>
         ) : (
           filtered.slice(0, 150).map((e) => (
             <Card
               key={e.id}
-              className="cursor-pointer hover:border-[var(--cl-accent)]/40 hover:shadow-md transition-all group"
+              className="cursor-pointer transition-all group"
+              style={{ backgroundColor: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" }}
               onClick={() => setSelectedEntity(e)}
             >
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-mono text-xs font-medium truncate group-hover:text-[var(--cl-accent)] transition-colors">
+                    <p className="text-xs font-medium truncate transition-colors group-hover:text-[var(--bp-copper)]" style={{ fontFamily: "var(--bp-font-mono)" }}>
                       {e.tableName}
                     </p>
-                    <p className="text-[10px] text-muted-foreground truncate">{e.sourceSchema}</p>
+                    <p className="text-[10px] truncate" style={{ color: "var(--bp-ink-muted)" }}>{e.sourceSchema}</p>
                   </div>
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap"
@@ -350,10 +349,10 @@ export default function DataCatalog() {
                   {e.bronzeStatus === "loaded" && <LayerBadge layer="bronze" size="sm" showIcon={false} />}
                   {e.silverStatus === "loaded" && <LayerBadge layer="silver" size="sm" showIcon={false} />}
                   {!e.lzStatus && !e.bronzeStatus && !e.silverStatus && (
-                    <span className="text-[10px] text-muted-foreground">Not loaded</span>
+                    <span className="text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>Not loaded</span>
                   )}
                 </div>
-                <div className="flex items-center justify-between mt-2 text-[10px] text-muted-foreground">
+                <div className="flex items-center justify-between mt-2 text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>
                   {e.lzLastLoad && <span>{formatTimestamp(e.lzLastLoad, { relative: true })}</span>}
                 </div>
               </CardContent>
@@ -362,7 +361,7 @@ export default function DataCatalog() {
         )}
       </div>
       {filtered.length > 150 && (
-        <p className="text-center text-xs text-muted-foreground">Showing first 150 of {filtered.length} entities. Use search to narrow results.</p>
+        <p className="text-center text-xs" style={{ color: "var(--bp-ink-muted)" }}>Showing first 150 of {filtered.length} entities. Use search to narrow results.</p>
       )}
 
       <EntityDetailModal entity={selectedEntity} open={!!selectedEntity} onClose={() => setSelectedEntity(null)} />

@@ -26,7 +26,9 @@ def test_entity_onelake_folder_without_namespace():
 
 def test_entity_build_source_query_full():
     e = _make_entity(is_incremental=False)
-    assert e.build_source_query() == "SELECT * FROM [dbo].[TestTable]"
+    sql, params = e.build_source_query()
+    assert sql == "SELECT * FROM [dbo].[TestTable]"
+    assert params == []
 
 
 def test_entity_build_source_query_incremental():
@@ -35,15 +37,30 @@ def test_entity_build_source_query_incremental():
         watermark_column="ModifiedDate",
         last_load_value="2024-01-01T00:00:00Z",
     )
-    q = e.build_source_query()
-    assert "WHERE [ModifiedDate] >" in q
-    assert "2024-01-01T00:00:00Z" in q
+    sql, params = e.build_source_query()
+    assert "WHERE [ModifiedDate] > ?" in sql
+    assert params == ["2024-01-01T00:00:00Z"]
 
 
 def test_entity_build_source_query_incremental_no_watermark():
     """Incremental entity without a last_load_value should do a full load."""
     e = _make_entity(is_incremental=True, watermark_column="ModifiedDate", last_load_value=None)
-    assert "WHERE" not in e.build_source_query()
+    sql, params = e.build_source_query()
+    assert "WHERE" not in sql
+    assert params == []
+
+
+def test_entity_build_source_query_display():
+    """Display version returns a human-readable string with the value inline."""
+    e = _make_entity(
+        is_incremental=True,
+        watermark_column="ModifiedDate",
+        last_load_value="2024-01-01T00:00:00Z",
+    )
+    display = e.build_source_query_display()
+    assert "WHERE [ModifiedDate] >" in display
+    assert "2024-01-01T00:00:00Z" in display
+    assert "?" not in display
 
 
 # ---------------------------------------------------------------------------

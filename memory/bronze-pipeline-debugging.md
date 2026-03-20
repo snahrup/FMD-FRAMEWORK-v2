@@ -40,7 +40,7 @@
 import urllib.request, urllib.parse, json, struct, pyodbc
 body = urllib.parse.urlencode({
     'grant_type': 'client_credentials', 'client_id': CLIENT, 'client_secret': SECRET,
-    'scope': 'https://database.windows.net/.default',
+    'scope': 'https://analysis.windows.net/powerbi/api/.default',
 })
 req = urllib.request.Request(f'https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/token',
     data=body.encode(), headers={'Content-Type': 'application/x-www-form-urlencoded'})

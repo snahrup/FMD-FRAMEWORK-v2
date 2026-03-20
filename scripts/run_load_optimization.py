@@ -7,6 +7,7 @@ Connects to all 4 source SQL servers and discovers:
 Then updates the Fabric metadata DB with IsIncremental/IsIncrementalColumn.
 """
 import json
+import logging
 import pyodbc
 import os
 import sys
@@ -86,44 +87,83 @@ def connect_fabric():
     return conn
 
 def analyze_watermark_columns(cursor, schema, table):
-    """Detect watermark columns for a table."""
+    """Detect watermark columns for a table.
+
+    WIDENED DETECTION — priority order:
+      1. Identity columns (always monotonic, perfect watermark)
+      2. Datetime cols named *modif*/*updat*/*last* (most reliable timestamp)
+      3. Datetime cols named *chang*/*timestamp*
+      4. Datetime cols named *creat*/*insert*/*added*/*date*
+      5. ANY remaining datetime/datetime2 column (fallback — still better than full load)
+      6. Integer cols named *id*/*seq*/*num*/*key* that are NOT part of PK
+         (often auto-incrementing even without IDENTITY property)
+
+    Excludes timestamp/rowversion (binary, can't be compared as varchar).
+    """
     try:
         cursor.execute("""
             SELECT
                 c.name AS ColumnName,
                 t2.name AS DataType,
-                COLUMNPROPERTY(OBJECT_ID(QUOTENAME(s.name) + '.' + QUOTENAME(t.name)), c.name, 'IsIdentity') AS IsIdentity
+                COLUMNPROPERTY(OBJECT_ID(QUOTENAME(s.name) + '.' + QUOTENAME(t.name)), c.name, 'IsIdentity') AS IsIdentity,
+                CASE
+                    -- Priority 1: Identity column (perfect monotonic watermark)
+                    WHEN COLUMNPROPERTY(OBJECT_ID(QUOTENAME(s.name) + '.' + QUOTENAME(t.name)), c.name, 'IsIdentity') = 1
+                        THEN 1
+                    -- Priority 2: Datetime named modify/update/last (most reliable)
+                    WHEN t2.name IN ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime')
+                         AND (c.name LIKE '%[Mm]odif%' OR c.name LIKE '%[Uu]pdat%'
+                              OR c.name LIKE '%[Ll]ast%')
+                        THEN 2
+                    -- Priority 3: Datetime named change/timestamp
+                    WHEN t2.name IN ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime')
+                         AND (c.name LIKE '%[Cc]hang%' OR c.name LIKE '%[Tt]imestamp%')
+                        THEN 3
+                    -- Priority 4: Datetime named create/insert/added/date
+                    WHEN t2.name IN ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime')
+                         AND (c.name LIKE '%[Cc]reat%' OR c.name LIKE '%[Ii]nsert%'
+                              OR c.name LIKE '%[Aa]dded%' OR c.name LIKE '%[Dd]ate%')
+                        THEN 4
+                    -- Priority 5: ANY datetime/datetime2 column (better than full load)
+                    WHEN t2.name IN ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime')
+                        THEN 5
+                    -- Priority 6: Integer cols named id/seq/num/key (often auto-incrementing)
+                    WHEN t2.name IN ('int', 'bigint')
+                         AND (c.name LIKE '%[Ii]d' OR c.name LIKE '%[Ss]eq%'
+                              OR c.name LIKE '%[Nn]um%' OR c.name LIKE '%[Kk]ey%'
+                              OR c.name LIKE '%ID' OR c.name LIKE 'ID%'
+                              OR c.name LIKE '%_id' OR c.name LIKE '%_ID')
+                        THEN 6
+                    ELSE 99
+                END AS Priority
             FROM sys.tables t
             JOIN sys.schemas s ON t.schema_id = s.schema_id
             JOIN sys.columns c ON t.object_id = c.object_id
             JOIN sys.types t2 ON c.system_type_id = t2.system_type_id AND c.user_type_id = t2.user_type_id
             WHERE s.name = ? AND t.name = ?
+            AND t2.name NOT IN ('timestamp', 'rowversion', 'binary', 'varbinary', 'image',
+                                'geometry', 'geography', 'xml', 'hierarchyid', 'sql_variant')
             AND (
-                t2.name IN ('timestamp', 'rowversion')
-                OR (t2.name IN ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime')
-                    AND (c.name LIKE '%[Mm]odif%' OR c.name LIKE '%[Uu]pdat%'
-                         OR c.name LIKE '%[Cc]hang%' OR c.name LIKE '%[Tt]imestamp%'))
-                OR (t2.name IN ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime')
-                    AND (c.name LIKE '%[Cc]reat%'))
-                OR COLUMNPROPERTY(OBJECT_ID(QUOTENAME(s.name) + '.' + QUOTENAME(t.name)), c.name, 'IsIdentity') = 1
+                -- Identity columns
+                COLUMNPROPERTY(OBJECT_ID(QUOTENAME(s.name) + '.' + QUOTENAME(t.name)), c.name, 'IsIdentity') = 1
+                -- Any datetime-family column
+                OR t2.name IN ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime')
+                -- Integer columns with ID/seq/num/key in the name
+                OR (t2.name IN ('int', 'bigint')
+                    AND (c.name LIKE '%[Ii]d' OR c.name LIKE '%[Ss]eq%'
+                         OR c.name LIKE '%[Nn]um%' OR c.name LIKE '%[Kk]ey%'
+                         OR c.name LIKE '%ID' OR c.name LIKE 'ID%'
+                         OR c.name LIKE '%_id' OR c.name LIKE '%_ID'))
             )
-            ORDER BY
-                CASE
-                    WHEN t2.name IN ('timestamp', 'rowversion') THEN 1
-                    WHEN t2.name IN ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime')
-                         AND (c.name LIKE '%[Mm]odif%' OR c.name LIKE '%[Uu]pdat%') THEN 2
-                    WHEN t2.name IN ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime')
-                         AND c.name LIKE '%[Cc]hang%' THEN 3
-                    WHEN t2.name IN ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime')
-                         AND c.name LIKE '%[Cc]reat%' THEN 4
-                    WHEN COLUMNPROPERTY(OBJECT_ID(QUOTENAME(s.name) + '.' + QUOTENAME(t.name)), c.name, 'IsIdentity') = 1 THEN 5
-                    ELSE 6
-                END
+            ORDER BY Priority, c.column_id
         """, schema, table)
         rows = cursor.fetchall()
         if rows:
-            # Return best candidate
-            return rows[0].ColumnName, rows[0].DataType
+            best = rows[0]
+            # Skip if best candidate is priority 99 (shouldn't happen with the filter)
+            if best.Priority >= 99:
+                return None, None
+            return best.ColumnName, best.DataType
         return None, None
     except Exception as e:
         return None, f"ERROR: {str(e)[:80]}"
@@ -144,7 +184,8 @@ def analyze_primary_keys(cursor, schema, table):
         """, schema, table)
         rows = cursor.fetchall()
         return ','.join(r.ColumnName for r in rows) if rows else None
-    except Exception:
+    except Exception as e:
+        logging.debug("Failed to get primary key for %s.%s: %s", schema, table, e)
         return None
 
 def analyze_row_count(cursor, schema, table):
@@ -159,7 +200,8 @@ def analyze_row_count(cursor, schema, table):
         """, schema, table)
         row = cursor.fetchone()
         return int(row.RowCount) if row and row.RowCount else 0
-    except Exception:
+    except Exception as e:
+        logging.debug("Failed to get row count for %s.%s: %s", schema, table, e)
         return -1
 
 def main():

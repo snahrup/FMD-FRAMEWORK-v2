@@ -27,9 +27,6 @@ export default function EnvironmentSetup() {
       }
       const data = await resp.json();
       if (signal.aborted) return;
-      // Backend returns { workspaces, lakehouses, database, ... } at top level.
-      // Map into EnvironmentConfig when a "config" wrapper is present,
-      // otherwise check for known top-level keys.
       const cfg = data.config ?? (data.workspaces ? data : null);
       if (cfg) {
         setConfig({ ...EMPTY_CONFIG, ...cfg });
@@ -54,32 +51,32 @@ export default function EnvironmentSetup() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
-        <div className="flex items-center gap-3 text-muted-foreground">
+        <div className="flex items-center gap-3" style={{ color: 'var(--bp-ink-muted)' }}>
           <Loader2 className="h-5 w-5 animate-spin" />
-          <span className="text-sm">Loading current configuration...</span>
+          <span className="text-sm" style={{ fontFamily: 'var(--bp-font-body)' }}>Loading current configuration...</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ padding: '32px', maxWidth: '1280px' }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 flex items-center justify-center">
-            <Server className="h-5 w-5 text-blue-400" />
+          <div className="h-10 w-10 rounded-lg flex items-center justify-center" style={{ background: 'var(--bp-copper-light)', border: '1px solid var(--bp-border)' }}>
+            <Server className="h-5 w-5" style={{ color: 'var(--bp-copper)' }} />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight">Environment Setup</h1>
-            <p className="text-xs text-muted-foreground">
+            <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: '32px', color: 'var(--bp-ink-primary)' }}>Environment Setup</h1>
+            <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
               Configure Fabric workspaces, lakehouses, SQL database, and connections
             </p>
           </div>
         </div>
 
         {/* Mode toggle */}
-        <div className="flex items-center gap-1 rounded-lg border border-border/50 bg-muted p-1">
+        <div className="flex items-center gap-1 rounded-lg p-1" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-inset)' }}>
           {([
             { key: "provision" as const, icon: Rocket, label: "Provision" },
             { key: "wizard" as const, icon: Wand2, label: "Wizard" },
@@ -90,10 +87,13 @@ export default function EnvironmentSetup() {
               onClick={() => setMode(key)}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                mode === key
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
               )}
+              style={{
+                background: mode === key ? 'var(--bp-surface-1)' : 'transparent',
+                color: mode === key ? 'var(--bp-ink-primary)' : 'var(--bp-ink-tertiary)',
+                boxShadow: mode === key ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                fontFamily: 'var(--bp-font-body)',
+              }}
             >
               <Icon className="h-3.5 w-3.5" />
               {label}
@@ -103,14 +103,15 @@ export default function EnvironmentSetup() {
       </div>
 
       {loadError && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-400 flex items-center justify-between gap-3">
+        <div className="rounded-md p-3 text-xs flex items-center justify-between gap-3" style={{ border: '1px solid var(--bp-caution)', background: 'var(--bp-caution-light)', color: 'var(--bp-caution)' }}>
           <span>Could not load current config: {loadError}. Starting with empty configuration.</span>
           <button
             onClick={() => {
               const ac = new AbortController();
               loadConfig(ac.signal);
             }}
-            className="flex items-center gap-1 shrink-0 px-2 py-1 rounded border border-amber-500/30 hover:bg-amber-500/20 transition-colors"
+            className="flex items-center gap-1 shrink-0 px-2 py-1 rounded transition-colors"
+            style={{ border: '1px solid var(--bp-caution)', color: 'var(--bp-caution)' }}
           >
             <RefreshCw className="h-3 w-3" />
             Retry
@@ -119,7 +120,7 @@ export default function EnvironmentSetup() {
       )}
 
       {/* Content */}
-      <div className="rounded-xl border border-border/50 bg-card p-6">
+      <div className="rounded-xl p-6" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
         {mode === "provision" && (
           <ProvisionAll
             onComplete={(newConfig) => {

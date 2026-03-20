@@ -1,4 +1,5 @@
 """
+import os
 Deploy PROD by cloning all items from INTEGRATION CODE (D) to INTEGRATION CODE (P).
 Gets the exact definition from DEV (post-GUID-replacement) and creates it in PROD.
 """
@@ -9,7 +10,7 @@ from urllib.parse import urlencode
 
 TENANT_ID = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"
 CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"
-CLIENT_SECRET = "Te.8Q~YR_kQ~s-iJvlN-bpO8VCwtObo5pl24pbfu"
+CLIENT_SECRET = os.environ["FABRIC_CLIENT_SECRET"]
 FABRIC_API = "https://api.fabric.microsoft.com/v1"
 
 # Source: INTEGRATION CODE (D) — already deployed
@@ -70,8 +71,8 @@ def poll_operation(token, location_url, max_wait=180):
                     err = data.get("error", {}).get("message", "unknown")
                     print(f"    FAILED: {err}")
                     return False
-        except HTTPError:
-            pass
+        except HTTPError as e:
+            print(f"    Warning: poll HTTP error: {e}")
     print("    TIMEOUT")
     return False
 
@@ -104,8 +105,8 @@ def get_item_definition(token, ws_id, item_id, item_type):
                     with urlopen(req) as r:
                         data = json.loads(r.read())
                         return data.get("definition", {})
-                except:
-                    pass
+                except Exception as e:
+                    print(f"    Warning: failed to fetch definition result: {e}")
         return None
     else:
         print(f"    getDefinition HTTP {status}: {resp[:200]}")

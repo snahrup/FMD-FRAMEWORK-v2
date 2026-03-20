@@ -45,9 +45,18 @@ def _get_config() -> dict:
     global _CONFIG
     if _CONFIG is None:
         try:
+            import os, re
             cfg_path = Path(__file__).parent.parent / "config.json"
-            _CONFIG = json.loads(cfg_path.read_text())
-        except Exception:
+            raw = cfg_path.read_text()
+            # Resolve ${VAR} placeholders — .env is already loaded by server.py at startup
+            raw = re.sub(
+                r"[$][{](\w+)[}]",
+                lambda m: json.dumps(os.environ.get(m.group(1), ""))[1:-1],
+                raw,
+            )
+            _CONFIG = json.loads(raw)
+        except Exception as e:
+            log.warning("Failed to load config.json: %s", e)
             _CONFIG = {}
     return _CONFIG
 
@@ -97,8 +106,19 @@ def _validate_server(server: str) -> None:
 
 
 def _sanitize(val: str) -> str:
-    """Strip characters dangerous in SQL identifiers."""
-    return "".join(c for c in val if c.isalnum() or c in "-_ ")
+    """Strip characters dangerous in SQL identifiers.
+
+    Alphanumerics, underscores, hyphens, and spaces are allowed (all safe
+    inside ``[...]`` bracket-quoting).  Right-brackets and semicolons are
+    explicitly stripped to prevent bracket-escape and statement-stacking
+    injection.  Raises HttpError if the sanitized result is empty.
+    """
+    cleaned = "".join(c for c in val if c.isalnum() or c in "-_ ")
+    if not cleaned:
+        raise HttpError(f"Invalid SQL identifier after sanitization: '{val}'", 400)
+    # Escape right-brackets for safe bracket-quoting (defense-in-depth;
+    # the filter above already strips them)
+    return cleaned.replace("]", "]]")
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +129,8 @@ def _load_server_labels() -> dict:
     try:
         rows = db.query("SELECT key, value FROM admin_config WHERE key LIKE 'server_label_%'")
         return {r["key"].replace("server_label_", "", 1): r["value"] for r in rows}
-    except Exception:
+    except Exception as e:
+        log.warning("Failed to load server labels: %s", e)
         return {}
 
 
@@ -124,14 +145,25 @@ def _save_server_label(server: str, label: str) -> None:
 # Lakehouse query helper
 # ---------------------------------------------------------------------------
 
-def _query_lakehouse(lakehouse_name: str, sql: str) -> list[dict]:
+def _query_lakehouse(lakehouse_name: str, sql: str, params: tuple = ()) -> list[dict]:
     """Execute a query against a Fabric lakehouse SQL Analytics Endpoint."""
     import pyodbc
     import struct
-    lh = db.query(
-        "SELECT LakehouseGuid, WorkspaceGuid FROM lakehouses WHERE Name = ? LIMIT 1",
-        (lakehouse_name,),
-    )
+    # Prefer the active DEV workspace; fall back to any match
+    ws_id = _get_config().get("fabric", {}).get("workspace_data_id", "")
+    if ws_id:
+        lh = db.query(
+            "SELECT LakehouseGuid, WorkspaceGuid FROM lakehouses "
+            "WHERE Name = ? AND LOWER(WorkspaceGuid) = LOWER(?) LIMIT 1",
+            (lakehouse_name, ws_id),
+        )
+    else:
+        lh = []
+    if not lh:
+        lh = db.query(
+            "SELECT LakehouseGuid, WorkspaceGuid FROM lakehouses WHERE Name = ? LIMIT 1",
+            (lakehouse_name,),
+        )
     if not lh:
         raise HttpError(f"Lakehouse '{lakehouse_name}' not found", 404)
 
@@ -152,7 +184,7 @@ def _query_lakehouse(lakehouse_name: str, sql: str) -> list[dict]:
     conn = pyodbc.connect(conn_str, attrs_before=attrs_before, timeout=30)
     try:
         cursor = conn.cursor()
-        cursor.execute(sql)
+        cursor.execute(sql, params) if params else cursor.execute(sql)
         cols = [c[0] for c in cursor.description] if cursor.description else []
         return [{c: (str(v) if v is not None else None) for c, v in zip(cols, row)}
                 for row in cursor.fetchall()]
@@ -176,7 +208,7 @@ def get_sql_explorer_servers(params: dict) -> list:
         "SELECT c.ConnectionId, c.Name AS ConnName, c.ServerName, c.DatabaseName, c.Type, "
         "ds.Name AS DataSourceName, ds.Namespace, ds.Description "
         "FROM connections c "
-        "LEFT JOIN datasources ds ON ds.ConnectionId = c.ConnectionId "
+        "INNER JOIN datasources ds ON ds.ConnectionId = c.ConnectionId "
         "WHERE c.ServerName IS NOT NULL AND c.ServerName != '' "
         "ORDER BY ds.Name, c.Name"
     )
@@ -267,19 +299,20 @@ def get_sql_explorer_databases(params: dict) -> list:
             "table_count": "0",
         }
         try:
-            db_name_q = row[0]
+            db_name_q = _sanitize(row[0])
             cursor.execute(
-                f"SELECT COUNT(*) FROM [{db_name_q}].INFORMATION_SCHEMA.TABLES "
-                f"WHERE TABLE_TYPE = 'BASE TABLE'"
+                # Catalog identifier sanitized above — cannot be parameterized in T-SQL
+                "SELECT COUNT(*) FROM [" + db_name_q + "].INFORMATION_SCHEMA.TABLES "
+                "WHERE TABLE_TYPE = 'BASE TABLE'"
             )
             entry["table_count"] = str(cursor.fetchone()[0])
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Failed to get table count for database %s: %s", row[0], e)
         results.append(entry)
     try:
         conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("Error closing connection: %s", e)
     return results
 
 
@@ -335,8 +368,9 @@ def get_sql_explorer_tables(params: dict) -> list:
         )
         cursor = conn.cursor()
         cursor.execute(
-            f"SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES "
-            f"WHERE TABLE_SCHEMA = '{s_sch}' AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME"
+            "SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME",
+            (s_sch,),
         )
         cols = [c[0] for c in cursor.description]
         rows = cursor.fetchall()
@@ -368,7 +402,7 @@ def get_sql_explorer_columns(params: dict) -> dict:
             timeout=15,
         )
         cursor = conn.cursor()
-        cursor.execute(f"""
+        cursor.execute("""
             SELECT
                 c.COLUMN_NAME, c.DATA_TYPE, c.IS_NULLABLE,
                 CAST(c.CHARACTER_MAXIMUM_LENGTH AS VARCHAR) AS CHARACTER_MAXIMUM_LENGTH,
@@ -385,32 +419,33 @@ def get_sql_explorer_columns(params: dict) -> dict:
                 ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
                 AND kcu.TABLE_SCHEMA = tc.TABLE_SCHEMA
                 AND kcu.COLUMN_NAME = c.COLUMN_NAME
-            WHERE c.TABLE_SCHEMA = '{s_sch}' AND c.TABLE_NAME = '{s_tbl}'
+            WHERE c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ?
             ORDER BY c.ORDINAL_POSITION
-        """)
+        """, (s_sch, s_tbl))
         cols_meta = [c[0] for c in cursor.description]
         columns = [{c: (str(v) if v is not None else None) for c, v in zip(cols_meta, row)}
                    for row in cursor.fetchall()]
         row_count = -1
         try:
-            cursor.execute(f"""
+            cursor.execute("""
                 SELECT SUM(p.rows) AS row_count
                 FROM sys.partitions p
                 JOIN sys.tables t ON p.object_id = t.object_id
                 JOIN sys.schemas s ON t.schema_id = s.schema_id
-                WHERE s.name = '{s_sch}' AND t.name = '{s_tbl}' AND p.index_id IN (0, 1)
-            """)
+                WHERE s.name = ? AND t.name = ? AND p.index_id IN (0, 1)
+            """, (s_sch, s_tbl))
             r = cursor.fetchone()
             if r and r[0] is not None:
                 row_count = int(r[0])
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Failed to get row count for %s.%s: %s", s_sch, s_tbl, e)
         conn.close()
         return {"server": server, "database": database, "schema": schema, "table": table,
                 "rowCount": row_count, "columns": columns}
     except HttpError:
-        raise
+        raise  # propagate HTTP errors as-is
     except Exception as e:
+        log.exception("columns(%s, %s, %s, %s) failed", server, database, schema, table)
         raise HttpError(str(e), 502)
 
 
@@ -440,29 +475,34 @@ def get_sql_explorer_preview(params: dict) -> dict:
             timeout=30,
         )
         cursor = conn.cursor()
-        cursor.execute(f"SELECT TOP {limit} * FROM [{s_sch}].[{s_tbl}]")
+        # NOTE: schema/table identifiers cannot be parameterized — bracket-quoting
+        # sanitized values is the standard SQL Server approach.
+        cursor.execute(
+            "SELECT TOP (?) * FROM [" + s_sch + "].[" + s_tbl + "]", (limit,)
+        )
         col_names = [c[0] for c in cursor.description]
         rows = [{c: (str(v) if v is not None else None) for c, v in zip(col_names, row)}
                 for row in cursor.fetchall()]
         row_count = len(rows)
         try:
-            cursor.execute(f"""
+            cursor.execute("""
                 SELECT SUM(p.rows) FROM sys.partitions p
                 JOIN sys.tables t ON p.object_id = t.object_id
                 JOIN sys.schemas s ON t.schema_id = s.schema_id
-                WHERE s.name = '{s_sch}' AND t.name = '{s_tbl}' AND p.index_id IN (0, 1)
-            """)
+                WHERE s.name = ? AND t.name = ? AND p.index_id IN (0, 1)
+            """, (s_sch, s_tbl))
             r = cursor.fetchone()
             if r and r[0] is not None:
                 row_count = int(r[0])
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Failed to get row count for %s.%s: %s", s_sch, s_tbl, e)
         conn.close()
         return {"server": server, "database": database, "schema": schema, "table": table,
                 "limit": limit, "rowCount": row_count, "columns": col_names, "rows": rows}
     except HttpError:
-        raise
+        raise  # propagate HTTP errors as-is
     except Exception as e:
+        log.exception("preview(%s, %s, %s, %s) failed", server, database, schema, table)
         raise HttpError(str(e), 502)
 
 
@@ -482,15 +522,32 @@ def post_server_label(params: dict) -> dict:
 
 @route("GET", "/api/sql-explorer/lakehouses")
 def get_sql_explorer_lakehouses(params: dict) -> list:
-    lakehouses = db.query("SELECT Name FROM lakehouses ORDER BY Name")
+    # Filter to the active DEV workspace only — avoids showing duplicate PROD lakehouses
+    ws_id = _get_config().get("fabric", {}).get("workspace_data_id", "")
+    if ws_id:
+        lakehouses = db.query(
+            "SELECT DISTINCT Name FROM lakehouses WHERE LOWER(WorkspaceGuid) = LOWER(?)",
+            (ws_id,),
+        )
+    else:
+        lakehouses = db.query("SELECT DISTINCT Name FROM lakehouses")
+
+    # Forced order: Landing → Bronze → Silver.  Clean display names.
+    _ORDER = {"LH_DATA_LANDINGZONE": 0, "LH_BRONZE_LAYER": 1, "LH_SILVER_LAYER": 2}
+    _DISPLAY = {"LH_DATA_LANDINGZONE": "Landing", "LH_BRONZE_LAYER": "Bronze", "LH_SILVER_LAYER": "Silver"}
+    sorted_lh = sorted(lakehouses, key=lambda r: _ORDER.get(r["Name"], 99))
     return [
         {
             "name": lh["Name"],
-            "display": lh["Name"].replace("LH_", "").replace("_", " ").title(),
+            "display": _DISPLAY.get(lh["Name"], lh["Name"]),
+            "layer": "landing" if "LANDINGZONE" in lh["Name"].upper() else (
+                "bronze" if "BRONZE" in lh["Name"].upper() else (
+                "silver" if "SILVER" in lh["Name"].upper() else "unknown"
+            )),
             "status": "online",
             "error": None,
         }
-        for lh in lakehouses
+        for lh in sorted_lh
     ]
 
 
@@ -507,9 +564,9 @@ def get_sql_explorer_lakehouse_schemas(params: dict) -> list:
             "GROUP BY TABLE_SCHEMA ORDER BY TABLE_SCHEMA",
         )
     except HttpError:
-        raise
-    except Exception as e:
-        log.warning("lakehouse-schemas(%s): %s", lakehouse, e)
+        raise  # propagate HTTP errors as-is
+    except Exception:
+        log.exception("lakehouse-schemas(%s) failed", lakehouse)
         return []
 
 
@@ -523,13 +580,14 @@ def get_sql_explorer_lakehouse_tables(params: dict) -> list:
     try:
         return _query_lakehouse(
             lakehouse,
-            f"SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES "
-            f"WHERE TABLE_SCHEMA = '{s}' AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME",
+            "SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME",
+            (s,),
         )
     except HttpError:
-        raise
-    except Exception as e:
-        log.warning("lakehouse-tables(%s, %s): %s", lakehouse, schema, e)
+        raise  # propagate HTTP errors as-is
+    except Exception:
+        log.exception("lakehouse-tables(%s, %s) failed", lakehouse, schema)
         return []
 
 
@@ -545,27 +603,34 @@ def get_sql_explorer_lakehouse_columns(params: dict) -> dict:
     try:
         col_rows = _query_lakehouse(
             lakehouse,
-            f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
-            f"CAST(CHARACTER_MAXIMUM_LENGTH AS VARCHAR) AS CHARACTER_MAXIMUM_LENGTH, "
-            f"CAST(NUMERIC_PRECISION AS VARCHAR) AS NUMERIC_PRECISION, "
-            f"CAST(NUMERIC_SCALE AS VARCHAR) AS NUMERIC_SCALE, "
-            f"CAST(ORDINAL_POSITION AS VARCHAR) AS ORDINAL_POSITION, "
-            f"COLUMN_DEFAULT, '0' AS IS_PK "
-            f"FROM INFORMATION_SCHEMA.COLUMNS "
-            f"WHERE TABLE_SCHEMA = '{s}' AND TABLE_NAME = '{t}' ORDER BY ORDINAL_POSITION",
+            "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
+            "CAST(CHARACTER_MAXIMUM_LENGTH AS VARCHAR) AS CHARACTER_MAXIMUM_LENGTH, "
+            "CAST(NUMERIC_PRECISION AS VARCHAR) AS NUMERIC_PRECISION, "
+            "CAST(NUMERIC_SCALE AS VARCHAR) AS NUMERIC_SCALE, "
+            "CAST(ORDINAL_POSITION AS VARCHAR) AS ORDINAL_POSITION, "
+            "COLUMN_DEFAULT, '0' AS IS_PK "
+            "FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
+            (s, t),
         )
         row_count = -1
         try:
-            rc = _query_lakehouse(lakehouse, f"SELECT COUNT(*) AS cnt FROM [{s}].[{t}]")
+            # NOTE: identifiers cannot be parameterized in SQL Server —
+            # bracket-quoting sanitized values is standard practice.
+            rc = _query_lakehouse(
+                lakehouse,
+                "SELECT COUNT(*) AS cnt FROM [" + s + "].[" + t + "]",
+            )
             if rc:
                 row_count = int(rc[0].get("cnt", -1))
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Failed to get lakehouse row count for %s.%s.%s: %s", lakehouse, s, t, e)
         return {"server": lakehouse, "database": lakehouse, "schema": schema, "table": table,
                 "rowCount": row_count, "columns": col_rows}
     except HttpError:
-        raise
+        raise  # propagate HTTP errors as-is
     except Exception as e:
+        log.exception("lakehouse-columns(%s, %s, %s) failed", lakehouse, schema, table)
         raise HttpError(str(e), 502)
 
 
@@ -583,20 +648,23 @@ def get_sql_explorer_lakehouse_preview(params: dict) -> dict:
     s = _sanitize(schema)
     t = _sanitize(table)
     try:
-        rows = _query_lakehouse(lakehouse, f"SELECT TOP {limit} * FROM [{s}].[{t}]")
+        # NOTE: TOP and identifiers cannot be fully parameterized via _query_lakehouse
+        # since it wraps pyodbc — bracket-quoting sanitized values is standard practice.
+        rows = _query_lakehouse(lakehouse, "SELECT TOP (?) * FROM [" + s + "].[" + t + "]", (limit,))
         col_names = list(rows[0].keys()) if rows else []
         row_count = len(rows)
         try:
-            rc = _query_lakehouse(lakehouse, f"SELECT COUNT(*) AS cnt FROM [{s}].[{t}]")
+            rc = _query_lakehouse(lakehouse, "SELECT COUNT(*) AS cnt FROM [" + s + "].[" + t + "]")
             if rc:
                 row_count = int(rc[0].get("cnt", len(rows)))
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Failed to get lakehouse row count for %s.%s.%s: %s", lakehouse, s, t, e)
         return {"server": lakehouse, "database": lakehouse, "schema": schema, "table": table,
                 "limit": limit, "rowCount": row_count, "columns": col_names, "rows": rows}
     except HttpError:
-        raise
+        raise  # propagate HTTP errors as-is
     except Exception as e:
+        log.exception("lakehouse-preview(%s, %s, %s) failed", lakehouse, schema, table)
         raise HttpError(str(e), 502)
 
 
@@ -605,12 +673,22 @@ def get_sql_explorer_lakehouse_files(params: dict) -> list:
     lakehouse = params.get("lakehouse", "")
     if not lakehouse:
         raise HttpError("lakehouse param required", 400)
-    # OneLake file listing via Fabric REST API
+    # OneLake file listing via Fabric REST API — use active workspace
     try:
-        lh_row = db.query(
-            "SELECT LakehouseGuid, WorkspaceGuid FROM lakehouses WHERE Name = ? LIMIT 1",
-            (lakehouse,),
-        )
+        cfg_ws = _get_config().get("fabric", {}).get("workspace_data_id", "")
+        if cfg_ws:
+            lh_row = db.query(
+                "SELECT LakehouseGuid, WorkspaceGuid FROM lakehouses "
+                "WHERE Name = ? AND LOWER(WorkspaceGuid) = LOWER(?) LIMIT 1",
+                (lakehouse, cfg_ws),
+            )
+        else:
+            lh_row = []
+        if not lh_row:
+            lh_row = db.query(
+                "SELECT LakehouseGuid, WorkspaceGuid FROM lakehouses WHERE Name = ? LIMIT 1",
+                (lakehouse,),
+            )
         if not lh_row:
             return []
         ws_id = lh_row[0]["WorkspaceGuid"]
@@ -635,12 +713,22 @@ def get_sql_explorer_lakehouse_file_tables(params: dict) -> list:
     namespace = params.get("namespace", "")
     if not lakehouse or not namespace:
         raise HttpError("lakehouse and namespace params required", 400)
-    # List delta table folders under Files/<namespace>/
+    # List delta table folders under Files/<namespace>/ — use active workspace
     try:
-        lh_row = db.query(
-            "SELECT LakehouseGuid, WorkspaceGuid FROM lakehouses WHERE Name = ? LIMIT 1",
-            (lakehouse,),
-        )
+        cfg_ws = _get_config().get("fabric", {}).get("workspace_data_id", "")
+        if cfg_ws:
+            lh_row = db.query(
+                "SELECT LakehouseGuid, WorkspaceGuid FROM lakehouses "
+                "WHERE Name = ? AND LOWER(WorkspaceGuid) = LOWER(?) LIMIT 1",
+                (lakehouse, cfg_ws),
+            )
+        else:
+            lh_row = []
+        if not lh_row:
+            lh_row = db.query(
+                "SELECT LakehouseGuid, WorkspaceGuid FROM lakehouses WHERE Name = ? LIMIT 1",
+                (lakehouse,),
+            )
         if not lh_row:
             return []
         ws_id = lh_row[0]["WorkspaceGuid"]

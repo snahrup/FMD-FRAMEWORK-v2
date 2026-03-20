@@ -58,11 +58,11 @@ const LAYER_COLOR_MAP: Record<string, string> = Object.fromEntries(
 );
 
 const STATUS_STYLES: Record<string, { color: string; icon: typeof CheckCircle2; label: string }> = {
-  complete: { color: "text-emerald-400", icon: CheckCircle2, label: "Complete" },
-  partial: { color: "text-amber-400", icon: Clock, label: "Partial" },
-  pending: { color: "text-blue-400", icon: Clock, label: "Pending" },
-  error: { color: "text-red-400", icon: AlertTriangle, label: "Error" },
-  not_started: { color: "text-muted-foreground/40", icon: Circle, label: "Not Started" },
+  complete: { color: "text-[var(--bp-operational)]", icon: CheckCircle2, label: "Complete" },
+  partial: { color: "text-[var(--bp-caution)]", icon: Clock, label: "Partial" },
+  pending: { color: "text-[var(--bp-copper)]", icon: Clock, label: "Pending" },
+  error: { color: "text-[var(--bp-fault)]", icon: AlertTriangle, label: "Error" },
+  not_started: { color: "text-[var(--bp-ink-muted)]", icon: Circle, label: "Not Started" },
 };
 
 const SANKEY_PADDING = { top: 80, right: 60, bottom: 40, left: 60 };
@@ -164,7 +164,8 @@ function SourcePanel({
   return (
     <div
       ref={panelRef}
-      className="fixed top-0 right-0 h-full w-[400px] z-[300] bg-card border-l border-border/50 shadow-2xl flex flex-col animate-[slideInRight_0.25s_ease-out]"
+      className="fixed top-0 right-0 h-full w-[400px] z-[300] flex flex-col animate-[slideInRight_0.25s_ease-out]"
+      style={{ background: 'var(--bp-surface-1)', borderLeft: '1px solid var(--bp-border)' }}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-border/30 flex-shrink-0">
@@ -299,7 +300,7 @@ export default function SankeyFlow() {
       nodeMap.set(`layer-${lk}`, {
         id: `layer-${lk}`,
         label: LAYERS.find((l) => l.key === lk)?.label || lk,
-        color: LAYER_COLOR_MAP[lk] || "#64748b",
+        color: LAYER_COLOR_MAP[lk] || "#A8A29E",
         count: layerCounts[lk],
         type: "layer",
       });
@@ -470,8 +471,8 @@ export default function SankeyFlow() {
   if (error && !data) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
-        <AlertCircle className="w-8 h-8 text-red-400" />
-        <p className="text-sm text-red-400">{error}</p>
+        <AlertCircle className="w-8 h-8 text-[var(--bp-fault)]" />
+        <p className="text-sm text-[var(--bp-fault)]">{error}</p>
         <button
           onClick={refresh}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -496,11 +497,11 @@ export default function SankeyFlow() {
   const hasHoverState = hoveredNode !== null || hoveredLink !== null;
 
   return (
-    <div className="h-full flex flex-col bg-background relative">
+    <div className="h-full flex flex-col relative" style={{ backgroundColor: '#F4F2ED' }}>
       {/* Title bar */}
-      <div className="flex-shrink-0 px-6 py-4 border-b border-border/50 bg-card flex items-center justify-between z-10">
+      <div className="flex-shrink-0 px-6 py-4 flex items-center justify-between z-10" style={{ borderBottom: '1px solid var(--bp-border-subtle)', background: 'var(--bp-surface-1)' }}>
         <div>
-          <h1 className="font-display text-lg font-semibold text-foreground">Data Flow</h1>
+          <h1 className="text-[32px] font-normal tracking-tight" style={{ fontFamily: 'var(--bp-font-display)', color: 'var(--bp-ink-primary)' }}>Data Flow</h1>
           <p className="text-xs text-muted-foreground/60 mt-0.5">
             {totalSummary.total.toLocaleString()} entities across {sourceList.length} sources
             {data.generatedAt && (
@@ -512,7 +513,7 @@ export default function SankeyFlow() {
         </div>
         <div className="flex items-center gap-2">
           {error && data && (
-            <span className="text-[10px] text-red-400/80 mr-1">Refresh failed</span>
+            <span className="text-[10px] text-[var(--bp-fault)] mr-1">Refresh failed</span>
           )}
           <button
             onClick={refresh}
@@ -631,8 +632,8 @@ export default function SankeyFlow() {
                     width={56}
                     height={24}
                     rx={6}
-                    fill="hsl(var(--card))"
-                    stroke="hsl(var(--border))"
+                    fill="#FEFDFB"
+                    stroke="rgba(0,0,0,0.08)"
                     strokeWidth={1}
                     opacity={0.95}
                   />
@@ -641,7 +642,7 @@ export default function SankeyFlow() {
                     y={midY + 4}
                     textAnchor="middle"
                     className="text-[11px] font-semibold"
-                    fill="hsl(var(--foreground))"
+                    fill="#1C1917"
                   >
                     {(link.value ?? 0).toLocaleString()}
                   </text>
@@ -697,7 +698,7 @@ export default function SankeyFlow() {
                         y={y + h / 2 - 6}
                         textAnchor="end"
                         className="text-[12px] font-semibold"
-                        fill="hsl(var(--foreground))"
+                        fill="#1C1917"
                         style={{ transition: `opacity ${ANIM_DURATION_MS}ms ease` }}
                       >
                         {node.label}
@@ -707,7 +708,7 @@ export default function SankeyFlow() {
                         y={y + h / 2 + 10}
                         textAnchor="end"
                         className="text-[10px]"
-                        fill="hsl(var(--muted-foreground))"
+                        fill="#A8A29E"
                         fillOpacity={0.6}
                       >
                         {node.count.toLocaleString()} entities
@@ -721,7 +722,7 @@ export default function SankeyFlow() {
                         y={y + h / 2 - 6}
                         textAnchor="start"
                         className="text-[12px] font-semibold"
-                        fill="hsl(var(--foreground))"
+                        fill="#1C1917"
                         style={{ transition: `opacity ${ANIM_DURATION_MS}ms ease` }}
                       >
                         {node.label}
@@ -731,7 +732,7 @@ export default function SankeyFlow() {
                         y={y + h / 2 + 10}
                         textAnchor="start"
                         className="text-[10px]"
-                        fill="hsl(var(--muted-foreground))"
+                        fill="#A8A29E"
                         fillOpacity={0.6}
                       >
                         {node.count > 0
@@ -765,7 +766,7 @@ export default function SankeyFlow() {
                 }
               }
               const layerDef = col.layerKey ? LAYERS.find((l) => l.key === col.layerKey) : null;
-              const headerColor = layerDef?.color || "#64748b";
+              const headerColor = layerDef?.color || "#A8A29E";
 
               return (
                 <text

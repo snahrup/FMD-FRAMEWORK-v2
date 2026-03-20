@@ -725,7 +725,7 @@ export function SourceOnboardingWizard({
       <div className="bg-card rounded-xl border border-border p-6">
         <div className="flex items-center gap-3 mb-3">
           <h2 className="text-lg font-semibold text-foreground">Source Onboarding</h2>
-          <span className="text-xs bg-amber-100 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">
+          <span className="text-xs bg-[#FDF3E3] dark:bg-[#C27A1A]/20 text-[#C27A1A] px-2 py-0.5 rounded-full font-medium">
             Setup Required
           </span>
         </div>
@@ -834,8 +834,8 @@ export function SourceOnboardingWizard({
       {status && (
         <div className={`mx-6 mb-3 rounded-lg p-3 flex items-center gap-2 text-sm ${
           status.type === 'success'
-            ? 'bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
-            : 'bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
+            ? 'bg-[#E7F3EB] border border-[#3D7C4F]/30 text-[#3D7C4F]'
+            : 'bg-[#FBEAE8] border border-[#B93A2A]/30 text-[#B93A2A]'
         }`}>
           {status.type === 'success' ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
           <span>{status.message}</span>
@@ -865,7 +865,7 @@ export function SourceOnboardingWizard({
                     >
                       <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-all ${
                         isComplete
-                          ? 'bg-emerald-100 dark:bg-emerald-950/30 border-emerald-400 dark:border-emerald-600 text-emerald-600 dark:text-emerald-400'
+                          ? 'bg-[#E7F3EB] border-[#3D7C4F] text-[#3D7C4F]'
                           : isLocked
                             ? 'bg-muted border-border text-muted-foreground/30'
                             : isActive
@@ -880,7 +880,7 @@ export function SourceOnboardingWizard({
                       </div>
                       <div className="text-center min-w-[110px]">
                         <p className={`text-xs font-semibold ${
-                          isComplete ? 'text-emerald-600 dark:text-emerald-400' :
+                          isComplete ? 'text-[#3D7C4F]' :
                           isLocked ? 'text-muted-foreground/30' :
                           isActive ? 'text-primary' :
                           'text-foreground'
@@ -888,7 +888,7 @@ export function SourceOnboardingWizard({
                           {label}
                         </p>
                         <p className={`text-[10px] mt-0.5 ${
-                          isComplete ? 'text-emerald-500/70' :
+                          isComplete ? 'text-[#3D7C4F]/70' :
                           isLocked ? 'text-muted-foreground/20' :
                           'text-muted-foreground'
                         }`}>
@@ -902,7 +902,7 @@ export function SourceOnboardingWizard({
                     </button>
                     {visIdx < VISUAL_STEPS.length - 1 && (
                       <div className={`flex-1 h-0.5 mx-2 mt-[-24px] rounded-full transition-colors ${
-                        isComplete ? 'bg-emerald-400 dark:bg-emerald-600' : 'bg-border'
+                        isComplete ? 'bg-[#3D7C4F]' : 'bg-border'
                       }`} />
                     )}
                   </div>
@@ -932,19 +932,19 @@ export function SourceOnboardingWizard({
                   </p>
 
                   {isVisualStepComplete(0) ? (
-                    <div className="ml-7 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3">
-                      <div className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300">
+                    <div className="ml-7 bg-[#E7F3EB] border border-[#3D7C4F]/30 rounded-lg p-3">
+                      <div className="flex items-center gap-2 text-sm text-[#3D7C4F]">
                         <CheckCircle2 className="h-4 w-4" />
                         <span className="font-medium">Configured</span>
-                        <span className="text-emerald-600/70 dark:text-emerald-400/70 font-mono text-xs ml-1">
+                        <span className="text-[#3D7C4F]/70 font-mono text-xs ml-1">
                           {getStep(2)?.referenceId}
                         </span>
                       </div>
                       {getStep(1)?.notes && (
-                        <p className="text-xs text-emerald-600/70 dark:text-emerald-400/60 mt-1 ml-6">{getStep(1)?.notes}</p>
+                        <p className="text-xs text-[#3D7C4F]/70 mt-1 ml-6">{getStep(1)?.notes}</p>
                       )}
                       {getStep(2)?.notes && (
-                        <p className="text-xs text-emerald-600/70 dark:text-emerald-400/60 mt-0.5 ml-6">{getStep(2)?.notes}</p>
+                        <p className="text-xs text-[#3D7C4F]/70 mt-0.5 ml-6">{getStep(2)?.notes}</p>
                       )}
                       <button onClick={() => setActiveVisualStep(1)} className="mt-2 ml-6 text-xs text-primary hover:underline flex items-center gap-1">
                         Continue to Select Tables <ArrowRight className="h-3 w-3" />
@@ -962,7 +962,7 @@ export function SourceOnboardingWizard({
                           </InfoTip>
                         </label>
                         {databaseOptions.length === 0 ? (
-                          <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                          <div className="flex items-center gap-2 text-sm text-[#C27A1A] bg-[#FDF3E3] border border-[#C27A1A]/30 rounded-lg p-3">
                             <AlertTriangle className="h-4 w-4 shrink-0" />
                             <span>No gateway connections found. A Fabric admin needs to set up gateway connections first.</span>
                           </div>
@@ -997,7 +997,7 @@ export function SourceOnboardingWizard({
                                   )}
                                 </div>
                                 {opt.alreadyRegistered && (
-                                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 rounded">
+                                  <span className="text-[10px] text-[#3D7C4F] bg-[#E7F3EB] px-1.5 py-0.5 rounded">
                                     registered
                                   </span>
                                 )}
@@ -1017,9 +1017,9 @@ export function SourceOnboardingWizard({
                                 <InfoTip>
                                   <p>A short, friendly name for this data source. Examples:</p>
                                   <ul className="list-disc ml-4 mt-1 space-y-0.5">
-                                    <li><strong>M3 Cloud</strong> — for the M3 ERP system</li>
-                                    <li><strong>PowerData</strong> — for the PowerData warehouse</li>
-                                    <li><strong>MES</strong> — for the manufacturing execution system</li>
+                                    <li><strong>Cloud ERP</strong> — for a cloud-hosted ERP system</li>
+                                    <li><strong>Warehouse</strong> — for a data warehouse</li>
+                                    <li><strong>Shop Floor</strong> — for a manufacturing execution system</li>
                                   </ul>
                                   <p className="mt-2 text-muted-foreground">Used to auto-generate the namespace, schema name, and folder path.</p>
                                 </InfoTip>
@@ -1045,7 +1045,7 @@ export function SourceOnboardingWizard({
                                   <p className="mt-1"><strong>Why?</strong> Each source's tables are namespaced under a schema to prevent naming conflicts across sources.</p>
                                   <p className="mt-1"><strong>Example:</strong> With schema <code className="bg-muted px-1 rounded">m3</code>, a table called <code className="bg-muted px-1 rounded">Customer</code> becomes <code className="bg-muted px-1 rounded">m3.Customer</code></p>
                                   {existingPrefixList.length > 0 && (
-                                    <p className="mt-2 text-amber-600 dark:text-amber-400">Already in use: {existingPrefixList.map(p => <code key={p} className="bg-muted px-1 rounded mr-1">{p}</code>)}</p>
+                                    <p className="mt-2 text-[#C27A1A]">Already in use: {existingPrefixList.map(p => <code key={p} className="bg-muted px-1 rounded mr-1">{p}</code>)}</p>
                                   )}
                                 </InfoTip>
                               </label>
@@ -1056,12 +1056,12 @@ export function SourceOnboardingWizard({
                                 placeholder="e.g. m3"
                                 className={`w-full px-3 py-2 text-sm bg-muted border rounded-lg focus:outline-none focus:ring-2 text-foreground placeholder:text-muted-foreground font-mono ${
                                   prefixConflict
-                                    ? 'border-red-400 dark:border-red-600 focus:ring-red-500/50'
+                                    ? 'border-[#B93A2A] focus:ring-[#B93A2A]/50'
                                     : 'border-border focus:ring-primary/50'
                                 }`}
                               />
                               {prefixConflict && (
-                                <p className="text-[10px] text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
+                                <p className="text-[10px] text-[#B93A2A] mt-1 flex items-center gap-1">
                                   <AlertTriangle className="h-3 w-3" />
                                   Schema name "{tablePrefix}" is already in use. Choose a unique name to avoid conflicts.
                                 </p>
@@ -1182,12 +1182,12 @@ export function SourceOnboardingWizard({
                     <div className="ml-7 space-y-4">
                       {/* Registered entities banner */}
                       {alreadyRegisteredKeys.size > 0 && (
-                        <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3">
-                          <div className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300">
+                        <div className="bg-[#E7F3EB] border border-[#3D7C4F]/30 rounded-lg p-3">
+                          <div className="flex items-center gap-2 text-sm text-[#3D7C4F]">
                             <CheckCircle2 className="h-4 w-4 shrink-0" />
                             <span className="font-medium">{alreadyRegisteredKeys.size} table{alreadyRegisteredKeys.size !== 1 ? 's' : ''} already registered</span>
                           </div>
-                          <p className="text-xs text-emerald-600/70 dark:text-emerald-400/60 mt-1 ml-6">
+                          <p className="text-xs text-[#3D7C4F]/70 mt-1 ml-6">
                             Registered tables appear dimmed below. Select additional tables to add to the framework.
                           </p>
                         </div>
@@ -1209,12 +1209,12 @@ export function SourceOnboardingWizard({
                             placeholder="e.g. m3"
                             className={`w-full px-3 py-2 text-sm bg-muted border rounded-lg focus:outline-none focus:ring-2 text-foreground placeholder:text-muted-foreground font-mono ${
                               prefixConflict
-                                ? 'border-red-400 dark:border-red-600 focus:ring-red-500/50'
+                                ? 'border-[#B93A2A] focus:ring-[#B93A2A]/50'
                                 : 'border-border focus:ring-primary/50'
                             }`}
                           />
                           {prefixConflict && (
-                            <p className="text-[10px] text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
+                            <p className="text-[10px] text-[#B93A2A] mt-1 flex items-center gap-1">
                               <AlertTriangle className="h-3 w-3" />
                               Prefix already in use
                             </p>
@@ -1297,7 +1297,7 @@ export function SourceOnboardingWizard({
                                 <>
                                   <span className="text-xs text-muted-foreground whitespace-nowrap">
                                     {selectedTables.size} new selected
-                                    {regCount > 0 && <span className="text-emerald-600 dark:text-emerald-400"> · {regCount} registered</span>}
+                                    {regCount > 0 && <span className="text-[#3D7C4F]"> · {regCount} registered</span>}
                                   </span>
                                   <button
                                     onClick={() => {
@@ -1347,7 +1347,7 @@ export function SourceOnboardingWizard({
                                     <span className="text-muted-foreground font-mono w-16 shrink-0">{t.TABLE_SCHEMA}</span>
                                     <span className={`font-mono ${isRegistered ? 'text-muted-foreground' : 'text-foreground'}`}>{t.TABLE_NAME}</span>
                                     {isRegistered ? (
-                                      <span className="ml-auto text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 rounded font-medium">
+                                      <span className="ml-auto text-[10px] text-[#3D7C4F] bg-[#E7F3EB] px-1.5 py-0.5 rounded font-medium">
                                         registered
                                       </span>
                                     ) : (
@@ -1365,7 +1365,7 @@ export function SourceOnboardingWizard({
                             <div className="text-xs text-muted-foreground">
                               {selectedTables.size} new table{selectedTables.size !== 1 ? 's' : ''} will be registered
                               {alreadyRegisteredKeys.size > 0 && (
-                                <span className="text-emerald-600 dark:text-emerald-400 ml-1">
+                                <span className="text-[#3D7C4F] ml-1">
                                   ({alreadyRegisteredKeys.size} already in framework)
                                 </span>
                               )}
@@ -1450,7 +1450,7 @@ export function SourceOnboardingWizard({
                             </button>
                             <button
                               onClick={() => { setShowConfirmation(false); bulkRegisterEntities(); }}
-                              className="flex items-center gap-1.5 px-5 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-colors"
+                              className="flex items-center gap-1.5 px-5 py-2 text-sm bg-[#3D7C4F] hover:bg-[#2d6040] text-white rounded-lg font-semibold transition-colors"
                             >
                               <Plus className="h-4 w-4" />
                               Confirm & Register {selectedTables.size} Entities
@@ -1468,12 +1468,12 @@ export function SourceOnboardingWizard({
                           <div className="space-y-1 max-h-40 overflow-y-auto">
                             {registeredEntities.map(e => (
                               <div key={e.LandingzoneEntityId} className="flex items-center gap-2 text-xs">
-                                <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                                <CheckCircle2 className="h-3 w-3 text-[#3D7C4F] shrink-0" />
                                 <span className="font-mono text-foreground">{e.SourceSchema}.{e.SourceName}</span>
                                 <span className="text-muted-foreground">→ {e.FileName}</span>
                                 <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded ${
                                   e.IsIncremental === 'True'
-                                    ? 'bg-blue-100 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400'
+                                    ? 'bg-[#F4E8DF] text-[#B45624]'
                                     : 'bg-muted text-muted-foreground'
                                 }`}>
                                   {e.IsIncremental === 'True' ? 'Incremental' : 'Full'}
@@ -1499,12 +1499,12 @@ export function SourceOnboardingWizard({
                   {isVisualStepComplete(2) ? (
                     <div className="ml-7">
                       {/* Ready to import — source configured */}
-                      <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4 mb-4">
-                        <div className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300 mb-2">
+                      <div className="bg-[#E7F3EB] border border-[#3D7C4F]/30 rounded-lg p-4 mb-4">
+                        <div className="flex items-center gap-2 text-sm text-[#3D7C4F] mb-2">
                           <CheckCircle2 className="h-5 w-5" />
                           <span className="font-semibold">Source ready to import</span>
                         </div>
-                        <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
+                        <p className="text-xs text-[#3D7C4F]/80">
                           <strong>{selectedSource}</strong> is configured with {registeredEntities.length} table{registeredEntities.length !== 1 ? 's' : ''}. Click Import to start loading data.
                         </p>
                       </div>
@@ -1526,9 +1526,9 @@ export function SourceOnboardingWizard({
                               <div
                                 className={`h-full rounded-full transition-all duration-500 ${
                                   importError
-                                    ? 'bg-red-500'
+                                    ? 'bg-[#B93A2A]'
                                     : importComplete
-                                    ? 'bg-emerald-500'
+                                    ? 'bg-[#3D7C4F]'
                                     : 'bg-primary'
                                 }`}
                                 style={{ width: `${importProgress}%` }}
@@ -1553,14 +1553,14 @@ export function SourceOnboardingWizard({
                                 return (
                                   <div key={step.phase} className="flex items-center gap-2 text-xs">
                                     {isDone ? (
-                                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                                      <CheckCircle2 className="h-3.5 w-3.5 text-[#3D7C4F] shrink-0" />
                                     ) : isActive ? (
                                       <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" />
                                     ) : (
                                       <div className="h-3.5 w-3.5 rounded-full border border-muted-foreground/30 shrink-0" />
                                     )}
                                     <span className={
-                                      isDone ? 'text-emerald-600 dark:text-emerald-400' :
+                                      isDone ? 'text-[#3D7C4F]' :
                                       isActive ? 'text-foreground font-medium' :
                                       'text-muted-foreground'
                                     }>
@@ -1574,8 +1574,8 @@ export function SourceOnboardingWizard({
 
                           {/* Error message */}
                           {importError && (
-                            <div className="mt-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
-                              <div className="flex items-center gap-2 text-xs text-red-700 dark:text-red-300">
+                            <div className="mt-3 bg-[#FBEAE8] border border-[#B93A2A]/30 rounded-lg p-3">
+                              <div className="flex items-center gap-2 text-xs text-[#B93A2A]">
                                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                                 <span>{importError}</span>
                               </div>
@@ -1584,8 +1584,8 @@ export function SourceOnboardingWizard({
 
                           {/* Complete message */}
                           {importComplete && (
-                            <div className="mt-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3">
-                              <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
+                            <div className="mt-3 bg-[#E7F3EB] border border-[#3D7C4F]/30 rounded-lg p-3">
+                              <div className="flex items-center gap-2 text-xs text-[#3D7C4F]">
                                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                                 <span className="font-medium">
                                   Import started for all {registeredEntities.length} tables. Data will be available once processing completes.

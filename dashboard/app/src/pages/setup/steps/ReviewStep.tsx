@@ -14,23 +14,23 @@ interface ReviewStepProps {
 function ReviewRow({ label, value, sub }: { label: string; value: string | null; sub?: string }) {
   const isSet = !!value;
   return (
-    <tr className="border-b border-border/20">
-      <td className="py-1.5 pr-4 text-xs text-muted-foreground whitespace-nowrap">{label}</td>
+    <tr style={{ borderBottom: '1px solid var(--bp-border-subtle)' }}>
+      <td className="py-1.5 pr-4 text-xs whitespace-nowrap" style={{ color: 'var(--bp-ink-tertiary)' }}>{label}</td>
       <td className="py-1.5 text-xs">
         {isSet ? (
           <div>
-            <span className="font-medium text-foreground">{value}</span>
-            {sub && <span className="ml-2 font-mono text-[10px] text-muted-foreground/50">{sub}</span>}
+            <span className="font-medium" style={{ color: 'var(--bp-ink-primary)' }}>{value}</span>
+            {sub && <span className="ml-2 text-[10px]" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-muted)' }}>{sub}</span>}
           </div>
         ) : (
-          <span className="text-muted-foreground/40 italic">Not configured</span>
+          <span className="italic" style={{ color: 'var(--bp-ink-muted)' }}>Not configured</span>
         )}
       </td>
       <td className="py-1.5 pl-3 w-6">
         {isSet ? (
-          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+          <CheckCircle2 className="h-3.5 w-3.5" style={{ color: 'var(--bp-operational)' }} />
         ) : (
-          <XCircle className="h-3.5 w-3.5 text-muted-foreground/30" />
+          <XCircle className="h-3.5 w-3.5" style={{ color: 'var(--bp-ink-muted)' }} />
         )}
       </td>
     </tr>
@@ -89,16 +89,16 @@ export function ReviewStep({ config }: ReviewStepProps) {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-2">
-        <ShieldCheck className="h-4 w-4 text-emerald-400" />
-        <h3 className="text-sm font-semibold">Review Configuration</h3>
+        <ShieldCheck className="h-4 w-4" style={{ color: 'var(--bp-operational)' }} />
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>Review Configuration</h3>
       </div>
 
-      <div className="rounded-md border border-border/40 bg-card p-4">
+      <div className="rounded-md p-4" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
         <table className="w-full">
           <thead>
-            <tr className="border-b border-border/30">
-              <th className="pb-1.5 text-left text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">Setting</th>
-              <th className="pb-1.5 text-left text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">Value</th>
+            <tr style={{ borderBottom: '1px solid var(--bp-border)' }}>
+              <th className="pb-1.5 text-left text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Setting</th>
+              <th className="pb-1.5 text-left text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Value</th>
               <th className="pb-1.5 w-6"></th>
             </tr>
           </thead>
@@ -124,7 +124,7 @@ export function ReviewStep({ config }: ReviewStepProps) {
       </div>
 
       {saveError && (
-        <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
+        <div className="rounded-md p-3 text-xs" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)', color: 'var(--bp-fault)' }}>
           {saveError}
         </div>
       )}
@@ -142,13 +142,13 @@ export function ReviewStep({ config }: ReviewStepProps) {
           {saving ? "Saving..." : "Save & Propagate"}
         </Button>
         {validating && (
-          <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <span className="text-xs flex items-center gap-1.5" style={{ color: 'var(--bp-ink-muted)' }}>
             <Loader2 className="h-3 w-3 animate-spin" />
             Validating...
           </span>
         )}
         {saveResults.length > 0 && saveResults.every((r) => r.status === "ok") && (
-          <span className="text-xs text-emerald-400 flex items-center gap-1.5">
+          <span className="text-xs flex items-center gap-1.5" style={{ color: 'var(--bp-operational)' }}>
             <CheckCircle2 className="h-3.5 w-3.5" />
             All targets updated successfully
           </span>
@@ -156,7 +156,7 @@ export function ReviewStep({ config }: ReviewStepProps) {
       </div>
 
       {saveResults.length > 0 && (
-        <p className="text-[10px] text-muted-foreground/50">
+        <p className="text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>
           Changes to config.json require a server restart to take effect.
         </p>
       )}

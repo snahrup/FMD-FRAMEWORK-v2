@@ -86,12 +86,12 @@ export default function EntitySelector({
       <div
         className={`flex items-center border rounded-lg transition-colors cursor-pointer ${
           dropdownOpen
-            ? "border-primary/50 bg-card/80 ring-1 ring-primary/20"
-            : "border-border/50 bg-card hover:border-border"
+            ? "border-[#B45624] bg-[#FEFDFB]"
+            : "border-[rgba(0,0,0,0.08)] bg-[#FEFDFB] hover:border-[rgba(0,0,0,0.14)]"
         }`}
         onClick={() => !dropdownOpen && setDropdownOpen(true)}
       >
-        <Search className="w-4 h-4 text-muted-foreground/50 ml-3 flex-shrink-0" />
+        <Search className="w-4 h-4 ml-3 flex-shrink-0" style={{ color: "#A8A29E" }} />
         {dropdownOpen ? (
           <input
             type="text"
@@ -99,32 +99,32 @@ export default function EntitySelector({
             placeholder={loading ? "Loading entities..." : `Filter ${entities.length} entities...`}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-3 py-2.5 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 outline-none"
+            className="w-full px-3 py-2.5 bg-transparent text-sm text-[#1C1917] placeholder:text-[#A8A29E] outline-none"
           />
         ) : (
           <div className="w-full px-3 py-2.5 text-sm">
             {selectedEntity ? (
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#F4E8DF] text-[#B45624] border border-[#B45624]/20">
                   {selectedEntity.source}
                 </span>
-                <span className="font-mono text-foreground">{selectedEntity.tableName}</span>
+                <span style={{ fontFamily: "var(--font-mono)", color: "#1C1917" }}>{selectedEntity.tableName}</span>
               </div>
             ) : (
-              <span className="text-muted-foreground/40">{placeholder}</span>
+              <span style={{ color: "#A8A29E" }}>{placeholder}</span>
             )}
           </div>
         )}
         {selectedId && !dropdownOpen && onClear && (
           <button
             onClick={handleClear}
-            className="mr-2 text-muted-foreground/40 hover:text-muted-foreground"
+            className="mr-2 text-[#A8A29E] hover:text-[#78716C]"
           >
             <XCircle className="w-4 h-4" />
           </button>
         )}
         <ChevronDown
-          className={`w-4 h-4 text-muted-foreground/40 mr-3 flex-shrink-0 transition-transform ${
+          className={`w-4 h-4 text-[#A8A29E] mr-3 flex-shrink-0 transition-transform ${
             dropdownOpen ? "rotate-180" : ""
           }`}
         />
@@ -132,14 +132,14 @@ export default function EntitySelector({
 
       {/* Dropdown list */}
       {dropdownOpen && !loading && (
-        <div className="absolute z-[200] mt-1 w-full max-h-[60vh] overflow-y-auto rounded-lg border border-border/50 bg-popover shadow-2xl">
+        <div className="absolute z-[200] mt-1 w-full max-h-[60vh] overflow-y-auto rounded-lg border border-[rgba(0,0,0,0.08)] bg-[#FEFDFB]">
           {Object.entries(groupedEntities).map(([source, items]) => (
             <div key={source}>
-              <div className="sticky top-0 px-3 py-2 bg-muted/80 backdrop-blur-sm border-b border-border/20 flex items-center justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+              <div className="sticky top-0 px-3 py-2 backdrop-blur-sm flex items-center justify-between" style={{ background: "#F9F7F3", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-[#B45624]">
                   {source}
                 </span>
-                <span className="text-[10px] text-muted-foreground/40">{items.length} entities</span>
+                <span className="text-[10px] text-[#A8A29E]">{items.length} entities</span>
               </div>
               {items.map((e) => {
                 const idStr = String(e.id);
@@ -147,21 +147,21 @@ export default function EntitySelector({
                   <button
                     key={idStr}
                     onClick={() => handleSelect(idStr)}
-                    className={`w-full text-left px-3 py-2 hover:bg-primary/5 transition-colors flex items-center justify-between gap-2 ${
-                      selectedId === idStr ? "bg-primary/10 border-l-2 border-primary" : ""
+                    className={`w-full text-left px-3 py-2 hover:bg-[#F9F7F3] transition-colors flex items-center justify-between gap-2 ${
+                      selectedId === idStr ? "bg-[#F4E8DF] border-l-2 border-[#B45624]" : ""
                     }`}
                   >
                     <div className="min-w-0 flex items-center gap-2">
-                      <span className="text-sm font-mono text-foreground truncate">
+                      <span className="text-sm truncate" style={{ fontFamily: "var(--font-mono)", color: "#1C1917" }}>
                         {e.tableName}
                       </span>
                       {e.sourceSchema !== "dbo" && (
-                        <span className="text-[10px] text-muted-foreground/40 flex-shrink-0">
+                        <span className="text-[10px] text-[#A8A29E] flex-shrink-0">
                           {e.sourceSchema}
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-muted-foreground/30 flex-shrink-0">
+                    <span className="text-[10px] text-[#A8A29E]/60 flex-shrink-0">
                       #{idStr}
                     </span>
                   </button>
@@ -170,7 +170,7 @@ export default function EntitySelector({
             </div>
           ))}
           {Object.keys(groupedEntities).length === 0 && (
-            <div className="px-3 py-6 text-center text-sm text-muted-foreground/40">
+            <div className="px-3 py-6 text-center text-sm text-[#A8A29E]">
               No entities match "{searchQuery}"
             </div>
           )}

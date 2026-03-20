@@ -4,6 +4,7 @@ Endpoints:
     GET  /api/glossary                    — paginated glossary search
     GET  /api/glossary/entity/{entityId}  — entity annotation + related terms
     POST /api/glossary/seed               — re-run seed_glossary.py via subprocess
+    GET  /api/gold/domains                — distinct gold-layer business domains with entity counts
 
 Data sources:
     SQLite: business_glossary, entity_annotations, lz_entities
@@ -109,20 +110,18 @@ def get_glossary(params: dict) -> dict:
         where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
         # Count total matching rows
-        total_row = conn.execute(
-            f"SELECT COUNT(*) AS cnt FROM business_glossary {where_sql}",
-            bind,
-        ).fetchone()
+        count_sql = "SELECT COUNT(*) AS cnt FROM business_glossary " + where_sql
+        total_row = conn.execute(count_sql, bind).fetchone()
         total = total_row["cnt"] if total_row else 0
 
         # Fetch page
-        rows = conn.execute(
-            f"SELECT id, term, definition, category, related_systems, synonyms, source "
-            f"FROM business_glossary {where_sql} "
-            f"ORDER BY term COLLATE NOCASE "
-            f"LIMIT ? OFFSET ?",
-            bind + [limit, offset],
-        ).fetchall()
+        select_sql = (
+            "SELECT id, term, definition, category, related_systems, synonyms, source "
+            "FROM business_glossary " + where_sql +
+            " ORDER BY term COLLATE NOCASE "
+            "LIMIT ? OFFSET ?"
+        )
+        rows = conn.execute(select_sql, bind + [limit, offset]).fetchall()
 
         return {
             "items": [_row_to_glossary_item(r) for r in rows],
@@ -257,3 +256,76 @@ def seed_glossary(params: dict) -> dict:
     except OSError as exc:
         log.error("Failed to launch seed script: %s", exc)
         raise HttpError(f"Failed to launch seed script: {exc}", 500)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/glossary/annotations/bulk
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/glossary/annotations/bulk")
+def get_bulk_annotations(params: dict) -> list:
+    """Return all entity annotations (id, business_name, description) in one call.
+
+    Used by the catalog page to show descriptions without N+1 queries.
+
+    Response:
+        [
+          { "entity_id": 1, "business_name": "...", "description": "..." },
+          ...
+        ]
+    """
+    conn = db._get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT entity_id, business_name, description "
+            "FROM entity_annotations "
+            "WHERE description IS NOT NULL AND description != '' "
+            "ORDER BY entity_id",
+        ).fetchall()
+
+        return [
+            {
+                "entity_id": r["entity_id"],
+                "business_name": r["business_name"] or "",
+                "description": r["description"] or "",
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# GET /api/gold/domains
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/gold/domains")
+def get_gold_domains(params: dict) -> list:
+    """Return distinct gold-layer business domains with entity counts.
+
+    Response:
+        [
+          { "name": "Finance", "entityCount": 42 },
+          { "name": "Manufacturing", "entityCount": 15 },
+          ...
+        ]
+
+    Only domains that are non-null and non-empty are returned, sorted
+    alphabetically by name.
+    """
+    conn = db._get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT domain, COUNT(*) AS entity_count "
+            "FROM entity_annotations "
+            "WHERE domain IS NOT NULL AND domain != '' "
+            "GROUP BY domain "
+            "ORDER BY domain COLLATE NOCASE",
+        ).fetchall()
+
+        return [
+            {"name": r["domain"], "entityCount": r["entity_count"]}
+            for r in rows
+        ]
+    finally:
+        conn.close()

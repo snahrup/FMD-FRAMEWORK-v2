@@ -125,13 +125,13 @@ class TestComputeWatermark:
             result = DataExtractor._compute_watermark(entity, df)
             assert result == entity.last_load_value
         except ImportError:
-            pytest.skip("polars not installed")
+            pytest.skip("polars not installed")  # Expected — optional dependency
 
     def test_returns_max_for_incremental(self):
         try:
             import polars as pl
         except ImportError:
-            pytest.skip("polars not installed")
+            pytest.skip("polars not installed")  # Expected — optional dependency
 
         entity = _make_entity(
             is_incremental=True,
@@ -146,7 +146,7 @@ class TestComputeWatermark:
         try:
             import polars as pl
         except ImportError:
-            pytest.skip("polars not installed")
+            pytest.skip("polars not installed")  # Expected — optional dependency
 
         entity = _make_entity(
             is_incremental=True,
@@ -161,7 +161,7 @@ class TestComputeWatermark:
         try:
             import polars as pl
         except ImportError:
-            pytest.skip("polars not installed")
+            pytest.skip("polars not installed")  # Expected — optional dependency
 
         entity = _make_entity(
             is_incremental=True,
@@ -181,7 +181,7 @@ class TestRowsToDataframe:
         try:
             import polars as pl
         except ImportError:
-            pytest.skip("polars not installed")
+            pytest.skip("polars not installed")  # Expected — optional dependency
 
         col_names = ["id", "name"]
         rows = [(1, "Alice"), (2, "Bob")]
@@ -196,7 +196,7 @@ class TestRowsToDataframe:
         try:
             import polars as pl
         except ImportError:
-            pytest.skip("polars not installed")
+            pytest.skip("polars not installed")  # Expected — optional dependency
 
         col_names = ["id", "value"]
         rows = [(1, None), (2, "hello")]
@@ -207,7 +207,7 @@ class TestRowsToDataframe:
         try:
             import polars as pl
         except ImportError:
-            pytest.skip("polars not installed")
+            pytest.skip("polars not installed")  # Expected — optional dependency
 
         col_names = ["id"]
         rows = []

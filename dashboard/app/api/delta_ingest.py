@@ -5,6 +5,7 @@ Fabric notebooks (via OneLake sync agent) and upserts into SQLite.
 """
 import logging
 import os
+import re
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -12,6 +13,9 @@ import pyarrow.parquet as pq
 from dashboard.app.api import db
 
 log = logging.getLogger("fmd.delta_ingest")
+
+# Pattern for validating SQL identifier names from untrusted Parquet column headers.
+_IDENT_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
 ONELAKE_DIR = Path(os.environ.get("ONELAKE_MOUNT_PATH", ""))
 
@@ -75,11 +79,21 @@ def ingest_all() -> None:
                 continue
 
             cols = list(df_rows.keys())
-            col_names = ", ".join(f"[{c}]" for c in cols)
-            placeholders = ", ".join(["?"] * len(cols))
+            # Sanitize column names: strip brackets and reject anything
+            # that is not a simple identifier (alphanumeric + underscore).
+            safe_cols = []
+            for c in cols:
+                cleaned = c.replace("[", "").replace("]", "")
+                if not _IDENT_RE.match(cleaned):
+                    raise ValueError(f"Unsafe column name in Parquet file: {c!r}")
+                safe_cols.append(cleaned)
+            col_names = ", ".join(f"[{c}]" for c in safe_cols)
+            placeholders = ", ".join(["?"] * len(safe_cols))
+            # table_name from TABLE_MAP whitelist; bracket-escape for defense-in-depth
+            safe_table = table_name.replace("]", "]]")
             sql = (
-                f"INSERT OR REPLACE INTO [{table_name}] "
-                f"({col_names}) VALUES ({placeholders})"
+                "INSERT OR REPLACE INTO [" + safe_table + "] "
+                "(" + col_names + ") VALUES (" + placeholders + ")"
             )
 
             conn = db.get_db()

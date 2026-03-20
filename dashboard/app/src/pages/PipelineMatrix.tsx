@@ -192,18 +192,18 @@ const SOURCE_ICONS: Record<string, typeof Database> = {
 };
 
 const STATUS_COLORS: Record<string, { bg: string; ring: string; text: string; glow: string }> = {
-  complete: { bg: "bg-[var(--success-soft)]", ring: "stroke-[var(--cl-success)]", text: "text-[var(--cl-success)]", glow: "shadow-[var(--cl-success)]/20" },
-  in_progress: { bg: "bg-[var(--warning-soft)]", ring: "stroke-[var(--cl-warning)]", text: "text-[var(--cl-warning)]", glow: "shadow-[var(--cl-warning)]/20" },
-  partial: { bg: "bg-[var(--info-soft)]", ring: "stroke-[var(--cl-info)]", text: "text-[var(--cl-info)]", glow: "shadow-[var(--cl-info)]/20" },
-  not_started: { bg: "bg-muted", ring: "stroke-muted-foreground/30", text: "text-muted-foreground/50", glow: "" },
+  complete: { bg: "bg-[#E7F3EB]", ring: "stroke-[#3D7C4F]", text: "text-[#3D7C4F]", glow: "" },
+  in_progress: { bg: "bg-[#FDF3E3]", ring: "stroke-[#C27A1A]", text: "text-[#C27A1A]", glow: "" },
+  partial: { bg: "bg-[#F4E8DF]", ring: "stroke-[#B45624]", text: "text-[#B45624]", glow: "" },
+  not_started: { bg: "bg-[#EDEAE4]", ring: "stroke-[#A8A29E]", text: "text-[#A8A29E]", glow: "" },
 };
 
 const PIPELINE_STATUS_COLOR: Record<string, string> = {
-  Completed: "text-[var(--cl-success)]",
-  InProgress: "text-[var(--cl-warning)]",
-  Failed: "text-[var(--cl-error)]",
-  NotStarted: "text-muted-foreground",
-  Cancelled: "text-muted-foreground",
+  Completed: "text-[#3D7C4F]",
+  InProgress: "text-[#C27A1A]",
+  Failed: "text-[#B93A2A]",
+  NotStarted: "text-[#78716C]",
+  Cancelled: "text-[#78716C]",
 };
 
 function fmtNum(n: number): string {
@@ -266,9 +266,8 @@ function ProgressRing({
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="currentColor"
+          stroke="rgba(0,0,0,0.08)"
           strokeWidth={strokeWidth}
-          className="text-border"
         />
         {/* Progress arc */}
         <circle
@@ -281,7 +280,6 @@ function ProgressRing({
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           className={cn(colors.ring, "transition-all duration-1000 ease-out")}
-          style={status === "in_progress" ? { filter: "drop-shadow(0 0 4px currentColor)" } : {}}
         />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
@@ -296,23 +294,22 @@ function ProgressRing({
 function FlowLine({ status }: { status: string }) {
   const isActive = status === "complete" || status === "in_progress";
   const isFlowing = status === "in_progress";
-  const colors = STATUS_COLORS[status] || STATUS_COLORS.not_started;
 
   return (
     <div className="flex-1 flex items-center mx-1 relative h-8">
       {/* Base line */}
       <div className={cn(
         "absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full",
-        isActive ? "bg-border" : "bg-border/50"
+        isActive ? "bg-[rgba(0,0,0,0.08)]" : "bg-[rgba(0,0,0,0.04)]"
       )} />
       {/* Active glow line */}
       {isActive && (
         <div
-          className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full opacity-60"
+          className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full"
           style={{
             backgroundColor: status === "complete"
-              ? "var(--cl-success)"
-              : "var(--cl-warning)",
+              ? "var(--bp-operational)"
+              : "var(--bp-caution)",
             opacity: 0.3,
           }}
         />
@@ -323,7 +320,7 @@ function FlowLine({ status }: { status: string }) {
           <div
             className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full blur-[2px]"
             style={{
-              backgroundColor: "var(--cl-warning)",
+              backgroundColor: "var(--bp-caution)",
               opacity: 0.8,
               animation: "flowParticle 2s linear infinite",
             }}
@@ -331,7 +328,7 @@ function FlowLine({ status }: { status: string }) {
           <div
             className="absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full"
             style={{
-              backgroundColor: "var(--cl-warning)",
+              backgroundColor: "var(--bp-caution)",
               opacity: 0.6,
               animation: "flowParticle 2s linear infinite 0.7s",
             }}
@@ -339,7 +336,7 @@ function FlowLine({ status }: { status: string }) {
           <div
             className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full"
             style={{
-              backgroundColor: "var(--cl-warning)",
+              backgroundColor: "var(--bp-caution)",
               opacity: 0.4,
               animation: "flowParticle 2s linear infinite 1.4s",
             }}
@@ -351,7 +348,7 @@ function FlowLine({ status }: { status: string }) {
         <div
           className="absolute top-1/2 -translate-y-1/2 w-8 h-[2px] rounded-full"
           style={{
-            background: `linear-gradient(to right, transparent, var(--cl-success), transparent)`,
+            background: `linear-gradient(to right, transparent, var(--bp-operational), transparent)`,
             opacity: 0.5,
             animation: "flowParticle 3s linear infinite",
           }}
@@ -360,7 +357,7 @@ function FlowLine({ status }: { status: string }) {
       {/* Arrow head */}
       <ArrowRight className={cn(
         "absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3",
-        isActive ? colors.text : "text-muted-foreground/30"
+        isActive ? (status === "complete" ? "text-[#3D7C4F]" : "text-[#C27A1A]") : "text-[#A8A29E]"
       )} />
     </div>
   );
@@ -393,14 +390,14 @@ function LayerNode({
           </div>
         </ProgressRing>
       </button>
-      <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+      <span className="text-[11px] font-medium uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>{label}</span>
       {showPending && layer.pending && layer.pending > 0 ? (
-        <span className="text-[10px] text-[var(--cl-warning)] flex items-center gap-0.5">
+        <span className="text-[10px] flex items-center gap-0.5" style={{ color: "var(--bp-caution)" }}>
           <Clock className="w-2.5 h-2.5" />
           {layer.pending} pending
         </span>
       ) : layer.status === "complete" ? (
-        <span className="text-[10px] text-[var(--cl-success)] opacity-70 flex items-center gap-0.5">
+        <span className="text-[10px] opacity-70 flex items-center gap-0.5" style={{ color: "var(--bp-operational)" }}>
           <CheckCircle2 className="w-2.5 h-2.5" />
           100%
         </span>
@@ -445,47 +442,56 @@ function SourceCard({ source, isExpanded, onToggle, onDrillDown }: {
     source.silver.status === "in_progress" ? "in_progress" :
     source.silver.loaded > 0 ? "partial" : "not_started";
 
+  const borderColor = allComplete
+    ? "rgba(61,124,79,0.3)"
+    : anyInProgress
+    ? "rgba(194,122,26,0.3)"
+    : "rgba(0,0,0,0.08)";
+
   return (
     <div
-      className={cn(
-        "rounded-[var(--radius-xl)] border transition-all duration-300",
-        "bg-card shadow-[var(--shadow-card)]",
-        allComplete
-          ? "border-[var(--cl-success)]/30"
-          : anyInProgress
-          ? "border-[var(--cl-warning)]/30"
-          : "border-border",
-      )}
+      className="rounded-lg border transition-all duration-300"
+      style={{ backgroundColor: "var(--bp-surface-1)", borderColor }}
     >
       {/* Card Header */}
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-accent/50 rounded-t-[var(--radius-xl)] transition-colors cursor-pointer"
+        className="w-full flex items-center justify-between px-5 py-4 text-left rounded-t-lg transition-colors cursor-pointer hover:bg-[#F9F7F3]"
       >
         <div className="flex items-center gap-3">
-          <div className={cn(
-            "w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center",
-            allComplete ? "bg-[var(--success-soft)] text-[var(--cl-success)]" :
-            anyInProgress ? "bg-[var(--warning-soft)] text-[var(--cl-warning)]" :
-            "bg-muted text-muted-foreground"
-          )}>
+          <div
+            className="w-10 h-10 rounded-md flex items-center justify-center"
+            style={{
+              backgroundColor: allComplete ? "var(--bp-operational-light)" :
+                anyInProgress ? "var(--bp-caution-light)" : "var(--bp-surface-inset)",
+              color: allComplete ? "var(--bp-operational)" :
+                anyInProgress ? "var(--bp-caution)" : "var(--bp-ink-tertiary)",
+            }}
+          >
             <Icon className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-foreground">{source.name}</h3>
+            <h3 className="text-sm font-semibold" style={{ color: "var(--bp-ink-primary)" }}>{source.name}</h3>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs text-muted-foreground">{source.key}</span>
+              <span className="text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>{source.key}</span>
               {allComplete ? (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--success-soft)] text-[var(--cl-success)] font-medium">
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                  style={{ backgroundColor: "var(--bp-operational-light)", color: "var(--bp-operational)" }}
+                >
                   All Layers Complete
                 </span>
               ) : totalPending > 0 ? (
-                <span className={cn(
-                  "text-[10px] px-1.5 py-0.5 rounded-full font-medium",
-                  anyInProgress
-                    ? "bg-[var(--warning-soft)] text-[var(--cl-warning)] animate-pulse"
-                    : "bg-[var(--info-soft)] text-[var(--cl-info)]"
-                )}>
+                <span
+                  className={cn(
+                    "text-[10px] px-1.5 py-0.5 rounded-full font-medium",
+                    anyInProgress && "animate-pulse"
+                  )}
+                  style={{
+                    backgroundColor: anyInProgress ? "var(--bp-caution-light)" : "var(--bp-copper-light, #F4E8DF)",
+                    color: anyInProgress ? "var(--bp-caution)" : "var(--bp-copper)",
+                  }}
+                >
                   {totalPending} pending
                 </span>
               ) : null}
@@ -495,27 +501,25 @@ function SourceCard({ source, isExpanded, onToggle, onDrillDown }: {
         <div className="flex items-center gap-4">
           {/* Mini completion bar */}
           <div className="hidden sm:flex items-center gap-2">
-            <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden">
+            <div className="w-24 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: "var(--bp-surface-inset)" }}>
               <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-1000",
-                )}
+                className="h-full rounded-full transition-all duration-1000"
                 style={{
                   width: `${overallPct}%`,
                   backgroundColor: allComplete
-                    ? "var(--cl-success)"
+                    ? "var(--bp-operational)"
                     : anyInProgress
-                    ? "var(--cl-warning)"
-                    : "var(--cl-info)",
+                    ? "var(--bp-caution)"
+                    : "var(--bp-copper)",
                 }}
               />
             </div>
-            <span className="text-xs text-muted-foreground tabular-nums w-8">{overallPct}%</span>
+            <span className="text-xs tabular-nums w-8" style={{ color: "var(--bp-ink-tertiary)" }}>{overallPct}%</span>
           </div>
           {isExpanded ? (
-            <ChevronUp className="w-4 h-4 text-muted-foreground" />
+            <ChevronUp className="w-4 h-4" style={{ color: "var(--bp-ink-tertiary)" }} />
           ) : (
-            <ChevronDown className="w-4 h-4 text-muted-foreground" />
+            <ChevronDown className="w-4 h-4" style={{ color: "var(--bp-ink-tertiary)" }} />
           )}
         </div>
       </button>
@@ -525,10 +529,10 @@ function SourceCard({ source, isExpanded, onToggle, onDrillDown }: {
         <div className="flex items-center justify-center gap-0">
           {/* Source indicator */}
           <div className="flex flex-col items-center mr-2">
-            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-              <Database className="w-3.5 h-3.5 text-muted-foreground" />
+            <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "var(--bp-surface-inset)" }}>
+              <Database className="w-3.5 h-3.5" style={{ color: "var(--bp-ink-tertiary)" }} />
             </div>
-            <span className="text-[9px] text-muted-foreground/60 mt-1">Source</span>
+            <span className="text-[9px] mt-1" style={{ color: "var(--bp-ink-muted)" }}>Source</span>
           </div>
 
           <FlowLine status={source.lz.loaded > 0 ? "complete" : "not_started"} />
@@ -547,45 +551,45 @@ function SourceCard({ source, isExpanded, onToggle, onDrillDown }: {
 
       {/* Expanded Detail */}
       {isExpanded && (
-        <div className="px-5 pb-5 border-t border-border pt-4 space-y-3">
+        <div className="px-5 pb-5 pt-4 space-y-3" style={{ borderTop: "1px solid rgba(0,0,0,0.08)" }}>
           <div className="grid grid-cols-3 gap-3">
             {(["lz", "bronze", "silver"] as const).map((layer) => {
               const data = source[layer];
               const layerLabel = layer === "lz" ? "Landing Zone" : layer === "bronze" ? "Bronze" : "Silver";
               const colors = STATUS_COLORS[data.status];
               return (
-                <div key={layer} className={cn("rounded-[var(--radius-md)] p-3 border border-border/50", colors.bg)}>
+                <div key={layer} className={cn("rounded-md p-3 border", colors.bg)} style={{ borderColor: "rgba(0,0,0,0.08)" }}>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-foreground/80">{layerLabel}</span>
+                    <span className="text-xs font-medium" style={{ color: "var(--bp-ink-primary)" }}>{layerLabel}</span>
                     {data.status === "complete" ? (
-                      <CheckCircle2 className="w-3.5 h-3.5 text-[var(--cl-success)]" />
+                      <CheckCircle2 className="w-3.5 h-3.5" style={{ color: "var(--bp-operational)" }} />
                     ) : data.status === "in_progress" ? (
-                      <Loader2 className="w-3.5 h-3.5 text-[var(--cl-warning)] animate-spin" />
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: "var(--bp-caution)" }} />
                     ) : data.status === "partial" ? (
-                      <AlertTriangle className="w-3.5 h-3.5 text-[var(--cl-info)]" />
+                      <AlertTriangle className="w-3.5 h-3.5" style={{ color: "var(--bp-copper)" }} />
                     ) : (
-                      <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                      <Clock className="w-3.5 h-3.5" style={{ color: "var(--bp-ink-muted)" }} />
                     )}
                   </div>
                   <div className="space-y-1">
                     <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Loaded</span>
+                      <span style={{ color: "var(--bp-ink-tertiary)" }}>Loaded</span>
                       <span className={cn("font-mono font-bold", colors.text)}>{data.loaded}</span>
                     </div>
                     <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Registered</span>
-                      <span className="text-foreground/70 font-mono">{data.registered}</span>
+                      <span style={{ color: "var(--bp-ink-tertiary)" }}>Registered</span>
+                      <span className="font-mono" style={{ color: "var(--bp-ink-secondary)" }}>{data.registered}</span>
                     </div>
                     {data.loaded < data.registered && (
                       <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Gap</span>
-                        <span className="text-[var(--cl-error)] font-mono">{data.registered - data.loaded}</span>
+                        <span style={{ color: "var(--bp-ink-tertiary)" }}>Gap</span>
+                        <span className="font-mono" style={{ color: "var(--bp-fault)" }}>{data.registered - data.loaded}</span>
                       </div>
                     )}
                     {"pending" in data && data.pending! > 0 && (
                       <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Pending</span>
-                        <span className="text-[var(--cl-warning)] font-mono">{data.pending}</span>
+                        <span style={{ color: "var(--bp-ink-tertiary)" }}>Pending</span>
+                        <span className="font-mono" style={{ color: "var(--bp-caution)" }}>{data.pending}</span>
                       </div>
                     )}
                   </div>
@@ -615,16 +619,16 @@ function HeroStat({
   color: string;
 }) {
   return (
-    <div className="rounded-[var(--radius-xl)] border border-border bg-card shadow-[var(--shadow-card)] p-5">
+    <div className="rounded-lg border p-5" style={{ backgroundColor: "var(--bp-surface-1)", borderColor: "rgba(0,0,0,0.08)" }}>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
+          <p className="text-xs font-medium uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>{label}</p>
           <p className={cn("text-3xl font-bold tabular-nums mt-1", color)}>
             {fmtNum(value)}
           </p>
-          {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+          {subtitle && <p className="text-xs mt-1" style={{ color: "var(--bp-ink-tertiary)" }}>{subtitle}</p>}
         </div>
-        <div className="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center bg-muted">
+        <div className="w-10 h-10 rounded-md flex items-center justify-center" style={{ backgroundColor: "var(--bp-surface-inset)" }}>
           <Icon className={cn("w-5 h-5", color)} />
         </div>
       </div>
@@ -641,17 +645,17 @@ function ActivePipelineBanner({ pipelines }: { pipelines: PipelineRun[] }) {
   if (running.length === 0) return null;
 
   return (
-    <div className="rounded-[var(--radius-xl)] border border-[var(--cl-warning)]/30 bg-[var(--warning-soft)] px-5 py-3">
+    <div className="rounded-lg px-5 py-3" style={{ border: "1px solid rgba(194,122,26,0.3)", backgroundColor: "var(--bp-caution-light)" }}>
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <Loader2 className="w-4 h-4 text-[var(--cl-warning)] animate-spin" />
-          <span className="text-sm font-medium text-[var(--cl-warning)]">Pipeline Active</span>
+          <Loader2 className="w-4 h-4 animate-spin" style={{ color: "var(--bp-caution)" }} />
+          <span className="text-sm font-medium" style={{ color: "var(--bp-caution)" }}>Pipeline Active</span>
         </div>
         <div className="flex-1 flex items-center gap-4 overflow-x-auto">
           {running.map((p, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
-              <span className="text-foreground font-medium">{p.name}</span>
-              <span className="text-border">|</span>
+            <div key={i} className="flex items-center gap-2 text-xs whitespace-nowrap" style={{ color: "var(--bp-ink-tertiary)" }}>
+              <span className="font-medium" style={{ color: "var(--bp-ink-primary)" }}>{p.name}</span>
+              <span style={{ color: "rgba(0,0,0,0.08)" }}>|</span>
               <span>{timeSince(p.startTime)}</span>
             </div>
           ))}
@@ -710,7 +714,7 @@ export default function PipelineMatrix() {
   if (loading && !data) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: "var(--bp-ink-muted)" }} />
       </div>
     );
   }
@@ -718,9 +722,9 @@ export default function PipelineMatrix() {
   if (error && !data) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] gap-4">
-        <AlertTriangle className="w-10 h-10 text-[var(--cl-error)]" />
-        <p className="text-muted-foreground">{error}</p>
-        <button onClick={fetchData} className="text-sm text-[var(--cl-info)] hover:underline">
+        <AlertTriangle className="w-10 h-10" style={{ color: "var(--bp-fault)" }} />
+        <p style={{ color: "var(--bp-ink-tertiary)" }}>{error}</p>
+        <button onClick={fetchData} className="text-sm hover:underline" style={{ color: "var(--bp-copper)" }}>
           Retry
         </button>
       </div>
@@ -753,17 +757,17 @@ export default function PipelineMatrix() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-3">
-            <Layers className="w-7 h-7 text-[var(--cl-info)]" />
+          <h1 className="text-2xl font-bold flex items-center gap-3" style={{ color: "var(--bp-ink-primary)" }}>
+            <Layers className="w-7 h-7" style={{ color: "var(--bp-copper)" }} />
             Data Pipeline Matrix
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm mt-1" style={{ color: "var(--bp-ink-tertiary)" }}>
             Real-time view of data flowing through the medallion architecture
           </p>
         </div>
         <div className="flex items-center gap-3">
           {lastRefresh && (
-            <span className="text-xs text-muted-foreground/60">
+            <span className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>
               Updated {timeSince(lastRefresh.toISOString())}
             </span>
           )}
@@ -771,10 +775,14 @@ export default function PipelineMatrix() {
             onClick={fetchData}
             disabled={loading}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] text-xs font-medium transition-colors cursor-pointer",
-              "bg-secondary text-secondary-foreground hover:bg-accent border border-border",
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer",
               loading && "opacity-50 cursor-not-allowed"
             )}
+            style={{
+              backgroundColor: "var(--bp-surface-inset)",
+              color: "var(--bp-ink-secondary)",
+              border: "1px solid rgba(0,0,0,0.08)",
+            }}
           >
             <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
             Refresh
@@ -792,34 +800,34 @@ export default function PipelineMatrix() {
           value={totals.lz}
           subtitle="tables extracted"
           icon={Database}
-          color="text-[var(--cl-info)]"
+          color="text-[#B45624]"
         />
         <HeroStat
           label="Bronze Layer"
           value={totals.bronze}
           subtitle={totals.bronzePending > 0 ? `${totals.bronzePending} pending` : "all loaded"}
           icon={Layers}
-          color="text-[var(--cl-warning)]"
+          color="text-[#C27A1A]"
         />
         <HeroStat
           label="Silver Layer"
           value={totals.silver}
           subtitle={totals.silverPending > 0 ? `${totals.silverPending} pending` : "all loaded"}
           icon={Zap}
-          color="text-[var(--cl-success)]"
+          color="text-[#3D7C4F]"
         />
         <HeroStat
           label="Total Loaded"
           value={totalLoaded}
           subtitle={totalPending > 0 ? `${totalPending} still pending` : "across all layers"}
           icon={TrendingUp}
-          color="text-primary"
+          color="text-[#1C1917]"
         />
       </div>
 
       {/* Source Pipeline Cards */}
       <div className="space-y-3">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style={{ color: "var(--bp-ink-tertiary)" }}>
           <Database className="w-4 h-4" />
           Sources
         </h2>
@@ -838,8 +846,8 @@ export default function PipelineMatrix() {
 
       {/* Recent Pipeline Runs */}
       {data.pipelines.length > 0 && (
-        <div className="rounded-[var(--radius-xl)] border border-border bg-card shadow-[var(--shadow-card)] p-5">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
+        <div className="rounded-lg border p-5" style={{ backgroundColor: "var(--bp-surface-1)", borderColor: "rgba(0,0,0,0.08)" }}>
+          <h2 className="text-sm font-semibold uppercase tracking-wider mb-4 flex items-center gap-2" style={{ color: "var(--bp-ink-tertiary)" }}>
             <Clock className="w-4 h-4" />
             Latest Pipeline Runs
           </h2>
@@ -847,26 +855,33 @@ export default function PipelineMatrix() {
             {data.pipelines.map((p, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between py-2 px-3 rounded-[var(--radius-md)] bg-muted"
+                className="flex items-center justify-between py-2 px-3 rounded-md"
+                style={{ backgroundColor: "var(--bp-surface-inset)" }}
               >
                 <div className="flex items-center gap-3">
-                  <div className={cn(
-                    "w-2 h-2 rounded-full",
-                    p.status === "Completed" ? "bg-[var(--cl-success)]" :
-                    p.status === "InProgress" ? "bg-[var(--cl-warning)] animate-pulse" :
-                    p.status === "Failed" ? "bg-[var(--cl-error)]" : "bg-muted-foreground/30"
-                  )} />
-                  <span className="text-sm text-foreground">{p.name}</span>
+                  <div
+                    className={cn(
+                      "w-2 h-2 rounded-full",
+                      p.status === "InProgress" && "animate-pulse"
+                    )}
+                    style={{
+                      backgroundColor:
+                        p.status === "Completed" ? "var(--bp-operational)" :
+                        p.status === "InProgress" ? "var(--bp-caution)" :
+                        p.status === "Failed" ? "var(--bp-fault)" : "var(--bp-ink-muted)",
+                    }}
+                  />
+                  <span className="text-sm" style={{ color: "var(--bp-ink-primary)" }}>{p.name}</span>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                  <span className={PIPELINE_STATUS_COLOR[p.status] || "text-muted-foreground"}>
+                <div className="flex items-center gap-4 text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>
+                  <span className={PIPELINE_STATUS_COLOR[p.status] || "text-[#78716C]"}>
                     {p.status}
                   </span>
                   {p.startTime && p.endTime && (
                     <span>{duration(p.startTime, p.endTime)}</span>
                   )}
                   {p.startTime && !p.endTime && (
-                    <span className="text-[var(--cl-warning)]">{timeSince(p.startTime)}</span>
+                    <span style={{ color: "var(--bp-caution)" }}>{timeSince(p.startTime)}</span>
                   )}
                 </div>
               </div>
@@ -876,15 +891,15 @@ export default function PipelineMatrix() {
       )}
 
       {/* Summary Table (compact reference) */}
-      <div className="rounded-[var(--radius-xl)] border border-border bg-card shadow-[var(--shadow-card)] p-5">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
+      <div className="rounded-lg border p-5" style={{ backgroundColor: "var(--bp-surface-1)", borderColor: "rgba(0,0,0,0.08)" }}>
+        <h2 className="text-sm font-semibold uppercase tracking-wider mb-4 flex items-center gap-2" style={{ color: "var(--bp-ink-tertiary)" }}>
           <BarChart3 className="w-4 h-4" />
           Quick Reference
         </h2>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-muted-foreground text-xs uppercase tracking-wider">
+              <tr className="text-xs uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>
                 <th className="text-left py-2 px-3">Source</th>
                 <th className="text-right py-2 px-3">Landing Zone</th>
                 <th className="text-right py-2 px-3">Bronze</th>
@@ -900,51 +915,51 @@ export default function PipelineMatrix() {
                 const openDrill = (layer?: string, status?: string) =>
                   setDrillDown({ source: s.key, sourceName: s.name, layer, status });
                 return (
-                  <tr key={s.key} className="border-t border-border/50 hover:bg-accent/30">
+                  <tr key={s.key} className="hover:bg-[#F9F7F3]" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
                     <td className="py-2.5 px-3">
-                      <button onClick={() => openDrill()} className="text-foreground font-medium hover:underline cursor-pointer">{s.key}</button>
+                      <button onClick={() => openDrill()} className="font-medium hover:underline cursor-pointer" style={{ color: "var(--bp-ink-primary)" }}>{s.key}</button>
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono">
-                      <button onClick={() => openDrill("lz")} className="text-[var(--cl-info)] hover:underline cursor-pointer">{s.lz.loaded}</button>
+                      <button onClick={() => openDrill("lz")} className="hover:underline cursor-pointer" style={{ color: "var(--bp-copper)" }}>{s.lz.loaded}</button>
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono">
-                      <button onClick={() => openDrill("bronze")} className="text-[var(--cl-warning)] hover:underline cursor-pointer">{s.bronze.loaded}</button>
+                      <button onClick={() => openDrill("bronze")} className="hover:underline cursor-pointer" style={{ color: "var(--bp-caution)" }}>{s.bronze.loaded}</button>
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono">
-                      <button onClick={() => openDrill("silver")} className="text-[var(--cl-success)] hover:underline cursor-pointer">{s.silver.loaded}</button>
+                      <button onClick={() => openDrill("silver")} className="hover:underline cursor-pointer" style={{ color: "var(--bp-operational)" }}>{s.silver.loaded}</button>
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono">
                       {pending > 0 ? (
-                        <button onClick={() => openDrill(undefined, "pending")} className="text-[var(--cl-warning)] hover:underline cursor-pointer">{pending}</button>
+                        <button onClick={() => openDrill(undefined, "pending")} className="hover:underline cursor-pointer" style={{ color: "var(--bp-caution)" }}>{pending}</button>
                       ) : (
-                        <span className="text-muted-foreground/40">0</span>
+                        <span style={{ color: "var(--bp-ink-muted)" }}>0</span>
                       )}
                     </td>
                     <td className="py-2.5 px-3 text-right">
                       {allDone ? (
-                        <span className="text-[var(--cl-success)] text-xs font-medium">Complete</span>
+                        <span className="text-xs font-medium" style={{ color: "var(--bp-operational)" }}>Complete</span>
                       ) : pending > 0 ? (
-                        <button onClick={() => openDrill(undefined, "pending")} className="text-[var(--cl-warning)] text-xs font-medium hover:underline cursor-pointer">In Progress</button>
+                        <button onClick={() => openDrill(undefined, "pending")} className="text-xs font-medium hover:underline cursor-pointer" style={{ color: "var(--bp-caution)" }}>In Progress</button>
                       ) : (
-                        <button onClick={() => openDrill(undefined, "partial")} className="text-[var(--cl-info)] text-xs font-medium hover:underline cursor-pointer">Partial</button>
+                        <button onClick={() => openDrill(undefined, "partial")} className="text-xs font-medium hover:underline cursor-pointer" style={{ color: "var(--bp-copper)" }}>Partial</button>
                       )}
                     </td>
                   </tr>
                 );
               })}
-              <tr className="border-t-2 border-border font-semibold">
-                <td className="py-2.5 px-3 text-foreground">TOTAL</td>
-                <td className="py-2.5 px-3 text-right font-mono text-[var(--cl-info)]">{totals.lz}</td>
-                <td className="py-2.5 px-3 text-right font-mono text-[var(--cl-warning)]">{totals.bronze}</td>
-                <td className="py-2.5 px-3 text-right font-mono text-[var(--cl-success)]">{totals.silver}</td>
-                <td className="py-2.5 px-3 text-right font-mono text-[var(--cl-warning)]">
-                  {totalPending > 0 ? totalPending : <span className="text-muted-foreground/40">0</span>}
+              <tr className="font-semibold" style={{ borderTop: "2px solid rgba(0,0,0,0.08)" }}>
+                <td className="py-2.5 px-3" style={{ color: "var(--bp-ink-primary)" }}>TOTAL</td>
+                <td className="py-2.5 px-3 text-right font-mono" style={{ color: "var(--bp-copper)" }}>{totals.lz}</td>
+                <td className="py-2.5 px-3 text-right font-mono" style={{ color: "var(--bp-caution)" }}>{totals.bronze}</td>
+                <td className="py-2.5 px-3 text-right font-mono" style={{ color: "var(--bp-operational)" }}>{totals.silver}</td>
+                <td className="py-2.5 px-3 text-right font-mono" style={{ color: "var(--bp-caution)" }}>
+                  {totalPending > 0 ? totalPending : <span style={{ color: "var(--bp-ink-muted)" }}>0</span>}
                 </td>
                 <td className="py-2.5 px-3 text-right">
                   {totalPending === 0 ? (
-                    <span className="text-[var(--cl-success)] text-xs font-medium">All Complete</span>
+                    <span className="text-xs font-medium" style={{ color: "var(--bp-operational)" }}>All Complete</span>
                   ) : (
-                    <span className="text-[var(--cl-warning)] text-xs font-medium">{totalPending} pending</span>
+                    <span className="text-xs font-medium" style={{ color: "var(--bp-caution)" }}>{totalPending} pending</span>
                   )}
                 </td>
               </tr>

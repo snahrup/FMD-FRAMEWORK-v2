@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Search,
   RotateCcw,
@@ -67,35 +67,35 @@ const LAYERS = [
   {
     key: "source",
     label: "Source",
-    color: "#64748b",
+    color: "#A8A29E", // --bp-ink-muted
     icon: Database,
     description: "Where your data lives. Databases on company servers.",
   },
   {
     key: "landing",
     label: "Landing Zone",
-    color: "#3b82f6",
+    color: "#B45624", // --bp-copper
     icon: HardDrive,
     description: "Raw copies staged here first. Like a loading dock.",
   },
   {
     key: "bronze",
     label: "Bronze",
-    color: "#f59e0b",
+    color: "#C27A1A", // --bp-caution
     icon: Table2,
     description: "Organized into structured tables. Sorted and shelved.",
   },
   {
     key: "silver",
     label: "Silver",
-    color: "#8b5cf6",
+    color: "#78716C", // --bp-ink-tertiary
     icon: Sparkles,
     description: "Cleaned, validated, business rules applied. Ready to use.",
   },
   {
     key: "gold",
     label: "Gold",
-    color: "#10b981",
+    color: "#3D7C4F", // --bp-operational
     icon: Crown,
     description: "Polished data shaped for reports and dashboards.",
   },
@@ -295,14 +295,14 @@ function buildArchSourcePaths(pipelines: Pipeline[], connections: Connection[]):
 
 // Colors for shared infrastructure nodes
 const NODE_COLORS = {
-  config: "#64748B",
-  orchestrator: "#EF4444",
-  command: "#F97316",
-  copy: "#06B6D4",
-  landing: "#3b82f6",
-  notebook: "#A855F7",
-  bronze: "#f59e0b",
-  silver: "#8b5cf6",
+  config: "#A8A29E",    // --bp-ink-muted
+  orchestrator: "#B93A2A", // --bp-fault
+  command: "#78716C",   // --bp-ink-tertiary (distinct from landing/copper)
+  copy: "#78716C",      // --bp-ink-tertiary
+  landing: "#B45624",   // --bp-copper
+  notebook: "#57534E",  // --bp-ink-secondary
+  bronze: "#C27A1A",    // --bp-caution
+  silver: "#78716C",    // --bp-ink-tertiary
 };
 
 function FrameworkArchView({
@@ -546,6 +546,9 @@ function FrameworkArchView({
 // ============================================================================
 
 export default function FlowExplorer() {
+  const [searchParams] = useSearchParams();
+  const deepLinkHandled = useRef(false);
+
   // ── Entity Digest (replaces /entities, /bronze-entities, /silver-entities) ──
   const {
     allEntities,
@@ -597,6 +600,19 @@ export default function FlowExplorer() {
   }, []);
 
   useEffect(() => { loadAuxData(); }, [loadAuxData]);
+
+  // Deep-link: auto-filter when arriving via ?source=X&table=Y (from SourceManager)
+  useEffect(() => {
+    if (deepLinkHandled.current) return;
+    const sourceParam = searchParams.get('source');
+    const tableParam = searchParams.get('table');
+    if (!sourceParam || allEntities.length === 0) return;
+    deepLinkHandled.current = true;
+    // Set search query to filter to this source/table
+    setSearchQuery(tableParam || sourceParam);
+    // Auto-expand this source group
+    setExpandedSources(prev => new Set(prev).add(sourceParam));
+  }, [searchParams, allEntities]);
 
   // Combined loading / error state
   // Only block the page on initial load; aux errors are non-fatal for the data flow view
@@ -707,8 +723,8 @@ export default function FlowExplorer() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-48px)]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        <span className="ml-3 text-muted-foreground">Loading framework data from Fabric...</span>
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#B45624' }} />
+        <span className="ml-3" style={{ color: '#78716C' }}>Loading framework data from Fabric...</span>
       </div>
     );
   }
@@ -716,9 +732,9 @@ export default function FlowExplorer() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-[calc(100vh-48px)] gap-4">
-        <XCircle className="w-12 h-12 text-destructive" />
-        <p className="text-destructive font-medium">{error}</p>
-        <button onClick={loadData} className="px-4 py-2 rounded-md border border-border bg-card text-sm hover:bg-muted">
+        <XCircle className="w-12 h-12" style={{ color: '#B93A2A' }} />
+        <p className="font-medium" style={{ color: '#B93A2A' }}>{error}</p>
+        <button onClick={loadData} className="px-4 py-2 rounded-md text-sm" style={{ border: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB', color: '#57534E' }}>
           <RefreshCw className="w-4 h-4 inline mr-2" />Retry
         </button>
       </div>
@@ -767,7 +783,7 @@ export default function FlowExplorer() {
           transition: all 0.3s ease;
         }
         .flow-node-active {
-          --flow-rgb: 139, 92, 246;
+          --flow-rgb: 180, 86, 36;
           animation: pulseGlow 2s ease-in-out infinite;
         }
         .lane-row {
@@ -779,16 +795,16 @@ export default function FlowExplorer() {
       `}</style>
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 flex-shrink-0" style={{ borderBottom: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB' }}>
         <div className="flex items-center gap-4">
           <div>
-            <h1 className="font-display text-base font-semibold tracking-tight">Flow Explorer</h1>
+            <h1 className="text-[32px] font-normal tracking-tight" style={{ fontFamily: 'var(--bp-font-display)', color: 'var(--bp-ink-primary)' }}>Flow Explorer</h1>
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
               {viewMode === "data" ? "How your data moves through the system" : "The complete framework infrastructure"}
             </p>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground pl-4 border-l border-border">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--bp-operational)] inline-block" />
             <span className="font-mono text-[10px]">{fmt(totalFlows)} Tables</span>
             <span className="text-border mx-1">|</span>
             <span className="font-mono text-[10px]">{fmt(sourceGroups.length)} Sources</span>
@@ -802,7 +818,7 @@ export default function FlowExplorer() {
           <div className="flex items-center h-8 rounded-md border border-border overflow-hidden">
             <button
               className={`px-3 h-full text-[10px] font-semibold uppercase tracking-wider transition-colors ${
-                viewMode === "data" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                viewMode === "data" ? "bg-[#F4E8DF] text-[#B45624]" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               }`}
               onClick={() => setViewMode("data")}
             >
@@ -811,7 +827,7 @@ export default function FlowExplorer() {
             <div className="w-px h-4 bg-border" />
             <button
               className={`px-3 h-full text-[10px] font-semibold uppercase tracking-wider transition-colors ${
-                viewMode === "arch" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                viewMode === "arch" ? "bg-[#F4E8DF] text-[#B45624]" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               }`}
               onClick={() => setViewMode("arch")}
             >
@@ -823,27 +839,31 @@ export default function FlowExplorer() {
           <div className="flex items-center gap-2 px-3 border-l border-r border-border h-8">
             <span
               className={`text-[10px] uppercase tracking-wider cursor-pointer font-medium transition-colors ${
-                labelMode === "tech" ? "text-primary font-semibold" : "text-muted-foreground"
+                labelMode === "tech" ? "text-[#B45624] font-semibold" : "text-muted-foreground"
               }`}
               onClick={() => setLabelMode("tech")}
             >
               Technical
             </span>
             <div
-              className={`relative w-10 h-5 rounded-full cursor-pointer transition-all duration-300 ${
-                labelMode === "exec" ? "bg-primary/15 border border-primary/30" : "bg-muted border border-border"
-              }`}
+              className="relative w-10 h-5 rounded-full cursor-pointer transition-all duration-300"
+              style={{
+                backgroundColor: labelMode === "exec" ? 'rgba(180, 86, 36, 0.15)' : '#EDEAE4',
+                border: labelMode === "exec" ? '1px solid rgba(180, 86, 36, 0.3)' : '1px solid rgba(0,0,0,0.08)',
+              }}
               onClick={() => setLabelMode((m) => (m === "tech" ? "exec" : "tech"))}
             >
               <div
-                className={`absolute top-0.5 w-3.5 h-3.5 rounded-full transition-all duration-300 ${
-                  labelMode === "exec" ? "left-[22px] bg-primary" : "left-0.5 bg-muted-foreground"
-                }`}
+                className="absolute top-0.5 w-3.5 h-3.5 rounded-full transition-all duration-300"
+                style={{
+                  left: labelMode === "exec" ? '22px' : '2px',
+                  backgroundColor: labelMode === "exec" ? '#B45624' : '#A8A29E',
+                }}
               />
             </div>
             <span
               className={`text-[10px] uppercase tracking-wider cursor-pointer font-medium transition-colors ${
-                labelMode === "exec" ? "text-primary font-semibold" : "text-muted-foreground"
+                labelMode === "exec" ? "text-[#B45624] font-semibold" : "text-muted-foreground"
               }`}
               onClick={() => setLabelMode("exec")}
             >
@@ -870,7 +890,7 @@ export default function FlowExplorer() {
 
       {/* Inline warning when auxiliary data (connections/pipelines) failed */}
       {auxError && (
-        <div className="px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-600 text-[11px] flex items-center gap-2">
+        <div className="px-4 py-1.5 text-[11px] flex items-center gap-2" style={{ background: 'var(--bp-caution-light)', borderBottom: '1px solid var(--bp-border)', color: 'var(--bp-caution)' }}>
           <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
           <span>Pipeline/connection metadata unavailable ({auxError}). Data flow view still works.</span>
           <button onClick={loadAuxData} className="ml-auto text-[10px] font-medium underline hover:no-underline">Retry</button>
@@ -888,7 +908,8 @@ export default function FlowExplorer() {
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                 <input
                   type="text"
-                  className="w-full pl-8 pr-3 py-1.5 rounded-md border border-border bg-background text-foreground text-xs outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 placeholder:text-muted-foreground"
+                  className="w-full pl-8 pr-3 py-1.5 rounded-md text-xs outline-none placeholder:text-[#A8A29E]"
+                    style={{ border: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB', color: '#1C1917' }}
                   placeholder="Search pipelines, notebooks, connections..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -907,7 +928,8 @@ export default function FlowExplorer() {
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
               <input
                 type="text"
-                className="w-full pl-8 pr-3 py-1.5 rounded-md border border-border bg-background text-foreground text-xs outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 placeholder:text-muted-foreground"
+                className="w-full pl-8 pr-3 py-1.5 rounded-md text-xs outline-none placeholder:text-[#A8A29E]"
+                    style={{ border: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB', color: '#1C1917' }}
                 placeholder="Search tables, sources, schemas..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -1099,7 +1121,7 @@ export default function FlowExplorer() {
 
                               {/* Source */}
                               <div
-                                className={`flow-node rounded border px-2 py-1 ${isFlowSelected ? "flow-node-active border-[#64748b]/50 bg-[#64748b]/5" : "border-border/30 bg-card"}`}
+                                className={`flow-node rounded border px-2 py-1 ${isFlowSelected ? "flow-node-active border-[#A8A29E]/50 bg-[#A8A29E]/5" : "border-border/30 bg-card"}`}
                                 style={{ width: 175 }}
                                 title={`${flow.sourceSchema}.${flow.sourceName}`}
                               >
@@ -1117,7 +1139,7 @@ export default function FlowExplorer() {
                                   style={{ "--fc": LAYERS[1].color } as React.CSSProperties} />
                               </div>
                               <div
-                                className={`flow-node rounded border px-2 py-1 ${isFlowSelected ? "flow-node-active border-[#3b82f6]/50 bg-[#3b82f6]/5" : "border-border/30 bg-card"}`}
+                                className={`flow-node rounded border px-2 py-1 ${isFlowSelected ? "flow-node-active border-[#B45624]/50 bg-[#B45624]/5" : "border-border/30 bg-card"}`}
                                 style={{ width: 120 }}
                                 title={`${flow.lzFilePath}/${flow.lzFileName}`}
                               >
@@ -1137,7 +1159,7 @@ export default function FlowExplorer() {
                               <div
                                 className={`flow-node rounded border px-2 py-1 ${
                                   !flow.bronzeName ? "border-dashed border-border/20 bg-muted" :
-                                  isFlowSelected ? "flow-node-active border-[#f59e0b]/50 bg-[#f59e0b]/5" : "border-border/30 bg-card"
+                                  isFlowSelected ? "flow-node-active border-[#C27A1A]/50 bg-[#C27A1A]/5" : "border-border/30 bg-card"
                                 }`}
                                 style={{ width: 120 }}
                                 title={flow.bronzeName ? `${flow.bronzeSchema}.${flow.bronzeName}` : undefined}
@@ -1162,7 +1184,7 @@ export default function FlowExplorer() {
                               <div
                                 className={`flow-node rounded border px-2 py-1 ${
                                   !flow.silverName ? "border-dashed border-border/20 bg-muted" :
-                                  isFlowSelected ? "flow-node-active border-[#8b5cf6]/50 bg-[#8b5cf6]/5" : "border-border/30 bg-card"
+                                  isFlowSelected ? "flow-node-active border-[#78716C]/50 bg-[#78716C]/5" : "border-border/30 bg-card"
                                 }`}
                                 style={{ width: 120 }}
                                 title={flow.silverName ? `${flow.silverSchema}.${flow.silverName}` : undefined}
@@ -1199,7 +1221,7 @@ export default function FlowExplorer() {
                               setVisibleCounts(prev => ({ ...prev, [gsKey]: visCount + PAGE_SIZE }));
                             }}
                           >
-                            <span className="text-[10px] font-medium text-primary">
+                            <span className="text-[10px] font-medium" style={{ color: '#B45624' }}>
                               Show {fmt(Math.min(remaining, PAGE_SIZE))} more
                             </span>
                             <span className="text-[10px] text-muted-foreground ml-1">
@@ -1230,7 +1252,7 @@ export default function FlowExplorer() {
         </div>
 
         {/* Right Panel — Detail / Narrative */}
-        <div className="w-[360px] border-l border-border bg-card flex flex-col flex-shrink-0">
+        <div className="w-[360px] flex flex-col flex-shrink-0" style={{ borderLeft: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB' }}>
           {selectedFlow ? (
             <div className="narrative-panel flex flex-col h-full">
               {/* Header */}
@@ -1362,13 +1384,24 @@ export default function FlowExplorer() {
                     </div>
                   </div>
                 </div>
-                <Link
-                  to={`/journey?entity=${selectedFlow.lzEntityId}`}
-                  className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md border border-primary/30 bg-primary/5 text-primary text-[11px] font-medium hover:bg-primary/10 transition-colors"
-                >
-                  <Route className="w-3.5 h-3.5" />
-                  Deep Dive — Schema &amp; Transformation Details
-                </Link>
+                <div className="mt-3 flex flex-col gap-2">
+                  <Link
+                    to={`/journey?entity=${encodeURIComponent(String(selectedFlow.lzEntityId))}`}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-[11px] font-medium transition-colors"
+                    style={{ border: '1px solid rgba(180, 86, 36, 0.3)', backgroundColor: '#F4E8DF', color: '#B45624' }}
+                  >
+                    <Route className="w-3.5 h-3.5" />
+                    Deep Dive — Schema &amp; Transformation Details
+                  </Link>
+                  <Link
+                    to={`/source-manager?source=${encodeURIComponent(selectedFlow.dataSourceName)}`}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors"
+                    style={{ border: '1px solid var(--bp-border)', color: 'var(--bp-ink-secondary)' }}
+                  >
+                    <Database className="w-3.5 h-3.5" />
+                    Manage Source — {selectedFlow.dataSourceName}
+                  </Link>
+                </div>
               </div>
             </div>
           ) : (

@@ -64,31 +64,31 @@ const LAYER_INFO: Record<string, {
     label: "Extract from Source",
     description: "Pull raw data from SQL databases into the Landing Zone",
     step: 1,
-    activeBg: "bg-blue-50 dark:bg-blue-950/20",
-    activeBorder: "border-blue-300 dark:border-blue-700/50",
-    badgeBg: "bg-blue-100 dark:bg-blue-900/40",
-    badgeText: "text-blue-700 dark:text-blue-300",
-    dotColor: "bg-blue-500 dark:bg-blue-400",
+    activeBg: "",
+    activeBorder: "",
+    badgeBg: "",
+    badgeText: "",
+    dotColor: "",
   },
   bronze: {
     label: "Load to Bronze",
     description: "Move landing zone data into structured Bronze tables",
     step: 2,
-    activeBg: "bg-amber-50 dark:bg-amber-950/20",
-    activeBorder: "border-amber-300 dark:border-amber-700/50",
-    badgeBg: "bg-amber-100 dark:bg-amber-900/40",
-    badgeText: "text-amber-700 dark:text-amber-300",
-    dotColor: "bg-amber-500 dark:bg-amber-400",
+    activeBg: "",
+    activeBorder: "",
+    badgeBg: "",
+    badgeText: "",
+    dotColor: "",
   },
   silver: {
     label: "Transform to Silver",
     description: "Apply business rules and SCD Type 2 transformations",
     step: 3,
-    activeBg: "bg-purple-50 dark:bg-purple-950/20",
-    activeBorder: "border-purple-300 dark:border-purple-700/50",
-    badgeBg: "bg-purple-100 dark:bg-purple-900/40",
-    badgeText: "text-purple-700 dark:text-purple-300",
-    dotColor: "bg-purple-500 dark:bg-purple-400",
+    activeBg: "",
+    activeBorder: "",
+    badgeBg: "",
+    badgeText: "",
+    dotColor: "",
   },
 };
 
@@ -258,14 +258,14 @@ export default function NotebookDebug() {
     : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ padding: '32px', maxWidth: '1280px' }}>
       {/* ── Header ── */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">
+          <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: '32px', color: 'var(--bp-ink-primary)' }}>
             Pipeline Testing
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="mt-1" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
             Validate your data pipeline by running individual processing steps on a controlled set of tables
           </p>
         </div>
@@ -273,23 +273,23 @@ export default function NotebookDebug() {
 
       {/* ── Error Banner ── */}
       {error && (
-        <div className="rounded-lg p-4 flex items-center justify-between bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800">
+        <div className="rounded-lg p-4 flex items-center justify-between" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
           <div className="flex items-center gap-3">
-            <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0" />
-            <p className="text-sm font-medium text-red-700 dark:text-red-300">{error}</p>
+            <AlertCircle className="h-5 w-5 shrink-0" style={{ color: 'var(--bp-fault)' }} />
+            <p className="text-sm font-medium" style={{ color: 'var(--bp-fault)' }}>{error}</p>
           </div>
-          <button onClick={() => setError("")} className="text-muted-foreground hover:text-foreground text-sm">Dismiss</button>
+          <button onClick={() => setError("")} className="text-sm" style={{ color: 'var(--bp-ink-muted)' }}>Dismiss</button>
         </div>
       )}
 
       {/* ════════════════════════════════════════════════════════
            STEP 1 — What do you want to test?
          ════════════════════════════════════════════════════════ */}
-      <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/20 dark:to-slate-900/10 rounded-xl border border-slate-200/50 dark:border-slate-800/30 p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-foreground mb-1">
+      <div className="rounded-xl p-6" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
+        <h2 className="mb-1" style={{ fontFamily: 'var(--bp-font-body)', fontSize: '18px', fontWeight: 600, color: 'var(--bp-ink-primary)' }}>
           What do you want to test?
         </h2>
-        <p className="text-sm text-muted-foreground mb-5">
+        <p className="text-sm mb-5" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
           Choose which step of the data pipeline to run, and how many tables to include
         </p>
 
@@ -302,37 +302,31 @@ export default function NotebookDebug() {
               <button
                 key={l}
                 onClick={() => setLayer(l)}
-                className={cn(
-                  "relative text-left p-4 rounded-xl border transition-all",
-                  isActive
-                    ? cn(info.activeBg, info.activeBorder, "shadow-sm")
-                    : "bg-card border-border hover:border-muted-foreground/30"
-                )}
+                className="relative text-left p-4 rounded-xl transition-all"
+                style={{
+                  background: isActive ? 'var(--bp-copper-light)' : 'var(--bp-surface-1)',
+                  border: isActive ? '1px solid var(--bp-copper)' : '1px solid var(--bp-border)',
+                }}
               >
                 <div className="flex items-center gap-3 mb-2">
-                  <div className={cn(
-                    "w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold",
-                    isActive
-                      ? cn(info.badgeBg, info.badgeText)
-                      : "bg-muted text-muted-foreground"
-                  )}>
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
+                    style={{
+                      background: isActive ? 'var(--bp-copper)' : 'var(--bp-surface-inset)',
+                      color: isActive ? '#FFFFFF' : 'var(--bp-ink-muted)',
+                    }}
+                  >
                     {info.step}
                   </div>
-                  <span className={cn(
-                    "text-sm font-semibold",
-                    isActive ? "text-foreground" : "text-muted-foreground"
-                  )}>
+                  <span className="text-sm font-semibold" style={{ color: isActive ? 'var(--bp-ink-primary)' : 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
                     {info.label}
                   </span>
                 </div>
-                <p className={cn(
-                  "text-xs leading-relaxed",
-                  isActive ? "text-muted-foreground" : "text-muted-foreground/70"
-                )}>
+                <p className="text-xs leading-relaxed" style={{ color: isActive ? 'var(--bp-ink-secondary)' : 'var(--bp-ink-muted)' }}>
                   {info.description}
                 </p>
                 {isActive && (
-                  <div className={cn("absolute top-3 right-3 w-2 h-2 rounded-full", info.dotColor)} />
+                  <div className="absolute top-3 right-3 w-2 h-2 rounded-full" style={{ background: 'var(--bp-copper)' }} />
                 )}
               </button>
             );
@@ -343,11 +337,12 @@ export default function NotebookDebug() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
           {/* Data Source */}
           <div>
-            <label className="text-xs uppercase tracking-wider text-muted-foreground mb-2 block font-medium">
+            <label className="text-xs uppercase tracking-wider mb-2 block font-medium" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>
               Data Source
             </label>
             <select
-              className="w-full bg-muted border border-border rounded-lg px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              className="w-full rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2"
+              style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
               value={dsFilter}
               onChange={(e) => setDsFilter(e.target.value)}
             >
@@ -362,7 +357,7 @@ export default function NotebookDebug() {
 
           {/* How many tables */}
           <div>
-            <label className="text-xs uppercase tracking-wider text-muted-foreground mb-2 block font-medium">
+            <label className="text-xs uppercase tracking-wider mb-2 block font-medium" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>
               How many tables to test?
             </label>
             <div className="flex gap-1.5">
@@ -370,12 +365,14 @@ export default function NotebookDebug() {
                 <button
                   key={n}
                   onClick={() => setMaxEntities(n)}
-                  className={cn(
-                    "flex-1 py-2.5 rounded-lg text-xs font-medium transition-all border text-center",
-                    maxEntities === n
-                      ? "bg-primary/10 text-primary border-primary/30 font-semibold"
-                      : "bg-muted text-muted-foreground border-border hover:text-foreground"
-                  )}
+                  className="flex-1 py-2.5 rounded-lg text-xs font-medium transition-all text-center"
+                  style={{
+                    background: maxEntities === n ? 'var(--bp-copper-light)' : 'var(--bp-surface-inset)',
+                    color: maxEntities === n ? 'var(--bp-copper)' : 'var(--bp-ink-tertiary)',
+                    border: maxEntities === n ? '1px solid var(--bp-copper)' : '1px solid var(--bp-border)',
+                    fontFamily: 'var(--bp-font-body)',
+                    fontWeight: maxEntities === n ? 600 : 500,
+                  }}
                 >
                   {n === 0 ? "All" : n}
                 </button>
@@ -385,22 +382,22 @@ export default function NotebookDebug() {
         </div>
 
         {/* What will happen — plain English summary */}
-        <div className="rounded-lg bg-muted/40 border border-border p-4 mb-5">
-          <p className="text-sm text-foreground">
+        <div className="rounded-lg p-4 mb-5" style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border-subtle)' }}>
+          <p className="text-sm" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}>
             {loading && !hasLoadedOnce.current ? (
-              <span className="text-muted-foreground">Loading...</span>
+              <span style={{ color: 'var(--bp-ink-muted)' }}>Loading...</span>
             ) : loading ? (
-              <span className="text-muted-foreground">Refreshing...</span>
+              <span style={{ color: 'var(--bp-ink-muted)' }}>Refreshing...</span>
             ) : (
               <>
                 This will <strong>{layerInfo.label.toLowerCase()}</strong> for{" "}
-                <strong className="text-primary">{willProcess} table{willProcess !== 1 ? "s" : ""}</strong>
+                <strong style={{ color: 'var(--bp-copper)' }}>{willProcess} table{willProcess !== 1 ? "s" : ""}</strong>
                 {dsFilter && (
                   <> from <strong>{dsFilter.toUpperCase()}</strong></>
                 )}
                 {!dsFilter && <> across all data sources</>}.
                 {willProcess > 50 && (
-                  <span className="text-muted-foreground"> Tables will be processed in batches of 50.</span>
+                  <span style={{ color: 'var(--bp-ink-muted)' }}> Tables will be processed in batches of 50.</span>
                 )}
               </>
             )}
@@ -412,11 +409,18 @@ export default function NotebookDebug() {
           className={cn(
             "w-full flex items-center justify-center gap-2.5 px-6 py-3.5 text-sm font-medium rounded-lg transition-all",
             running
-              ? "bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/30 cursor-wait"
+              ? "cursor-wait"
               : !selectedNb || loading
-              ? "bg-muted text-muted-foreground border border-border cursor-not-allowed opacity-50"
-              : "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+              ? "cursor-not-allowed opacity-50"
+              : "bp-btn-primary"
           )}
+          style={
+            running
+              ? { background: 'var(--bp-caution-light)', color: 'var(--bp-caution)', border: '1px solid var(--bp-caution)' }
+              : !selectedNb || loading
+              ? { background: 'var(--bp-surface-inset)', color: 'var(--bp-ink-muted)', border: '1px solid var(--bp-border)' }
+              : undefined
+          }
           disabled={!selectedNb || running || loading}
           onClick={handleRun}
         >
@@ -436,7 +440,8 @@ export default function NotebookDebug() {
         {/* Advanced Settings Toggle */}
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mt-3 transition-colors"
+          className="flex items-center gap-1.5 text-xs mt-3 transition-colors"
+          style={{ color: 'var(--bp-ink-tertiary)' }}
         >
           <Settings2 className="w-3 h-3" />
           Advanced options
@@ -444,12 +449,13 @@ export default function NotebookDebug() {
         </button>
 
         {showAdvanced && (
-          <div className="mt-3 pt-3 border-t border-border space-y-3">
+          <div className="mt-3 pt-3 space-y-3" style={{ borderTop: '1px solid var(--bp-border)' }}>
             {/* Notebook Override */}
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Notebook</label>
+              <label className="text-xs mb-1 block" style={{ color: 'var(--bp-ink-muted)' }}>Notebook</label>
               <select
-                className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                className="w-full rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-1"
+                style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-mono)' }}
                 value={selectedNb}
                 onChange={(e) => setSelectedNb(e.target.value)}
               >
@@ -462,27 +468,27 @@ export default function NotebookDebug() {
 
             {/* Processing Mode */}
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Processing mode</label>
+              <label className="text-xs mb-1 block" style={{ color: 'var(--bp-ink-muted)' }}>Processing mode</label>
               <div className="flex gap-2">
                 <button
                   onClick={() => setChunkMode("")}
-                  className={cn(
-                    "flex-1 py-1.5 px-3 rounded-lg text-xs transition-all border",
-                    chunkMode === ""
-                      ? "bg-primary/10 text-primary border-primary/30"
-                      : "bg-muted text-muted-foreground border-border hover:text-foreground"
-                  )}
+                  className="flex-1 py-1.5 px-3 rounded-lg text-xs transition-all"
+                  style={{
+                    background: chunkMode === "" ? 'var(--bp-copper-light)' : 'var(--bp-surface-inset)',
+                    color: chunkMode === "" ? 'var(--bp-copper)' : 'var(--bp-ink-tertiary)',
+                    border: chunkMode === "" ? '1px solid var(--bp-copper)' : '1px solid var(--bp-border)',
+                  }}
                 >
                   Auto (chunked if &gt;50)
                 </button>
                 <button
                   onClick={() => setChunkMode("batch")}
-                  className={cn(
-                    "flex-1 py-1.5 px-3 rounded-lg text-xs transition-all border",
-                    chunkMode === "batch"
-                      ? "bg-primary/10 text-primary border-primary/30"
-                      : "bg-muted text-muted-foreground border-border hover:text-foreground"
-                  )}
+                  className="flex-1 py-1.5 px-3 rounded-lg text-xs transition-all"
+                  style={{
+                    background: chunkMode === "batch" ? 'var(--bp-copper-light)' : 'var(--bp-surface-inset)',
+                    color: chunkMode === "batch" ? 'var(--bp-copper)' : 'var(--bp-ink-tertiary)',
+                    border: chunkMode === "batch" ? '1px solid var(--bp-copper)' : '1px solid var(--bp-border)',
+                  }}
                 >
                   Direct batch
                 </button>
@@ -496,25 +502,25 @@ export default function NotebookDebug() {
            RESULTS — Only shown after a run
          ════════════════════════════════════════════════════════ */}
       {runResult && (
-        <div className={cn(
-          "rounded-xl border p-6 shadow-sm transition-all",
-          isComplete && "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200/50 dark:border-emerald-800/30",
-          isFailed && "bg-red-50 dark:bg-red-950/20 border-red-200/50 dark:border-red-800/30",
-          isRunning && "bg-amber-50 dark:bg-amber-950/20 border-amber-200/50 dark:border-amber-800/30",
-          !isComplete && !isFailed && !isRunning && "bg-card border-border"
-        )}>
+        <div
+          className="rounded-xl p-6 transition-all"
+          style={{
+            background: isComplete ? 'var(--bp-operational-light)' : isFailed ? 'var(--bp-fault-light)' : isRunning ? 'var(--bp-caution-light)' : 'var(--bp-surface-1)',
+            border: `1px solid ${isComplete ? 'var(--bp-operational)' : isFailed ? 'var(--bp-fault)' : isRunning ? 'var(--bp-caution)' : 'var(--bp-border)'}`,
+          }}
+        >
           {/* Big status headline */}
           <div className="flex items-center gap-4 mb-4">
             {isComplete && (
               <>
-                <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
-                  <CheckCircle2 className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'var(--bp-operational-light)' }}>
+                  <CheckCircle2 className="w-6 h-6" style={{ color: 'var(--bp-operational)' }} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-emerald-800 dark:text-emerald-300">
+                  <h3 className="text-lg font-semibold" style={{ color: 'var(--bp-operational)' }}>
                     Test passed
                   </h3>
-                  <p className="text-sm text-emerald-700 dark:text-emerald-400/80">
+                  <p className="text-sm" style={{ color: 'var(--bp-operational)' }}>
                     {runResult.entityCount} table{runResult.entityCount !== 1 ? "s" : ""} processed successfully
                     {durationMs != null && <> in {friendlyDuration(durationMs)}</>}
                   </p>
@@ -523,14 +529,14 @@ export default function NotebookDebug() {
             )}
             {isFailed && (
               <>
-                <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/40 flex items-center justify-center">
-                  <XCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
+                <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'var(--bp-fault-light)' }}>
+                  <XCircle className="w-6 h-6" style={{ color: 'var(--bp-fault)' }} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-red-800 dark:text-red-300">
+                  <h3 className="text-lg font-semibold" style={{ color: 'var(--bp-fault)' }}>
                     Test failed
                   </h3>
-                  <p className="text-sm text-red-700 dark:text-red-400/80">
+                  <p className="text-sm" style={{ color: 'var(--bp-fault)' }}>
                     The pipeline encountered an error after {durationMs != null ? friendlyDuration(durationMs) : "running"}
                   </p>
                 </div>
@@ -538,14 +544,14 @@ export default function NotebookDebug() {
             )}
             {isRunning && (
               <>
-                <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
-                  <Loader2 className="w-6 h-6 text-amber-600 dark:text-amber-400 animate-spin" />
+                <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'var(--bp-caution-light)' }}>
+                  <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--bp-caution)' }} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-amber-800 dark:text-amber-300">
+                  <h3 className="text-lg font-semibold" style={{ color: 'var(--bp-caution)' }}>
                     Running...
                   </h3>
-                  <p className="text-sm text-amber-700 dark:text-amber-400/80">
+                  <p className="text-sm" style={{ color: 'var(--bp-caution)' }}>
                     Processing {runResult.entityCount} table{runResult.entityCount !== 1 ? "s" : ""}
                     {jobStatus?.startTime && <> — started at {friendlyTime(jobStatus.startTime)}</>}
                   </p>
@@ -554,12 +560,12 @@ export default function NotebookDebug() {
             )}
             {!isComplete && !isFailed && !isRunning && jobStatus && (
               <>
-                <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                  <Clock className="w-6 h-6 text-muted-foreground" />
+                <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'var(--bp-surface-inset)' }}>
+                  <Clock className="w-6 h-6" style={{ color: 'var(--bp-ink-muted)' }} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-foreground">{jobStatus.status}</h3>
-                  <p className="text-sm text-muted-foreground">Waiting for Fabric to process the request...</p>
+                  <h3 className="text-lg font-semibold" style={{ color: 'var(--bp-ink-primary)' }}>{jobStatus.status}</h3>
+                  <p className="text-sm" style={{ color: 'var(--bp-ink-tertiary)' }}>Waiting for Fabric to process the request...</p>
                 </div>
               </>
             )}
@@ -567,16 +573,16 @@ export default function NotebookDebug() {
 
           {/* Error details — in plain language */}
           {jobStatus?.failureReason && (
-            <div className="rounded-lg bg-red-100/50 dark:bg-red-950/30 border border-red-200/50 dark:border-red-800/30 p-4 mb-4">
-              <p className="text-sm text-red-800 dark:text-red-300 font-medium mb-1">
+            <div className="rounded-lg p-4 mb-4" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
+              <p className="text-sm font-medium mb-1" style={{ color: 'var(--bp-fault)' }}>
                 What went wrong
               </p>
-              <p className="text-sm text-red-700 dark:text-red-400">
+              <p className="text-sm" style={{ color: 'var(--bp-fault)' }}>
                 {jobStatus.failureReason.message === "Job instance failed without detail error"
                   ? "The Fabric notebook failed to execute. This usually means the notebook couldn't connect to the SQL database, the Spark session failed to start, or a required variable library is misconfigured."
                   : jobStatus.failureReason.message}
               </p>
-              <p className="text-xs text-red-600/60 dark:text-red-400/40 mt-2 font-mono">
+              <p className="text-xs mt-2" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-mono)' }}>
                 Error code: {jobStatus.failureReason.errorCode || "unknown"}
               </p>
             </div>
@@ -585,7 +591,8 @@ export default function NotebookDebug() {
           {/* Technical details — collapsible */}
           <button
             onClick={() => setShowDetails(!showDetails)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1.5 text-xs transition-colors"
+            style={{ color: 'var(--bp-ink-tertiary)' }}
           >
             Technical details
             {showDetails ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
@@ -599,9 +606,9 @@ export default function NotebookDebug() {
                 { label: "Source", value: runResult.dataSourceFilter || "all" },
                 { label: "Job ID", value: runResult.jobInstanceId ? runResult.jobInstanceId.slice(0, 12) + "..." : "—" },
               ].map((item) => (
-                <div key={item.label} className="rounded-lg bg-muted border border-border p-3">
-                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{item.label}</div>
-                  <div className="text-xs font-mono text-foreground mt-1 truncate">{item.value}</div>
+                <div key={item.label} className="rounded-lg p-3" style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)' }}>
+                  <div className="text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>{item.label}</div>
+                  <div className="text-xs mt-1 truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }}>{item.value}</div>
                 </div>
               ))}
             </div>
@@ -613,21 +620,21 @@ export default function NotebookDebug() {
            RUN HISTORY — Collapsible
          ════════════════════════════════════════════════════════ */}
       {recentJobs.length > 0 && (
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
           <button
             onClick={() => setShowHistory(!showHistory)}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
+            className="w-full flex items-center justify-between px-4 py-3 transition-colors"
           >
-            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Clock className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--bp-ink-primary)' }}>
+              <Clock className="w-4 h-4" style={{ color: 'var(--bp-ink-muted)' }} />
               Run History
-              <span className="text-xs text-muted-foreground font-normal">({recentJobs.length} recent)</span>
+              <span className="text-xs font-normal" style={{ color: 'var(--bp-ink-muted)' }}>({recentJobs.length} recent)</span>
             </h3>
-            {showHistory ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+            {showHistory ? <ChevronDown className="w-4 h-4" style={{ color: 'var(--bp-ink-muted)' }} /> : <ChevronRight className="w-4 h-4" style={{ color: 'var(--bp-ink-muted)' }} />}
           </button>
 
           {showHistory && (
-            <div className="border-t border-border divide-y divide-border/50">
+            <div style={{ borderTop: '1px solid var(--bp-border)' }}>
               {recentJobs.map((job, i) => {
                 const dur = (job.startTime && job.endTime)
                   ? friendlyDuration(new Date(job.endTime).getTime() - new Date(job.startTime).getTime())
@@ -635,39 +642,40 @@ export default function NotebookDebug() {
                 return (
                   <div
                     key={job.id || i}
-                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors"
+                    className="flex items-center gap-3 px-4 py-2.5 transition-colors"
+                    style={{ borderBottom: '1px solid var(--bp-border-subtle)' }}
                   >
-                    {job.status === "Completed" && <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />}
-                    {job.status === "Failed" && <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />}
-                    {(job.status === "InProgress" || job.status === "Running") && <Loader2 className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-spin shrink-0" />}
-                    {!["Completed", "Failed", "InProgress", "Running"].includes(job.status) && <Clock className="w-4 h-4 text-muted-foreground shrink-0" />}
+                    {job.status === "Completed" && <CheckCircle2 className="w-4 h-4 shrink-0" style={{ color: 'var(--bp-operational)' }} />}
+                    {job.status === "Failed" && <XCircle className="w-4 h-4 shrink-0" style={{ color: 'var(--bp-fault)' }} />}
+                    {(job.status === "InProgress" || job.status === "Running") && <Loader2 className="w-4 h-4 animate-spin shrink-0" style={{ color: 'var(--bp-caution)' }} />}
+                    {!["Completed", "Failed", "InProgress", "Running"].includes(job.status) && <Clock className="w-4 h-4 shrink-0" style={{ color: 'var(--bp-ink-muted)' }} />}
 
-                    <span className={cn(
-                      "text-xs font-medium min-w-[60px]",
-                      job.status === "Completed" && "text-emerald-600 dark:text-emerald-400",
-                      job.status === "Failed" && "text-red-600 dark:text-red-400",
-                      (job.status === "InProgress" || job.status === "Running") && "text-amber-600 dark:text-amber-400",
-                    )}>
+                    <span
+                      className="text-xs font-medium min-w-[60px]"
+                      style={{
+                        color: job.status === "Completed" ? 'var(--bp-operational)' : job.status === "Failed" ? 'var(--bp-fault)' : (job.status === "InProgress" || job.status === "Running") ? 'var(--bp-caution)' : 'var(--bp-ink-tertiary)',
+                      }}
+                    >
                       {job.status === "Completed" ? "Passed" : job.status === "Failed" ? "Failed" : job.status}
                     </span>
 
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs" style={{ color: 'var(--bp-ink-muted)' }}>
                       {job.startTime ? friendlyTime(job.startTime) : "—"}
                     </span>
 
                     {dur && (
-                      <span className="text-xs text-muted-foreground">({dur})</span>
+                      <span className="text-xs" style={{ color: 'var(--bp-ink-muted)' }}>({dur})</span>
                     )}
 
                     {job.failureReason && (
-                      <span className="text-xs text-red-600 dark:text-red-400 truncate flex-1">
+                      <span className="text-xs truncate flex-1" style={{ color: 'var(--bp-fault)' }}>
                         {job.failureReason.message === "Job instance failed without detail error"
                           ? "Notebook execution failed"
                           : (job.failureReason.message || "Unknown error").slice(0, 60)}
                       </span>
                     )}
 
-                    <span className="text-[10px] text-muted-foreground font-mono ml-auto">
+                    <span className="text-[10px] ml-auto" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-mono)' }}>
                       {job.id?.slice(0, 8)}
                     </span>
                   </div>
@@ -681,64 +689,65 @@ export default function NotebookDebug() {
       {/* ════════════════════════════════════════════════════════
            ENTITY PREVIEW — Collapsible
          ════════════════════════════════════════════════════════ */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
         <button
           onClick={() => setShowEntityPreview(!showEntityPreview)}
-          className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-3 transition-colors"
         >
-          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <Database className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--bp-ink-primary)' }}>
+            <Database className="w-4 h-4" style={{ color: 'var(--bp-ink-muted)' }} />
             Tables Included in Test
-            <span className="text-xs text-muted-foreground font-normal">
+            <span className="text-xs font-normal" style={{ color: 'var(--bp-ink-muted)' }}>
               ({previewEntities.length} of {filteredEntities.length})
             </span>
           </h3>
           <div className="flex items-center gap-2">
             <button
               onClick={(e) => { e.stopPropagation(); loadEntities(); }}
-              className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+              className="p-1.5 rounded-md transition-colors"
+              style={{ color: 'var(--bp-ink-muted)' }}
             >
               <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
             </button>
-            {showEntityPreview ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+            {showEntityPreview ? <ChevronDown className="w-4 h-4" style={{ color: 'var(--bp-ink-muted)' }} /> : <ChevronRight className="w-4 h-4" style={{ color: 'var(--bp-ink-muted)' }} />}
           </div>
         </button>
 
         {showEntityPreview && (
-          <div className="border-t border-border">
+          <div style={{ borderTop: '1px solid var(--bp-border)' }}>
             {loading ? (
-              <div className="flex items-center gap-2 text-muted-foreground py-8 px-4 justify-center">
+              <div className="flex items-center gap-2 py-8 px-4 justify-center" style={{ color: 'var(--bp-ink-muted)' }}>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="text-sm">Loading...</span>
               </div>
             ) : previewEntities.length === 0 ? (
-              <div className="text-muted-foreground py-8 text-sm text-center">
+              <div className="py-8 text-sm text-center" style={{ color: 'var(--bp-ink-muted)' }}>
                 No tables found for the selected layer and source
               </div>
             ) : (
               <div className="overflow-auto max-h-[400px]">
                 <table className="w-full text-xs">
-                  <thead className="sticky top-0 z-10 bg-muted/60">
+                  <thead className="sticky top-0 z-10" style={{ background: 'var(--bp-surface-inset)' }}>
                     <tr>
-                      <th className="text-left px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">#</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Source</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Schema</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Table</th>
-                      <th className="text-left px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">File</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>#</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Source</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Schema</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Table</th>
+                      <th className="text-left px-3 py-2 text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>File</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border/50">
+                  <tbody>
                     {previewEntities.map((e, i) => (
-                      <tr key={i} className="hover:bg-muted/50 transition-colors">
-                        <td className="px-3 py-2.5 text-muted-foreground font-mono">{i + 1}</td>
+                      <tr key={i} className="transition-colors" style={{ borderBottom: '1px solid var(--bp-border-subtle)' }}>
+                        <td className="px-3 py-2.5" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-mono)' }}>{i + 1}</td>
                         <td className="px-3 py-2.5">
-                          <span className="text-xs px-2 py-0.5 rounded border text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 border-blue-200/50 dark:border-blue-800/30">
+                          <span className="text-xs px-2 py-0.5 rounded" style={{ color: 'var(--bp-copper)', background: 'var(--bp-copper-light)', border: '1px solid var(--bp-border)' }}>
                             {e.namespace}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-foreground">{e.schema}</td>
-                        <td className="px-3 py-2.5 text-foreground font-medium">{e.table}</td>
-                        <td className="px-3 py-2.5 text-muted-foreground font-mono truncate max-w-[200px]">{e.fileName}</td>
+                        <td className="px-3 py-2.5" style={{ color: 'var(--bp-ink-primary)' }}>{e.schema}</td>
+                        <td className="px-3 py-2.5 font-medium" style={{ color: 'var(--bp-ink-primary)' }}>{e.table}</td>
+                        <td className="px-3 py-2.5 truncate max-w-[200px]" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-mono)' }}>{e.fileName}</td>
                       </tr>
                     ))}
                   </tbody>

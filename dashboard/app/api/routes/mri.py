@@ -74,7 +74,7 @@ def _load_run_file(run_id: str, filename: str) -> list | dict | None:
         try:
             return json.loads(fpath.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
-            pass
+            log.debug("Failed to load run file %s/%s", run_id, filename)
     return None
 
 
@@ -362,6 +362,7 @@ def _build_visual_diffs(run_id: str, screenshots_dir: Path) -> list[dict]:
                 pct = (size_diff / max(baseline_size, 1)) * 100
                 is_mismatch = pct > 5.0
             except OSError:
+                log.exception("Failed to compare screenshot sizes for %s", test_name)
                 pct = 0.0
                 is_mismatch = False
 

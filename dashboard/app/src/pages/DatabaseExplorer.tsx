@@ -199,17 +199,18 @@ export default function DatabaseExplorer() {
   /* ---- render data grid ---- */
   const renderDataGrid = (rows: Record<string, unknown>[]) => {
     if (!rows.length)
-      return <p className="text-sm text-muted-foreground p-4">No rows</p>;
+      return <p className="text-sm p-4" style={{ color: "var(--bp-ink-secondary)" }}>No rows</p>;
     const cols = Object.keys(rows[0]);
     return (
-      <div className="overflow-x-auto border rounded-lg">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid var(--bp-border)" }}>
+        <table className="w-full text-sm" style={{ fontFamily: "var(--bp-font-mono)" }}>
           <thead>
-            <tr className="border-b bg-muted/50">
+            <tr style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-inset)" }}>
               {cols.map((c) => (
                 <th
                   key={c}
-                  className="text-left px-3 py-2 font-medium text-muted-foreground whitespace-nowrap"
+                  className="text-left px-3 py-2 font-medium whitespace-nowrap"
+                  style={{ color: "var(--bp-ink-secondary)" }}
                 >
                   {c}
                 </th>
@@ -220,16 +221,18 @@ export default function DatabaseExplorer() {
             {rows.map((row, i) => (
               <tr
                 key={i}
-                className="border-b last:border-0 hover:bg-muted/30 transition-colors"
+                className="last:border-0 transition-colors"
+                style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}
               >
                 {cols.map((c) => (
                   <td
                     key={c}
                     className="px-3 py-1.5 whitespace-nowrap max-w-[300px] truncate"
                     title={String(row[c] ?? "")}
+                    style={{ color: "var(--bp-ink-primary)" }}
                   >
                     {row[c] === null ? (
-                      <span className="text-muted-foreground/50 italic">
+                      <span className="italic" style={{ color: "var(--bp-ink-muted)" }}>
                         NULL
                       </span>
                     ) : (
@@ -248,30 +251,31 @@ export default function DatabaseExplorer() {
   /* ================================================================ */
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ padding: "32px", maxWidth: "1280px" }}>
       {/* ---- header ---- */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-display text-xl font-semibold flex items-center gap-2">
-            <Database className="h-5 w-5" />
+          <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }} className="flex items-center gap-2">
+            <Database className="h-7 w-7" style={{ color: "var(--bp-copper)" }} />
             Database Explorer
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
             Browse SQLite tables, inspect schemas, and run read-only queries
           </p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 text-sm" style={{ color: "var(--bp-ink-secondary)" }}>
           <span>{tables.length} tables</span>
-          <span className="text-muted-foreground/40">|</span>
+          <span style={{ color: "var(--bp-ink-muted)" }}>|</span>
           <span>{totalRows.toLocaleString()} total rows</span>
           <button
             onClick={loadTables}
             disabled={tablesLoading}
-            className="ml-2 p-1.5 rounded-md hover:bg-muted transition-colors"
+            className="ml-2 p-1.5 rounded-md transition-colors"
             title="Refresh table list"
           >
             <RefreshCw
               className={`h-4 w-4 ${tablesLoading ? "animate-spin" : ""}`}
+              style={{ color: "var(--bp-ink-secondary)" }}
             />
           </button>
         </div>
@@ -279,7 +283,7 @@ export default function DatabaseExplorer() {
 
       {/* ---- error banner ---- */}
       {error && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+        <div className="flex items-center gap-2 p-3 rounded-lg text-sm" style={{ backgroundColor: "var(--bp-fault-light)", color: "var(--bp-fault)" }}>
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
@@ -288,40 +292,43 @@ export default function DatabaseExplorer() {
       {/* ---- main layout ---- */}
       <div className="flex gap-4" style={{ minHeight: "calc(100vh - 200px)" }}>
         {/* ---- sidebar: table list ---- */}
-        <div className="w-64 shrink-0 border rounded-lg overflow-hidden flex flex-col">
-          <div className="p-2 border-b">
+        <div className="w-64 shrink-0 rounded-lg overflow-hidden flex flex-col" style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-2)" }}>
+          <div className="p-2" style={{ borderBottom: "1px solid var(--bp-border)" }}>
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5" style={{ color: "var(--bp-ink-muted)" }} />
               <input
                 type="text"
                 placeholder="Filter tables..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 text-sm rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                className="w-full pl-8 pr-3 py-2 text-sm rounded-md focus:outline-none"
+                style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", color: "var(--bp-ink-primary)" }}
               />
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">
             {tablesLoading ? (
               <div className="flex items-center justify-center p-6">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <Loader2 className="h-5 w-5 animate-spin" style={{ color: "var(--bp-ink-muted)" }} />
               </div>
             ) : (
               filteredTables.map((t) => (
                 <button
                   key={t.name}
                   onClick={() => selectTable(t.name)}
-                  className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-muted/50 transition-colors border-b last:border-0 ${
-                    selected === t.name
-                      ? "bg-primary/10 text-primary font-medium"
-                      : ""
-                  }`}
+                  className="w-full text-left px-3 py-2 text-sm flex items-center justify-between transition-colors last:border-0"
+                  style={{
+                    borderBottom: "1px solid rgba(0,0,0,0.04)",
+                    ...(selected === t.name
+                      ? { backgroundColor: "var(--bp-copper-light)", color: "var(--bp-copper)", fontWeight: 500 }
+                      : { color: "var(--bp-ink-primary)" }),
+                  }}
                 >
                   <span className="flex items-center gap-2 truncate">
                     <Table2 className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">{t.name}</span>
                   </span>
-                  <span className="text-xs text-muted-foreground ml-1 shrink-0">
+                  <span className="text-xs ml-1 shrink-0" style={{ color: "var(--bp-ink-muted)", fontFamily: "var(--bp-font-mono)" }}>
                     {t.row_count.toLocaleString()}
                   </span>
                 </button>
@@ -333,13 +340,13 @@ export default function DatabaseExplorer() {
         {/* ---- main content ---- */}
         <div className="flex-1 min-w-0">
           {!selected ? (
-            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+            <div className="flex items-center justify-center h-full text-sm" style={{ color: "var(--bp-ink-muted)" }}>
               Select a table from the sidebar
             </div>
           ) : (
             <div className="space-y-4">
               {/* ---- tab header ---- */}
-              <div className="flex items-center gap-1 border-b">
+              <div className="flex items-center gap-1" style={{ borderBottom: "1px solid var(--bp-border)" }}>
                 <TabButton
                   active={tab === "data"}
                   onClick={() => setTab("data")}
@@ -358,7 +365,7 @@ export default function DatabaseExplorer() {
                   icon={<Terminal className="h-3.5 w-3.5" />}
                   label="Query"
                 />
-                <div className="ml-auto text-xs text-muted-foreground pr-2">
+                <div className="ml-auto text-xs pr-2" style={{ color: "var(--bp-ink-secondary)", fontFamily: "var(--bp-font-mono)" }}>
                   {selected}
                   {tableData && (
                     <span className="ml-1">
@@ -373,7 +380,7 @@ export default function DatabaseExplorer() {
                 <div className="space-y-3">
                   {dataLoading ? (
                     <div className="flex items-center justify-center p-12">
-                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      <Loader2 className="h-6 w-6 animate-spin" style={{ color: "var(--bp-ink-muted)" }} />
                     </div>
                   ) : tableData ? (
                     <>
@@ -381,23 +388,23 @@ export default function DatabaseExplorer() {
                       {/* pagination */}
                       {totalPages > 1 && (
                         <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">
+                          <span style={{ color: "var(--bp-ink-secondary)" }}>
                             Page {page} of {totalPages}
                           </span>
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => goPage(page - 1)}
                               disabled={page <= 1}
-                              className="p-1.5 rounded-md hover:bg-muted disabled:opacity-30 transition-colors"
+                              className="p-1.5 rounded-md transition-colors disabled:opacity-30"
                             >
-                              <ChevronLeft className="h-4 w-4" />
+                              <ChevronLeft className="h-4 w-4" style={{ color: "var(--bp-ink-secondary)" }} />
                             </button>
                             <button
                               onClick={() => goPage(page + 1)}
                               disabled={page >= totalPages}
-                              className="p-1.5 rounded-md hover:bg-muted disabled:opacity-30 transition-colors"
+                              className="p-1.5 rounded-md transition-colors disabled:opacity-30"
                             >
-                              <ChevronRight className="h-4 w-4" />
+                              <ChevronRight className="h-4 w-4" style={{ color: "var(--bp-ink-secondary)" }} />
                             </button>
                           </div>
                         </div>
@@ -412,23 +419,23 @@ export default function DatabaseExplorer() {
                 <div>
                   {schemaLoading ? (
                     <div className="flex items-center justify-center p-12">
-                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      <Loader2 className="h-6 w-6 animate-spin" style={{ color: "var(--bp-ink-muted)" }} />
                     </div>
                   ) : (
-                    <div className="overflow-x-auto border rounded-lg">
-                      <table className="w-full text-sm">
+                    <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid var(--bp-border)" }}>
+                      <table className="w-full text-sm" style={{ fontFamily: "var(--bp-font-mono)" }}>
                         <thead>
-                          <tr className="border-b bg-muted/50">
-                            <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+                          <tr style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-inset)" }}>
+                            <th className="text-left px-3 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>
                               Column
                             </th>
-                            <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+                            <th className="text-left px-3 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>
                               Type
                             </th>
-                            <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+                            <th className="text-left px-3 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>
                               NOT NULL
                             </th>
-                            <th className="text-left px-3 py-2 font-medium text-muted-foreground">
+                            <th className="text-left px-3 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>
                               PK
                             </th>
                           </tr>
@@ -437,28 +444,29 @@ export default function DatabaseExplorer() {
                           {schema.map((col) => (
                             <tr
                               key={col.name}
-                              className="border-b last:border-0 hover:bg-muted/30 transition-colors"
+                              className="last:border-0 transition-colors"
+                              style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}
                             >
-                              <td className="px-3 py-1.5 font-mono text-xs">
+                              <td className="px-3 py-1.5 text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)" }}>
                                 {col.name}
                               </td>
-                              <td className="px-3 py-1.5 text-muted-foreground">
-                                {col.type || "—"}
+                              <td className="px-3 py-1.5" style={{ color: "var(--bp-ink-secondary)" }}>
+                                {col.type || "\u2014"}
                               </td>
                               <td className="px-3 py-1.5">
                                 {col.notnull ? (
-                                  <span className="text-amber-500 text-xs font-medium">
+                                  <span className="text-xs font-medium" style={{ color: "var(--bp-caution)" }}>
                                     YES
                                   </span>
                                 ) : (
-                                  <span className="text-muted-foreground/50 text-xs">
+                                  <span className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>
                                     no
                                   </span>
                                 )}
                               </td>
                               <td className="px-3 py-1.5">
                                 {col.pk ? (
-                                  <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                                  <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: "var(--bp-copper-light)", color: "var(--bp-copper)" }}>
                                     PK
                                   </span>
                                 ) : null}
@@ -487,14 +495,16 @@ export default function DatabaseExplorer() {
                       }}
                       placeholder="SELECT * FROM connections LIMIT 10"
                       rows={4}
-                      className="flex-1 font-mono text-sm p-3 rounded-lg border bg-background resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+                      className="flex-1 text-sm p-3 rounded-lg resize-y focus:outline-none"
+                      style={{ fontFamily: "var(--bp-font-mono)", border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", color: "var(--bp-ink-primary)" }}
                     />
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={runQuery}
                       disabled={queryLoading || !sql.trim()}
-                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md disabled:opacity-50 transition-colors"
+                      style={{ backgroundColor: "var(--bp-copper)", color: "#fff" }}
                     >
                       {queryLoading ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -503,13 +513,13 @@ export default function DatabaseExplorer() {
                       )}
                       Run Query
                     </button>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>
                       Ctrl+Enter to execute. SELECT and PRAGMA only.
                     </span>
                   </div>
                   {queryResult && (
                     <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs" style={{ color: "var(--bp-ink-secondary)" }}>
                         {queryResult.count} row{queryResult.count !== 1 ? "s" : ""}{" "}
                         returned
                       </p>
@@ -542,11 +552,12 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+      className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors"
+      style={
         active
-          ? "border-primary text-primary"
-          : "border-transparent text-muted-foreground hover:text-foreground"
-      }`}
+          ? { borderColor: "var(--bp-copper)", color: "var(--bp-copper)" }
+          : { borderColor: "transparent", color: "var(--bp-ink-secondary)" }
+      }
     >
       {icon}
       {label}

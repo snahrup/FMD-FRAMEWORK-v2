@@ -155,12 +155,21 @@ def nuke_soft(cfg, env):
             "logging.NotebookExecution",
         ]
 
+        # Table names are from a hardcoded allowlist above — safe for string formatting.
+        # Cannot use parameterized queries for identifiers (table names).
+        import re
+        allowed_tables = set(tables_to_clear)
         for table in tables_to_clear:
+            if table not in allowed_tables:
+                warn(f"Skipping unknown table: {table}")
+                continue
+            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*$', table):
+                raise ValueError(f"Invalid table identifier: {table}")
             try:
-                cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                cursor.execute("SELECT COUNT(*) FROM " + table)  # noqa: S608 — validated identifier
                 before = cursor.fetchone()[0]
                 if before > 0:
-                    cursor.execute(f"DELETE FROM {table}")
+                    cursor.execute("DELETE FROM " + table)  # noqa: S608 — validated identifier
                     conn.commit()
                     step(f"{table}: deleted {before} rows")
                     results["sql_tables"].append({"table": table, "deleted": before})

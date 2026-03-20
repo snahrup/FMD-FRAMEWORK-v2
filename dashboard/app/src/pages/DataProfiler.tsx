@@ -39,41 +39,41 @@ import {
 const API = "/api";
 
 const TYPE_MAP: Record<string, { icon: LucideIcon; label: string; color: string }> = {
-  int:       { icon: Hash, label: "Integer", color: "#3b82f6" },
-  bigint:    { icon: Hash, label: "BigInt", color: "#3b82f6" },
-  smallint:  { icon: Hash, label: "SmallInt", color: "#3b82f6" },
-  tinyint:   { icon: Hash, label: "TinyInt", color: "#3b82f6" },
-  decimal:   { icon: Hash, label: "Decimal", color: "#6366f1" },
-  numeric:   { icon: Hash, label: "Numeric", color: "#6366f1" },
-  float:     { icon: Hash, label: "Float", color: "#6366f1" },
-  real:      { icon: Hash, label: "Real", color: "#6366f1" },
-  money:     { icon: Hash, label: "Money", color: "#6366f1" },
-  varchar:   { icon: Type, label: "Varchar", color: "#10b981" },
-  nvarchar:  { icon: Type, label: "NVarchar", color: "#10b981" },
-  char:      { icon: Type, label: "Char", color: "#10b981" },
-  nchar:     { icon: Type, label: "NChar", color: "#10b981" },
-  text:      { icon: Type, label: "Text", color: "#10b981" },
-  ntext:     { icon: Type, label: "NText", color: "#10b981" },
-  string:    { icon: Type, label: "String", color: "#10b981" },
-  date:      { icon: Calendar, label: "Date", color: "#f59e0b" },
-  datetime:  { icon: Calendar, label: "DateTime", color: "#f59e0b" },
-  datetime2: { icon: Calendar, label: "DateTime2", color: "#f59e0b" },
-  datetimeoffset: { icon: Calendar, label: "DateTimeOffset", color: "#f59e0b" },
-  time:      { icon: Calendar, label: "Time", color: "#f59e0b" },
-  timestamp: { icon: Calendar, label: "Timestamp", color: "#f59e0b" },
-  bit:       { icon: ToggleLeft, label: "Boolean", color: "#ec4899" },
-  boolean:   { icon: ToggleLeft, label: "Boolean", color: "#ec4899" },
-  binary:    { icon: Binary, label: "Binary", color: "#64748b" },
-  varbinary: { icon: Binary, label: "VarBinary", color: "#64748b" },
-  image:     { icon: Binary, label: "Image", color: "#64748b" },
-  uniqueidentifier: { icon: Fingerprint, label: "GUID", color: "#8b5cf6" },
+  int:       { icon: Hash, label: "Integer", color: "#B45624" },
+  bigint:    { icon: Hash, label: "BigInt", color: "#B45624" },
+  smallint:  { icon: Hash, label: "SmallInt", color: "#B45624" },
+  tinyint:   { icon: Hash, label: "TinyInt", color: "#B45624" },
+  decimal:   { icon: Hash, label: "Decimal", color: "#9A4A1F" },
+  numeric:   { icon: Hash, label: "Numeric", color: "#9A4A1F" },
+  float:     { icon: Hash, label: "Float", color: "#9A4A1F" },
+  real:      { icon: Hash, label: "Real", color: "#9A4A1F" },
+  money:     { icon: Hash, label: "Money", color: "#9A4A1F" },
+  varchar:   { icon: Type, label: "Varchar", color: "#3D7C4F" },
+  nvarchar:  { icon: Type, label: "NVarchar", color: "#3D7C4F" },
+  char:      { icon: Type, label: "Char", color: "#3D7C4F" },
+  nchar:     { icon: Type, label: "NChar", color: "#3D7C4F" },
+  text:      { icon: Type, label: "Text", color: "#3D7C4F" },
+  ntext:     { icon: Type, label: "NText", color: "#3D7C4F" },
+  string:    { icon: Type, label: "String", color: "#3D7C4F" },
+  date:      { icon: Calendar, label: "Date", color: "#C27A1A" },
+  datetime:  { icon: Calendar, label: "DateTime", color: "#C27A1A" },
+  datetime2: { icon: Calendar, label: "DateTime2", color: "#C27A1A" },
+  datetimeoffset: { icon: Calendar, label: "DateTimeOffset", color: "#C27A1A" },
+  time:      { icon: Calendar, label: "Time", color: "#C27A1A" },
+  timestamp: { icon: Calendar, label: "Timestamp", color: "#C27A1A" },
+  bit:       { icon: ToggleLeft, label: "Boolean", color: "#B93A2A" },
+  boolean:   { icon: ToggleLeft, label: "Boolean", color: "#B93A2A" },
+  binary:    { icon: Binary, label: "Binary", color: "#A8A29E" },
+  varbinary: { icon: Binary, label: "VarBinary", color: "#A8A29E" },
+  image:     { icon: Binary, label: "Image", color: "#A8A29E" },
+  uniqueidentifier: { icon: Fingerprint, label: "GUID", color: "#475569" },
 };
 
 const LAYER_COLORS: Record<string, string> = {
-  bronze: "#f59e0b",
-  silver: "#8b5cf6",
-  gold: "#10b981",
-  landing: "#3b82f6",
+  bronze: "#9A4A1F",
+  silver: "#475569",
+  gold: "#3D7C4F",
+  landing: "#A8A29E",
 };
 
 // ============================================================================
@@ -113,24 +113,24 @@ interface ProfileData {
 
 function getTypeInfo(dataType: string) {
   const key = (dataType || "").toLowerCase().replace(/\(.*\)/, "").trim();
-  return TYPE_MAP[key] || { icon: Database, label: dataType || "Unknown", color: "#64748b" };
+  return TYPE_MAP[key] || { icon: Database, label: dataType || "Unknown", color: "#57534E" };
 }
 
 function qualityColor(pct: number): string {
-  if (pct >= 98) return "#10b981";
-  if (pct >= 90) return "#22c55e";
-  if (pct >= 80) return "#84cc16";
-  if (pct >= 60) return "#f59e0b";
-  if (pct >= 40) return "#f97316";
-  return "#ef4444";
+  if (pct >= 98) return "#3D7C4F";
+  if (pct >= 90) return "#3D7C4F";
+  if (pct >= 80) return "#3D7C4F";
+  if (pct >= 60) return "#C27A1A";
+  if (pct >= 40) return "#C27A1A";
+  return "#B93A2A";
 }
 
 function nullBg(nullPct: number): string {
   if (nullPct <= 2) return "transparent";
-  if (nullPct <= 10) return "rgba(245, 158, 11, 0.04)";
-  if (nullPct <= 30) return "rgba(245, 158, 11, 0.08)";
-  if (nullPct <= 50) return "rgba(239, 68, 68, 0.06)";
-  return "rgba(239, 68, 68, 0.10)";
+  if (nullPct <= 10) return "rgba(194, 122, 26, 0.04)";
+  if (nullPct <= 30) return "rgba(194, 122, 26, 0.08)";
+  if (nullPct <= 50) return "rgba(185, 58, 42, 0.06)";
+  return "rgba(185, 58, 42, 0.10)";
 }
 
 function fmt(n: number | null | undefined): string {
@@ -164,9 +164,9 @@ function AlertBadges({ columns, rowCount }: { columns: ProfileColumn[]; rowCount
 
   if (!highNulls.length && !potentialKeys.length && !allNull.length && !lowCardinality.length) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5">
-        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-        <span className="text-xs text-emerald-400 font-medium">All columns look healthy</span>
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--bp-border)] bg-[var(--bp-operational-light)]">
+        <CheckCircle2 className="w-4 h-4 text-[var(--bp-operational)]" />
+        <span className="text-xs text-[var(--bp-operational)] font-medium">All columns look healthy</span>
       </div>
     );
   }
@@ -174,33 +174,33 @@ function AlertBadges({ columns, rowCount }: { columns: ProfileColumn[]; rowCount
   return (
     <div className="flex flex-wrap gap-2">
       {allNull.length > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-red-500/30 bg-red-500/10">
-          <XCircle className="w-3.5 h-3.5 text-red-400" />
-          <span className="text-[11px] text-red-400 font-medium">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-border)] bg-[var(--bp-fault-light)]">
+          <XCircle className="w-3.5 h-3.5 text-[var(--bp-fault)]" />
+          <span className="text-[11px] text-[var(--bp-fault)] font-medium">
             {allNull.length} column{allNull.length > 1 ? "s" : ""} 100% null
           </span>
         </div>
       )}
       {highNulls.length > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-amber-500/30 bg-amber-500/10">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-          <span className="text-[11px] text-amber-400 font-medium">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-border)] bg-[var(--bp-caution-light)]">
+          <AlertTriangle className="w-3.5 h-3.5 text-[var(--bp-caution)]" />
+          <span className="text-[11px] text-[var(--bp-caution)] font-medium">
             {highNulls.length} column{highNulls.length > 1 ? "s" : ""} &gt;50% nulls
           </span>
         </div>
       )}
       {potentialKeys.length > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-blue-500/30 bg-blue-500/10">
-          <Key className="w-3.5 h-3.5 text-blue-400" />
-          <span className="text-[11px] text-blue-400 font-medium">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-border)] bg-[var(--bp-copper-light)]">
+          <Key className="w-3.5 h-3.5 text-[var(--bp-copper)]" />
+          <span className="text-[11px] text-[var(--bp-copper)] font-medium">
             {potentialKeys.length} potential key{potentialKeys.length > 1 ? "s" : ""}
           </span>
         </div>
       )}
       {lowCardinality.length > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-violet-500/30 bg-violet-500/10">
-          <Layers3 className="w-3.5 h-3.5 text-violet-400" />
-          <span className="text-[11px] text-violet-400 font-medium">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[#475569]/30 bg-[#E2E8F0]/30">
+          <Layers3 className="w-3.5 h-3.5 text-[#475569]" />
+          <span className="text-[11px] text-[#475569] font-medium">
             {lowCardinality.length} low-cardinality column{lowCardinality.length > 1 ? "s" : ""}
           </span>
         </div>
@@ -215,27 +215,27 @@ function AlertBadges({ columns, rowCount }: { columns: ProfileColumn[]; rowCount
 
 function ColumnDetailPanel({ col, rowCount }: { col: ProfileColumn; rowCount: number }) {
   const stats = [
-    { icon: Sigma, label: "Row Count", value: fmt(rowCount) },
-    { icon: Fingerprint, label: "Distinct Values", value: fmt(col.distinctCount) },
+    { icon: Sigma, label: "Row Count", value: fmt(rowCount), hexColor: undefined as string | undefined },
+    { icon: Fingerprint, label: "Distinct Values", value: fmt(col.distinctCount), hexColor: undefined as string | undefined },
     {
       icon: Eye,
       label: "Uniqueness",
       value: pctFmt(col.uniqueness || 0),
-      color: (col.uniqueness || 0) >= 99.9 ? "text-blue-400" : undefined,
+      hexColor: (col.uniqueness || 0) >= 99.9 ? "#B45624" : undefined,
     },
     {
       icon: col.completeness >= 98 ? CheckCircle2 : AlertTriangle,
       label: "Completeness",
       value: pctFmt(col.completeness),
-      color: col.completeness >= 98 ? "text-emerald-400" : col.completeness >= 80 ? "text-amber-400" : "text-red-400",
+      hexColor: col.completeness >= 98 ? "#3D7C4F" : col.completeness >= 80 ? "#C27A1A" : "#B93A2A",
     },
     {
       icon: EyeOff,
       label: "Null Count",
       value: `${fmt(col.nullCount)} (${pctFmt(col.nullPercentage)})`,
-      color: col.nullPercentage > 50 ? "text-red-400" : undefined,
+      hexColor: col.nullPercentage > 50 ? "#B93A2A" : undefined,
     },
-    { icon: Ruler, label: "Max Length", value: col.maxLength ? fmt(col.maxLength) : "\u2014" },
+    { icon: Ruler, label: "Max Length", value: col.maxLength ? fmt(col.maxLength) : "\u2014", hexColor: undefined as string | undefined },
   ];
 
   const typeInfo = getTypeInfo(col.dataType);
@@ -243,21 +243,21 @@ function ColumnDetailPanel({ col, rowCount }: { col: ProfileColumn; rowCount: nu
   return (
     <tr>
       <td colSpan={8} className="p-0">
-        <div className="mx-3 my-2 rounded-lg border border-border/30 bg-muted p-4">
+        <div className="mx-3 my-2 rounded-lg p-4" style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#EDEAE4" }}>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {stats.map((s) => (
               <div key={s.label} className="flex items-start gap-2">
-                <s.icon className={`w-3.5 h-3.5 mt-0.5 ${s.color || "text-muted-foreground/50"}`} />
+                <s.icon className="w-3.5 h-3.5 mt-0.5" style={{ color: s.hexColor || "rgba(168,162,158,0.5)" }} />
                 <div>
-                  <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">{s.label}</div>
-                  <div className={`text-sm font-medium ${s.color || "text-foreground"}`}>{s.value}</div>
+                  <div className="text-[10px] uppercase tracking-wider" style={{ color: "rgba(168,162,158,0.5)" }}>{s.label}</div>
+                  <div className="text-sm font-medium" style={{ color: s.hexColor || "#1C1917" }}>{s.value}</div>
                 </div>
               </div>
             ))}
           </div>
 
           {/* Type details */}
-          <div className="mt-3 pt-3 border-t border-border/20 flex items-center gap-6 text-xs text-muted-foreground/60">
+          <div className="mt-3 pt-3 flex items-center gap-6 text-xs" style={{ borderTop: "1px solid rgba(0,0,0,0.04)", color: "rgba(168,162,158,0.6)" }}>
             <span className="flex items-center gap-1.5">
               <typeInfo.icon className="w-3 h-3" style={{ color: typeInfo.color }} />
               {col.dataType}
@@ -266,20 +266,20 @@ function ColumnDetailPanel({ col, rowCount }: { col: ProfileColumn; rowCount: nu
             </span>
             <span>Nullable: {col.nullable ? "Yes" : "No"}</span>
             <span>Ordinal: {col.ordinal}</span>
-            {col.minValue && <span>Min: <code className="font-mono text-foreground/60">{col.minValue}</code></span>}
-            {col.maxValue && <span>Max: <code className="font-mono text-foreground/60">{col.maxValue}</code></span>}
+            {col.minValue && <span>Min: <code className="font-mono" style={{ color: "rgba(28,25,23,0.6)" }}>{col.minValue}</code></span>}
+            {col.maxValue && <span>Max: <code className="font-mono" style={{ color: "rgba(28,25,23,0.6)" }}>{col.maxValue}</code></span>}
           </div>
 
           {/* Visual quality meter */}
-          <div className="mt-3 pt-3 border-t border-border/20">
-            <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wider mb-1.5">Quality Breakdown</div>
+          <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(0,0,0,0.04)" }}>
+            <div className="text-[10px] uppercase tracking-wider mb-1.5" style={{ color: "rgba(168,162,158,0.5)" }}>Quality Breakdown</div>
             <div className="flex gap-4 items-center">
               <div className="flex-1">
                 <div className="flex items-center justify-between text-[10px] mb-1">
-                  <span className="text-muted-foreground/60">Completeness</span>
+                  <span style={{ color: "rgba(168,162,158,0.6)" }}>Completeness</span>
                   <span style={{ color: qualityColor(col.completeness) }}>{pctFmt(col.completeness)}</span>
                 </div>
-                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: "#EDEAE4" }}>
                   <div
                     className="h-full rounded-full transition-all duration-500"
                     style={{ width: `${col.completeness}%`, backgroundColor: qualityColor(col.completeness) }}
@@ -288,10 +288,10 @@ function ColumnDetailPanel({ col, rowCount }: { col: ProfileColumn; rowCount: nu
               </div>
               <div className="flex-1">
                 <div className="flex items-center justify-between text-[10px] mb-1">
-                  <span className="text-muted-foreground/60">Uniqueness</span>
+                  <span style={{ color: "rgba(168,162,158,0.6)" }}>Uniqueness</span>
                   <span style={{ color: qualityColor(col.uniqueness || 0) }}>{pctFmt(col.uniqueness || 0)}</span>
                 </div>
-                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: "#EDEAE4" }}>
                   <div
                     className="h-full rounded-full transition-all duration-500"
                     style={{
@@ -320,7 +320,7 @@ function MissingValueMatrix({ columns }: { columns: ProfileColumn[] }) {
 
   if (hasNulls.length === 0) {
     return (
-      <div className="flex items-center justify-center gap-2 py-6 text-xs text-emerald-400/60">
+      <div className="flex items-center justify-center gap-2 py-6 text-xs text-[var(--bp-operational)]">
         <CheckCircle2 className="w-4 h-4" />
         <span>Zero null values across all columns</span>
       </div>
@@ -330,15 +330,15 @@ function MissingValueMatrix({ columns }: { columns: ProfileColumn[] }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-xs font-medium text-muted-foreground">
+        <h3 className="text-xs font-medium" style={{ color: "#78716C" }}>
           Missing Value Density — {hasNulls.length} of {columns.length} columns have nulls
         </h3>
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground/50">
+        <div className="flex items-center gap-3 text-[10px]" style={{ color: "rgba(168,162,158,0.5)" }}>
           <span className="flex items-center gap-1">
-            <div className="w-3 h-2 rounded-sm bg-emerald-500/60" /> Complete
+            <div className="w-3 h-2 rounded-sm bg-[var(--bp-operational)]" /> Complete
           </span>
           <span className="flex items-center gap-1">
-            <div className="w-3 h-2 rounded-sm bg-red-500/60" /> Missing
+            <div className="w-3 h-2 rounded-sm bg-[var(--bp-fault)]" /> Missing
           </span>
         </div>
       </div>
@@ -359,7 +359,7 @@ function MissingValueMatrix({ columns }: { columns: ProfileColumn[] }) {
                 className="transition-all duration-300"
                 style={{
                   height: `${nullPct}%`,
-                  backgroundColor: nullPct >= 80 ? "rgba(239,68,68,0.7)" : nullPct >= 50 ? "rgba(239,68,68,0.5)" : nullPct >= 20 ? "rgba(245,158,11,0.5)" : "rgba(245,158,11,0.3)",
+                  backgroundColor: nullPct >= 80 ? "rgba(185,58,42,0.7)" : nullPct >= 50 ? "rgba(185,58,42,0.5)" : nullPct >= 20 ? "rgba(194,122,26,0.5)" : "rgba(194,122,26,0.3)",
                 }}
               />
               {/* Complete portion (bottom = filled) */}
@@ -367,12 +367,12 @@ function MissingValueMatrix({ columns }: { columns: ProfileColumn[] }) {
                 className="transition-all duration-300"
                 style={{
                   height: `${completePct}%`,
-                  backgroundColor: completePct >= 98 ? "rgba(16,185,129,0.5)" : completePct >= 80 ? "rgba(34,197,94,0.4)" : "rgba(132,204,22,0.3)",
+                  backgroundColor: completePct >= 98 ? "rgba(61,124,79,0.5)" : completePct >= 80 ? "rgba(61,124,79,0.4)" : "rgba(61,124,79,0.3)",
                 }}
               />
               {/* Hover tooltip via pseudo */}
               <div className="absolute inset-x-0 -bottom-6 hidden group-hover:block z-10">
-                <div className="text-[9px] text-center text-foreground bg-card border border-border/30 rounded px-1 py-0.5 shadow-lg whitespace-nowrap">
+                <div className="text-[9px] text-center rounded px-1 py-0.5 whitespace-nowrap" style={{ color: "#1C1917", backgroundColor: "#FEFDFB", border: "1px solid rgba(0,0,0,0.04)" }}>
                   {col.name.length > 12 ? col.name.slice(0, 10) + "\u2026" : col.name}
                 </div>
               </div>
@@ -386,7 +386,8 @@ function MissingValueMatrix({ columns }: { columns: ProfileColumn[] }) {
         {sorted.slice(0, Math.min(sorted.length, 20)).map((col) => (
           <div
             key={col.name}
-            className="flex-1 min-w-[4px] max-w-[24px] text-[7px] text-muted-foreground/40 overflow-hidden truncate text-center"
+            className="flex-1 min-w-[4px] max-w-[24px] text-[7px] overflow-hidden truncate text-center"
+            style={{ color: "rgba(168,162,158,0.4)" }}
             style={{ writingMode: "vertical-rl", height: 50, transform: "rotate(180deg)" }}
           >
             {col.name}
@@ -413,16 +414,16 @@ function QualityRankingChart({ columns }: { columns: ProfileColumn[] }) {
 
   return (
     <div className="space-y-3">
-      <h3 className="text-xs font-medium text-muted-foreground">
+      <h3 className="text-xs font-medium" style={{ color: "#78716C" }}>
         Quality Ranking — Lowest 15 Columns
       </h3>
       <div className="space-y-1">
         {ranked.map((col) => (
           <div key={col.name} className="flex items-center gap-2 group">
-            <div className="w-32 text-[10px] font-mono text-muted-foreground/60 truncate text-right" title={col.name}>
+            <div className="w-32 text-[10px] font-mono truncate text-right" style={{ color: "rgba(168,162,158,0.6)" }} title={col.name}>
               {col.name}
             </div>
-            <div className="flex-1 h-4 rounded bg-muted overflow-hidden relative">
+            <div className="flex-1 h-4 rounded overflow-hidden relative" style={{ backgroundColor: "#EDEAE4" }}>
               <div
                 className="h-full rounded transition-all duration-500"
                 style={{
@@ -430,19 +431,19 @@ function QualityRankingChart({ columns }: { columns: ProfileColumn[] }) {
                   backgroundColor: qualityColor(col.score),
                 }}
               />
-              <span className="absolute inset-y-0 left-1 flex items-center text-[9px] font-medium text-foreground/70">
+              <span className="absolute inset-y-0 left-1 flex items-center text-[9px] font-medium" style={{ color: "rgba(28,25,23,0.7)" }}>
                 {col.score.toFixed(0)}
               </span>
             </div>
-            <div className="w-16 text-[10px] text-muted-foreground/40 flex items-center gap-1">
-              {col.completeness < 50 && <AlertTriangle className="w-2.5 h-2.5 text-red-400" />}
-              {col.uniqueness >= 99.9 && <Key className="w-2.5 h-2.5 text-blue-400" />}
+            <div className="w-16 text-[10px] flex items-center gap-1" style={{ color: "rgba(168,162,158,0.4)" }}>
+              {col.completeness < 50 && <AlertTriangle className="w-2.5 h-2.5 text-[var(--bp-fault)]" />}
+              {col.uniqueness >= 99.9 && <Key className="w-2.5 h-2.5 text-[var(--bp-copper)]" />}
               <span>{pctFmt(col.completeness)}</span>
             </div>
           </div>
         ))}
       </div>
-      <div className="text-[10px] text-muted-foreground/40 italic">
+      <div className="text-[10px] italic" style={{ color: "rgba(168,162,158,0.4)" }}>
         Score = 60% completeness + 40% uniqueness
       </div>
     </div>
@@ -501,23 +502,23 @@ function EntityPicker({
   return (
     <div className="p-6 md:p-10 max-w-3xl mx-auto space-y-6">
       <div className="text-center">
-        <Microscope className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
-        <h1 className="text-xl font-semibold text-foreground">Data Profiler</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <Microscope className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--bp-ink-muted)" }} />
+        <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Data Profiler</h1>
+        <p className="text-sm mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
           Select a source, entity, and layer to profile
         </p>
       </div>
 
       {digestLoading ? (
         <div className="flex items-center justify-center py-12 gap-3">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Loading entities...</span>
+          <Loader2 className="w-5 h-5 animate-spin" style={{ color: "#78716C" }} />
+          <span className="text-sm" style={{ color: "#78716C" }}>Loading entities...</span>
         </div>
       ) : (
         <div className="space-y-4">
           {/* Source selector */}
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium block mb-1.5">
+            <label className="text-[10px] uppercase tracking-wider font-medium block mb-1.5" style={{ color: "rgba(168,162,158,0.6)" }}>
               Data Source
             </label>
             <select
@@ -526,7 +527,8 @@ function EntityPicker({
                 setSelectedSource(e.target.value);
                 setSelectedEntity(null);
               }}
-              className="w-full px-3 py-2 rounded-lg border border-border/50 bg-card text-sm text-foreground outline-none focus:border-ring/50"
+              className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+              style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB", color: "#1C1917" }}
             >
               <option value="">All Sources ({allEntities.length} entities)</option>
               {sourceList.map((s) => (
@@ -539,22 +541,23 @@ function EntityPicker({
 
           {/* Entity search + list */}
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium block mb-1.5">
+            <label className="text-[10px] uppercase tracking-wider font-medium block mb-1.5" style={{ color: "rgba(168,162,158,0.6)" }}>
               Table
             </label>
             <div className="relative mb-2">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: "rgba(168,162,158,0.4)" }} />
               <input
                 type="text"
                 value={entitySearch}
                 onChange={(e) => setEntitySearch(e.target.value)}
                 placeholder="Search tables..."
-                className="w-full pl-9 pr-3 py-2 rounded-lg border border-border/50 bg-card text-sm text-foreground placeholder:text-muted-foreground/30 outline-none focus:border-ring/50"
+                className="w-full pl-9 pr-3 py-2 rounded-lg text-sm outline-none"
+                style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB", color: "#1C1917" }}
               />
             </div>
-            <div className="rounded-lg border border-border/30 max-h-60 overflow-y-auto">
+            <div className="rounded-lg max-h-60 overflow-y-auto" style={{ border: "1px solid rgba(0,0,0,0.04)" }}>
               {filteredEntities.length === 0 ? (
-                <div className="py-6 text-center text-xs text-muted-foreground/40">
+                <div className="py-6 text-center text-xs" style={{ color: "rgba(168,162,158,0.4)" }}>
                   No tables match
                 </div>
               ) : (
@@ -562,30 +565,32 @@ function EntityPicker({
                   <button
                     key={e.id}
                     onClick={() => setSelectedEntity(e)}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-muted/50 transition-colors border-b border-border/10 last:border-b-0 ${
-                      selectedEntity?.id === e.id ? "bg-muted" : ""
-                    }`}
+                    className="w-full flex items-center justify-between px-3 py-2 text-left transition-colors last:border-b-0"
+                    style={{
+                      borderBottom: "1px solid rgba(0,0,0,0.02)",
+                      backgroundColor: selectedEntity?.id === e.id ? "#EDEAE4" : undefined,
+                    }}
                   >
                     <div>
-                      <span className="text-xs font-mono text-foreground">{e.tableName}</span>
-                      <span className="text-[10px] text-muted-foreground/50 ml-2">{e.sourceSchema}</span>
+                      <span className="text-xs font-mono" style={{ color: "#1C1917" }}>{e.tableName}</span>
+                      <span className="text-[10px] ml-2" style={{ color: "rgba(168,162,158,0.5)" }}>{e.sourceSchema}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       {e.lzStatus === "loaded" && (
-                        <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400">LZ</span>
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--bp-surface-inset)] text-[var(--bp-ink-muted)]">LZ</span>
                       )}
                       {e.bronzeStatus === "loaded" && (
-                        <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-400">BZ</span>
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-[#EDCFBD]/30 text-[#9A4A1F]">BZ</span>
                       )}
                       {e.silverStatus === "loaded" && (
-                        <span className="text-[9px] px-1 py-0.5 rounded bg-violet-500/10 text-violet-400">SV</span>
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-[#E2E8F0]/30 text-[#475569]">SV</span>
                       )}
                     </div>
                   </button>
                 ))
               )}
               {filteredEntities.length > 100 && (
-                <div className="py-2 text-center text-[10px] text-muted-foreground/40">
+                <div className="py-2 text-center text-[10px]" style={{ color: "rgba(168,162,158,0.4)" }}>
                   Showing 100 of {filteredEntities.length} — refine search
                 </div>
               )}
@@ -595,31 +600,27 @@ function EntityPicker({
           {/* Layer selector */}
           {selectedEntity && (
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium block mb-1.5">
+              <label className="text-[10px] uppercase tracking-wider font-medium block mb-1.5" style={{ color: "rgba(168,162,158,0.6)" }}>
                 Layer
               </label>
               <div className="flex gap-2">
                 {([
-                  { key: "bronze", label: "Bronze", color: "#f59e0b", loaded: selectedEntity.bronzeStatus === "loaded" },
-                  { key: "silver", label: "Silver", color: "#8b5cf6", loaded: selectedEntity.silverStatus === "loaded" },
+                  { key: "bronze", label: "Bronze", color: "#9A4A1F", loaded: selectedEntity.bronzeStatus === "loaded" },
+                  { key: "silver", label: "Silver", color: "#475569", loaded: selectedEntity.silverStatus === "loaded" },
                 ] as const).map((l) => (
                   <button
                     key={l.key}
                     onClick={() => setSelectedLayer(l.key)}
-                    className={`flex-1 px-4 py-2.5 rounded-lg border text-sm font-medium transition-all ${
-                      selectedLayer === l.key
-                        ? "border-2 shadow-sm"
-                        : "border-border/30 text-muted-foreground hover:border-border"
-                    }`}
+                    className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all"
                     style={
                       selectedLayer === l.key
-                        ? { borderColor: l.color, color: l.color, backgroundColor: `${l.color}10` }
-                        : undefined
+                        ? { borderColor: l.color, color: l.color, backgroundColor: `${l.color}10`, border: `2px solid ${l.color}` }
+                        : { border: "1px solid rgba(0,0,0,0.04)", color: "#78716C" }
                     }
                   >
                     {l.label}
                     {!l.loaded && (
-                      <span className="text-[10px] text-muted-foreground/50 ml-1">(not loaded)</span>
+                      <span className="text-[10px] ml-1" style={{ color: "rgba(168,162,158,0.5)" }}>(not loaded)</span>
                     )}
                   </button>
                 ))}
@@ -772,13 +773,14 @@ export default function DataProfiler() {
 
   const SortHeader = ({ label, sortId, className }: { label: string; sortId: SortKey; className?: string }) => (
     <th
-      className={`px-3 py-2 font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors select-none ${className || ""}`}
+      className={`px-3 py-2 font-medium cursor-pointer transition-colors select-none ${className || ""}`}
+      style={{ color: "#78716C" }}
       onClick={() => handleSort(sortId)}
     >
       <span className="flex items-center gap-1">
         {label}
         {sortKey === sortId && (
-          sortAsc ? <SortAsc className="w-3 h-3 text-foreground/50" /> : <SortDesc className="w-3 h-3 text-foreground/50" />
+          sortAsc ? <SortAsc className="w-3 h-3" style={{ color: "rgba(28,25,23,0.5)" }} /> : <SortDesc className="w-3 h-3" style={{ color: "rgba(28,25,23,0.5)" }} />
         )}
       </span>
     </th>
@@ -798,7 +800,8 @@ export default function DataProfiler() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSearchParams({})}
-            className="p-1.5 rounded-md border border-border/30 text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+            className="p-1.5 rounded-md transition-colors"
+            style={{ border: "1px solid rgba(0,0,0,0.04)", color: "#78716C" }}
             title="Change table"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -806,7 +809,7 @@ export default function DataProfiler() {
           <div>
             <div className="flex items-center gap-2">
               <Table2 className="w-5 h-5" style={{ color: layerColor }} />
-              <h1 className="text-lg font-semibold text-foreground">
+              <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>
                 {paramSchema}.{paramTable}
               </h1>
               <span
@@ -820,7 +823,7 @@ export default function DataProfiler() {
                 {paramLayer}
               </span>
             </div>
-            <p className="text-xs text-muted-foreground/60 mt-0.5 flex items-center gap-1.5">
+            <p className="text-xs mt-0.5 flex items-center gap-1.5" style={{ color: "rgba(168,162,158,0.6)" }}>
               <Database className="w-3 h-3" />
               {paramLakehouse}
             </p>
@@ -828,7 +831,7 @@ export default function DataProfiler() {
         </div>
 
         {/* View mode tabs */}
-        <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted border border-border/30">
+        <div className="flex items-center gap-1 p-0.5 rounded-lg" style={{ backgroundColor: "#EDEAE4", border: "1px solid rgba(0,0,0,0.04)" }}>
           {(
             [
               { key: "table", label: "Table", icon: Table2 },
@@ -839,11 +842,12 @@ export default function DataProfiler() {
             <button
               key={tab.key}
               onClick={() => setViewMode(tab.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+              style={
                 viewMode === tab.key
-                  ? "bg-card text-foreground shadow-sm border border-border/30"
-                  : "text-muted-foreground/60 hover:text-muted-foreground"
-              }`}
+                  ? { backgroundColor: "#FEFDFB", color: "#1C1917", border: "1px solid rgba(0,0,0,0.04)" }
+                  : { color: "rgba(168,162,158,0.6)" }
+              }
             >
               <tab.icon className="w-3 h-3" />
               {tab.label}
@@ -855,16 +859,16 @@ export default function DataProfiler() {
       {/* Loading state */}
       {loading && (
         <div className="flex items-center justify-center py-20 gap-3">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Profiling {paramSchema}.{paramTable}...</span>
+          <Loader2 className="w-5 h-5 animate-spin" style={{ color: "#78716C" }} />
+          <span className="text-sm" style={{ color: "#78716C" }}>Profiling {paramSchema}.{paramTable}...</span>
         </div>
       )}
 
       {/* Error state */}
       {error && !loading && (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-          <span className="text-sm text-amber-400">{error}</span>
+        <div className="rounded-lg border border-[var(--bp-border-subtle)] bg-[var(--bp-caution-light)] px-4 py-3 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-[var(--bp-caution)] flex-shrink-0" />
+          <span className="text-sm text-[var(--bp-caution)]">{error}</span>
         </div>
       )}
 
@@ -875,8 +879,8 @@ export default function DataProfiler() {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {[
               { label: "Rows", value: fmt(profile.rowCount), color: layerColor },
-              { label: "Columns", value: `${profile.columnCount}`, color: "#64748b" },
-              { label: "Profiled", value: `${profile.profiledColumns}`, color: "#64748b" },
+              { label: "Columns", value: `${profile.columnCount}`, color: "#57534E" },
+              { label: "Profiled", value: `${profile.profiledColumns}`, color: "#57534E" },
               {
                 label: "Avg Completeness",
                 value: pctFmt(
@@ -897,14 +901,15 @@ export default function DataProfiler() {
                     ? profile.columns.reduce((s, c) => s + (c.uniqueness || 0), 0) / profile.columns.length
                     : 0
                 ),
-                color: "#6366f1",
+                color: "#B45624",
               },
             ].map((kpi) => (
               <div
                 key={kpi.label}
-                className="rounded-lg border border-border/20 bg-card px-3 py-2"
+                className="rounded-lg px-3 py-2"
+                style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB" }}
               >
-                <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">
+                <div className="text-[10px] uppercase tracking-wider" style={{ color: "rgba(168,162,158,0.5)" }}>
                   {kpi.label}
                 </div>
                 <div className="text-xl font-semibold mt-0.5" style={{ color: kpi.color }}>
@@ -922,22 +927,23 @@ export default function DataProfiler() {
             <>
               {/* Search bar */}
               <div className="relative max-w-sm">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: "rgba(168,162,158,0.4)" }} />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Filter columns..."
-                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-border/30 bg-card text-sm text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring/30"
+                  className="w-full pl-9 pr-3 py-2 rounded-lg text-sm focus:outline-none"
+                  style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB", color: "#1C1917" }}
                 />
               </div>
 
               {/* Profile table */}
-              <div className="rounded-lg border border-border/30 overflow-hidden">
+              <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(0,0,0,0.04)" }}>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="bg-muted border-b border-border/30">
+                      <tr style={{ backgroundColor: "#EDEAE4", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
                         <th className="w-8 px-2 py-2" />
                         <SortHeader label="Column" sortId="name" className="text-left" />
                         <SortHeader label="Type" sortId="type" className="text-left" />
@@ -945,7 +951,7 @@ export default function DataProfiler() {
                         <SortHeader label="Uniqueness" sortId="uniqueness" className="text-left" />
                         <SortHeader label="Nulls" sortId="nulls" className="text-right" />
                         <SortHeader label="Distinct" sortId="distinct" className="text-right" />
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Range</th>
+                        <th className="text-left px-3 py-2 font-medium" style={{ color: "#78716C" }}>Range</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -957,12 +963,13 @@ export default function DataProfiler() {
                         return (
                           <Fragment key={col.name}>
                             <tr
-                              className="border-b border-border/10 hover:bg-muted/50 cursor-pointer transition-colors"
+                              className="cursor-pointer transition-colors"
+                              style={{ borderBottom: "1px solid rgba(0,0,0,0.02)" }}
                               style={{ backgroundColor: nullBg(col.nullPercentage) }}
                               onClick={() => setExpandedCol(isExpanded ? null : col.name)}
                             >
                               {/* Expand chevron */}
-                              <td className="px-2 py-2 text-muted-foreground/30">
+                              <td className="px-2 py-2" style={{ color: "rgba(168,162,158,0.3)" }}>
                                 {isExpanded ? (
                                   <ChevronDown className="w-3 h-3" />
                                 ) : (
@@ -973,12 +980,12 @@ export default function DataProfiler() {
                               {/* Column name */}
                               <td className="px-3 py-2">
                                 <div className="flex items-center gap-1.5">
-                                  <span className="font-mono text-foreground">{col.name}</span>
+                                  <span className="font-mono" style={{ color: "#1C1917" }}>{col.name}</span>
                                   {(col.uniqueness || 0) >= 99.9 && profile.rowCount > 0 && (
-                                    <span title="Potential primary key"><Key className="w-3 h-3 text-blue-400" /></span>
+                                    <span title="Potential primary key"><Key className="w-3 h-3 text-[var(--bp-copper)]" /></span>
                                   )}
                                   {col.nullPercentage >= 100 && (
-                                    <span title="100% null"><XCircle className="w-3 h-3 text-red-400" /></span>
+                                    <span title="100% null"><XCircle className="w-3 h-3 text-[var(--bp-fault)]" /></span>
                                   )}
                                 </div>
                               </td>
@@ -987,7 +994,7 @@ export default function DataProfiler() {
                               <td className="px-3 py-2">
                                 <div className="flex items-center gap-1.5">
                                   <TypeIcon className="w-3 h-3 flex-shrink-0" style={{ color: typeInfo.color }} />
-                                  <span className="text-muted-foreground" title={typeInfo.label}>
+                                  <span style={{ color: "#78716C" }} title={typeInfo.label}>
                                     {col.dataType}
                                     {col.maxLength ? `(${col.maxLength})` : ""}
                                   </span>
@@ -997,7 +1004,7 @@ export default function DataProfiler() {
                               {/* Completeness bar */}
                               <td className="px-3 py-2">
                                 <div className="flex items-center gap-2">
-                                  <div className="w-24 h-[6px] rounded-full bg-muted overflow-hidden relative">
+                                  <div className="w-24 h-[6px] rounded-full overflow-hidden relative" style={{ backgroundColor: "#EDEAE4" }}>
                                     <div
                                       className="h-full rounded-full transition-all duration-500"
                                       style={{
@@ -1018,21 +1025,21 @@ export default function DataProfiler() {
                               {/* Uniqueness / Cardinality bar */}
                               <td className="px-3 py-2">
                                 <div className="flex items-center gap-2">
-                                  <div className="w-20 h-[6px] rounded-full bg-muted overflow-hidden">
+                                  <div className="w-20 h-[6px] rounded-full overflow-hidden" style={{ backgroundColor: "#EDEAE4" }}>
                                     <div
                                       className="h-full rounded-full transition-all duration-500"
                                       style={{
                                         width: `${Math.min(col.uniqueness || 0, 100)}%`,
                                         backgroundColor:
                                           (col.uniqueness || 0) >= 99.9
-                                            ? "#3b82f6"
+                                            ? "#B45624"
                                             : (col.uniqueness || 0) >= 50
-                                            ? "#8b5cf6"
-                                            : "#64748b",
+                                            ? "#57534E"
+                                            : "#A8A29E",
                                       }}
                                     />
                                   </div>
-                                  <span className="text-[10px] text-muted-foreground/60 min-w-[36px]">
+                                  <span className="text-[10px] min-w-[36px]" style={{ color: "rgba(168,162,158,0.6)" }}>
                                     {pctFmt(col.uniqueness || 0)}
                                   </span>
                                 </div>
@@ -1041,37 +1048,31 @@ export default function DataProfiler() {
                               {/* Null count */}
                               <td className="px-3 py-2 text-right">
                                 <span
-                                  className={`${
-                                    col.nullPercentage >= 50
-                                      ? "text-red-400"
-                                      : col.nullPercentage > 10
-                                      ? "text-amber-400/80"
-                                      : "text-muted-foreground/60"
-                                  }`}
+                                  style={{ color: col.nullPercentage >= 50 ? "#B93A2A" : col.nullPercentage > 10 ? "#C27A1A" : "rgba(168,162,158,0.6)" }}
                                 >
                                   {fmt(col.nullCount)}
                                 </span>
                               </td>
 
                               {/* Distinct count */}
-                              <td className="px-3 py-2 text-right text-muted-foreground/60">
+                              <td className="px-3 py-2 text-right" style={{ color: "rgba(168,162,158,0.6)" }}>
                                 {fmt(col.distinctCount)}
                               </td>
 
                               {/* Range (min-max) */}
                               <td className="px-3 py-2">
                                 {col.minValue || col.maxValue ? (
-                                  <div className="font-mono text-[10px] text-muted-foreground/50 max-w-[140px]">
+                                  <div className="font-mono text-[10px] max-w-[140px]" style={{ color: "rgba(168,162,158,0.5)" }}>
                                     <span className="truncate block" title={col.minValue || ""}>
                                       {col.minValue || "\u2014"}
                                     </span>
-                                    <span className="text-muted-foreground/30">\u2192</span>{" "}
+                                    <span style={{ color: "rgba(168,162,158,0.3)" }}>\u2192</span>{" "}
                                     <span className="truncate block" title={col.maxValue || ""}>
                                       {col.maxValue || "\u2014"}
                                     </span>
                                   </div>
                                 ) : (
-                                  <span className="text-muted-foreground/30">\u2014</span>
+                                  <span style={{ color: "rgba(168,162,158,0.3)" }}>\u2014</span>
                                 )}
                               </td>
                             </tr>
@@ -1092,7 +1093,7 @@ export default function DataProfiler() {
                 </div>
               </div>
 
-              <div className="text-[10px] text-muted-foreground/30 text-right">
+              <div className="text-[10px] text-right" style={{ color: "rgba(168,162,158,0.3)" }}>
                 Showing {filteredColumns.length} of {profile.columns.length} columns
                 {search && ` (filtered by "${search}")`}
               </div>
@@ -1101,14 +1102,14 @@ export default function DataProfiler() {
 
           {/* View: Missing Value Matrix */}
           {viewMode === "matrix" && (
-            <div className="rounded-lg border border-border/30 bg-card p-5">
+            <div className="rounded-lg p-5" style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB" }}>
               <MissingValueMatrix columns={profile.columns} />
             </div>
           )}
 
           {/* View: Quality Ranking */}
           {viewMode === "ranking" && (
-            <div className="rounded-lg border border-border/30 bg-card p-5">
+            <div className="rounded-lg p-5" style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB" }}>
               <QualityRankingChart columns={profile.columns} />
             </div>
           )}

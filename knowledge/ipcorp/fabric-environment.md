@@ -73,7 +73,7 @@ struct.pack(f'<I{len(token_bytes)}s', len(token_bytes), token_bytes)
 **WARNING**: Do NOT use the `<IH...` variant -- it will fail silently.
 
 ### Auth Scope
-Use `https://analysis.windows.net/powerbi/api/.default` -- NOT `https://database.windows.net/.default`.
+Use `https://analysis.windows.net/powerbi/api/.default` -- NOT `https://analysis.windows.net/powerbi/api/.default`.
 
 ### Dead Endpoints
 The old endpoint `x6eps4powstuxhgxdjmpmo3fsa-...datawarehouse.fabric.microsoft.com` is DEAD. To get a fresh endpoint:

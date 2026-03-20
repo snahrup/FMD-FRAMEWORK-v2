@@ -62,10 +62,56 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
   // ── Deep-link: auto-expand tree to initialSelection on mount ──
   useEffect(() => {
     if (!initialSelection || deepLinkApplied.current) return;
-    if (loading || servers.length === 0) return;
 
-    const { server, database, schema, table } = initialSelection;
+    const { server, database, schema, table, type } = initialSelection;
     if (!server) return;
+
+    // Lakehouse deep-link path (from DataBlender: ?database=LH_BRONZE_LAYER&schema=dbo&table=X)
+    if (type === 'lakehouse') {
+      if (lhLoading || lakehouses.length === 0) return;
+
+      const matchedLh = lakehouses.find(
+        l => l.name.toLowerCase() === server.toLowerCase() && l.status === 'online'
+      );
+      if (!matchedLh) return;
+
+      deepLinkApplied.current = true;
+      const lhName = matchedLh.name;
+
+      (async () => {
+        try {
+          // 1. Expand lakehouse (fetches schemas)
+          setExpandedLakehouses(new Set([lhName]));
+          const schResp = await fetch(`/api/sql-explorer/lakehouse-schemas?lakehouse=${encodeURIComponent(lhName)}`);
+          const schData = schResp.ok ? await schResp.json() : [];
+          setLhSchemas(prev => ({ ...prev, [lhName]: schData }));
+
+          // 2. Expand schema (fetches tables)
+          if (schema) {
+            const schKey = `${lhName}::${schema}`;
+            setExpandedLhSchemas(new Set([schKey]));
+            const tblFolderKey = `${schKey}::Tables`;
+            setExpandedLhTableFolders(new Set([tblFolderKey]));
+            const tblResp = await fetch(`/api/sql-explorer/lakehouse-tables?lakehouse=${encodeURIComponent(lhName)}&schema=${encodeURIComponent(schema)}`);
+            if (tblResp.ok) {
+              const tblData = await tblResp.json();
+              setLhTables(prev => ({ ...prev, [schKey]: tblData }));
+
+              // 3. Select the table
+              if (table) {
+                onSelectTable({ server: lhName, database: lhName, schema, table, type: 'lakehouse' });
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[ObjectTree] Lakehouse deep-link expansion failed:', e);
+        }
+      })();
+      return;
+    }
+
+    // Source server deep-link path
+    if (loading || servers.length === 0) return;
 
     // Find matching server (case-insensitive)
     const matchedServer = servers.find(
@@ -109,7 +155,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
 
                     // 4. Select the table
                     if (table) {
-                      onSelectTable({ server: srvName, database, schema, table });
+                      onSelectTable({ server: srvName, database, schema, table, type: 'source' });
                     }
                   }
                 }
@@ -121,7 +167,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
         }
       }
     })();
-  }, [initialSelection, loading, servers]);
+  }, [initialSelection, loading, servers, lhLoading, lakehouses]);
 
   async function fetchServers() {
     setLoading(true);
@@ -455,7 +501,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                     <div className="ml-auto flex items-center gap-1.5">
                       <div className={cn(
                         "h-2 w-2 rounded-full flex-shrink-0",
-                        isOnline ? "bg-emerald-500" : "bg-destructive"
+                        isOnline ? "bg-[#3D7C4F]" : "bg-destructive"
                       )} />
                     </div>
                   </div>
@@ -494,10 +540,10 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                   <ChevronRight className="h-2.5 w-2.5 text-muted-foreground" />
                                 )}
                               </span>
-                              <Database className={cn("h-3 w-3 flex-shrink-0", dbEmpty ? "text-muted-foreground/30" : db.isRegistered ? "text-amber-500" : "text-blue-400")} />
-                              <span className={cn("truncate", dbEmpty ? "text-muted-foreground/40" : db.isRegistered ? "text-amber-400 font-semibold" : "text-foreground/80")}>{db.name}</span>
+                              <Database className={cn("h-3 w-3 flex-shrink-0", dbEmpty ? "text-muted-foreground/30" : db.isRegistered ? "text-[#C27A1A]" : "text-[#B45624]")} />
+                              <span className={cn("truncate", dbEmpty ? "text-muted-foreground/40" : db.isRegistered ? "text-[#C27A1A] font-semibold" : "text-foreground/80")}>{db.name}</span>
                               {db.isRegistered && (
-                                <span className="text-[8px] px-1 py-px rounded bg-amber-500/15 text-amber-500 border border-amber-500/30 font-semibold uppercase tracking-wider flex-shrink-0">
+                                <span className="text-[8px] px-1 py-px rounded bg-[#C27A1A]/15 text-[#C27A1A] border border-[#C27A1A]/30 font-semibold uppercase tracking-wider flex-shrink-0">
                                   Registered
                                 </span>
                               )}
@@ -609,7 +655,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
             {!lhLoading && lakehouses.length > 0 && (
               <>
                 <div className="flex items-center gap-2 px-2 py-1.5 mt-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-t border-border/50 pt-3">
-                  <Cloud className="h-3 w-3 text-emerald-500/70" />
+                  <Cloud className="h-3 w-3 text-[#3D7C4F]/70" />
                   <span>Fabric Lakehouses</span>
                   <span className="opacity-50">{lakehouses.filter(l => l.status === 'online').length}/{lakehouses.length}</span>
                 </div>
@@ -641,25 +687,27 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                             <ChevronRight className="h-3 w-3 text-muted-foreground" />
                           )}
                         </span>
-                        <Database className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />
+                        <Database className="h-3.5 w-3.5 text-[#3D7C4F] flex-shrink-0" />
                         <span className="font-medium text-foreground truncate">{lh.display}</span>
-                        <span className="text-[10px] text-muted-foreground/40 truncate">{lh.name}</span>
                         <div className="ml-auto flex items-center gap-1.5">
                           <div className={cn(
                             "h-2 w-2 rounded-full flex-shrink-0",
-                            isOnline ? "bg-emerald-500" : "bg-destructive"
+                            isOnline ? "bg-[#3D7C4F]" : "bg-destructive"
                           )} />
                         </div>
                       </button>
 
-                      {/* Lakehouse content: Tables + Files */}
-                      {lhExpanded && (
+                      {/* Lakehouse content: Files for Landing, Tables for Bronze/Silver */}
+                      {lhExpanded && (() => {
+                        const isLandingZone = lh.layer === 'landing';
+                        const isBronzeOrSilver = lh.layer === 'bronze' || lh.layer === 'silver';
+                        return (
                         <div className="ml-5">
-                          {/* ── Delta Tables (SQL Analytics) ── */}
-                          {lhSchemaList.length === 0 && !lhNodeLoading && (
+                          {/* ── Delta Tables (SQL Analytics) — only for Bronze/Silver ── */}
+                          {!isLandingZone && lhSchemaList.length === 0 && !lhNodeLoading && (
                             <div className="px-2 py-1 text-[10px] text-muted-foreground/50 italic ml-1">No delta tables</div>
                           )}
-                          {lhSchemaList.length > 0 && (
+                          {!isLandingZone && lhSchemaList.length > 0 && (
                             <>
                               <div className="px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/50 mt-1">
                                 Delta Tables
@@ -727,11 +775,11 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                                 className={cn(
                                                   "flex items-center gap-2 w-full px-2 py-1 ml-3 rounded-[var(--radius-md)] text-[11px] transition-colors cursor-pointer",
                                                   sel
-                                                    ? "bg-emerald-500/10 text-emerald-500 font-medium border-l-2 border-emerald-500"
+                                                    ? "bg-[#E7F3EB] text-[#3D7C4F] font-medium border-l-2 border-[#3D7C4F]"
                                                     : "text-muted-foreground hover:bg-accent hover:text-foreground"
                                                 )}
                                               >
-                                                <Table2 className={cn("h-3 w-3 flex-shrink-0", sel ? "text-emerald-500" : "text-muted-foreground/50")} />
+                                                <Table2 className={cn("h-3 w-3 flex-shrink-0", sel ? "text-[#3D7C4F]" : "text-muted-foreground/50")} />
                                                 <span className="truncate">{tbl.TABLE_NAME}</span>
                                               </button>
                                             );
@@ -747,8 +795,8 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                             </>
                           )}
 
-                          {/* ── OneLake Files (Parquet) ── */}
-                          {(() => {
+                          {/* ── OneLake Files (Parquet) — only for Landing Zone ── */}
+                          {!isBronzeOrSilver && (() => {
                             const filesKey = `lh-files::${lh.name}`;
                             const filesExpanded = expandedLhFiles.has(filesKey);
                             const filesLoading = loadingNodes.has(filesKey);
@@ -760,7 +808,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                   onClick={() => toggleLhFilesFolder(lh.name)}
                                   className={cn(
                                     "flex items-center gap-2 w-full px-2 py-1.5 ml-1 rounded-[var(--radius-md)] text-[11px] font-medium transition-colors cursor-pointer mt-0.5",
-                                    filesExpanded ? "bg-amber-500/5 text-amber-600" : "text-muted-foreground hover:bg-accent"
+                                    filesExpanded ? "bg-[#FDF3E3] text-[#C27A1A]" : "text-muted-foreground hover:bg-accent"
                                   )}
                                 >
                                   <span className="flex-shrink-0 w-4 flex justify-center">
@@ -772,7 +820,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                       <ChevronRight className="h-2.5 w-2.5" />
                                     )}
                                   </span>
-                                  <FolderOpen className={cn("h-3 w-3 flex-shrink-0", filesExpanded ? "text-amber-500" : "text-amber-500/60")} />
+                                  <FolderOpen className={cn("h-3 w-3 flex-shrink-0", filesExpanded ? "text-[#C27A1A]" : "text-[#C27A1A]/60")} />
                                   <span>Files</span>
                                   {filesExpanded && namespaces.length > 0 && (
                                     <span className="ml-auto text-[10px] font-mono opacity-60">{namespaces.length}</span>
@@ -809,7 +857,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                                 <ChevronRight className="h-2.5 w-2.5 text-muted-foreground" />
                                               )}
                                             </span>
-                                            <FolderOpen className="h-3 w-3 text-amber-400/70 flex-shrink-0" />
+                                            <FolderOpen className="h-3 w-3 text-[#C27A1A]/70 flex-shrink-0" />
                                             <span className="text-foreground/80">{ns.name}</span>
                                           </button>
 
@@ -833,11 +881,11 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                                       className={cn(
                                                         "flex items-center gap-2 w-full px-2 py-1 ml-1 rounded-[var(--radius-md)] text-[11px] transition-colors cursor-pointer",
                                                         fileSel
-                                                          ? "bg-amber-500/10 text-amber-500 font-medium border-l-2 border-amber-500"
+                                                          ? "bg-[#FDF3E3] text-[#C27A1A] font-medium border-l-2 border-[#C27A1A]"
                                                           : "text-muted-foreground hover:bg-accent hover:text-foreground"
                                                       )}
                                                     >
-                                                      <FileText className={cn("h-3 w-3 flex-shrink-0", fileSel ? "text-amber-500" : "text-amber-400/50")} />
+                                                      <FileText className={cn("h-3 w-3 flex-shrink-0", fileSel ? "text-[#C27A1A]" : "text-[#C27A1A]/50")} />
                                                       <span className="truncate text-left">{tblFolder.name}</span>
                                                       <div className="ml-auto flex items-center gap-2">
                                                         {(tblFolder.fileCount ?? 0) > 0 && (
@@ -846,7 +894,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                                           </span>
                                                         )}
                                                         {(tblFolder.totalSize ?? 0) > 0 && (
-                                                          <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-amber-500/10 text-amber-600/70">
+                                                          <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-[#FDF3E3] text-[#C27A1A]/70">
                                                             {formatFileSize(tblFolder.totalSize ?? 0)}
                                                           </span>
                                                         )}
@@ -865,7 +913,8 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                             );
                           })()}
                         </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   );
                 })}

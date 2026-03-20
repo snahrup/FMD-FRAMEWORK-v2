@@ -17,6 +17,9 @@ export interface Limitation {
   description: string;
 }
 
+/** Known source systems — update this list when sources change */
+const KNOWN_SOURCES = ['MES', 'ETQ', 'M3 Cloud', 'M3 ERP'] as const;
+
 export const stats: Stat[] = [
   { label: 'Registered Entities', value: 1700, suffix: '+', description: 'Tables tracked across all medallion layers' },
   { label: 'Data Sources', value: 4, description: 'On-prem SQL servers feeding the framework' },
@@ -25,7 +28,7 @@ export const stats: Stat[] = [
   { label: 'API Endpoints', value: 90, suffix: '+', description: 'REST endpoints powering the dashboard' },
   { label: 'Deployment Phases', value: 17, description: 'Fully automated environment provisioning' },
   { label: 'Concurrent Workers', value: 8, description: 'Parallel entity extraction threads' },
-  { label: 'Source Tables Available', value: 4777, suffix: '+', description: 'Across MES, ETQ, M3 Cloud, and M3 ERP' },
+  { label: 'Source Tables Available', value: 4777, suffix: '+', description: `Across ${KNOWN_SOURCES.join(', ')}` },
 ];
 
 export const capabilities: Capability[] = [

@@ -135,7 +135,7 @@ The schema defines a `server_labels` table (`server TEXT PRIMARY KEY, label TEXT
 
 ### 3. LOW -- f-string SQL in table/schema queries (sanitized)
 
-Backend uses f-string interpolation for schema/table names in ODBC queries (e.g., `f"WHERE TABLE_SCHEMA = '{s_sch}'"` on line 339). Input is sanitized via `_sanitize()` which strips to `[a-zA-Z0-9_- ]`. Additionally, source servers are validated against the allowlist. While this is not parameterized, the sanitization prevents SQL injection.
+Backend uses f-string interpolation for schema/table names in ODBC queries (e.g., `WHERE TABLE_SCHEMA = ?` with parameterized values preferred, or `f"WHERE TABLE_SCHEMA = '{s_sch}'"` where `s_sch` is sanitized via `_sanitize()` which strips to `[a-zA-Z0-9_- ]`). Identifiers (schema/table names) cannot use `?` placeholders in SQL — they must be validated/sanitized instead. Source servers are validated against the allowlist. Sanitization prevents SQL injection for identifiers.
 
 **Impact**: Low -- defense in depth is adequate.
 
