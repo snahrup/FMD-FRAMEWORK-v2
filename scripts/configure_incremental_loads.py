@@ -7,8 +7,10 @@ Connects to on-prem source SQL servers (VPN required) and:
   2. Discovers watermark columns for incremental loads (datetime/identity)
   3. Updates metadata DB: IsIncremental + IsIncrementalColumn on LandingzoneEntity
   4. Updates metadata DB: PrimaryKeys on BronzeLayerEntity
-  5. Seeds LastLoadValue with last successful LZ execution timestamp per entity
-     (so the next run is immediately incremental — no wasted full-load cycle)
+  5. Seeds LastLoadValue with column-type-aware values:
+     - Datetime watermark columns: seeded from last successful LZ execution timestamp
+     - Integer/identity watermark columns: seeded from MAX(wm_col) on the source table
+     - Unknown column type: skipped (forces safe full-load, engine self-seeds via _compute_watermark)
 
 Watermark priority:
   rowversion (SKIP — binary can't compare as varchar)
@@ -25,6 +27,11 @@ Usage:
 
 Requires: VPN connected (for source SQL servers), pyodbc
 Author: Steve Nahrup
+
+History:
+  RP-06B (2026-03-20): Fixed seed_watermark_values to be column-type-aware.
+    Previously seeded ALL columns with pipeline timestamps, causing SQL type
+    conversion errors on integer watermark columns (AUDIT-013). See D-011.
 """
 
 import argparse
@@ -244,7 +251,8 @@ def discover_watermarks(meta_conn, dry_run=False):
         except Exception as e:
             print(f"  Watermark discovery failed: {e}")
 
-        src_conn.close()
+        # NOTE: src_conn stays open — needed for MAX(wm_col) queries in entity loop below.
+        # Closed after entity processing is complete.
 
         # Get entities for this datasource
         meta_cursor.execute(
@@ -330,6 +338,9 @@ def discover_watermarks(meta_conn, dry_run=False):
             all_results.append(result)
 
         print(f"  {len(entities)} entities: {ds_pks} PKs, {ds_inc} incremental")
+
+        # Close source connection after all entity processing (including MAX queries)
+        src_conn.close()
 
     return {
         "total": total_entities,
