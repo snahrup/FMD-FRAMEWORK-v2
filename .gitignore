@@ -1,3 +1,6 @@
+# VPN credentials (never commit)
+.fmd_vpn_cred
+
 # Dependencies
 node_modules/
 .pnp/
@@ -83,3 +86,14 @@ deployment_summary.json
 # Pytest cache
 .pytest_cache/
 .windsurf\rules\openmemory.md
+
+# Archive (stale scripts, audits, one-off files)
+archive/
+
+# Codebase Mapper (auto-generated)
+CODEBASE.md
+CODEBASE.html
+.codebase-map-dirty
+CLAUDE.md
+.windsurf\rules\openmemory.md
+CLAUDE.md

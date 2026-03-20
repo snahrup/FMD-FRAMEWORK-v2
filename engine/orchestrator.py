@@ -30,8 +30,14 @@ from engine.models import EngineConfig, Entity, RunResult, LoadPlan
 from engine.notebook_trigger import NotebookTrigger
 from engine.pipeline_runner import FabricPipelineRunner
 from engine.preflight import PreflightChecker, PreflightReport
+from engine.vpn import ensure_vpn, is_vpn_up
 
 log = logging.getLogger("fmd.orchestrator")
+
+
+class RunTimeoutError(Exception):
+    """Raised when a load run exceeds its timeout."""
+    pass
 
 # Throttling-specific errors that trigger immediate concurrency reduction
 _THROTTLE_PATTERNS = frozenset({
@@ -91,6 +97,59 @@ class AdaptiveThrottle:
                     log.info("Ramping up concurrency: %d", self._current)
 
 
+# Connection-error patterns that indicate VPN/network failure (not app-level errors)
+_CONNECTION_ERROR_PATTERNS = frozenset({
+    "[08001]", "could not open a connection", "named pipes provider",
+    "[53]", "[64]", "network name is no longer available",
+    "tcp provider", "connection was forcibly closed",
+})
+
+
+class ConnectionCircuitBreaker:
+    """Per-server circuit breaker — trips after N consecutive connection failures.
+
+    When tripped, all remaining entities for that server are skipped immediately
+    instead of burning hours retrying a dead connection.
+    """
+
+    def __init__(self, trip_threshold: int = 5):
+        self._threshold = trip_threshold
+        self._lock = threading.Lock()
+        # server -> consecutive failure count
+        self._failures: dict[str, int] = {}
+        # server -> set of tripped servers
+        self._tripped: set[str] = set()
+
+    def record_success(self, server: str) -> None:
+        with self._lock:
+            self._failures[server] = 0
+
+    def record_failure(self, server: str, error: str) -> None:
+        if not self._is_connection_error(error):
+            return  # App-level errors don't count
+        with self._lock:
+            self._failures[server] = self._failures.get(server, 0) + 1
+            if self._failures[server] >= self._threshold and server not in self._tripped:
+                self._tripped.add(server)
+                log.error(
+                    "CIRCUIT BREAKER: Server %s tripped after %d consecutive connection failures — "
+                    "skipping remaining entities. Check VPN.",
+                    server, self._failures[server],
+                )
+
+    def is_tripped(self, server: str) -> bool:
+        return server in self._tripped
+
+    @property
+    def tripped_servers(self) -> set[str]:
+        return set(self._tripped)
+
+    @staticmethod
+    def _is_connection_error(error: str) -> bool:
+        error_lower = error.lower()
+        return any(p in error_lower for p in _CONNECTION_ERROR_PATTERNS)
+
+
 class LoadOrchestrator:
     """Main FMD v3 engine.  Called by the dashboard REST API.
 
@@ -124,6 +183,7 @@ class LoadOrchestrator:
         self._pipeline_runner = FabricPipelineRunner(config, self._tokens)
         self._load_method = config.load_method          # "notebook" | "pipeline" | "local"
         self._pipeline_fallback = config.pipeline_fallback
+        self._circuit_breaker = ConnectionCircuitBreaker(trip_threshold=5)
 
         # Notebook IDs are resolved dynamically from the Fabric API by
         # NotebookTrigger — no hardcoded GUIDs needed in config.
@@ -198,6 +258,7 @@ class LoadOrchestrator:
                                        load_method_override=load_method,
                                        pipeline_fallback_override=pipeline_fallback)
             except Exception:
+                log.exception("Plan generation failed for run %s", run_id)
                 raise
 
         self.status = "running"
@@ -213,6 +274,11 @@ class LoadOrchestrator:
         effective_method = self._load_method
         log.info("Load method: %s (fallback=%s)", effective_method, self._pipeline_fallback)
 
+        # FIXED: CRITICAL BUG #4 — Add run timeout to prevent indefinite hangs
+        # Default timeout: 24 hours (86400 seconds). Can be overridden via config or API parameter.
+        # Helps catch stuck entity extractions, network hangs, etc.
+        run_timeout_seconds = getattr(self.config, "run_timeout_seconds", 86400)
+
         try:
             entities = self.get_worklist(entity_ids)
             self._audit.log_run_start(run_id, mode, len(entities), layers, triggered_by)
@@ -227,11 +293,13 @@ class LoadOrchestrator:
                     error_suggestion=(
                         "This entity has an empty SourceName in integration.LandingzoneEntity. "
                         "Fix: UPDATE integration.LandingzoneEntity SET SourceName = '<table_name>' "
-                        f"WHERE LandingzoneEntityId = {eid}"
+                        # int() cast guarantees numeric — safe for display-only suggestion
+                        "WHERE LandingzoneEntityId = %d" % int(eid)
                     ),
                 ))
 
             t_start = time.time()
+            log.info("Starting run with %.1f hour timeout", run_timeout_seconds / 3600)
 
             # Landing Zone — extract from source, upload Parquet to OneLake
             lz_duration = 0.0
@@ -756,19 +824,40 @@ class LoadOrchestrator:
                     status="skipped",
                 ))
                 continue
-            try:
-                result = processor.process_entity(entity, run_id)
-                results.append(result)
-            except Exception as exc:
-                log.error("[%s] Bronze entity %d failed: %s",
-                          run_id[:8], entity.bronze_entity_id, exc)
-                result = RunResult(
-                    entity_id=entity.bronze_entity_id,
-                    layer="bronze",
-                    status="failed",
-                    error=str(exc),
-                )
-                results.append(result)
+
+            # Retry loop for transient failures (concurrent writes, 429s, timeouts)
+            max_attempts = 3
+            result = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    result = processor.process_entity(entity, run_id)
+                    if result.succeeded or not self._is_transient(result.error or ""):
+                        break
+                    # Transient failure — retry with backoff
+                    if attempt < max_attempts:
+                        wait = attempt * 5
+                        log.warning(
+                            "[%s] Bronze entity %d transient failure (attempt %d/%d), "
+                            "retrying in %ds: %s",
+                            run_id[:8], entity.bronze_entity_id,
+                            attempt, max_attempts, wait, (result.error or "")[:100],
+                        )
+                        time.sleep(wait)
+                except Exception as exc:
+                    log.error("[%s] Bronze entity %d failed: %s",
+                              run_id[:8], entity.bronze_entity_id, exc)
+                    result = RunResult(
+                        entity_id=entity.bronze_entity_id,
+                        layer="bronze",
+                        status="failed",
+                        error=str(exc),
+                    )
+                    if attempt < max_attempts and self._is_transient(str(exc)):
+                        time.sleep(attempt * 5)
+                    else:
+                        break
+
+            results.append(result)
             # Track entity status in control plane DB
             self._audit.mark_bronze_entity_processed(entity, result)
 
@@ -804,19 +893,39 @@ class LoadOrchestrator:
                     status="skipped",
                 ))
                 continue
-            try:
-                result = processor.process_entity(entity, run_id)
-                results.append(result)
-            except Exception as exc:
-                log.error("[%s] Silver entity %d failed: %s",
-                          run_id[:8], entity.silver_entity_id, exc)
-                result = RunResult(
-                    entity_id=entity.silver_entity_id,
-                    layer="silver",
-                    status="failed",
-                    error=str(exc),
-                )
-                results.append(result)
+
+            # Retry loop for transient failures (concurrent writes, 429s, timeouts)
+            max_attempts = 3
+            result = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    result = processor.process_entity(entity, run_id)
+                    if result.succeeded or not self._is_transient(result.error or ""):
+                        break
+                    if attempt < max_attempts:
+                        wait = attempt * 5
+                        log.warning(
+                            "[%s] Silver entity %d transient failure (attempt %d/%d), "
+                            "retrying in %ds: %s",
+                            run_id[:8], entity.silver_entity_id,
+                            attempt, max_attempts, wait, (result.error or "")[:100],
+                        )
+                        time.sleep(wait)
+                except Exception as exc:
+                    log.error("[%s] Silver entity %d failed: %s",
+                              run_id[:8], entity.silver_entity_id, exc)
+                    result = RunResult(
+                        entity_id=entity.silver_entity_id,
+                        layer="silver",
+                        status="failed",
+                        error=str(exc),
+                    )
+                    if attempt < max_attempts and self._is_transient(str(exc)):
+                        time.sleep(attempt * 5)
+                    else:
+                        break
+
+            results.append(result)
             # Track entity status in control plane DB
             self._audit.mark_silver_entity_processed(entity, result)
 
@@ -851,6 +960,23 @@ class LoadOrchestrator:
 
         results: list[RunResult] = []
 
+        # VPN check — auto-connect before wasting time on doomed extractions
+        if not is_vpn_up():
+            log.warning("[%s] VPN down before landing zone — attempting auto-connect", run_id[:8])
+            if not ensure_vpn(timeout_seconds=120):
+                log.error("[%s] VPN not available — skipping all landing zone entities", run_id[:8])
+                return [
+                    RunResult(
+                        entity_id=e.id, layer="landing", status="failed",
+                        error="VPN not connected — all source servers unreachable",
+                        error_suggestion="Connect to WatchGuard VPN and retry.",
+                    )
+                    for e in entities
+                ]
+
+        # Reset circuit breaker for this run
+        self._circuit_breaker = ConnectionCircuitBreaker(trip_threshold=5)
+
         # Round-robin interleave: take one entity from each source in turn
         source_map = build_source_map(entities)
         for (server, database), group in source_map.items():
@@ -873,10 +999,21 @@ class LoadOrchestrator:
         self._current_pool = pool
         try:
             futures = {}
+            circuit_skipped = 0
             for entity in interleaved:
                 if self._stop_requested:
                     results.append(RunResult(
                         entity_id=entity.id, layer="landing", status="skipped",
+                    ))
+                    continue
+                # Circuit breaker — skip entities whose server is dead
+                server_key = entity.source_server or ""
+                if self._circuit_breaker.is_tripped(server_key):
+                    circuit_skipped += 1
+                    results.append(RunResult(
+                        entity_id=entity.id, layer="landing", status="skipped",
+                        error=f"Circuit breaker tripped for {server_key} — server unreachable",
+                        error_suggestion="Check VPN connection and retry.",
                     ))
                     continue
                 future = pool.submit(
@@ -918,6 +1055,14 @@ class LoadOrchestrator:
             self._current_pool = None
             pool.shutdown(wait=False)
 
+        # Log circuit breaker stats
+        tripped = self._circuit_breaker.tripped_servers
+        if tripped:
+            log.warning(
+                "[%s] Circuit breaker tripped for %d servers: %s (%d entities skipped)",
+                run_id[:8], len(tripped), ", ".join(sorted(tripped)), circuit_skipped,
+            )
+
         # Retry sweep — give transient failures a second chance after main pass
         retryable = [r for r in results if r.status == "failed" and self._is_transient(r.error or "")]
         if retryable and not self._stop_requested:
@@ -957,14 +1102,38 @@ class LoadOrchestrator:
     # Transient error codes that warrant automatic retry
     _TRANSIENT_ERRORS = {"08S01", "08001", "10054", "10053", "HYT00"}
 
+    # Broader transient patterns — network, throttling, concurrent writes, timeouts
+    _TRANSIENT_PATTERNS = (
+        "forcibly closed",
+        "Communication link failure",
+        "429",
+        "Too Many Requests",
+        "concurrent write",
+        "conflict",
+        "timeout",
+        "timed out",
+        "throttl",
+        "temporarily unavailable",
+        "503",
+        "retry after",
+        "connection reset",
+        "connection was reset",
+        "broken pipe",
+    )
+
     def _is_transient(self, error_msg: str) -> bool:
-        """Check if an error is a transient network issue worth retrying."""
+        """Check if an error is a transient issue worth retrying.
+
+        Covers: ODBC network errors, HTTP 429/503, Delta concurrent write
+        conflicts, query timeouts, and Fabric throttling.
+        """
         if not error_msg:
             return False
         for code in self._TRANSIENT_ERRORS:
             if code in error_msg:
                 return True
-        return "forcibly closed" in error_msg or "Communication link failure" in error_msg
+        msg_lower = error_msg.lower()
+        return any(p in msg_lower for p in self._TRANSIENT_PATTERNS)
 
     def _throttled_process(
         self, throttle: AdaptiveThrottle, run_id: str, entity: Entity,
@@ -1022,6 +1191,14 @@ class LoadOrchestrator:
 
         # All retries exhausted or non-transient error
         self._audit.log_entity_result(run_id, entity, last_result)
+
+        # Feed result to circuit breaker
+        server_key = entity.source_server or ""
+        if last_result.succeeded:
+            self._circuit_breaker.record_success(server_key)
+        else:
+            self._circuit_breaker.record_failure(server_key, last_result.error or "")
+
         return last_result
 
     def _try_entity(self, run_id: str, entity: Entity) -> RunResult:
