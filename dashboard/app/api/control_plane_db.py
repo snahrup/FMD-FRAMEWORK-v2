@@ -1341,6 +1341,10 @@ def upsert_pipeline_bronze_entity(row: dict) -> None:
 
 
 def upsert_entity_status(row: dict) -> None:
+    """DEPRECATED: entity_status is no longer read by any endpoint.
+    Status is now derived from engine_task_log via get_canonical_entity_status().
+    This function is retained only for backward compatibility with the engine.
+    """
     with _db_lock:
         conn = _get_conn()
         try:
