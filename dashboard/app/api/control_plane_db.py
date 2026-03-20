@@ -413,6 +413,19 @@ def init_db():
                 UNIQUE(lakehouse, schema_name, table_name)
             );
 
+            -- Load Center durable run state (RP-05) -------------------------
+            CREATE TABLE IF NOT EXISTS load_center_runs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at      TEXT NOT NULL,
+                completed_at    TEXT,
+                phase           TEXT NOT NULL DEFAULT 'starting',
+                active          INTEGER NOT NULL DEFAULT 1,
+                plan_json       TEXT,
+                progress_json   TEXT,
+                error           TEXT,
+                triggered_by    TEXT DEFAULT 'load_center'
+            );
+
             -- indexes ------------------------------------------------------------
 
             CREATE INDEX IF NOT EXISTS idx_lz_datasource   ON lz_entities(DataSourceId);
@@ -435,6 +448,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_health_snap_time ON health_trend_snapshots(snapshot_time);
             CREATE INDEX IF NOT EXISTS idx_lrc_lakehouse ON lakehouse_row_counts(lakehouse);
             CREATE INDEX IF NOT EXISTS idx_lrc_lookup ON lakehouse_row_counts(lakehouse, schema_name, table_name);
+            CREATE INDEX IF NOT EXISTS idx_lcr_active ON load_center_runs(active);
 
             -- =================================================================
             -- Gold Studio tables (19 tables, gs_ prefix)
@@ -1814,6 +1828,7 @@ def get_stats() -> dict:
         'pipeline_audit', 'copy_activity_audit',
         'sync_metadata', 'admin_config',
         'notebook_executions', 'import_jobs', 'server_labels',
+        'load_center_runs',
     ]
     # Freeze the whitelist so only known table names are used in SQL
     _ALLOWED_STATS_TABLES = frozenset(tables)

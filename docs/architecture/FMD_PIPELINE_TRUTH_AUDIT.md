@@ -1,0 +1,171 @@
+# FMD Pipeline Truth Audit
+
+> Append-only audit ledger. Brutally honest.
+> Each entry documents: what SHOULD happen, what ACTUALLY happens, and whether it's real or stubbed.
+>
+> **Append new entries at the bottom. Never delete or edit existing entries — mark them SUPERSEDED instead.**
+>
+> Last audited: 2026-03-20 | Audited by: Claude Code (full codebase read, not memory)
+
+---
+
+## Audit Format
+
+```
+### [AUDIT-NNN] Title
+- **Stage**: Which pipeline/page/component
+- **Expected**: What should happen
+- **Actual**: What actually happens right now
+- **Real vs Stubbed**: Is the implementation real or faking it?
+- **Mismatch**: What's wrong
+- **Impact**: What the user sees / what breaks
+- **Root cause**: Why it's wrong
+- **Repair priority**: P0 (blocks everything) / P1 (major UX) / P2 (misleading) / P3 (cosmetic)
+- **Status**: OPEN | REPAIRED | SUPERSEDED
+- **Repair packet**: (assigned after triage)
+```
+
+---
+
+## Audit Entries
+
+### [AUDIT-001] Load Center status endpoint reads empty cache table
+- **Stage**: Load Center page — `/api/load-center/status`
+- **Expected**: Shows table counts and row counts per source per layer from actual load history
+- **Actual**: ~~Shows all zeros for every source, every layer~~
+- **Real vs Stubbed**: Real endpoint, ~~wrong data source~~ now correct
+- **Mismatch**: ~~Endpoint reads `lakehouse_row_counts` (empty cache table) instead of `engine_task_log`~~
+- **Impact**: ~~Load Center page is completely useless~~
+- **Root cause**: `get_load_center_status()` was querying `lakehouse_row_counts`. Now rewired to `_get_counts_from_log()` (engine_task_log) as primary, with `lakehouse_row_counts` as optional enrichment for row counts when populated.
+- **Repair priority**: P0
+- **Status**: REPAIRED (RP-01, 2026-03-20)
+- **Repair packet**: RP-01
+- **Residual**: Row counts for incremental loads show latest run's delta, not physical total. Now properly labeled with Δ indicator (RP-04).
+
+### [AUDIT-002] Load Center source drill-down shows dashes for row counts
+- **Stage**: Load Center page — `/api/load-center/source-detail`
+- **Expected**: Shows per-table row counts when you expand a source
+- **Actual**: ~~Shows "—" for every LZ/Bronze/Silver column~~
+- **Real vs Stubbed**: Real endpoint, now with correct fallback chain
+- **Mismatch**: ~~Preferred phys_rows (empty), fell back to None~~
+- **Impact**: ~~Drill-down table is empty~~
+- **Root cause**: Now fixed: prefers physical scan rows when available, falls back to engine_task_log.RowsWritten. Each cell includes `rowSource` field so frontend knows what's being shown.
+- **Repair priority**: P0
+- **Status**: REPAIRED (RP-01, 2026-03-20)
+- **Repair packet**: RP-01
+- **Residual**: Same incremental delta caveat as AUDIT-001. Now properly labeled with Δ indicator (RP-04).
+
+### [AUDIT-003] Overview freshness KPI shows 0% after failed run
+- **Stage**: BusinessOverview — `/api/overview/kpis`
+- **Expected**: Shows percentage of entities with recent successful loads
+- **Actual**: ~~Shows 0% because the most recent run (2026-03-20) failed~~ Now shows two-tier freshness: 24h recency when available, ever-loaded coverage as fallback
+- **Real vs Stubbed**: Real computation, now correct
+- **Mismatch**: ~~24h freshness window returns 0% when last success was 3+ days ago~~ Fixed: fallback to coverage + last success timestamp
+- **Impact**: ~~Overview page shows system is broken (0% fresh)~~ Now shows coverage (e.g., "88.5% ever loaded") with "Last success: 3d ago"
+- **Root cause**: Was: `overview.py:45-68` uses `datetime('now', '-24 hours')` as cutoff. Now: two-tier logic with coverage fallback and `freshness_last_success` field.
+- **Repair priority**: P1
+- **Status**: REPAIRED (RP-02, 2026-03-20)
+- **Repair packet**: RP-02
+
+### [AUDIT-004] entity_status table disagrees with engine_task_log
+- **Stage**: ~~Multiple pages (ExecutionMatrix, BusinessCatalog, SourceManager, BusinessSources)~~ All consumer routes now read engine_task_log
+- **Expected**: Entity status is consistent across all pages
+- **Actual**: ~~Pages reading `entity_status` may show different status~~ All pages now derive status from `engine_task_log` via `get_canonical_entity_status()`
+- **Real vs Stubbed**: Both tables are real, but entity_status is fully deprecated — no route reads it
+- **Mismatch**: ~~Two sources of truth~~ Eliminated: single source (engine_task_log)
+- **Impact**: ~~Entity shown as "succeeded" on one page, "failed" on another~~ Status is now consistent across all pages
+- **Root cause**: `entity_status` was the v2 status tracking. All routes now use `get_canonical_entity_status()` which derives from engine_task_log. Dead startup sync removed. entity_status table still exists and is still written by engine for backward compat, but no dashboard route reads it.
+- **Repair priority**: P1
+- **Status**: REPAIRED (RP-03, 2026-03-20)
+- **Repair packet**: RP-03
+- **Surviving intentional dependencies**: engine/logging_db.py still WRITES to entity_status (backward compat for remote sync consumers). `upsert_entity_status()` and `get_entity_status_all()` kept for admin table browser. delta_ingest and parquet_sync still include entity_status in their sync config.
+
+### [AUDIT-005] Registered entity count displayed as "loaded" count
+- **Stage**: ~~Multiple pages~~ BusinessOverview (fixed), other pages still pending
+- **Expected**: Clear distinction between "registered" (metadata exists) and "loaded" (data extracted)
+- **Actual**: ~~Some pages show `lz_entities` count as if it means "tables with data"~~ BusinessOverview now shows "loaded / registered" (e.g., "1,432 / 1,728") with clear subtitle
+- **Real vs Stubbed**: Real data, ~~misleading label~~ now honestly labeled on BusinessOverview
+- **Mismatch**: ~~1,728 registered entities ≠ number of entities with successful loads~~ Fixed on Overview: shows both counts
+- **Impact**: ~~User thinks 1,728 tables have data~~ Overview now distinguishes. Other pages may still conflate.
+- **Root cause**: UI labels didn't distinguish registered vs loaded. Backend now returns both `total_entities` and `loaded_entities`.
+- **Repair priority**: P2
+- **Status**: PARTIALLY REPAIRED (RP-02, 2026-03-20) — BusinessOverview fixed, other pages still need migration
+- **Repair packet**: RP-02
+
+### [AUDIT-006] lakehouse_row_counts never auto-populated
+- **Stage**: Background data refresh
+- **Expected**: `lakehouse_row_counts` should auto-refresh on some schedule
+- **Actual**: Only populated when user manually clicks "Refresh Counts" button, which triggers a Fabric SQL endpoint query
+- **Real vs Stubbed**: Real mechanism, but requires manual trigger
+- **Mismatch**: Cache table is designed as if it's regularly populated, but nothing populates it automatically
+- **Impact**: ~~Table is almost always empty, making any endpoint that reads it useless~~ Reduced impact: Load Center no longer depends on this table for primary data. When populated, it enriches row counts. When empty, engine_task_log provides the data.
+- **Root cause**: No cron/scheduler/startup hook to populate it. Only `POST /api/load-center/refresh` fills it, and that requires user action.
+- **Repair priority**: P3 (demoted — no longer blocks Load Center functionality)
+- **Status**: PARTIALLY REPAIRED (RP-01, 2026-03-20) — impact reduced, not eliminated
+- **Repair packet**: RP-01 (impact reduced by switching primary to engine_task_log)
+
+### [AUDIT-007] Incremental RowsWritten displayed as total row count
+- **Stage**: Load Center — `/api/load-center/status` and `/api/load-center/source-detail`
+- **Expected**: Row counts clearly distinguish full-load totals from incremental deltas
+- **Actual**: ~~For incremental loads, RowsWritten shown as plain "rows"~~ Now: backend returns `fullLoadRows`, `incrementalDeltaRows`, `incrementalTables` per layer. Frontend shows context-aware labels and Δ indicators.
+- **Real vs Stubbed**: Real data, now correctly labeled
+- **Mismatch**: ~~A table with 1M total rows that had 50 new rows shows "50 rows"~~ Now shows "50 Δ" with tooltip "Incremental delta (not total)"
+- **Impact**: ~~Massive undercount~~ Users can now see which numbers are full totals and which are deltas
+- **Root cause**: `engine_task_log.RowsWritten` is per-load, not cumulative. Now: backend splits row counts by load type, frontend adapts labels accordingly.
+- **Repair priority**: P2
+- **Status**: REPAIRED (RP-04, 2026-03-20)
+- **Repair packet**: RP-04
+- **Residual**: True physical total for incremental entities still requires a lakehouse scan (Refresh Counts button). The engine doesn't track cumulative totals — only per-run deltas. This is a design limitation, not a bug.
+
+### [AUDIT-008] "Load Everything" button run state lost on page navigation
+- **Stage**: Load Center — `/api/load-center/run`
+- **Expected**: Run state persists and is trackable across page navigations
+- **Actual**: ~~Run state is in-memory dict only~~ Now: persisted to `load_center_runs` table in SQLite at key transitions (start, phase change, complete, fail). In-memory dict is hot cache for active runs; SQLite is the durable record.
+- **Real vs Stubbed**: Real mechanism, now durable
+- **Mismatch**: ~~In-memory state vs expected persistent state~~ Resolved: SQLite is the durable store
+- **Impact**: ~~Button shows "Load Everything" after navigation~~ Now: run state survives navigation and server restart. Interrupted runs detected on startup.
+- **Root cause**: Was: `_run_state` module-level dict, lost on restart. Now: `load_center_runs` table with precedence logic (in-memory if active, else SQLite).
+- **Repair priority**: P2
+- **Status**: REPAIRED (RP-05, 2026-03-20)
+- **Repair packet**: RP-05
+- **Precedence model**: In-memory `_run_state` (hot, most current for active runs) → SQLite `load_center_runs` (durable, survives restart). On startup, any "active" runs in SQLite are marked "interrupted".
+
+### [AUDIT-009] Engine task log has 1,595 failed entities from latest run
+- **Stage**: Engine execution — 2026-03-20 run
+- **Expected**: Source tables extracted successfully
+- **Actual**: 0 succeeded, 1,595 failed after 9+ hours
+- **Real vs Stubbed**: Real failure
+- **Mismatch**: All entities failing extraction
+- **Impact**: No new data loaded since 2026-03-17
+- **Root cause**: Needs investigation — errors include "Unsafe table identifier" (Excel sheet names with special chars like `$`), possible VPN/auth issues
+- **Repair priority**: P1
+- **Status**: OPEN
+- **Repair packet**: RP-06
+
+### [AUDIT-010] Bronze/Silver processing depends on LZ files existing
+- **Stage**: Pipeline chain: LZ → Bronze → Silver
+- **Expected**: Bronze processes only entities that have LZ files
+- **Actual**: Bronze processor reads LZ parquet files from OneLake. If LZ extraction failed, there's nothing to process.
+- **Real vs Stubbed**: Real
+- **Mismatch**: N/A — this is working as designed, but means a failed LZ run cascades to empty Bronze and Silver
+- **Impact**: When LZ fails, entire pipeline produces nothing
+- **Root cause**: By design — Bronze depends on LZ. But needs better error messaging.
+- **Repair priority**: P3
+- **Status**: OPEN (informational)
+
+### [AUDIT-011] Gold Studio extraction is real but clustering/validation are naive
+- **Stage**: Gold Studio pipeline
+- **Expected**: Full ML-based entity clustering, comprehensive validation
+- **Actual**: SQL parser extraction (Packet G) is real and working. Clustering uses naive string matching. Validation checks metadata only, not data.
+- **Real vs Stubbed**: Extraction=REAL, Clustering=NAIVE, Validation=METADATA-ONLY
+- **Mismatch**: Frontend suggests sophisticated capabilities that aren't fully implemented
+- **Impact**: Users may trust cluster suggestions or validation results that are incomplete
+- **Root cause**: Gold Studio is still under development. Packets A-G complete, remaining work documented.
+- **Repair priority**: P3
+- **Status**: OPEN (known limitation)
+
+---
+
+## Superseded Entries
+
+_(None yet — this is the initial audit)_

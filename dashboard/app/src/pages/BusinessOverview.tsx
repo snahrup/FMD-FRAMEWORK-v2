@@ -22,10 +22,13 @@ interface KPIData {
   freshness_pct: number;
   freshness_on_time: number;
   freshness_total: number;
+  freshness_ever_loaded: number;
+  freshness_last_success: string | null;
   open_alerts: number;
   sources_online: number;
   sources_total: number;
   total_entities: number;
+  loaded_entities: number;
   quality_avg: number;
 }
 
@@ -221,9 +224,20 @@ export default function BusinessOverview() {
                     >
                       {kpis.freshness_pct.toFixed(1)}%
                     </div>
-                    <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
-                      {kpis.freshness_on_time.toLocaleString()} of {kpis.freshness_total.toLocaleString()} {t("tables")} refreshed in last 24h
-                    </div>
+                    {kpis.freshness_on_time > 0 ? (
+                      <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
+                        {kpis.freshness_on_time.toLocaleString()} of {kpis.freshness_total.toLocaleString()} {t("tables")} refreshed in last 24h
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
+                        {kpis.freshness_ever_loaded.toLocaleString()} of {kpis.freshness_total.toLocaleString()} {t("tables")} ever loaded
+                        {kpis.freshness_last_success && (
+                          <span style={{ display: "block", marginTop: 2, fontSize: 12, color: "var(--bp-ink-muted)" }}>
+                            Last success: {relativeTime(kpis.freshness_last_success)}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -325,13 +339,18 @@ export default function BusinessOverview() {
                 marginBottom: 8,
               }}
             >
-              Total {t("Tables")}
+              {t("Tables")}
             </div>
             <div className="bp-mono" style={{ fontSize: 42, fontWeight: 500, lineHeight: 1, color: "var(--bp-ink-primary)" }}>
-              {kpis ? kpis.total_entities.toLocaleString() : "—"}
+              {kpis ? (
+                <>
+                  {kpis.loaded_entities.toLocaleString()}
+                  <span style={{ fontSize: 24, color: "var(--bp-ink-tertiary)" }}> / {kpis.total_entities.toLocaleString()}</span>
+                </>
+              ) : "—"}
             </div>
             <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
-              {kpis ? `Across ${kpis.sources_total} sources` : "—"}
+              {kpis ? `${kpis.loaded_entities.toLocaleString()} loaded of ${kpis.total_entities.toLocaleString()} registered` : "—"}
             </div>
           </div>
         </div>

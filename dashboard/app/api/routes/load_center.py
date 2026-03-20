@@ -27,13 +27,96 @@ from dashboard.app.api.routes.data_access import (
 
 log = logging.getLogger("fmd.routes.load_center")
 
-# Background run state
+# Background run state — in-memory hot cache for the active run.
+# Persisted to load_center_runs table at key transitions (start, phase change, complete, fail).
+# On restart, _run_state resets to {"active": False} and we read from SQLite.
 _run_state: dict = {"active": False}
 _run_lock = threading.Lock()
 
 # Background refresh state
 _refresh_running = False
 _refresh_lock = threading.Lock()
+
+
+# ---------------------------------------------------------------------------
+# Run state persistence (RP-05)
+# ---------------------------------------------------------------------------
+
+def _persist_run(state: dict, run_id: int | None = None) -> int:
+    """Write run state to SQLite. Returns the run ID (insert or update)."""
+    if run_id is None:
+        # INSERT new run
+        row = db.query(
+            "INSERT INTO load_center_runs (started_at, phase, active, plan_json, progress_json, triggered_by) "
+            "VALUES (?, ?, 1, ?, ?, ?) RETURNING id",
+            (
+                state.get("startedAt", datetime.now(timezone.utc).isoformat()),
+                state.get("phase", "starting"),
+                json.dumps(state.get("plan")),
+                json.dumps(state.get("progress", {})),
+                state.get("triggeredBy", "load_center"),
+            ),
+        )
+        return row[0]["id"] if row else 0
+    else:
+        # UPDATE existing run
+        db.execute(
+            "UPDATE load_center_runs SET "
+            "  phase = ?, active = ?, progress_json = ?, error = ?, completed_at = ? "
+            "WHERE id = ?",
+            (
+                state.get("phase", "unknown"),
+                1 if state.get("active") else 0,
+                json.dumps(state.get("progress", {})),
+                state.get("error"),
+                state.get("completedAt"),
+                run_id,
+            ),
+        )
+        return run_id
+
+
+def _load_latest_run() -> dict:
+    """Load the most recent run from SQLite. Returns run state dict."""
+    rows = db.query(
+        "SELECT * FROM load_center_runs ORDER BY id DESC LIMIT 1"
+    )
+    if not rows:
+        return {"active": False}
+    r = rows[0]
+    result = {
+        "active": bool(r.get("active")),
+        "startedAt": r.get("started_at"),
+        "completedAt": r.get("completed_at"),
+        "phase": r.get("phase"),
+        "error": r.get("error"),
+        "runId": r.get("id"),
+    }
+    try:
+        result["plan"] = json.loads(r.get("plan_json") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        result["plan"] = {}
+    try:
+        result["progress"] = json.loads(r.get("progress_json") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        result["progress"] = {}
+    return result
+
+
+def _mark_interrupted_runs():
+    """On startup, mark any 'active' runs as interrupted (server crashed mid-run)."""
+    db.execute(
+        "UPDATE load_center_runs SET active = 0, phase = 'interrupted', "
+        "  completed_at = ? WHERE active = 1",
+        (datetime.now(timezone.utc).isoformat(),),
+    )
+
+
+# Mark interrupted runs on module load (handles restart case)
+try:
+    _mark_interrupted_runs()
+except Exception:
+    pass  # Table may not exist yet on first run
 
 
 # ---------------------------------------------------------------------------
@@ -115,19 +198,19 @@ def _get_all_registered() -> list[dict]:
 
 @route("GET", "/api/load-center/status")
 def get_load_center_status(params: dict) -> dict:
-    """The single source of truth: what's PHYSICALLY in each layer, by source.
+    """What has been successfully loaded, by source and layer.
 
-    Uses TWO data sources:
-    1. lakehouse_row_counts (filesystem/SQL scan) — physical truth, what exists + row counts
-    2. lz_entities/registered — maps tables to sources, filters to active entities only
+    PRIMARY source: engine_task_log (authoritative — written by engine on every load).
+    OPTIONAL enrichment: lakehouse_row_counts (physical scan cache — used when populated).
 
-    ONLY registered entities are counted. Physical orphans (tables in the lakehouse
-    that aren't registered) are reported separately via orphanPhysicalTables/unmatchedCount.
-    This prevents stale/test data from inflating counts.
+    See docs/architecture/FMD_DATA_BIBLE.md for classification details.
     """
     t_start = time.time()
 
-    # 1. Physical truth: what tables actually exist (from filesystem scan cache)
+    # 1. PRIMARY: engine_task_log — latest successful load per entity per layer
+    log_rows = _get_counts_from_log()
+
+    # 2. OPTIONAL: physical scan cache (may be empty — that's OK)
     physical = db.query(
         "SELECT lakehouse, schema_name, table_name, row_count, scanned_at "
         "FROM lakehouse_row_counts"
@@ -136,8 +219,37 @@ def get_load_center_status(params: dict) -> dict:
         "SELECT MIN(scanned_at) AS oldest, MAX(scanned_at) AS newest "
         "FROM lakehouse_row_counts"
     )
+    has_physical = len(physical) > 0
 
-    # 2. Registration lookup: map (schema, table) → source name
+    # Index physical scan by (layer_key, schema, table)
+    phys_lookup: dict[tuple, int] = {}
+    for p in physical:
+        lh = p.get("lakehouse", "")
+        schema = p.get("schema_name", "").lower()
+        table = p.get("table_name", "").lower()
+        if "LANDING" in lh.upper():
+            lk = "lz"
+        elif "BRONZE" in lh.upper():
+            lk = "bronze"
+        elif "SILVER" in lh.upper():
+            lk = "silver"
+        else:
+            continue
+        phys_lookup[(lk, schema, table)] = int(p.get("row_count", -1))
+
+    # 3. Index engine log by (layer_key, schema, table)
+    #    Layer values in engine_task_log: "landing", "bronze", "silver"
+    log_lookup: dict[tuple, dict] = {}
+    for r in log_rows:
+        raw_layer = (r.get("Layer") or "landing").lower()
+        layer_key = "lz" if raw_layer == "landing" else raw_layer
+        schema = (r.get("SourceSchema") or "").lower()
+        table = (r.get("SourceName") or r.get("SourceTable") or "").lower()
+        if "." in table:
+            table = table.split(".")[-1]
+        log_lookup[(layer_key, schema, table)] = r
+
+    # 4. Registration lookup
     registered = _get_all_registered()
     reg_lookup: dict[tuple, dict] = {}
     for e in registered:
@@ -145,32 +257,8 @@ def get_load_center_status(params: dict) -> dict:
         table = (e.get("table_name") or "").lower()
         reg_lookup[(schema, table)] = e
 
-    # 3. Index physical scan by (layer_key, schema, table)
-    phys_lookup: dict[tuple, int] = {}
-    unmatched: list[dict] = []
-    for p in physical:
-        lh = p.get("lakehouse", "")
-        schema = p.get("schema_name", "")
-        table = p.get("table_name", "")
-        scan_rows = int(p.get("row_count", -1))
-
-        if "LANDING" in lh.upper():
-            layer_key = "lz"
-        elif "BRONZE" in lh.upper():
-            layer_key = "bronze"
-        elif "SILVER" in lh.upper():
-            layer_key = "silver"
-        else:
-            continue
-
-        phys_lookup[(layer_key, schema.lower(), table.lower())] = scan_rows
-
-        # Track physical tables that aren't registered (orphans)
-        if (schema.lower(), table.lower()) not in reg_lookup:
-            unmatched.append({"layer": layer_key, "schema": schema, "table": table})
-
-    # 4. Build source-level summary from REGISTERED entities only.
-    # Physical orphans go into unmatched — they don't inflate source counts.
+    # 5. Build source-level summary from REGISTERED entities,
+    #    using engine log as primary, physical scan as enrichment.
     sources_map: dict[str, dict] = {}
 
     for e in registered:
@@ -182,30 +270,49 @@ def get_load_center_status(params: dict) -> dict:
             sources_map[source] = {
                 "name": source,
                 "displayName": source,
-                "lz": {"tables": 0, "rows": 0},
-                "bronze": {"tables": 0, "rows": 0},
-                "silver": {"tables": 0, "rows": 0},
+                "lz": {"tables": 0, "rows": 0, "fullLoadTables": 0, "fullLoadRows": 0, "incrementalTables": 0, "incrementalDeltaRows": 0},
+                "bronze": {"tables": 0, "rows": 0, "fullLoadTables": 0, "fullLoadRows": 0, "incrementalTables": 0, "incrementalDeltaRows": 0},
+                "silver": {"tables": 0, "rows": 0, "fullLoadTables": 0, "fullLoadRows": 0, "incrementalTables": 0, "incrementalDeltaRows": 0},
             }
 
         src = sources_map[source]
 
         for layer_key in ("lz", "bronze", "silver"):
+            log_entry = log_lookup.get((layer_key, schema, table))
             phys_rows = phys_lookup.get((layer_key, schema, table))
-            if phys_rows is not None:
-                src[layer_key]["tables"] += 1
-                if phys_rows >= 0:
-                    src[layer_key]["rows"] += phys_rows
 
-    # 5. Gap detection: registered entities with LZ physical but missing Bronze/Silver physical
+            # An entity counts as "loaded" if it has a successful engine log entry
+            if log_entry is not None:
+                src[layer_key]["tables"] += 1
+                is_incr = bool(log_entry.get("IsIncremental"))
+                row_val = int(log_entry.get("RowsWritten") or 0)
+
+                # Prefer physical scan for row count (true total).
+                # Fall back to engine log RowsWritten (latest run's written rows).
+                if phys_rows is not None and phys_rows >= 0:
+                    src[layer_key]["rows"] += phys_rows
+                    # Physical scan is always the true total, regardless of load type
+                    src[layer_key]["fullLoadRows"] += phys_rows
+                    src[layer_key]["fullLoadTables"] += 1
+                else:
+                    src[layer_key]["rows"] += row_val
+                    if is_incr:
+                        src[layer_key]["incrementalTables"] += 1
+                        src[layer_key]["incrementalDeltaRows"] += row_val
+                    else:
+                        src[layer_key]["fullLoadTables"] += 1
+                        src[layer_key]["fullLoadRows"] += row_val
+
+    # 6. Gap detection: entities with LZ success but missing Bronze/Silver success
     gaps: list[dict] = []
     for e in registered:
         schema = (e.get("schema") or "").lower()
         table = (e.get("table_name") or "").lower()
         source = e.get("source_display") or e.get("source_name") or schema
 
-        in_lz = ("lz", schema, table) in phys_lookup
-        in_bronze = ("bronze", schema, table) in phys_lookup
-        in_silver = ("silver", schema, table) in phys_lookup
+        in_lz = ("lz", schema, table) in log_lookup
+        in_bronze = ("bronze", schema, table) in log_lookup
+        in_silver = ("silver", schema, table) in log_lookup
 
         if in_lz and (not in_bronze or not in_silver):
             missing = []
@@ -215,7 +322,17 @@ def get_load_center_status(params: dict) -> dict:
                 missing.append("silver")
             gaps.append({"source": source, "schema": schema, "table": table, "missingIn": missing})
 
-    # 6. Build response
+    # 7. Detect orphan physical tables (in lakehouse but not registered)
+    unmatched: list[dict] = []
+    for p in physical:
+        lh = p.get("lakehouse", "")
+        schema = p.get("schema_name", "").lower()
+        table = p.get("table_name", "").lower()
+        if (schema, table) not in reg_lookup:
+            lk = "lz" if "LANDING" in lh.upper() else "bronze" if "BRONZE" in lh.upper() else "silver"
+            unmatched.append({"layer": lk, "schema": schema, "table": table})
+
+    # 8. Build response
     sources_summary = sorted(sources_map.values(), key=lambda s: s["name"])
 
     totals = {}
@@ -223,9 +340,19 @@ def get_load_center_status(params: dict) -> dict:
         totals[layer_key] = {
             "tables": sum(s[layer_key]["tables"] for s in sources_summary),
             "rows": sum(s[layer_key]["rows"] for s in sources_summary),
+            "fullLoadTables": sum(s[layer_key]["fullLoadTables"] for s in sources_summary),
+            "fullLoadRows": sum(s[layer_key]["fullLoadRows"] for s in sources_summary),
+            "incrementalTables": sum(s[layer_key]["incrementalTables"] for s in sources_summary),
+            "incrementalDeltaRows": sum(s[layer_key]["incrementalDeltaRows"] for s in sources_summary),
         }
 
     meta = scan_meta[0] if scan_meta else {}
+
+    # Describe what data source is powering the numbers
+    if has_physical:
+        data_source = "engine_task_log (primary) + lakehouse_row_counts (row count enrichment)"
+    else:
+        data_source = "engine_task_log (latest successful run per entity per layer)"
 
     return {
         "sources": sources_summary,
@@ -235,10 +362,10 @@ def get_load_center_status(params: dict) -> dict:
         "totalRegistered": len(registered),
         "unmatchedCount": len(unmatched),
         "orphanPhysicalTables": len(unmatched),
-        "dataSource": "lakehouse_row_counts (physical scan, registered entities only)",
+        "dataSource": data_source,
         "scannedAt": meta.get("newest"),
         "refreshRunning": _refresh_running,
-        "runState": _run_state,
+        "runState": _run_state if _run_state.get("active") else _load_latest_run(),
         "queryTimeSec": round(time.time() - t_start, 3),
     }
 
@@ -299,24 +426,37 @@ def get_load_center_source_detail(params: dict) -> dict:
         }
 
         for layer_key, layer_name in [("lz", "landing"), ("bronze", "bronze"), ("silver", "silver")]:
-            # Physical scan = actual total row count in the lakehouse table.
-            # engine_task_log.RowsWritten is per-load (just the delta for
-            # incremental loads) — NEVER use it as the row count display.
             phys_rows = phys_lookup.get((layer_key, key[0], key[1]))
             log_entry = log_lookup.get((layer_name, key[0], key[1]))
 
             if phys_rows is not None and phys_rows >= 0:
+                # Physical scan available — this is the true total row count
                 entry[layer_key] = phys_rows
-            # If physical scan failed or not available, leave as None
-            # The frontend shows "—" for null counts
+                entry[f"{layer_key}RowSource"] = "physical_scan"
+            elif log_entry is not None:
+                # Fall back to engine log RowsWritten (latest successful run).
+                # For full loads this IS the total. For incremental loads this
+                # is the delta from the most recent run — label accordingly.
+                rows = int(log_entry.get("RowsWritten") or 0)
+                entry[layer_key] = rows
+                is_incr = bool(log_entry.get("IsIncremental"))
+                entry[f"{layer_key}RowSource"] = "engine_log_incremental" if is_incr else "engine_log"
+            # else: leave as None — entity never loaded for this layer
 
-            if log_entry and layer_key == "lz":
-                entry["lastLoaded"] = log_entry.get("created_at")
-                entry["lastLoadRows"] = int(log_entry.get("RowsWritten") or 0)
+            if log_entry:
+                if layer_key == "lz":
+                    entry["lastLoaded"] = log_entry.get("created_at")
+                    entry["lastLoadRows"] = int(log_entry.get("RowsWritten") or 0)
+                    entry["lastLoadType"] = log_entry.get("LoadType")
 
         tables_map[key] = entry
 
     tables = sorted(tables_map.values(), key=lambda r: (r["schema"], r["table"]))
+
+    has_any_physical = any(t.get("lzRowSource") == "physical_scan"
+                           or t.get("bronzeRowSource") == "physical_scan"
+                           or t.get("silverRowSource") == "physical_scan"
+                           for t in tables)
 
     return {
         "source": source_name,
@@ -328,6 +468,7 @@ def get_load_center_source_detail(params: dict) -> dict:
             "silver": sum(1 for t in tables if t["silver"] is not None),
             "gaps": sum(1 for t in tables if t["lz"] is not None and (t["bronze"] is None or t["silver"] is None)),
         },
+        "rowSource": "physical_scan + engine_log" if has_any_physical else "engine_log",
     }
 
 
@@ -480,8 +621,15 @@ def post_load_center_run(params: dict) -> dict:
             "phase": "starting",
             "progress": {},
         })
+        # Persist to SQLite (durable across restart/navigation)
+        try:
+            run_id = _persist_run(_run_state)
+            _run_state["runId"] = run_id
+        except Exception as e:
+            log.warning("Failed to persist run start: %s", e)
 
     def _run_worker():
+        run_id = _run_state.get("runId")
         try:
             _execute_smart_load(plan, _run_state)
         except Exception as e:
@@ -491,6 +639,11 @@ def post_load_center_run(params: dict) -> dict:
         finally:
             _run_state["active"] = False
             _run_state["completedAt"] = datetime.now(timezone.utc).isoformat()
+            # Persist final state to SQLite
+            try:
+                _persist_run(_run_state, run_id)
+            except Exception as e:
+                log.warning("Failed to persist run completion: %s", e)
 
     t = threading.Thread(target=_run_worker, daemon=True, name="smart-load")
     t.start()
@@ -500,11 +653,21 @@ def post_load_center_run(params: dict) -> dict:
 
 def _execute_smart_load(plan: dict, state: dict):
     """Execute the smart load plan. Updates state dict in-place for progress tracking."""
+    run_id = state.get("runId")
+
+    def _persist_phase():
+        """Persist state to SQLite at phase transitions."""
+        try:
+            if run_id:
+                _persist_run(state, run_id)
+        except Exception as e:
+            log.debug("Phase persist failed: %s", e)
 
     # Phase 1: Gap-fill — ensure Bronze/Silver registrations exist
     if plan["gapFill"]:
         state["phase"] = "gap_fill"
         state["progress"]["gapFill"] = {"total": len(plan["gapFill"]), "done": 0}
+        _persist_phase()
         for gap in plan["gapFill"]:
             entity_id = gap["entityId"]
             try:
@@ -526,6 +689,7 @@ def _execute_smart_load(plan: dict, state: dict):
     if not all_entity_ids:
         state["phase"] = "complete"
         state["progress"]["message"] = "No entities to load"
+        _persist_phase()
         return
 
     state["phase"] = "loading"
@@ -534,6 +698,7 @@ def _execute_smart_load(plan: dict, state: dict):
         "fullLoad": len(plan["fullLoad"]),
         "incremental": len(plan["incremental"]),
     }
+    _persist_phase()
 
     # Trigger the engine via internal HTTP call to /api/engine/start
     try:
@@ -554,6 +719,7 @@ def _execute_smart_load(plan: dict, state: dict):
         result = json.loads(resp.read())
         state["progress"]["load"]["engineResult"] = result
         state["phase"] = "engine_running"
+        _persist_phase()
 
         # The engine runs async — we just report that it started
         # The frontend will poll /api/engine/status for detailed progress
@@ -562,6 +728,7 @@ def _execute_smart_load(plan: dict, state: dict):
         # Engine not available — fall back to notebook trigger via REST API
         log.info("Engine start failed (%s), triggering via Fabric notebooks", e)
         state["phase"] = "notebook_trigger"
+        _persist_phase()
         _trigger_notebooks_direct(state)
 
 
@@ -744,5 +911,19 @@ def _poll_notebook_completion(ws_id: str, nb_id: str, nb_name: str, layer: str, 
 
 @route("GET", "/api/load-center/run-status")
 def get_load_center_run_status(params: dict) -> dict:
-    """Get current run progress."""
+    """Get current run progress.
+
+    Precedence:
+    - If in-memory _run_state says active → return it (hot cache, most current)
+    - Otherwise → read from SQLite (durable, survives restart/navigation)
+    """
+    if _run_state.get("active"):
+        return _run_state
+    # In-memory says not active — check SQLite for the most recent run
+    try:
+        persisted = _load_latest_run()
+        if persisted.get("active") or persisted.get("phase"):
+            return persisted
+    except Exception:
+        pass
     return _run_state

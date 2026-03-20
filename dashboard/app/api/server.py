@@ -292,13 +292,9 @@ if __name__ == "__main__":
 
     _init_control_plane_db()
 
-    # Sync entity status from OneLake filesystem on startup
-    try:
-        from dashboard.app.api.routes.data_access import sync_entity_status_from_filesystem
-        result = sync_entity_status_from_filesystem()
-        log.info("Entity status synced from OneLake: %s", result)
-    except Exception as exc:
-        log.warning("OneLake entity status sync failed on startup: %s", exc)
+    # NOTE: entity_status startup sync removed (RP-03, 2026-03-20).
+    # entity_status is deprecated — status is now derived from engine_task_log
+    # via get_canonical_entity_status(). The sync wrote to a table nobody reads.
 
     # Start parquet export background thread
     try:

@@ -34,60 +34,120 @@ _SYSTEM_SOURCES = {"CUSTOM_NOTEBOOK", "LH_DATA_LANDINGZONE"}
 
 @route("GET", "/api/overview/kpis")
 def get_overview_kpis(params: dict) -> dict:
-    """Return top-level KPI figures for the Business Portal overview page."""
+    """Return top-level KPI figures for the Business Portal overview page.
+
+    Data source: engine_task_log (authoritative).
+    See docs/architecture/FMD_DATA_BIBLE.md and FMD_METRIC_DEFINITIONS.md.
+    """
     conn = cpdb._get_conn()
+    ph = ",".join("?" for _ in _SYSTEM_SOURCES)
+    ss = tuple(_SYSTEM_SOURCES)
     try:
         # ------------------------------------------------------------------
-        # Freshness: across ALL layers, how many active entities were loaded
-        # within the last 24 hours?  This is a time-based metric — "ever loaded"
-        # would always converge to 100% and hide stale data.
+        # Freshness: TWO complementary metrics
+        #
+        # 1. "24h freshness" — entities with a successful load in the last 24h.
+        #    This is the recency signal: how current is our data right now?
+        #
+        # 2. "ever loaded" — entities that have EVER loaded successfully.
+        #    This is the coverage signal: how much of the registered estate has data?
+        #
+        # Together they avoid the "0% freshness" problem: even if no run succeeded
+        # in the last 24h, the user sees coverage + last success timestamp.
         # ------------------------------------------------------------------
         freshness_row = conn.execute(
-            """
+            f"""
             SELECT
                 COUNT(DISTINCT e.LandingzoneEntityId) AS total,
                 COUNT(DISTINCT CASE
                     WHEN t.Status = 'succeeded'
                          AND t.created_at >= datetime('now', '-24 hours')
-                    THEN e.LandingzoneEntityId END) AS fresh
+                    THEN e.LandingzoneEntityId END) AS fresh_24h,
+                COUNT(DISTINCT CASE
+                    WHEN t.Status = 'succeeded'
+                    THEN e.LandingzoneEntityId END) AS ever_loaded,
+                MAX(CASE WHEN t.Status = 'succeeded' THEN t.created_at ELSE NULL END) AS last_success_at
             FROM lz_entities e
             LEFT JOIN engine_task_log t ON t.EntityId = e.LandingzoneEntityId
             LEFT JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
             WHERE e.IsActive = 1
-              AND ds.Name NOT IN ({placeholders})
-            """.format(placeholders=",".join("?" for _ in _SYSTEM_SOURCES)),
-            tuple(_SYSTEM_SOURCES),
+              AND ds.Name NOT IN ({ph})
+            """,
+            ss,
         ).fetchone()
 
-        freshness_total   = freshness_row[0] if freshness_row else 0
-        freshness_on_time = freshness_row[1] if freshness_row else 0
-        freshness_pct = (
-            round(freshness_on_time / freshness_total * 100, 1)
-            if freshness_total > 0
-            else 0.0
-        )
+        freshness_total    = freshness_row[0] if freshness_row else 0
+        freshness_on_time  = freshness_row[1] if freshness_row else 0
+        ever_loaded        = freshness_row[2] if freshness_row else 0
+        last_success_at    = freshness_row[3] if freshness_row else None
+
+        # Primary display: use 24h freshness if there are recent successes,
+        # otherwise fall back to coverage (ever_loaded / total).
+        if freshness_on_time > 0:
+            freshness_pct = round(freshness_on_time / freshness_total * 100, 1) if freshness_total > 0 else 0.0
+        elif ever_loaded > 0:
+            # No 24h successes, but data HAS been loaded before.
+            # Show coverage percentage so the user doesn't see 0%.
+            freshness_pct = round(ever_loaded / freshness_total * 100, 1) if freshness_total > 0 else 0.0
+        else:
+            freshness_pct = 0.0
 
         # ------------------------------------------------------------------
-        # Open alerts: entities with error status on any layer (real operational failures)
-        # Falls back to quality_scores if engine_task_log has no errors.
+        # Open alerts: entities that have NEVER successfully loaded,
+        # or that have been failing consistently (no success in last 7 days
+        # AND latest entry is failed).
+        #
+        # This avoids the "one failed run = 1,500 alerts" problem.
+        # A failed run on top of a recent success is transient, not an alert.
         # ------------------------------------------------------------------
         error_row = conn.execute(
-            """
-            WITH latest AS (
-                SELECT EntityId, Status,
-                       ROW_NUMBER() OVER (PARTITION BY EntityId ORDER BY created_at DESC) AS rn
-                FROM engine_task_log
-            )
-            SELECT COALESCE(COUNT(DISTINCT l.EntityId), 0) AS error_count
-            FROM latest l
-            JOIN lz_entities e ON l.EntityId = e.LandingzoneEntityId
-            JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
-            WHERE l.rn = 1
-              AND l.Status = 'failed'
-              AND e.IsActive = 1
-              AND ds.Name NOT IN ({placeholders})
-            """.format(placeholders=",".join("?" for _ in _SYSTEM_SOURCES)),
-            tuple(_SYSTEM_SOURCES),
+            f"""
+            SELECT COALESCE(COUNT(DISTINCT sub.EntityId), 0) AS alert_count
+            FROM (
+                SELECT e.LandingzoneEntityId AS EntityId
+                FROM lz_entities e
+                JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
+                WHERE e.IsActive = 1
+                  AND ds.Name NOT IN ({ph})
+                  -- Entity has NEVER succeeded on any layer
+                  AND NOT EXISTS (
+                      SELECT 1 FROM engine_task_log t2
+                      WHERE t2.EntityId = e.LandingzoneEntityId
+                        AND t2.Status = 'succeeded'
+                  )
+                  -- But HAS been attempted (has at least one log entry)
+                  AND EXISTS (
+                      SELECT 1 FROM engine_task_log t3
+                      WHERE t3.EntityId = e.LandingzoneEntityId
+                  )
+
+                UNION
+
+                SELECT e.LandingzoneEntityId AS EntityId
+                FROM lz_entities e
+                JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
+                WHERE e.IsActive = 1
+                  AND ds.Name NOT IN ({ph})
+                  -- Latest entry is failed
+                  AND EXISTS (
+                      SELECT 1 FROM engine_task_log t4
+                      WHERE t4.EntityId = e.LandingzoneEntityId
+                        AND t4.Status = 'failed'
+                        AND t4.id = (
+                            SELECT MAX(id) FROM engine_task_log t5
+                            WHERE t5.EntityId = e.LandingzoneEntityId
+                        )
+                  )
+                  -- AND no success in last 7 days (not just a transient failure)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM engine_task_log t6
+                      WHERE t6.EntityId = e.LandingzoneEntityId
+                        AND t6.Status = 'succeeded'
+                        AND t6.created_at >= datetime('now', '-7 days')
+                  )
+            ) sub
+            """,
+            ss + ss,
         ).fetchone()
         open_alerts = error_row[0] if error_row else 0
 
@@ -102,30 +162,30 @@ def get_overview_kpis(params: dict) -> dict:
         # Source counts — exclude system sources
         # ------------------------------------------------------------------
         sources_row = conn.execute(
-            """
+            f"""
             SELECT
                 COALESCE(COUNT(*), 0) AS total,
                 COALESCE(SUM(CASE WHEN IsActive = 1 THEN 1 ELSE 0 END), 0) AS online
             FROM datasources
-            WHERE Name NOT IN ({placeholders})
-            """.format(placeholders=",".join("?" for _ in _SYSTEM_SOURCES)),
-            tuple(_SYSTEM_SOURCES),
+            WHERE Name NOT IN ({ph})
+            """,
+            ss,
         ).fetchone()
         sources_total  = sources_row[0] if sources_row else 0
         sources_online = sources_row[1] if sources_row else 0
 
         # ------------------------------------------------------------------
-        # Total active entities — exclude system sources
+        # Entity counts — registered vs loaded (distinct concepts)
         # ------------------------------------------------------------------
         entities_row = conn.execute(
-            """
+            f"""
             SELECT COALESCE(COUNT(*), 0)
             FROM lz_entities e
             JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
             WHERE e.IsActive = 1
-              AND ds.Name NOT IN ({placeholders})
-            """.format(placeholders=",".join("?" for _ in _SYSTEM_SOURCES)),
-            tuple(_SYSTEM_SOURCES),
+              AND ds.Name NOT IN ({ph})
+            """,
+            ss,
         ).fetchone()
         total_entities = entities_row[0] if entities_row else 0
 
@@ -149,10 +209,13 @@ def get_overview_kpis(params: dict) -> dict:
             "freshness_pct":     freshness_pct,
             "freshness_on_time": freshness_on_time,
             "freshness_total":   freshness_total,
+            "freshness_ever_loaded": ever_loaded,
+            "freshness_last_success": last_success_at,
             "open_alerts":       open_alerts,
             "sources_online":    sources_online,
             "sources_total":     sources_total,
             "total_entities":    total_entities,
+            "loaded_entities":   ever_loaded,
             "quality_avg":       quality_avg,
         }
 
