@@ -295,11 +295,14 @@ def discover_watermarks(meta_conn, dry_run=False):
                     print(f"    [WARN] Failed to update PrimaryKeys for entity {eid}: {e}")
 
             # Determine incremental load strategy
+            # Priority <= 3 = datetime watermark (auto-qualifies)
+            # Priority 4 = identity column (also qualifies — RP-06B)
             candidates = wm_map.get(key, [])
             result["watermark_candidates"] = candidates
             watermarks = sorted(candidates, key=lambda w: w["priority"])
             best_wm = watermarks[0] if watermarks else None
-            if best_wm and best_wm["priority"] <= 3:
+            qualifies = best_wm and (best_wm["priority"] <= 3 or best_wm.get("is_identity"))
+            if qualifies:
                 ds_inc += 1
                 total_incremental += 1
                 result["watermark_col"] = best_wm["column"]
@@ -562,7 +565,9 @@ def main():
     print("DONE")
     if not args.dry_run and discovery_results and discovery_results["incremental"] > 0:
         print(f"\n  {discovery_results['incremental']} entities configured for incremental loads.")
-        print(f"  {seed_results['seeded']} watermark values seeded from execution history.")
+        print(f"  {seed_results['seeded']} watermark values seeded (datetime from exec history, integer from source MAX).")
+        if seed_results.get('skipped_int_no_max', 0) > 0:
+            print(f"  {seed_results['skipped_int_no_max']} integer/unknown columns skipped (will full-load then self-seed).")
         print(f"  Next LZ run will use incremental queries (only new/changed rows).")
     elif args.dry_run:
         print("\n  This was a dry run. Re-run without --dry-run to apply changes.")
