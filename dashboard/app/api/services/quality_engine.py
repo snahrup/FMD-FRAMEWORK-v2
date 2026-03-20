@@ -18,9 +18,9 @@ Tier mapping:
     <  50  unclassified
 
 CRITICAL column name notes:
-    entity_status   uses  LandingzoneEntityId   (NOT EntityId)
-    engine_task_log uses  EntityId              (different table, different column name!)
-    Layer values in entity_status are LOWERCASE ('landing', 'bronze', 'silver')
+    engine_task_log uses  EntityId  (= LandingzoneEntityId from lz_entities)
+    Layer values are LOWERCASE ('landing', 'bronze', 'silver')
+    Status values: 'succeeded', 'failed', 'skipped'
 """
 import logging
 from datetime import datetime, timezone
@@ -84,7 +84,7 @@ def _parse_dt(dt_str: str | None) -> datetime | None:
 def compute_quality_scores() -> dict:
     """Compute quality scores for all active LandingzoneEntity rows.
 
-    Reads from: lz_entities, column_metadata, entity_status, engine_task_log
+    Reads from: lz_entities, column_metadata, engine_task_log
     Writes to:  quality_scores  (UPSERT by entity_id)
 
     Returns a summary dict: {scored, tiers: {gold, silver, bronze, unclassified}}
@@ -119,18 +119,30 @@ def compute_quality_scores() -> dict:
         for r in cm_rows:
             col_meta[int(r["entity_id"])] = (int(r["total_cols"]), int(r["non_null_cols"]))
 
-        # ── Pre-load entity_status (freshness + consistency) ─────────────────
-        # entity_status PK is (LandingzoneEntityId, Layer)
+        # ── Pre-load entity status from engine_task_log (freshness + consistency)
+        # engine_task_log uses EntityId, Layer (lowercase), Status, created_at
         es_rows = conn.execute(
-            "SELECT LandingzoneEntityId, Layer, Status, LoadEndDateTime FROM entity_status"
+            """
+            SELECT EntityId, Layer, Status, created_at AS LoadEndDateTime
+            FROM engine_task_log
+            WHERE id IN (
+                SELECT id FROM (
+                    SELECT id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY EntityId, Layer
+                               ORDER BY created_at DESC,
+                                        CASE Status WHEN 'succeeded' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END
+                           ) AS rn
+                    FROM engine_task_log
+                ) WHERE rn = 1
+            )
+            """
         ).fetchall()
         # Map: entity_id -> {layer -> {Status, LoadEndDateTime}}
         entity_statuses: dict[int, dict[str, dict]] = {}
         for r in es_rows:
-            eid = int(r["LandingzoneEntityId"])
+            eid = int(r["EntityId"])
             layer = (r["Layer"] or "").lower()
-            if layer == "landingzone":
-                layer = "landing"
             if eid not in entity_statuses:
                 entity_statuses[eid] = {}
             entity_statuses[eid][layer] = {
@@ -196,7 +208,7 @@ def compute_quality_scores() -> dict:
                     freshness = _compute_freshness(None)
 
                 # 3. Consistency (20%)
-                # COUNT(DISTINCT Layer WHERE Status='loaded') / 3 * 100
+                # COUNT(DISTINCT Layer WHERE Status='succeeded') / 3 * 100
                 loaded_layers = sum(
                     1 for layer_data in est.values()
                     if layer_data.get("Status", "").lower() in ("loaded", "succeeded", "complete")

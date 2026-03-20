@@ -387,6 +387,32 @@ def init_db():
                 computed_at         TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );
 
+            -- health trend snapshots (executive dashboard 24h chart) -----------
+
+            CREATE TABLE IF NOT EXISTS health_trend_snapshots (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_time           TEXT NOT NULL,
+                lz_loaded               INTEGER DEFAULT 0,
+                bronze_loaded           INTEGER DEFAULT 0,
+                silver_loaded           INTEGER DEFAULT 0,
+                total_entities          INTEGER DEFAULT 0,
+                pipeline_success_rate   REAL DEFAULT 0
+            );
+
+            -- lakehouse file metadata cache (row counts from OneLake parquet) ----
+
+            CREATE TABLE IF NOT EXISTS lakehouse_row_counts (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                lakehouse       TEXT NOT NULL,
+                schema_name     TEXT NOT NULL,
+                table_name      TEXT NOT NULL,
+                row_count       INTEGER DEFAULT -1,
+                file_count      INTEGER DEFAULT 0,
+                size_bytes      INTEGER DEFAULT 0,
+                scanned_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                UNIQUE(lakehouse, schema_name, table_name)
+            );
+
             -- indexes ------------------------------------------------------------
 
             CREATE INDEX IF NOT EXISTS idx_lz_datasource   ON lz_entities(DataSourceId);
@@ -396,6 +422,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_runs_status       ON engine_runs(Status);
             CREATE INDEX IF NOT EXISTS idx_tasklog_run       ON engine_task_log(RunId);
             CREATE INDEX IF NOT EXISTS idx_tasklog_entity    ON engine_task_log(EntityId);
+            CREATE INDEX IF NOT EXISTS idx_tasklog_entity_layer_ts ON engine_task_log(EntityId, Layer, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_plz_entity        ON pipeline_lz_entity(LandingzoneEntityId);
             CREATE INDEX IF NOT EXISTS idx_pbronze_entity    ON pipeline_bronze_entity(BronzeLayerEntityId);
             CREATE INDEX IF NOT EXISTS idx_estatus_layer     ON entity_status(Layer);
@@ -405,8 +432,451 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_nb_exec_run       ON notebook_executions(PipelineRunGuid);
             CREATE INDEX IF NOT EXISTS idx_nb_exec_entity    ON notebook_executions(EntityId);
             CREATE INDEX IF NOT EXISTS idx_import_jobs_status ON import_jobs(status);
+            CREATE INDEX IF NOT EXISTS idx_health_snap_time ON health_trend_snapshots(snapshot_time);
+            CREATE INDEX IF NOT EXISTS idx_lrc_lakehouse ON lakehouse_row_counts(lakehouse);
+            CREATE INDEX IF NOT EXISTS idx_lrc_lookup ON lakehouse_row_counts(lakehouse, schema_name, table_name);
+
+            -- =================================================================
+            -- Gold Studio tables (19 tables, gs_ prefix)
+            -- =================================================================
+
+            -- Specimen Management (3 tables) --------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_specimens (
+                id              INTEGER PRIMARY KEY,
+                name            TEXT NOT NULL,
+                type            TEXT NOT NULL CHECK(type IN (
+                    'rdl','pbix','pbip','tmdl','bim','sql',
+                    'excel','csv','screenshot','note','other'
+                )),
+                source_class    TEXT NOT NULL DEFAULT 'structural' CHECK(source_class IN (
+                    'structural','supporting','contextual'
+                )),
+                manual_context  TEXT CHECK(manual_context IS NULL OR json_valid(manual_context)),
+                division        TEXT NOT NULL,
+                source_system   TEXT,
+                steward         TEXT NOT NULL,
+                imported_by     TEXT,
+                description     TEXT,
+                tags            TEXT CHECK(tags IS NULL OR json_valid(tags)),
+                file_path       TEXT,
+                job_state       TEXT DEFAULT 'queued' CHECK(job_state IN (
+                    'queued','extracting','schema_discovery','extracted',
+                    'parse_warning','parse_failed','needs_connection','schema_pending',
+                    'accepted'
+                )),
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at      DATETIME
+            );
+
+            CREATE TABLE IF NOT EXISTS gs_jobs (
+                id              INTEGER PRIMARY KEY,
+                job_type        TEXT NOT NULL CHECK(job_type IN (
+                    'extraction','schema_discovery','bulk_import','validation','cluster_detection','audit_archival'
+                )),
+                specimen_id     INTEGER REFERENCES gs_specimens(id),
+                entity_id       INTEGER REFERENCES gs_extracted_entities(id),
+                spec_id         INTEGER REFERENCES gs_gold_specs(id),
+                started_at      DATETIME,
+                completed_at    DATETIME,
+                status          TEXT DEFAULT 'queued' CHECK(status IN (
+                    'queued','running','completed','warning','failed','failed_permanently'
+                )),
+                retry_count     INTEGER DEFAULT 0,
+                max_retries     INTEGER DEFAULT 3,
+                parser_type     TEXT,
+                warnings        TEXT CHECK(warnings IS NULL OR json_valid(warnings)),
+                errors          TEXT CHECK(errors IS NULL OR json_valid(errors)),
+                metadata        TEXT CHECK(metadata IS NULL OR json_valid(metadata))
+            );
+
+            CREATE TABLE IF NOT EXISTS gs_specimen_queries (
+                id              INTEGER PRIMARY KEY,
+                specimen_id     INTEGER NOT NULL REFERENCES gs_specimens(id),
+                query_name      TEXT,
+                query_text      TEXT NOT NULL,
+                query_type      TEXT CHECK(query_type IN ('native_sql','m_query','dax','stored_proc')),
+                source_database TEXT,
+                parameters      TEXT CHECK(parameters IS NULL OR json_valid(parameters)),
+                ordinal         INTEGER
+            );
+
+            -- Extracted Entities (3 tables) ---------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_extracted_entities (
+                id              INTEGER PRIMARY KEY,
+                specimen_id     INTEGER NOT NULL REFERENCES gs_specimens(id),
+                query_id        INTEGER REFERENCES gs_specimen_queries(id),
+                entity_name     TEXT NOT NULL,
+                schema_name     TEXT,
+                source_database TEXT,
+                source_system   TEXT,
+                entity_kind     TEXT DEFAULT 'physical' CHECK(entity_kind IN (
+                    'physical','view','calculated','semantic_output','unknown'
+                )),
+                column_count    INTEGER DEFAULT 0,
+                provenance      TEXT DEFAULT 'imported' CHECK(provenance IN (
+                    'imported','extracted','clustered'
+                )),
+                cluster_id      INTEGER REFERENCES gs_clusters(id),
+                canonical_root_id INTEGER,
+                metadata        TEXT CHECK(metadata IS NULL OR json_valid(metadata)),
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at      DATETIME
+            );
+
+            CREATE TABLE IF NOT EXISTS gs_extracted_columns (
+                id              INTEGER PRIMARY KEY,
+                entity_id       INTEGER NOT NULL REFERENCES gs_extracted_entities(id),
+                column_name     TEXT NOT NULL,
+                data_type       TEXT,
+                nullable        BOOLEAN DEFAULT 1,
+                is_key          BOOLEAN DEFAULT 0,
+                source_expression TEXT,
+                is_calculated   BOOLEAN DEFAULT 0,
+                ordinal         INTEGER,
+                metadata        TEXT CHECK(metadata IS NULL OR json_valid(metadata))
+            );
+
+            CREATE TABLE IF NOT EXISTS gs_extracted_relationships (
+                id              INTEGER PRIMARY KEY,
+                specimen_id     INTEGER NOT NULL REFERENCES gs_specimens(id),
+                from_entity_id  INTEGER NOT NULL REFERENCES gs_extracted_entities(id),
+                from_column     TEXT NOT NULL,
+                to_entity_id    INTEGER REFERENCES gs_extracted_entities(id),
+                to_entity_name  TEXT,
+                to_column       TEXT NOT NULL,
+                join_type       TEXT,
+                cardinality     TEXT,
+                detected_from   TEXT CHECK(detected_from IN ('query_parse','model_metadata','manual'))
+            );
+
+            -- Source Bindings (1 table) -------------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_source_bindings (
+                id              INTEGER PRIMARY KEY,
+                specimen_id     INTEGER REFERENCES gs_specimens(id),
+                entity_id       INTEGER REFERENCES gs_extracted_entities(id),
+                binding_type    TEXT NOT NULL CHECK(binding_type IN (
+                    'sql_db','lakehouse','warehouse','semantic_model','other'
+                )),
+                source_system   TEXT,
+                source_name     TEXT,
+                workspace       TEXT,
+                item_id         TEXT,
+                connection_id   TEXT,
+                database_name   TEXT,
+                schema_name     TEXT,
+                object_name     TEXT,
+                partition_name  TEXT,
+                storage_mode    TEXT CHECK(storage_mode IN ('import','direct_query','direct_lake','dual')),
+                metadata        TEXT CHECK(metadata IS NULL OR json_valid(metadata)),
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at      DATETIME,
+                CHECK(specimen_id IS NOT NULL OR entity_id IS NOT NULL)
+            );
+
+            -- Measures (1 table) --------------------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_extracted_measures (
+                id              INTEGER PRIMARY KEY,
+                specimen_id     INTEGER NOT NULL REFERENCES gs_specimens(id),
+                entity_id       INTEGER REFERENCES gs_extracted_entities(id),
+                measure_name    TEXT NOT NULL,
+                expression      TEXT NOT NULL,
+                expression_type TEXT CHECK(expression_type IN ('dax','m','sql')),
+                description     TEXT,
+                source_table    TEXT,
+                metadata        TEXT CHECK(metadata IS NULL OR json_valid(metadata))
+            );
+
+            -- Schema Discovery (1 table) ------------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_schema_discovery (
+                id              INTEGER PRIMARY KEY,
+                entity_id       INTEGER NOT NULL REFERENCES gs_extracted_entities(id),
+                source_database TEXT NOT NULL,
+                source_table    TEXT NOT NULL,
+                discovered_columns TEXT NOT NULL CHECK(json_valid(discovered_columns)),
+                discovery_method TEXT CHECK(discovery_method IN (
+                    'sp_describe','dm_describe','catalog','top0','fmtonly'
+                )),
+                discovered_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+                connection_id   TEXT
+            );
+
+            -- Clustering (2 tables) -----------------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_clusters (
+                id              INTEGER PRIMARY KEY,
+                division        TEXT NOT NULL,
+                parent_cluster_id INTEGER REFERENCES gs_clusters(id),
+                label           TEXT,
+                dominant_name   TEXT,
+                confidence      INTEGER CHECK(confidence BETWEEN 0 AND 100),
+                confidence_breakdown TEXT CHECK(confidence_breakdown IS NULL OR json_valid(confidence_breakdown)),
+                status          TEXT DEFAULT 'unresolved' CHECK(status IN (
+                    'unresolved','resolved','dismissed','pending_steward','re_review'
+                )),
+                resolution      TEXT CHECK(resolution IN ('approved','split','merged','dismissed')),
+                resolved_by     TEXT,
+                resolved_at     DATETIME,
+                notes           TEXT,
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at      DATETIME
+            );
+
+            CREATE TABLE IF NOT EXISTS gs_cluster_column_decisions (
+                id              INTEGER PRIMARY KEY,
+                cluster_id      INTEGER NOT NULL REFERENCES gs_clusters(id),
+                column_name     TEXT NOT NULL,
+                source_entity_id INTEGER REFERENCES gs_extracted_entities(id),
+                decision        TEXT NOT NULL CHECK(decision IN ('include','exclude','review')),
+                reason          TEXT,
+                key_designation TEXT CHECK(key_designation IN ('pk','bk','fk','none')),
+                source_data_type TEXT,
+                source_expression TEXT,
+                decided_by      TEXT,
+                decided_at      DATETIME
+            );
+
+            -- Canonical Entities (1 table, versioned) -----------------------
+
+            CREATE TABLE IF NOT EXISTS gs_canonical_entities (
+                id              INTEGER PRIMARY KEY,
+                root_id         INTEGER NOT NULL,
+                version         INTEGER NOT NULL DEFAULT 1,
+                is_current      BOOLEAN NOT NULL DEFAULT 1,
+                name            TEXT NOT NULL,
+                business_description TEXT NOT NULL,
+                domain          TEXT NOT NULL,
+                entity_type     TEXT NOT NULL CHECK(entity_type IN (
+                    'fact','dimension','bridge','reference','aggregate'
+                )),
+                grain           TEXT NOT NULL,
+                business_keys   TEXT NOT NULL CHECK(json_valid(business_keys)),
+                steward         TEXT NOT NULL,
+                source_systems  TEXT CHECK(source_systems IS NULL OR json_valid(source_systems)),
+                source_cluster_ids TEXT CHECK(source_cluster_ids IS NULL OR json_valid(source_cluster_ids)),
+                status          TEXT DEFAULT 'draft' CHECK(status IN ('draft','approved','deprecated')),
+                shared_dimensions TEXT CHECK(shared_dimensions IS NULL OR json_valid(shared_dimensions)),
+                approval_gate   TEXT CHECK(approval_gate IS NULL OR json_valid(approval_gate)),
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at      DATETIME,
+                UNIQUE(root_id, version)
+            );
+
+            -- Canonical Columns (1 table) -----------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_canonical_columns (
+                id              INTEGER PRIMARY KEY,
+                canonical_id    INTEGER NOT NULL REFERENCES gs_canonical_entities(id),
+                canonical_root_id INTEGER NOT NULL,
+                column_name     TEXT NOT NULL,
+                business_name   TEXT,
+                data_type       TEXT,
+                nullable        BOOLEAN DEFAULT 1,
+                key_designation TEXT CHECK(key_designation IN ('pk','bk','fk','none')),
+                source_expression TEXT,
+                classification  TEXT CHECK(classification IN ('public','internal','confidential','restricted','pii')),
+                business_description TEXT,
+                fk_target_root_id INTEGER,
+                fk_target_column TEXT,
+                ordinal         INTEGER,
+                from_cluster_decision_id INTEGER REFERENCES gs_cluster_column_decisions(id),
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- Semantic Definitions (1 table) --------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_semantic_definitions (
+                id              INTEGER PRIMARY KEY,
+                canonical_root_id INTEGER NOT NULL,
+                version         INTEGER DEFAULT 1,
+                name            TEXT NOT NULL,
+                definition_type TEXT NOT NULL CHECK(definition_type IN (
+                    'measure','kpi','calc_group','semantic_note'
+                )),
+                expression      TEXT,
+                expression_type TEXT CHECK(expression_type IN ('dax','sql','other')),
+                description     TEXT,
+                source_ref      TEXT,
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at      DATETIME
+            );
+
+            -- Gold Specifications (1 table, versioned) ----------------------
+
+            CREATE TABLE IF NOT EXISTS gs_gold_specs (
+                id              INTEGER PRIMARY KEY,
+                root_id         INTEGER NOT NULL,
+                version         INTEGER NOT NULL DEFAULT 1,
+                is_current      BOOLEAN NOT NULL DEFAULT 1,
+                canonical_root_id INTEGER NOT NULL,
+                canonical_version INTEGER NOT NULL,
+                target_name     TEXT NOT NULL,
+                object_type     TEXT DEFAULT 'mlv' CHECK(object_type IN ('mlv','view','table')),
+                source_sql      TEXT,
+                transformation_rules TEXT CHECK(transformation_rules IS NULL OR json_valid(transformation_rules)),
+                included_columns TEXT CHECK(included_columns IS NULL OR json_valid(included_columns)),
+                excluded_columns TEXT CHECK(excluded_columns IS NULL OR json_valid(excluded_columns)),
+                relationship_expectations TEXT CHECK(relationship_expectations IS NULL OR json_valid(relationship_expectations)),
+                downstream_reports TEXT CHECK(downstream_reports IS NULL OR json_valid(downstream_reports)),
+                refresh_strategy TEXT CHECK(refresh_strategy IN ('full','incremental','hybrid')),
+                validation_rules TEXT CHECK(validation_rules IS NULL OR json_valid(validation_rules)),
+                status          TEXT DEFAULT 'draft' CHECK(status IN (
+                    'draft','needs_revalidation','validated'
+                )),
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at      DATETIME,
+                UNIQUE(root_id, version)
+            );
+
+            -- Validation & Catalog (2 tables) -------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_validation_runs (
+                id              INTEGER PRIMARY KEY,
+                spec_root_id    INTEGER NOT NULL,
+                spec_version    INTEGER NOT NULL,
+                started_at      DATETIME,
+                completed_at    DATETIME,
+                status          TEXT CHECK(status IN ('queued','running','passed','failed','warning')),
+                results         TEXT CHECK(results IS NULL OR json_valid(results)),
+                reconciliation  TEXT CHECK(reconciliation IS NULL OR json_valid(reconciliation)),
+                waiver          TEXT CHECK(waiver IS NULL OR json_valid(waiver)),
+                superseded      BOOLEAN DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS gs_catalog_entries (
+                id              INTEGER PRIMARY KEY,
+                root_id         INTEGER NOT NULL,
+                version         INTEGER NOT NULL DEFAULT 1,
+                is_current      BOOLEAN NOT NULL DEFAULT 1,
+                canonical_root_id INTEGER NOT NULL,
+                spec_root_id    INTEGER NOT NULL,
+                spec_version    INTEGER NOT NULL,
+                display_name    TEXT NOT NULL,
+                technical_name  TEXT NOT NULL,
+                business_description TEXT NOT NULL,
+                grain           TEXT NOT NULL,
+                domain          TEXT NOT NULL,
+                owner           TEXT NOT NULL,
+                steward         TEXT NOT NULL,
+                source_systems  TEXT NOT NULL CHECK(json_valid(source_systems)),
+                sensitivity_label TEXT NOT NULL CHECK(sensitivity_label IN (
+                    'public','internal','confidential','restricted'
+                )),
+                status          TEXT DEFAULT 'current' CHECK(status IN ('current','source_updated','superseded')),
+                endorsement     TEXT DEFAULT 'none' CHECK(endorsement IN ('none','promoted','certified')),
+                tags            TEXT CHECK(tags IS NULL OR json_valid(tags)),
+                intended_audience TEXT,
+                usage_type      TEXT CHECK(usage_type IN ('bi','analytics','ai','operational')),
+                glossary_terms  TEXT CHECK(glossary_terms IS NULL OR json_valid(glossary_terms)),
+                certification_notes TEXT,
+                refresh_sla     TEXT,
+                data_retention  TEXT,
+                workspace       TEXT,
+                lakehouse       TEXT,
+                schema_name     TEXT,
+                object_name     TEXT,
+                deployment_env  TEXT,
+                published_at    DATETIME,
+                published_by    TEXT,
+                last_validation_run_id INTEGER REFERENCES gs_validation_runs(id),
+                deleted_at      DATETIME,
+                UNIQUE(root_id, version)
+            );
+
+            -- Audit Log (1 table, append-only) ------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_audit_log (
+                id              INTEGER PRIMARY KEY,
+                object_type     TEXT NOT NULL CHECK(object_type IN (
+                    'specimen','entity','cluster','canonical','spec','validation','catalog','domain_workspace','report_coverage'
+                )),
+                object_id       INTEGER NOT NULL,
+                action          TEXT NOT NULL,
+                previous_value  TEXT CHECK(previous_value IS NULL OR json_valid(previous_value)),
+                new_value       TEXT CHECK(new_value IS NULL OR json_valid(new_value)),
+                performed_by    TEXT NOT NULL,
+                performed_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                notes           TEXT
+            );
+
+            -- Report Field Usage (1 table) ----------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_report_field_usage (
+                id              INTEGER PRIMARY KEY,
+                specimen_id     INTEGER NOT NULL REFERENCES gs_specimens(id),
+                entity_id       INTEGER REFERENCES gs_extracted_entities(id),
+                visual_id       TEXT,
+                visual_type     TEXT,
+                page_name       TEXT,
+                column_name     TEXT,
+                measure_name    TEXT,
+                usage_type      TEXT CHECK(usage_type IN ('axis','value','filter','slicer','tooltip','detail')),
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- Domain Workspaces (1 table) ----------------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_domain_workspaces (
+                id              INTEGER PRIMARY KEY,
+                name            TEXT NOT NULL UNIQUE,
+                display_name    TEXT NOT NULL,
+                description     TEXT,
+                readiness_state TEXT DEFAULT 'not_started' CHECK(readiness_state IN (
+                    'not_started','in_progress','partially_covered',
+                    'ready_for_recreation','recreated','reconciled'
+                )),
+                source_coverage TEXT CHECK(source_coverage IS NULL OR json_valid(source_coverage)),
+                metadata        TEXT CHECK(metadata IS NULL OR json_valid(metadata)),
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- Report Recreation Coverage (1 table) -------------------------
+
+            CREATE TABLE IF NOT EXISTS gs_report_recreation_coverage (
+                id              INTEGER PRIMARY KEY,
+                domain          TEXT NOT NULL,
+                report_name     TEXT NOT NULL,
+                report_description TEXT,
+                report_type     TEXT CHECK(report_type IN ('power_bi','ssrs','excel','other')),
+                coverage_status TEXT DEFAULT 'not_analyzed' CHECK(coverage_status IN (
+                    'not_analyzed','analyzed','partially_covered',
+                    'fully_covered','recreated','reconciled'
+                )),
+                contributing_specimen_ids TEXT CHECK(contributing_specimen_ids IS NULL OR json_valid(contributing_specimen_ids)),
+                contributing_canonical_ids TEXT CHECK(contributing_canonical_ids IS NULL OR json_valid(contributing_canonical_ids)),
+                contributing_spec_ids TEXT CHECK(contributing_spec_ids IS NULL OR json_valid(contributing_spec_ids)),
+                unresolved_metrics TEXT CHECK(unresolved_metrics IS NULL OR json_valid(unresolved_metrics)),
+                notes           TEXT,
+                assessed_by     TEXT,
+                assessed_at     DATETIME,
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- Gold Studio indexes -------------------------------------------
+
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_canonical_one_current
+                ON gs_canonical_entities(root_id) WHERE is_current = 1;
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_spec_one_current
+                ON gs_gold_specs(root_id) WHERE is_current = 1;
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_catalog_one_current
+                ON gs_catalog_entries(root_id) WHERE is_current = 1;
+            CREATE INDEX IF NOT EXISTS idx_audit_log_lookup
+                ON gs_audit_log(object_type, object_id, performed_at);
         """)
         conn.commit()
+
+        # ── Gold Studio storage directory ──
+        (Path(__file__).parent / 'data' / 'gold-studio' / 'specimens').mkdir(parents=True, exist_ok=True)
 
         # ── Migrations (idempotent) ──
         # Add DisplayName column to datasources if missing
@@ -482,6 +952,120 @@ def init_db():
                              (display, row[0]))
             conn.commit()
             log.info("Migration: seeded DisplayName for %d connections", len(conn_needs_seed))
+
+        # Add source_class, manual_context to gs_specimens if missing
+        sp_cols = {r[1] for r in conn.execute("PRAGMA table_info(gs_specimens)").fetchall()}
+        if "source_class" not in sp_cols:
+            conn.execute("ALTER TABLE gs_specimens ADD COLUMN source_class TEXT DEFAULT 'structural'")
+            conn.execute("ALTER TABLE gs_specimens ADD COLUMN manual_context TEXT")
+            conn.commit()
+            log.info("Migration: added source_class, manual_context to gs_specimens")
+        # Drop evidence_type if it exists from earlier migration (redundant with type)
+        if "evidence_type" in sp_cols:
+            # SQLite doesn't support DROP COLUMN before 3.35; just leave it — it's unused
+            log.info("Note: evidence_type column exists but is deprecated (use type + source_class instead)")
+
+        # ── Migration: Recreate gs_specimens if CHECK constraints are stale ──
+        # The original table was created before source_class/manual_context/accepted
+        # were part of the spec, and ALTER TABLE ADD COLUMN can't add CHECK/NOT NULL.
+        # Detect drift by checking if type CHECK includes 'excel'.
+        sp_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='gs_specimens'"
+        ).fetchone()
+        if sp_sql and "'excel'" not in (sp_sql[0] or ""):
+            sp_count = conn.execute("SELECT COUNT(*) FROM gs_specimens").fetchone()[0]
+            log.info("Migration: gs_specimens CHECK constraints are stale (missing new types). "
+                     "Rows: %d. Recreating table.", sp_count)
+            conn.execute("ALTER TABLE gs_specimens RENAME TO _gs_specimens_old")
+            conn.execute("""
+                CREATE TABLE gs_specimens (
+                    id              INTEGER PRIMARY KEY,
+                    name            TEXT NOT NULL,
+                    type            TEXT NOT NULL CHECK(type IN (
+                        'rdl','pbix','pbip','tmdl','bim','sql',
+                        'excel','csv','screenshot','note','other'
+                    )),
+                    source_class    TEXT NOT NULL DEFAULT 'structural' CHECK(source_class IN (
+                        'structural','supporting','contextual'
+                    )),
+                    manual_context  TEXT CHECK(manual_context IS NULL OR json_valid(manual_context)),
+                    division        TEXT NOT NULL,
+                    source_system   TEXT,
+                    steward         TEXT NOT NULL,
+                    imported_by     TEXT,
+                    description     TEXT,
+                    tags            TEXT CHECK(tags IS NULL OR json_valid(tags)),
+                    file_path       TEXT,
+                    job_state       TEXT DEFAULT 'queued' CHECK(job_state IN (
+                        'queued','extracting','schema_discovery','extracted',
+                        'parse_warning','parse_failed','needs_connection','schema_pending',
+                        'accepted'
+                    )),
+                    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at      DATETIME
+                )
+            """)
+            if sp_count > 0:
+                conn.execute("""
+                    INSERT INTO gs_specimens
+                        (id, name, type, source_class, manual_context, division,
+                         source_system, steward, imported_by, description, tags,
+                         file_path, job_state, created_at, updated_at, deleted_at)
+                    SELECT id, name, type,
+                           COALESCE(source_class, 'structural'),
+                           manual_context, division,
+                           source_system, steward, imported_by, description, tags,
+                           file_path, job_state, created_at, updated_at, deleted_at
+                    FROM _gs_specimens_old
+                """)
+            conn.execute("DROP TABLE _gs_specimens_old")
+            conn.commit()
+            log.info("Migration: gs_specimens recreated with correct CHECK constraints")
+
+        # ── Migration: Recreate gs_audit_log if CHECK constraints are stale ──
+        al_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='gs_audit_log'"
+        ).fetchone()
+        if al_sql and "'domain_workspace'" not in (al_sql[0] or ""):
+            al_count = conn.execute("SELECT COUNT(*) FROM gs_audit_log").fetchone()[0]
+            log.info("Migration: gs_audit_log CHECK constraints are stale (missing domain_workspace). "
+                     "Rows: %d. Recreating table.", al_count)
+            conn.execute("ALTER TABLE gs_audit_log RENAME TO _gs_audit_log_old")
+            conn.execute("""
+                CREATE TABLE gs_audit_log (
+                    id              INTEGER PRIMARY KEY,
+                    object_type     TEXT NOT NULL CHECK(object_type IN (
+                        'specimen','entity','cluster','canonical','spec','validation','catalog',
+                        'domain_workspace','report_coverage'
+                    )),
+                    object_id       INTEGER NOT NULL,
+                    action          TEXT NOT NULL,
+                    previous_value  TEXT CHECK(previous_value IS NULL OR json_valid(previous_value)),
+                    new_value       TEXT CHECK(new_value IS NULL OR json_valid(new_value)),
+                    performed_by    TEXT NOT NULL,
+                    performed_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    notes           TEXT
+                )
+            """)
+            if al_count > 0:
+                conn.execute("""
+                    INSERT INTO gs_audit_log
+                        (id, object_type, object_id, action, previous_value,
+                         new_value, performed_by, performed_at, notes)
+                    SELECT id, object_type, object_id, action, previous_value,
+                           new_value, performed_by, performed_at, notes
+                    FROM _gs_audit_log_old
+                """)
+            conn.execute("DROP TABLE _gs_audit_log_old")
+            # Recreate index
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_audit_log_lookup
+                ON gs_audit_log(object_type, object_id, performed_at)
+            """)
+            conn.commit()
+            log.info("Migration: gs_audit_log recreated with correct CHECK constraints")
+
     finally:
         conn.close()
     log.info(f'Control-plane DB initialized at {DB_PATH}')
@@ -758,6 +1342,10 @@ def upsert_pipeline_bronze_entity(row: dict) -> None:
 
 
 def upsert_entity_status(row: dict) -> None:
+    """DEPRECATED: entity_status is no longer read by any endpoint.
+    Status is now derived from engine_task_log via get_canonical_entity_status().
+    This function is retained only for backward compatibility with the engine.
+    """
     with _db_lock:
         conn = _get_conn()
         try:
@@ -1074,9 +1662,56 @@ def get_engine_task_log(run_id: str = None, entity_id: int = None) -> list[dict]
 
 
 def get_entity_status_all() -> list[dict]:
+    """DEPRECATED: entity_status is no longer read by any endpoint.
+    Status is now derived from engine_task_log via get_canonical_entity_status().
+    Kept for admin table browser (data_manager) and legacy tests only.
+    """
     conn = _get_conn()
     try:
         rows = conn.execute("SELECT * FROM entity_status").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_canonical_entity_status() -> list[dict]:
+    """Derive entity status from engine_task_log — the ONLY trustworthy source.
+
+    Returns rows shaped like entity_status:
+      {LandingzoneEntityId, Layer, Status, LoadEndDateTime, ErrorMessage, UpdatedBy}
+
+    For each (EntityId, Layer) pair, picks the most recent row.
+    Priority: succeeded > failed > skipped (within the same timestamp).
+    """
+    conn = _get_conn()
+    try:
+        rows = conn.execute("""
+            WITH ranked AS (
+                SELECT
+                    EntityId       AS LandingzoneEntityId,
+                    Layer,
+                    Status,
+                    created_at     AS LoadEndDateTime,
+                    ErrorMessage,
+                    'engine'       AS UpdatedBy,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY EntityId, Layer
+                        ORDER BY created_at DESC,
+                                 CASE Status
+                                     WHEN 'succeeded' THEN 1
+                                     WHEN 'failed'    THEN 2
+                                     WHEN 'skipped'   THEN 3
+                                     ELSE 4
+                                 END
+                    ) AS rn
+                FROM engine_task_log
+            )
+            SELECT LandingzoneEntityId, Layer, Status, LoadEndDateTime,
+                   CASE WHEN Status = 'succeeded' THEN NULL ELSE ErrorMessage END AS ErrorMessage,
+                   UpdatedBy
+            FROM ranked
+            WHERE rn = 1
+        """).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -1180,11 +1815,17 @@ def get_stats() -> dict:
         'sync_metadata', 'admin_config',
         'notebook_executions', 'import_jobs', 'server_labels',
     ]
+    # Freeze the whitelist so only known table names are used in SQL
+    _ALLOWED_STATS_TABLES = frozenset(tables)
     conn = _get_conn()
     try:
         result = {}
         for t in tables:
-            row = conn.execute(f"SELECT COUNT(*) AS cnt FROM {t}").fetchone()
+            if t not in _ALLOWED_STATS_TABLES:
+                continue
+            # Table names from hardcoded whitelist above — safe for interpolation
+            safe_t = t.replace("]", "]]")
+            row = conn.execute("SELECT COUNT(*) AS cnt FROM [" + safe_t + "]").fetchone()
             result[t] = row['cnt']
         return result
     finally:

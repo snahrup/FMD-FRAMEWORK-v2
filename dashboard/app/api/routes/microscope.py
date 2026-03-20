@@ -5,7 +5,7 @@ Endpoints:
     GET /api/microscope/pks  — autocomplete PK values for a given entity
 
 Data sources:
-    - SQLite: entity metadata, bronze PKs, watermarks, entity_status
+    - SQLite: entity metadata, bronze PKs, watermarks, engine_task_log
     - On-prem ODBC: source row lookup (fails gracefully if VPN unavailable)
     - Bronze/Silver lakehouse data: marked as metadata-only (no Fabric SQL)
 """
@@ -66,7 +66,8 @@ def _get_sql_driver() -> str:
         cfg_path = Path(__file__).parent.parent / "config.json"
         cfg = json.loads(cfg_path.read_text())
         return cfg.get("sql", {}).get("driver", "ODBC Driver 18 for SQL Server")
-    except Exception:
+    except Exception as e:
+        log.debug("Failed to load SQL driver from config: %s", e)
         return "ODBC Driver 18 for SQL Server"
 
 
@@ -88,8 +89,17 @@ def _validate_server(server: str) -> None:
 
 
 def _sanitize(val: str) -> str:
-    """Strip characters dangerous in SQL identifiers."""
-    return "".join(c for c in val if c.isalnum() or c in "-_ ")
+    """Strip characters dangerous in SQL identifiers.
+
+    Only alphanumerics and underscores are allowed.  Brackets are added by
+    callers via ``[{name}]`` quoting; right-bracket is explicitly excluded
+    to prevent bracket-escape injection.
+    """
+    cleaned = "".join(c for c in val if c.isalnum() or c == "_")
+    if not cleaned:
+        raise HttpError(f"Invalid SQL identifier after sanitization: '{val}'", 400)
+    # Defense-in-depth: escape right-brackets even though filter should strip them
+    return cleaned.replace("]", "]]")
 
 
 def _query_source_row(
@@ -121,8 +131,8 @@ def _query_source_row(
             timeout=10,
         )
         cursor = conn.cursor()
-        # Parameterized query for PK value — column/table names are sanitized
-        sql = f"SELECT TOP 1 * FROM [{s_sch}].[{s_tbl}] WHERE [{s_pk}] = ?"
+        # Parameterized query for PK value — column/table names sanitized via _sanitize()
+        sql = "SELECT TOP 1 * FROM [" + s_sch + "].[" + s_tbl + "] WHERE [" + s_pk + "] = ?"
         cursor.execute(sql, (pk_value,))
         cols = [c[0] for c in cursor.description] if cursor.description else []
         row = cursor.fetchone()
@@ -146,11 +156,13 @@ def _query_source_pks(
     try:
         import pyodbc
     except ImportError:
+        log.debug("pyodbc not available — skipping source PK query")
         return []
 
     try:
         _validate_server(server)
     except HttpError:
+        log.exception("Server validation failed for '%s' — skipping PK query", server)
         return []
 
     s_db = _sanitize(database)
@@ -168,19 +180,19 @@ def _query_source_pks(
         cursor = conn.cursor()
         if search:
             sql = (
-                f"SELECT DISTINCT TOP {int(limit)} CAST([{s_pk}] AS VARCHAR(500)) AS pk_val "
-                f"FROM [{s_sch}].[{s_tbl}] "
-                f"WHERE CAST([{s_pk}] AS VARCHAR(500)) LIKE ? "
-                f"ORDER BY pk_val"
+                "SELECT DISTINCT TOP (?) CAST([" + s_pk + "] AS VARCHAR(500)) AS pk_val "
+                "FROM [" + s_sch + "].[" + s_tbl + "] "
+                "WHERE CAST([" + s_pk + "] AS VARCHAR(500)) LIKE ? "
+                "ORDER BY pk_val"
             )
-            cursor.execute(sql, (f"{search}%",))
+            cursor.execute(sql, (int(limit), search + "%"))
         else:
             sql = (
-                f"SELECT DISTINCT TOP {int(limit)} CAST([{s_pk}] AS VARCHAR(500)) AS pk_val "
-                f"FROM [{s_sch}].[{s_tbl}] "
-                f"ORDER BY pk_val"
+                "SELECT DISTINCT TOP (?) CAST([" + s_pk + "] AS VARCHAR(500)) AS pk_val "
+                "FROM [" + s_sch + "].[" + s_tbl + "] "
+                "ORDER BY pk_val"
             )
-            cursor.execute(sql)
+            cursor.execute(sql, (int(limit),))
 
         results = [str(row[0]) for row in cursor.fetchall() if row[0] is not None]
         conn.close()
@@ -338,25 +350,130 @@ def get_microscope(params: dict) -> dict:
         source_row = _query_source_row(server, database, schema, table, pk_column, pk_value)
         source_available = source_row is not None
 
-    # Bronze/Silver: actual row data lives in OneLake (Fabric SQL).
-    # Since we don't use Fabric SQL, we provide metadata-only and mark
-    # available=False.  The frontend handles this gracefully.
+    # Bronze/Silver: read actual row data from local OneLake Delta tables.
     bronze_row = None
     bronze_available = bronze is not None
     silver_versions: list[dict] = []
     silver_available = silver is not None
 
-    # Entity status from SQLite for extra context
+    if pk_value and pk_column and bronze:
+        try:
+            import os as _os
+            import glob as _globmod
+            import polars as _pl
+            from dashboard.app.api.routes.data_access import _get_onelake_mount
+
+            mount = _get_onelake_mount()
+            if mount:
+                # Get the namespace (schema) from the datasource
+                namespace = lz.get("Namespace") or ""
+                if not namespace:
+                    ds_rows = db.query(
+                        "SELECT Namespace FROM datasources WHERE DataSourceId = ?",
+                        (lz.get("DataSourceId"),),
+                    )
+                    namespace = ds_rows[0]["Namespace"] if ds_rows else ""
+
+                bronze_table_name = bronze.get("Name") or table
+                bronze_schema = bronze.get("Schema_") or namespace
+
+                if namespace and bronze_table_name:
+                    # --- Bronze row lookup ---
+                    bronze_dir = str(mount / "LH_BRONZE_LAYER.Lakehouse" / "Tables" / bronze_schema / bronze_table_name)
+                    try:
+                        parts = _globmod.glob(_os.path.join(bronze_dir, "*.parquet"))
+                        if parts:
+                            # Try original PK column first, then HashedPKColumn
+                            bronze_df = None
+                            for try_col in [pk_column, "HashedPKColumn"]:
+                                try:
+                                    bronze_df = (
+                                        _pl.scan_parquet(parts)
+                                        .filter(_pl.col(try_col).cast(_pl.Utf8) == str(pk_value))
+                                        .head(1)
+                                        .collect()
+                                    )
+                                    if len(bronze_df) > 0:
+                                        break
+                                    bronze_df = None
+                                except Exception as e:
+                                    log.debug("Bronze parquet filter failed for column %s: %s", try_col, e)
+                                    bronze_df = None
+                            if bronze_df is not None and len(bronze_df) > 0:
+                                bronze_row = {
+                                    col: (str(v) if v is not None else None)
+                                    for col, v in zip(bronze_df.columns, bronze_df.row(0))
+                                }
+                                bronze_available = True
+                    except Exception as e:
+                        log.debug("Bronze OneLake read failed for %s/%s: %s", bronze_schema, bronze_table_name, e)
+
+                    # --- Silver row lookup (SCD2 — all versions) ---
+                    if silver:
+                        silver_table_name = silver.get("Name") or bronze_table_name
+                        silver_schema = silver.get("Schema_") or namespace
+                        silver_dir = str(mount / "LH_SILVER_LAYER.Lakehouse" / "Tables" / silver_schema / silver_table_name)
+                        try:
+                            parts = _globmod.glob(_os.path.join(silver_dir, "*.parquet"))
+                            if parts:
+                                silver_df = None
+                                for try_col in [pk_column, "HashedPKColumn"]:
+                                    try:
+                                        silver_df = (
+                                            _pl.scan_parquet(parts)
+                                            .filter(_pl.col(try_col).cast(_pl.Utf8) == str(pk_value))
+                                            .collect()
+                                        )
+                                        if len(silver_df) > 0:
+                                            break
+                                        silver_df = None
+                                    except Exception as e:
+                                        log.debug("Silver parquet filter failed for column %s: %s", try_col, e)
+                                        silver_df = None
+                                if silver_df is not None and len(silver_df) > 0:
+                                    # Sort by RecordStartDate desc if column exists
+                                    if "RecordStartDate" in silver_df.columns:
+                                        try:
+                                            silver_df = silver_df.sort("RecordStartDate", descending=True)
+                                        except Exception as e:
+                                            log.debug("Failed to sort silver SCD2 by RecordStartDate: %s", e)
+                                    silver_versions = []
+                                    for row_idx in range(len(silver_df)):
+                                        row_data = {
+                                            col: (str(v) if v is not None else None)
+                                            for col, v in zip(silver_df.columns, silver_df.row(row_idx))
+                                        }
+                                        silver_versions.append(row_data)
+                                    silver_available = True
+                        except Exception as e:
+                            log.debug("Silver OneLake read failed for %s/%s: %s", silver_schema, silver_table_name, e)
+        except Exception as e:
+            log.debug("OneLake row lookup failed: %s", e)
+
+    # Entity status derived from engine_task_log (latest per layer)
     statuses = db.query(
-        "SELECT Layer, Status, LoadEndDateTime FROM entity_status "
-        "WHERE LandingzoneEntityId = ?",
-        (entity_id,),
+        """
+        SELECT Layer, Status, created_at AS LoadEndDateTime
+        FROM engine_task_log
+        WHERE EntityId = ?
+          AND id IN (
+              SELECT id FROM (
+                  SELECT id,
+                         ROW_NUMBER() OVER (
+                             PARTITION BY Layer
+                             ORDER BY created_at DESC,
+                                      CASE Status WHEN 'succeeded' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END
+                         ) AS rn
+                  FROM engine_task_log
+                  WHERE EntityId = ?
+              ) WHERE rn = 1
+          )
+        """,
+        (entity_id, entity_id),
     )
     status_by_layer = {}
     for s in statuses:
         layer = (s.get("Layer") or "").lower()
-        if layer == "landingzone":
-            layer = "landing"
         status_by_layer[layer] = s
 
     # Build transformations
@@ -391,7 +508,7 @@ def get_microscope(params: dict) -> dict:
             "available": silver_available,
             "lakehouse": silver_lh_name or None,
             "versions": silver_versions,
-            "currentVersion": 0,
+            "currentVersion": len(silver_versions),
         },
         "cleansingRules": cleansing_rules,
         "transformations": transformations,

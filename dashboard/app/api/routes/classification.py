@@ -63,19 +63,29 @@ def _run_scan(job_id: str) -> None:
                     detail="Querying entity list from SQLite")
 
         # Load all active entities that have been loaded to at least one layer
-        # entity_status uses LandingzoneEntityId + LOWERCASE layer values
+        # engine_task_log uses EntityId + lowercase layer values
         loaded_rows = db.query(
             """
+            WITH latest_status AS (
+                SELECT EntityId, Layer, Status,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY EntityId, Layer
+                           ORDER BY created_at DESC,
+                                    CASE Status WHEN 'succeeded' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END
+                       ) AS rn
+                FROM engine_task_log
+            )
             SELECT DISTINCT e.LandingzoneEntityId AS entity_id,
                    e.SourceSchema, e.SourceName,
                    lh.Name AS lz_lakehouse,
-                   es.Layer
+                   ls.Layer
             FROM lz_entities e
-            JOIN entity_status es ON es.LandingzoneEntityId = e.LandingzoneEntityId
+            JOIN latest_status ls ON ls.EntityId = e.LandingzoneEntityId
+                                   AND ls.rn = 1
+                                   AND ls.Status = 'succeeded'
             LEFT JOIN lakehouses lh ON e.LakehouseId = lh.LakehouseId
             WHERE e.IsActive = 1
-              AND es.Status = 'loaded'
-              AND es.Layer IN ('landing', 'landingzone')
+              AND ls.Layer = 'landing'
             ORDER BY e.LandingzoneEntityId
             """
         )

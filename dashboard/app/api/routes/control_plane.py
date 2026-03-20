@@ -75,8 +75,8 @@ def _build_control_plane() -> dict:
                     duration = f"{int(dur_sec // 60)}m {int(dur_sec % 60)}s"
                 else:
                     duration = f"{int(dur_sec // 3600)}h {int((dur_sec % 3600) // 60)}m"
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("Failed to parse pipeline run duration: %s", e)
 
         pipeline_runs.append({
             "RunGuid": run.get("PipelineRunGuid", ""),
@@ -223,7 +223,7 @@ def _build_execution_matrix() -> list[dict]:
     Mirrors the old _sqlite_execution_matrix() in server.py.
     """
     lz = cpdb.get_lz_entities()
-    statuses = cpdb.get_entity_status_all()
+    statuses = cpdb.get_canonical_entity_status()
     bronze_view = cpdb.get_bronze_view()
     silver_view = cpdb.get_silver_view()
 

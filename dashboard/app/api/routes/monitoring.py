@@ -92,49 +92,49 @@ def get_live_monitor(params: dict) -> dict:
         brz_total = db.query("SELECT COUNT(*) AS cnt FROM bronze_entities")
         slv_total = db.query("SELECT COUNT(*) AS cnt FROM silver_entities")
 
-        # Processed counts from entity_status (universal tracking table).
-        # Layer names may be lowercase ('landing','bronze','silver') from seed data
-        # or mixed case ('LandingZone','Bronze','Silver') from engine writes.
-        # Status may be 'loaded'/'Succeeded'. Handle both conventions.
+        # Processed counts from engine_task_log (the ONLY trustworthy source)
         status_rows = _safe_query(
-            "SELECT LOWER(Layer) AS layer, COUNT(*) AS cnt FROM entity_status "
-            "WHERE LOWER(Status) IN ('succeeded', 'loaded') GROUP BY LOWER(Layer)"
+            "SELECT Layer, COUNT(DISTINCT EntityId) AS cnt FROM engine_task_log "
+            "WHERE Status = 'succeeded' GROUP BY Layer"
         )
-        status_map = {r["layer"]: r["cnt"] for r in status_rows} if status_rows else {}
+        status_map = {r["Layer"]: r["cnt"] for r in status_rows} if status_rows else {}
 
         result["counts"] = {
             "lzRegistered": lz_total[0]["cnt"] if lz_total else 0,
             "brzRegistered": brz_total[0]["cnt"] if brz_total else 0,
             "slvRegistered": slv_total[0]["cnt"] if slv_total else 0,
-            "lzProcessed": status_map.get("landing", 0) + status_map.get("landingzone", 0),
+            "lzProcessed": status_map.get("landing", 0),
             "brzProcessed": status_map.get("bronze", 0),
             "slvProcessed": status_map.get("silver", 0),
         }
-    except Exception:
+    except Exception as e:
+        log.warning("Failed to load monitoring counts: %s", e)
         result["counts"] = {}
 
     # Recently processed Bronze entities
     result["bronzeEntities"] = _safe_query(
-        "SELECT be.BronzeLayerEntityId, be.Schema_ AS SchemaName, be.Name AS TableName, "
-        "es.LoadEndDateTime AS InsertDateTime, "
-        "CASE WHEN LOWER(COALESCE(es.Status,'')) IN ('loaded','succeeded') THEN 1 ELSE 0 END AS IsProcessed, "
-        "es.updated_at AS LoadEndDateTime "
-        "FROM entity_status es "
-        "JOIN bronze_entities be ON es.LandingzoneEntityId = be.LandingzoneEntityId "
-        "WHERE LOWER(es.Layer) = 'bronze' "
-        "ORDER BY es.updated_at DESC LIMIT 20"
+        "SELECT t.EntityId AS BronzeLayerEntityId, "
+        "e.SourceSchema AS SchemaName, e.SourceName AS TableName, "
+        "t.created_at AS InsertDateTime, "
+        "CASE WHEN t.Status = 'succeeded' THEN 1 ELSE 0 END AS IsProcessed, "
+        "t.created_at AS LoadEndDateTime "
+        "FROM engine_task_log t "
+        "JOIN lz_entities e ON e.LandingzoneEntityId = t.EntityId "
+        "WHERE t.Layer = 'bronze' "
+        "ORDER BY t.created_at DESC LIMIT 20"
     )
 
     # Recently processed LZ entities
     result["lzEntities"] = _safe_query(
-        "SELECT le.LandingzoneEntityId, le.FilePath, le.FileName, "
-        "es.LoadEndDateTime AS InsertDateTime, "
-        "CASE WHEN LOWER(COALESCE(es.Status,'')) IN ('loaded','succeeded') THEN 1 ELSE 0 END AS IsProcessed, "
-        "es.updated_at AS LoadEndDateTime "
-        "FROM entity_status es "
-        "JOIN lz_entities le ON es.LandingzoneEntityId = le.LandingzoneEntityId "
-        "WHERE LOWER(es.Layer) IN ('landing','landingzone') "
-        "ORDER BY es.updated_at DESC LIMIT 20"
+        "SELECT t.EntityId AS LandingzoneEntityId, "
+        "e.FilePath, e.FileName, "
+        "t.created_at AS InsertDateTime, "
+        "CASE WHEN t.Status = 'succeeded' THEN 1 ELSE 0 END AS IsProcessed, "
+        "t.created_at AS LoadEndDateTime "
+        "FROM engine_task_log t "
+        "JOIN lz_entities e ON e.LandingzoneEntityId = t.EntityId "
+        "WHERE t.Layer = 'landing' "
+        "ORDER BY t.created_at DESC LIMIT 20"
     )
 
     result["serverTime"] = _utcnow_iso()
@@ -418,15 +418,15 @@ def get_error_intelligence(params: dict) -> dict:
             "errorType": cat,
         })
 
-    # Entity status errors (entities stuck in failed state)
+    # Entity task errors (entities stuck in failed state — from engine_task_log)
     es_errors = _safe_query(
-        "SELECT es.LandingzoneEntityId, es.Layer, es.Status, es.ErrorMessage, "
-        "es.updated_at, le.SourceName, le.SourceSchema "
-        "FROM entity_status es "
-        "LEFT JOIN lz_entities le ON es.LandingzoneEntityId = le.LandingzoneEntityId "
-        "WHERE LOWER(es.Status) = 'failed' AND es.ErrorMessage IS NOT NULL "
-        "AND es.ErrorMessage != '' "
-        "ORDER BY es.updated_at DESC LIMIT 200"
+        "SELECT etl.EntityId, etl.Layer, etl.Status, etl.ErrorMessage, "
+        "etl.created_at, le.SourceName, le.SourceSchema "
+        "FROM engine_task_log etl "
+        "LEFT JOIN lz_entities le ON etl.EntityId = le.LandingzoneEntityId "
+        "WHERE etl.Status = 'failed' AND etl.ErrorMessage IS NOT NULL "
+        "AND etl.ErrorMessage != '' "
+        "ORDER BY etl.created_at DESC LIMIT 200"
     )
     for row in es_errors:
         raw = row.get("ErrorMessage") or ""
@@ -435,11 +435,11 @@ def get_error_intelligence(params: dict) -> dict:
         if row.get("SourceSchema"):
             entity_name = row["SourceSchema"] + "." + entity_name
         errors.append({
-            "id": f"es-{row.get('LandingzoneEntityId', '')}-{row.get('Layer', '')}",
-            "source": "entity_status",
-            "pipelineName": f"Entity Status ({row.get('Layer', '')})",
+            "id": f"etl-{row.get('EntityId', '')}-{row.get('Layer', '')}",
+            "source": "engine_task_log",
+            "pipelineName": f"Entity Task ({row.get('Layer', '')})",
             "workspaceName": "",
-            "startTime": row.get("updated_at") or "",
+            "startTime": row.get("created_at") or "",
             "endTime": "",
             "rawError": raw,
             "category": cat,
@@ -573,21 +573,28 @@ def get_load_progress(params: dict) -> dict:
     """Entity load progress across all layers."""
     # Per-source progress
     sources = _safe_query(
+        "WITH latest_task AS ("
+        "  SELECT EntityId, Layer, Status, "
+        "  ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn "
+        "  FROM engine_task_log"
+        "), latest AS ("
+        "  SELECT EntityId, Layer, Status FROM latest_task WHERE rn = 1"
+        ") "
         "SELECT ds.DataSourceId, ds.Name AS dataSourceName, "
         "COUNT(DISTINCT le.LandingzoneEntityId) AS totalEntities, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_lz.Status,'')) IN ('loaded','succeeded') "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_lz.Status,'')) = 'succeeded' "
         "  THEN le.LandingzoneEntityId END) AS lzLoaded, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_br.Status,'')) IN ('loaded','succeeded') "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_br.Status,'')) = 'succeeded' "
         "  THEN le.LandingzoneEntityId END) AS brzLoaded, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_sv.Status,'')) IN ('loaded','succeeded') "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_sv.Status,'')) = 'succeeded' "
         "  THEN le.LandingzoneEntityId END) AS slvLoaded "
         "FROM lz_entities le "
         "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
-        "LEFT JOIN entity_status es_lz ON le.LandingzoneEntityId = es_lz.LandingzoneEntityId "
+        "LEFT JOIN latest es_lz ON le.LandingzoneEntityId = es_lz.EntityId "
         "  AND LOWER(es_lz.Layer) IN ('landing','landingzone') "
-        "LEFT JOIN entity_status es_br ON le.LandingzoneEntityId = es_br.LandingzoneEntityId "
+        "LEFT JOIN latest es_br ON le.LandingzoneEntityId = es_br.EntityId "
         "  AND LOWER(es_br.Layer) = 'bronze' "
-        "LEFT JOIN entity_status es_sv ON le.LandingzoneEntityId = es_sv.LandingzoneEntityId "
+        "LEFT JOIN latest es_sv ON le.LandingzoneEntityId = es_sv.EntityId "
         "  AND LOWER(es_sv.Layer) = 'silver' "
         "WHERE le.IsActive = 1 "
         "GROUP BY ds.DataSourceId, ds.Name "
@@ -603,8 +610,8 @@ def get_load_progress(params: dict) -> dict:
 
     # Overall counts
     status_rows = _safe_query(
-        "SELECT LOWER(Layer) AS layer, COUNT(*) AS cnt FROM entity_status "
-        "WHERE LOWER(Status) IN ('succeeded', 'loaded') GROUP BY LOWER(Layer)"
+        "SELECT LOWER(Layer) AS layer, COUNT(DISTINCT EntityId) AS cnt FROM engine_task_log "
+        "WHERE Status = 'succeeded' GROUP BY LOWER(Layer)"
     )
     status_map = {r["layer"]: r["cnt"] for r in status_rows} if status_rows else {}
 
@@ -624,22 +631,259 @@ def get_load_progress(params: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Executive Dashboard
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/executive")
+def get_executive_dashboard(params: dict) -> dict:
+    """Aggregate executive dashboard — all data from SQLite.
+
+    Returns the ExecData shape expected by ExecutiveDashboard.tsx:
+    health, overview, sources, pipelineHealth, recentActivity, issues, trends.
+    """
+    now = _utcnow_iso()
+
+    # --- Entity totals per layer ---
+    lz_total = _safe_query("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive=1")
+    brz_total = _safe_query("SELECT COUNT(*) AS cnt FROM bronze_entities WHERE IsActive=1")
+    slv_total = _safe_query("SELECT COUNT(*) AS cnt FROM silver_entities WHERE IsActive=1")
+    lz_count = lz_total[0]["cnt"] if lz_total else 0
+    brz_count = brz_total[0]["cnt"] if brz_total else 0
+    slv_count = slv_total[0]["cnt"] if slv_total else 0
+
+    # --- Loaded counts from engine_task_log ---
+    status_rows = _safe_query(
+        "SELECT LOWER(Layer) AS layer, COUNT(DISTINCT EntityId) AS cnt FROM engine_task_log "
+        "WHERE Status = 'succeeded' GROUP BY LOWER(Layer)"
+    )
+    sm = {r["layer"]: r["cnt"] for r in status_rows} if status_rows else {}
+    lz_loaded = sm.get("landing", 0) + sm.get("landingzone", 0)
+    brz_loaded = sm.get("bronze", 0)
+    slv_loaded = sm.get("silver", 0)
+
+    # --- Row counts from lakehouse_row_counts cache ---
+    rc_rows = _safe_query(
+        "SELECT lakehouse, SUM(row_count) AS total_rows FROM lakehouse_row_counts "
+        "WHERE row_count > 0 GROUP BY lakehouse"
+    )
+    rc_map = {r["lakehouse"]: int(r["total_rows"]) for r in rc_rows} if rc_rows else {}
+    # Sum row counts by layer name pattern
+    bronze_rows = sum(v for k, v in rc_map.items() if "bronze" in k.lower())
+    silver_rows = sum(v for k, v in rc_map.items() if "silver" in k.lower())
+    landing_rows = sum(v for k, v in rc_map.items() if "landing" in k.lower() or "lz" in k.lower())
+
+    # --- Data source count ---
+    ds_count_row = _safe_query("SELECT COUNT(*) AS cnt FROM datasources WHERE IsActive=1")
+    ds_count = ds_count_row[0]["cnt"] if ds_count_row else 0
+
+    # --- Per-source breakdown ---
+    source_rows = _safe_query(
+        "WITH latest_task AS ("
+        "  SELECT EntityId, Layer, Status, "
+        "  ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn "
+        "  FROM engine_task_log"
+        "), latest AS ("
+        "  SELECT EntityId, Layer, Status FROM latest_task WHERE rn = 1"
+        ") "
+        "SELECT ds.Name AS name, ds.Namespace AS namespace, "
+        "COUNT(DISTINCT le.LandingzoneEntityId) AS entityCount, "
+        "COUNT(DISTINCT CASE WHEN le.IsActive=1 THEN le.LandingzoneEntityId END) AS activeLz, "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_lz.Status,'')) = 'succeeded' "
+        "  THEN le.LandingzoneEntityId END) AS lzLoaded, "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_br.Status,'')) = 'succeeded' "
+        "  THEN le.LandingzoneEntityId END) AS brzLoaded, "
+        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_sv.Status,'')) = 'succeeded' "
+        "  THEN le.LandingzoneEntityId END) AS slvLoaded "
+        "FROM datasources ds "
+        "LEFT JOIN lz_entities le ON le.DataSourceId = ds.DataSourceId AND le.IsActive=1 "
+        "LEFT JOIN latest es_lz ON le.LandingzoneEntityId = es_lz.EntityId "
+        "  AND LOWER(es_lz.Layer) IN ('landing','landingzone') "
+        "LEFT JOIN latest es_br ON le.LandingzoneEntityId = es_br.EntityId "
+        "  AND LOWER(es_br.Layer) = 'bronze' "
+        "LEFT JOIN latest es_sv ON le.LandingzoneEntityId = es_sv.EntityId "
+        "  AND LOWER(es_sv.Layer) = 'silver' "
+        "WHERE ds.IsActive=1 "
+        "GROUP BY ds.DataSourceId, ds.Name, ds.Namespace "
+        "ORDER BY ds.Name"
+    )
+    sources = []
+    for s in source_rows:
+        ec = int(s.get("entityCount") or 0)
+        alz = int(s.get("activeLz") or 0)
+        ll = int(s.get("lzLoaded") or 0)
+        bl = int(s.get("brzLoaded") or 0)
+        sl = int(s.get("slvLoaded") or 0)
+        sources.append({
+            "name": s.get("name") or "",
+            "namespace": s.get("namespace") or "",
+            "entityCount": ec,
+            "layers": {
+                "landing": {"count": alz, "active": alz, "total": alz, "loaded": ll,
+                            "completion": round(ll / alz * 100, 1) if alz else 0},
+                "bronze":  {"count": alz, "active": alz, "total": alz, "loaded": bl,
+                            "completion": round(bl / alz * 100, 1) if alz else 0},
+                "silver":  {"count": alz, "active": alz, "total": alz, "loaded": sl,
+                            "completion": round(sl / alz * 100, 1) if alz else 0},
+            },
+            "rowCounts": {"bronze": 0, "silver": 0},
+        })
+
+    # --- Pipeline health ---
+    run_rows = _safe_query(
+        "SELECT Status, COUNT(*) AS cnt FROM engine_runs GROUP BY Status"
+    )
+    run_map = {r["Status"]: int(r["cnt"]) for r in run_rows} if run_rows else {}
+    succeeded = run_map.get("Completed", 0) + run_map.get("Succeeded", 0)
+    failed = run_map.get("Failed", 0)
+    running = run_map.get("Running", 0) + run_map.get("InProgress", 0)
+    total_runs = sum(run_map.values())
+    success_rate = round(succeeded / total_runs * 100, 1) if total_runs else 0
+
+    # --- Recent activity (last 20 pipeline events) ---
+    recent_raw = _safe_query(
+        "SELECT PipelineName, EntityLayer, LogType, LogDateTime, LogData, PipelineRunGuid "
+        "FROM pipeline_audit ORDER BY LogDateTime DESC LIMIT 20"
+    )
+    recent_activity = []
+    for r in recent_raw:
+        recent_activity.append({
+            "description": f"{r.get('PipelineName', '')} — {r.get('LogType', '')}",
+            "pipeline": r.get("PipelineName") or "",
+            "layer": r.get("EntityLayer") or "",
+            "status": r.get("LogType") or "",
+            "duration": "",
+            "startTime": r.get("LogDateTime"),
+            "endTime": None,
+        })
+
+    # --- Issues (failed pipelines) ---
+    issue_raw = _safe_query(
+        "SELECT PipelineName, EntityLayer, LogData, LogDateTime "
+        "FROM pipeline_audit WHERE LOWER(LogType) = 'error' "
+        "ORDER BY LogDateTime DESC LIMIT 10"
+    )
+    issues = []
+    for r in issue_raw:
+        issues.append({
+            "pipeline": r.get("PipelineName") or "",
+            "layer": r.get("EntityLayer") or "",
+            "message": (r.get("LogData") or "")[:200],
+            "time": r.get("LogDateTime") or "",
+        })
+
+    # --- Health determination ---
+    if total_runs == 0 and ds_count > 0:
+        health = "setup"
+    elif failed > 0 and succeeded == 0:
+        health = "critical"
+    elif failed > 0:
+        health = "warning"
+    else:
+        health = "healthy"
+
+    # --- Trends from health_trend_snapshots ---
+    trend_rows = _safe_query(
+        "SELECT snapshot_time AS captured_at, lz_loaded AS lz_count, "
+        "bronze_loaded AS bronze_count, silver_loaded AS silver_count, "
+        "pipeline_success_rate "
+        "FROM health_trend_snapshots "
+        "ORDER BY snapshot_time DESC LIMIT 48"
+    )
+    trends_health = []
+    for t in reversed(trend_rows):
+        trends_health.append({
+            "captured_at": t.get("captured_at") or "",
+            "health": "healthy",
+            "lz_count": int(t.get("lz_count") or 0),
+            "bronze_count": int(t.get("bronze_count") or 0),
+            "silver_count": int(t.get("silver_count") or 0),
+            "bronze_rows": 0,
+            "silver_rows": 0,
+            "pipeline_success_rate": float(t.get("pipeline_success_rate") or 0),
+        })
+
+    # --- Snapshot current state for trend tracking ---
+    try:
+        db.execute(
+            "INSERT INTO health_trend_snapshots "
+            "(snapshot_time, lz_loaded, bronze_loaded, silver_loaded, total_entities, pipeline_success_rate) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (now, lz_loaded, brz_loaded, slv_loaded, lz_count, success_rate),
+        )
+    except Exception as e:
+        log.debug("Failed to save health trend snapshot: %s", e)
+
+    return {
+        "timestamp": now,
+        "health": health,
+        "dataSources": ds_count,
+        "overview": {
+            "totalEntities": lz_count,
+            "layers": {
+                "landing": {"total": lz_count, "loaded": lz_loaded,
+                            "pending": lz_count - lz_loaded,
+                            "completion": round(lz_loaded / lz_count * 100, 1) if lz_count else 0},
+                "bronze":  {"total": brz_count, "loaded": brz_loaded,
+                            "pending": brz_count - brz_loaded,
+                            "completion": round(brz_loaded / brz_count * 100, 1) if brz_count else 0},
+                "silver":  {"total": slv_count, "loaded": slv_loaded,
+                            "pending": slv_count - slv_loaded,
+                            "completion": round(slv_loaded / slv_count * 100, 1) if slv_count else 0},
+            },
+            "rowCounts": {"bronze": bronze_rows, "silver": silver_rows, "landing": landing_rows},
+        },
+        "sources": sources,
+        "pipelineHealth": {
+            "totalRuns": total_runs,
+            "succeeded": succeeded,
+            "failed": failed,
+            "running": running,
+            "successRate": success_rate,
+        },
+        "recentActivity": recent_activity,
+        "issues": issues,
+        "trends": {
+            "health": trends_health,
+            "layers": [],
+            "pipelineRate": {
+                "total": total_runs, "succeeded": succeeded,
+                "failed": failed, "running": running,
+                "successRate": success_rate,
+            },
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Data Journey (entity lineage)
 # ---------------------------------------------------------------------------
 
 @route("GET", "/api/journey")
 def get_entity_journey(params: dict) -> dict:
-    """Return lineage + load history for a single LZ entity."""
+    """Return lineage + load history for a single LZ entity.
+
+    Returns a structured response matching the frontend's JourneyData shape
+    with source, landing, bronze (with columns), silver (with columns),
+    gold (placeholder), and schemaDiff.
+    """
+    # Import lineage helpers at function level to avoid circular imports
+    from dashboard.app.api.routes.lineage import (
+        _load_cached_columns,
+        _get_columns_for_layer,
+    )
+
     entity_str = params.get("entity", "")
     if not entity_str or not str(entity_str).isdigit():
         raise HttpError("entity param required (LandingzoneEntityId)", 400)
     entity_id = int(entity_str)
 
-    # LZ entity
+    # LZ entity — join datasources AND connections for full source info
     lz = db.query(
-        "SELECT le.*, ds.Name AS DataSourceName "
+        "SELECT le.*, ds.Name AS DataSourceName, ds.Namespace, ds.Type AS DataSourceType, "
+        "c.Name AS ConnectionName, c.Type AS ConnectionType "
         "FROM lz_entities le "
         "LEFT JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
+        "LEFT JOIN connections c ON ds.ConnectionId = c.ConnectionId "
         "WHERE le.LandingzoneEntityId = ?",
         (entity_id,),
     )
@@ -664,19 +908,166 @@ def get_entity_journey(params: dict) -> dict:
         )
         silver_entity = silver[0] if silver else None
 
-    # Last load values (watermarks table in SQLite)
-    last_load = db.query(
-        "SELECT LoadValue, LastLoadDatetime "
-        "FROM watermarks "
-        "WHERE LandingzoneEntityId = ? "
-        "ORDER BY LastLoadDatetime DESC LIMIT 5",
-        (entity_id,),
-    )
+    # --- Resolve lakehouse names ---
+    def _lh_name(lh_id) -> str:
+        if not lh_id:
+            return ""
+        rows = db.query("SELECT Name FROM lakehouses WHERE LakehouseId = ?", (lh_id,))
+        return rows[0]["Name"] if rows else ""
 
+    lz_lh_name = _lh_name(lz_entity.get("LakehouseId"))
+    bronze_lh_name = _lh_name(bronze_entity.get("LakehouseId")) if bronze_entity else ""
+    silver_lh_name = _lh_name(silver_entity.get("LakehouseId")) if silver_entity else ""
+
+    # --- Fetch columns for bronze and silver ---
+    def _convert_columns(cols: list[dict]) -> list[dict]:
+        """Convert lineage internal format to frontend ColumnInfo shape."""
+        return [
+            {
+                "COLUMN_NAME": c["name"],
+                "DATA_TYPE": c["dataType"],
+                "IS_NULLABLE": "YES" if c.get("nullable") else "NO",
+                "CHARACTER_MAXIMUM_LENGTH": str(c["maxLength"]) if c.get("maxLength") is not None else None,
+                "NUMERIC_PRECISION": str(c["precision"]) if c.get("precision") is not None else None,
+                "NUMERIC_SCALE": str(c["scale"]) if c.get("scale") is not None else None,
+                "ORDINAL_POSITION": str(c.get("ordinal", 0)),
+            }
+            for c in cols
+        ]
+
+    bronze_columns_formatted: list[dict] = []
+    silver_columns_formatted: list[dict] = []
+
+    if bronze_entity:
+        b_schema = bronze_entity.get("Schema_") or lz_entity.get("SourceSchema") or "dbo"
+        b_table = bronze_entity.get("Name") or lz_entity.get("SourceName") or ""
+        b_cols_raw = _get_columns_for_layer(
+            entity_id, "bronze", bronze_lh_name, b_schema, b_table
+        )
+        bronze_columns_formatted = _convert_columns(b_cols_raw)
+
+    if silver_entity:
+        s_schema = silver_entity.get("Schema_") or lz_entity.get("SourceSchema") or "dbo"
+        s_table = silver_entity.get("Name") or lz_entity.get("SourceName") or ""
+        s_cols_raw = _get_columns_for_layer(
+            entity_id, "silver", silver_lh_name, s_schema, s_table
+        )
+        silver_columns_formatted = _convert_columns(s_cols_raw)
+
+    # --- Row counts from SQLite cache ---
+    def _get_row_count(lakehouse: str, schema: str, table_name: str):
+        if not lakehouse or not table_name:
+            return None
+        rows = db.query(
+            "SELECT row_count FROM lakehouse_row_counts "
+            "WHERE lakehouse = ? AND schema_name = ? AND table_name = ?",
+            (lakehouse, schema, table_name),
+        )
+        if rows and rows[0].get("row_count") is not None:
+            rc = rows[0]["row_count"]
+            return rc if rc >= 0 else None
+        return None
+
+    bronze_row_count = None
+    silver_row_count = None
+    if bronze_entity:
+        b_schema = bronze_entity.get("Schema_") or lz_entity.get("SourceSchema") or "dbo"
+        b_table = bronze_entity.get("Name") or lz_entity.get("SourceName") or ""
+        bronze_row_count = _get_row_count(bronze_lh_name, b_schema, b_table)
+    if silver_entity:
+        s_schema = silver_entity.get("Schema_") or lz_entity.get("SourceSchema") or "dbo"
+        s_table = silver_entity.get("Name") or lz_entity.get("SourceName") or ""
+        silver_row_count = _get_row_count(silver_lh_name, s_schema, s_table)
+
+    # --- Compute schemaDiff ---
+    schema_diff: list[dict] = []
+    if bronze_columns_formatted or silver_columns_formatted:
+        bronze_by_name = {c["COLUMN_NAME"]: c for c in bronze_columns_formatted}
+        silver_by_name = {c["COLUMN_NAME"]: c for c in silver_columns_formatted}
+        all_col_names = list(dict.fromkeys(
+            [c["COLUMN_NAME"] for c in bronze_columns_formatted]
+            + [c["COLUMN_NAME"] for c in silver_columns_formatted]
+        ))
+        for col_name in all_col_names:
+            in_bronze = col_name in bronze_by_name
+            in_silver = col_name in silver_by_name
+            b_col = bronze_by_name.get(col_name)
+            s_col = silver_by_name.get(col_name)
+
+            if in_bronze and in_silver:
+                type_changed = (b_col["DATA_TYPE"] != s_col["DATA_TYPE"])
+                status = "type_changed" if type_changed else "unchanged"
+            elif in_bronze and not in_silver:
+                status = "bronze_only"
+            else:
+                status = "added_in_silver"
+
+            schema_diff.append({
+                "columnName": col_name,
+                "inBronze": in_bronze,
+                "inSilver": in_silver,
+                "bronzeType": b_col["DATA_TYPE"] if b_col else None,
+                "silverType": s_col["DATA_TYPE"] if s_col else None,
+                "bronzeNullable": b_col["IS_NULLABLE"] if b_col else None,
+                "silverNullable": s_col["IS_NULLABLE"] if s_col else None,
+                "status": status,
+            })
+
+    # --- Build structured response matching frontend JourneyData shape ---
     return {
         "entityId": entity_id,
-        "lz": lz_entity,
-        "bronze": bronze_entity,
-        "silver": silver_entity,
-        "lastLoadValues": last_load,
+        "source": {
+            "schema": lz_entity.get("SourceSchema") or "dbo",
+            "name": lz_entity.get("SourceName") or "",
+            "dataSourceName": lz_entity.get("DataSourceName") or "",
+            "dataSourceType": lz_entity.get("DataSourceType") or "SQL Server",
+            "namespace": lz_entity.get("Namespace") or "",
+            "connectionName": lz_entity.get("ConnectionName") or "",
+            "connectionType": lz_entity.get("ConnectionType") or "ODBC",
+        },
+        "landing": {
+            "entityId": entity_id,
+            "fileName": lz_entity.get("FileName") or "",
+            "filePath": lz_entity.get("FilePath") or "",
+            "onelakeSchema": lz_entity.get("FilePath") or lz_entity.get("SourceSchema") or "dbo",
+            "fileType": lz_entity.get("FileType") or "Parquet",
+            "lakehouse": lz_lh_name or "LH_DATA_LANDINGZONE",
+            "isIncremental": bool(lz_entity.get("IsIncremental") or lz_entity.get("IsIncrementalColumn")),
+            "incrementalColumn": lz_entity.get("IsIncrementalColumn"),
+            "customSelect": lz_entity.get("SourceCustomSelect"),
+            "customNotebook": lz_entity.get("CustomNotebookName"),
+        },
+        "bronze": {
+            "entityId": bronze_entity["BronzeLayerEntityId"],
+            "schema": bronze_entity.get("Schema_") or "",
+            "onelakeSchema": lz_entity.get("FilePath") or bronze_entity.get("Schema_") or "dbo",
+            "name": bronze_entity.get("Name") or "",
+            "primaryKeys": bronze_entity.get("PrimaryKeys"),
+            "fileType": bronze_entity.get("FileType") or "Delta",
+            "lakehouse": bronze_lh_name,
+            "rowCount": bronze_row_count,
+            "columns": bronze_columns_formatted,
+            "columnCount": len(bronze_columns_formatted),
+        } if bronze_entity else None,
+        "silver": {
+            "entityId": silver_entity["SilverLayerEntityId"],
+            "schema": silver_entity.get("Schema_") or "",
+            "onelakeSchema": lz_entity.get("FilePath") or silver_entity.get("Schema_") or "dbo",
+            "name": silver_entity.get("Name") or "",
+            "fileType": silver_entity.get("FileType") or "delta",
+            "lakehouse": silver_lh_name,
+            "rowCount": silver_row_count,
+            "columns": silver_columns_formatted,
+            "columnCount": len(silver_columns_formatted),
+        } if silver_entity else None,
+        "gold": None,
+        "schemaDiff": schema_diff,
+        # Preserve lastLoadValues for backward compat
+        "lastLoadValues": db.query(
+            "SELECT LoadValue, LastLoadDatetime "
+            "FROM watermarks "
+            "WHERE LandingzoneEntityId = ? "
+            "ORDER BY LastLoadDatetime DESC LIMIT 5",
+            (entity_id,),
+        ),
     }

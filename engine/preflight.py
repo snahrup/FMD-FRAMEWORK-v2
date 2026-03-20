@@ -20,6 +20,7 @@ from engine.auth import TokenProvider
 from engine.connections import SourceConnection
 from engine.loader import OneLakeLoader
 from engine.models import EngineConfig, Entity
+from engine.vpn import ensure_vpn, is_vpn_up
 
 log = logging.getLogger("fmd.preflight")
 
@@ -107,10 +108,31 @@ class PreflightChecker:
         if entities is not None:
             report.add(self._check_entity_sanity(entities))
 
-            # Check each unique source server
+            # Check each unique source server — auto-connect VPN if needed
             sources = set()
             for e in entities:
                 sources.add((e.source_server, e.source_database))
+
+            # Quick VPN probe before checking individual servers
+            if not is_vpn_up():
+                log.warning("VPN appears down — attempting auto-connect before server checks")
+                vpn_ok = ensure_vpn(timeout_seconds=120)
+                report.add(CheckResult(
+                    name="VPN Auto-Connect",
+                    passed=vpn_ok,
+                    message="Connected" if vpn_ok else "Timed out — connect manually and retry",
+                ))
+                if not vpn_ok:
+                    # Skip individual server checks — they'll all fail
+                    for server, database in sorted(sources):
+                        report.add(CheckResult(
+                            name=f"Source: {server}/{database}",
+                            passed=False,
+                            message="Skipped — VPN not connected",
+                        ))
+                    log.info(report.summary())
+                    return report
+
             for server, database in sorted(sources):
                 report.add(self._check_source_server(server, database))
 
@@ -214,7 +236,17 @@ class PreflightChecker:
         )
 
     def _check_entity_sanity(self, entities: List[Entity]) -> CheckResult:
-        """Validate the entity worklist for common problems."""
+        """Validate the entity worklist for common problems.
+
+        FIXED: CRITICAL BUG #3 — Enhanced validation catches more issues:
+        - Blank SourceName (whitespace-only)
+        - Missing source_server
+        - Missing source_database
+        - Missing workspace_guid
+        - Missing lakehouse_guid
+        - Incremental without watermark_column
+        - Invalid watermark column references
+        """
         t0 = time.perf_counter()
         issues: list[str] = []
 
@@ -236,6 +268,27 @@ class PreflightChecker:
         no_server = [e for e in entities if not e.source_server]
         if no_server:
             issues.append(f"{len(no_server)} entities have no source_server")
+
+        no_database = [e for e in entities if not e.source_database]
+        if no_database:
+            issues.append(f"{len(no_database)} entities have no source_database")
+
+        # Check for missing workspace or lakehouse GUIDs
+        no_workspace = [e for e in entities if not e.workspace_guid]
+        if no_workspace:
+            issues.append(f"{len(no_workspace)} entities have no workspace_guid")
+
+        no_lakehouse = [e for e in entities if not e.lakehouse_guid]
+        if no_lakehouse:
+            issues.append(f"{len(no_lakehouse)} entities have no lakehouse_guid")
+
+        # Check for incremental loads without watermark column
+        incremental_no_watermark = [
+            e for e in entities
+            if e.is_incremental and (not e.watermark_column or not e.watermark_column.strip())
+        ]
+        if incremental_no_watermark:
+            issues.append(f"{len(incremental_no_watermark)} incremental entities missing watermark_column")
 
         # Check for inactive entities in the worklist
         inactive = [e for e in entities if not e.is_active]

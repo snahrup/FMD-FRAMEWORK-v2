@@ -25,7 +25,7 @@ def _queue_export(table: str):
         from dashboard.app.api.parquet_sync import queue_export
         queue_export(table)
     except (ImportError, Exception):
-        pass
+        log.debug("Parquet export queue unavailable for table %s", table)
 
 # ---------------------------------------------------------------------------
 # Constants / helpers
@@ -75,7 +75,7 @@ def _build_sqlite_entity_digest(
     the Namespace value after rows are loaded — no f-string / SQL injection risk.
     """
     lz = cpdb.get_registered_entities_full()
-    statuses = cpdb.get_entity_status_all()
+    statuses = cpdb.get_canonical_entity_status()
     bronze_view = cpdb.get_bronze_view()
     silver_view = cpdb.get_silver_view()
 
@@ -200,6 +200,7 @@ def _build_sqlite_entity_digest(
             "id": lz_id,
             "tableName": entity.get("SourceName", ""),
             "sourceSchema": entity.get("SourceSchema", ""),
+            "onelakeSchema": entity.get("FilePath") or entity.get("SourceSchema") or "dbo",
             "source": ns,
             "targetSchema": ns,
             "dataSourceName": entity.get("DataSourceName", ns),

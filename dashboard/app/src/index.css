@@ -68,10 +68,10 @@
   --color-claude-green: oklch(0.58 0.1 145);
 
   /* --- Typography (Phase 3/4) --- */
-  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
-  --font-display: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-sans: 'Outfit', system-ui, sans-serif;
+  --font-display: 'Instrument Serif', Georgia, serif;
   --font-serif: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
-  --font-mono: 'IBM Plex Mono', 'SF Mono', monospace;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   /* --- Animation (Phase 7) --- */
   --ease-claude: cubic-bezier(0.25, 0.1, 0.25, 1);
@@ -88,35 +88,34 @@
    ============================================================ */
 
 :root {
-  /* OKLCH application tokens — Light theme
-     Precisely computed from CDS hex values:
-     Page #F5F5F0 (L:0.969), Surface #FFFFFF (L:1.000), Sidebar #F0EFEA (L:0.952) */
-  --background: 0.969 0.007 107;
-  --foreground: 0.15 0.006 92;
-  --card: 1.000 0.000 90;
-  --card-foreground: 0.15 0.006 92;
-  --popover: 1.000 0.000 90;
-  --popover-foreground: 0.15 0.006 92;
-  --primary: 0.554 0.126 43;
-  --primary-foreground: 0.99 0.003 90;
-  --secondary: 0.955 0.007 107;
-  --secondary-foreground: 0.35 0.01 92;
-  --muted: 0.945 0.007 100;
-  --muted-foreground: 0.525 0.003 85;
-  --accent: 0.955 0.007 107;
-  --accent-foreground: 0.15 0.006 92;
-  --destructive: 0.52 0.17 28;
-  --destructive-foreground: 0.99 0.003 90;
-  --success: 0.55 0.15 150;
-  --success-foreground: 0.99 0.003 90;
-  --warning: 0.65 0.12 85;
-  --warning-foreground: 0.15 0.006 92;
+  /* OKLCH application tokens — BP Light theme
+     Remapped to Business Portal design tokens */
+  --background: 0.958 0.008 80;
+  --foreground: 0.205 0.012 55;
+  --card: 0.996 0.003 80;
+  --card-foreground: 0.205 0.012 55;
+  --popover: 0.996 0.003 80;
+  --popover-foreground: 0.205 0.012 55;
+  --primary: 0.500 0.130 45;
+  --primary-foreground: 1.000 0.000 0;
+  --secondary: 0.935 0.008 80;
+  --secondary-foreground: 0.440 0.010 60;
+  --muted: 0.976 0.005 80;
+  --muted-foreground: 0.710 0.008 60;
+  --accent: 0.940 0.020 60;
+  --accent-foreground: 0.500 0.130 45;
+  --destructive: 0.470 0.160 30;
+  --destructive-foreground: 1.000 0.000 0;
+  --success: 0.520 0.100 150;
+  --success-foreground: 1.000 0.000 0;
+  --warning: 0.580 0.120 70;
+  --warning-foreground: 0.205 0.012 55;
   --info: 0.55 0.1 230;
-  --info-foreground: 0.99 0.003 90;
-  --border: 0.92 0.007 100;
-  --input: 0.92 0.007 100;
-  --ring: 0.554 0.126 43;
-  --surface: 1.000 0.000 90;
+  --info-foreground: 1.000 0.000 0;
+  --border: 0.920 0.005 80;
+  --input: 0.920 0.005 80;
+  --ring: 0.500 0.130 45;
+  --surface: 0.996 0.003 80;
 
   /* Charts — Light */
   --chart-1: 0.554 0.126 43;
@@ -135,56 +134,56 @@
   --sidebar-border: 0.92 0.007 100;
   --sidebar-ring: 0.554 0.126 43;
 
-  /* CDS Backgrounds — Light */
-  --bg-primary: #F5F5F0;
-  --bg-secondary: #FFFFFF;
-  --bg-tertiary: #F0EFEA;
-  --bg-surface: #FFFFFF;
-  --bg-hover: #F5F5F0;
-  --bg-active: #E0DDD6;
-  --bg-code: #F5F3EE;
-  --bg-muted: #ECECF0;
+  /* CDS Backgrounds — mapped to BP surfaces */
+  --bg-primary: #F4F2ED;
+  --bg-secondary: #FEFDFB;
+  --bg-tertiary: #F9F7F3;
+  --bg-surface: #FEFDFB;
+  --bg-hover: #F9F7F3;
+  --bg-active: #EDEAE4;
+  --bg-code: #EDEAE4;
+  --bg-muted: #EDEAE4;
 
-  /* CDS Text — Light */
-  --text-primary: #1A1A18;
-  --text-secondary: #6B6A68;
-  --text-muted: #9A9893;
-  --text-faint: #8A8985;
+  /* CDS Text — mapped to BP ink */
+  --text-primary: #1C1917;
+  --text-secondary: #57534E;
+  --text-muted: #A8A29E;
+  --text-faint: #78716C;
   --text-inverse: #FFFFFF;
 
-  /* CDS Accent (same both themes) */
-  --cl-accent: #AE5630;
-  --cl-accent-hover: #C4633A;
-  --accent-brand: #C15F3C;
-  --accent-soft: rgba(174, 86, 48, 0.1);
+  /* CDS Accent — mapped to BP copper */
+  --cl-accent: #B45624;
+  --cl-accent-hover: #9A4A1F;
+  --accent-brand: #B45624;
+  --accent-soft: rgba(180, 86, 36, 0.1);
 
-  /* CDS Borders — Light */
-  --cl-border: rgba(0, 0, 0, 0.06);
-  --border-light: rgba(0, 0, 0, 0.12);
-  --border-focus: rgba(0, 0, 0, 0.18);
+  /* CDS Borders — mapped to BP borders */
+  --cl-border: rgba(0, 0, 0, 0.08);
+  --border-light: rgba(0, 0, 0, 0.14);
+  --border-focus: rgba(0, 0, 0, 0.14);
   --border-subtle: rgba(0, 0, 0, 0.04);
-  --grid-line: rgba(0, 0, 0, 0.03);
+  --grid-line: rgba(0, 0, 0, 0.015);
 
-  /* CDS Semantic — Light */
-  --cl-success: #2D8547;
-  --success-soft: rgba(45, 133, 71, 0.1);
-  --cl-warning: #B8860B;
-  --warning-soft: rgba(184, 134, 11, 0.1);
-  --cl-error: #D4183D;
-  --error-soft: rgba(212, 24, 61, 0.1);
-  --cl-info: #1C6BBB;
-  --info-soft: rgba(28, 107, 187, 0.1);
+  /* CDS Semantic — mapped to BP status colors */
+  --cl-success: #3D7C4F;
+  --success-soft: rgba(61, 124, 79, 0.1);
+  --cl-warning: #C27A1A;
+  --warning-soft: rgba(194, 122, 26, 0.1);
+  --cl-error: #B93A2A;
+  --error-soft: rgba(185, 58, 42, 0.1);
+  --cl-info: #78716C;
+  --info-soft: rgba(120, 113, 108, 0.1);
 
-  /* Shadows — Light (Phase 6) */
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04), 0 0 0 0.5px rgba(0,0,0,0.04);
-  --shadow-md: 0 2px 6px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.06);
-  --shadow-lg: 0 4px 16px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.08);
-  --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.06);
-  --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.1);
-  --shadow-composer: 0 0.25rem 1.25rem rgba(0,0,0,0.035), 0 0 0 0.5px rgba(0,0,0,0.08);
-  --shadow-composer-hover: 0 0.25rem 1.25rem rgba(0,0,0,0.05), 0 0 0 0.5px rgba(0,0,0,0.12);
-  --shadow-composer-focus: 0 0.25rem 1.25rem rgba(0,0,0,0.075), 0 0 0 0.5px rgba(0,0,0,0.15);
-  --shadow-modal: 0 8px 32px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06);
+  /* Shadows — BP: Zero shadows, borders only */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-card: none;
+  --shadow-card-hover: none;
+  --shadow-composer: none;
+  --shadow-composer-hover: none;
+  --shadow-composer-focus: none;
+  --shadow-modal: none;
 
   /* Status Indicators — OKLCH (Phase 8) */
   --status-running: oklch(0.65 0.15 45);
@@ -204,115 +203,112 @@
   --agent-border: rgba(255, 255, 255, 0.12);
 }
 
-/* Dark theme */
+/* Dark theme — BP is light-only, so .dark mirrors :root */
 .dark {
-  /* OKLCH application tokens — Dark
-     Precisely computed from CDS hex values + Cowork UI colors:
-     Page #2B2A27 (L:0.285), Nav #242422 (L:0.260), Surface #1F1E1B (L:0.235)
-     Input #30302E (L:0.309), Tertiary #333230 (L:0.317) */
-  --background: 0.285 0.006 92;
-  --foreground: 0.949 0.000 90;
-  --card: 0.235 0.006 92;
-  --card-foreground: 0.949 0.000 90;
-  --popover: 0.235 0.006 92;
-  --popover-foreground: 0.949 0.000 90;
-  --primary: 0.554 0.126 43;
-  --primary-foreground: 0.98 0.003 90;
-  --secondary: 0.309 0.004 107;
-  --secondary-foreground: 0.85 0.005 90;
-  --muted: 0.317 0.004 85;
-  --muted-foreground: 0.680 0.008 89;
-  --accent: 0.309 0.004 107;
-  --accent-foreground: 0.949 0.000 90;
-  --destructive: 0.55 0.2 25;
-  --destructive-foreground: 0.98 0.003 90;
-  --success: 0.65 0.15 150;
-  --success-foreground: 0.235 0.006 92;
-  --warning: 0.75 0.12 85;
-  --warning-foreground: 0.235 0.006 92;
-  --info: 0.65 0.1 230;
-  --info-foreground: 0.235 0.006 92;
-  --border: 0.344 0.003 107;
-  --input: 0.309 0.004 107;
-  --ring: 0.554 0.126 43;
-  --surface: 0.235 0.006 92;
+  /* OKLCH application tokens — identical to :root (BP light-only) */
+  --background: 0.958 0.008 80;
+  --foreground: 0.205 0.012 55;
+  --card: 0.996 0.003 80;
+  --card-foreground: 0.205 0.012 55;
+  --popover: 0.996 0.003 80;
+  --popover-foreground: 0.205 0.012 55;
+  --primary: 0.500 0.130 45;
+  --primary-foreground: 1.000 0.000 0;
+  --secondary: 0.935 0.008 80;
+  --secondary-foreground: 0.440 0.010 60;
+  --muted: 0.976 0.005 80;
+  --muted-foreground: 0.710 0.008 60;
+  --accent: 0.940 0.020 60;
+  --accent-foreground: 0.500 0.130 45;
+  --destructive: 0.470 0.160 30;
+  --destructive-foreground: 1.000 0.000 0;
+  --success: 0.520 0.100 150;
+  --success-foreground: 1.000 0.000 0;
+  --warning: 0.580 0.120 70;
+  --warning-foreground: 0.205 0.012 55;
+  --info: 0.55 0.1 230;
+  --info-foreground: 1.000 0.000 0;
+  --border: 0.920 0.005 80;
+  --input: 0.920 0.005 80;
+  --ring: 0.500 0.130 45;
+  --surface: 0.996 0.003 80;
 
-  /* Charts — Dark */
+  /* Charts — same as light */
   --chart-1: 0.554 0.126 43;
   --chart-2: 0.62 0.1 230;
   --chart-3: 0.58 0.1 145;
   --chart-4: 0.72 0.12 45;
   --chart-5: 0.55 0.08 230;
 
-  /* Sidebar — Dark (Cowork nav #242422) */
-  --sidebar: 0.260 0.004 107;
-  --sidebar-foreground: 0.949 0.000 90;
+  /* Sidebar — same as light */
+  --sidebar: 0.952 0.007 97;
+  --sidebar-foreground: 0.15 0.006 92;
   --sidebar-primary: 0.554 0.126 43;
-  --sidebar-primary-foreground: 0.98 0.003 90;
-  --sidebar-accent: 0.309 0.004 107;
-  --sidebar-accent-foreground: 0.949 0.000 90;
-  --sidebar-border: 0.344 0.003 107;
+  --sidebar-primary-foreground: 0.99 0.003 90;
+  --sidebar-accent: 0.960 0.007 107;
+  --sidebar-accent-foreground: 0.15 0.006 92;
+  --sidebar-border: 0.92 0.007 100;
   --sidebar-ring: 0.554 0.126 43;
 
-  /* CDS Backgrounds — Dark (Cowork-calibrated) */
-  --bg-primary: #2B2A27;
-  --bg-secondary: #242422;
-  --bg-tertiary: #333230;
-  --bg-surface: #1F1E1B;
-  --bg-hover: #393937;
-  --bg-active: #3D3C39;
-  --bg-code: #1F1E1B;
-  --bg-muted: #30302E;
+  /* CDS Backgrounds — same as light (BP light-only) */
+  --bg-primary: #F4F2ED;
+  --bg-secondary: #FEFDFB;
+  --bg-tertiary: #F9F7F3;
+  --bg-surface: #FEFDFB;
+  --bg-hover: #F9F7F3;
+  --bg-active: #EDEAE4;
+  --bg-code: #EDEAE4;
+  --bg-muted: #EDEAE4;
 
-  /* CDS Text — Dark (Cowork-calibrated) */
-  --text-primary: #EEEEEE;
-  --text-secondary: #BEC0B6;
-  --text-muted: #9A9893;
-  --text-faint: #6B6A68;
-  --text-inverse: #2B2A27;
+  /* CDS Text — same as light */
+  --text-primary: #1C1917;
+  --text-secondary: #57534E;
+  --text-muted: #A8A29E;
+  --text-faint: #78716C;
+  --text-inverse: #FFFFFF;
 
-  /* CDS Accent — Dark (Cowork-calibrated) */
-  --cl-accent: #AE5630;
-  --cl-accent-hover: #C6613F;
-  --accent-brand: #C15F3C;
-  --accent-soft: rgba(174, 86, 48, 0.15);
+  /* CDS Accent — same as light */
+  --cl-accent: #B45624;
+  --cl-accent-hover: #9A4A1F;
+  --accent-brand: #B45624;
+  --accent-soft: rgba(180, 86, 36, 0.1);
 
-  /* CDS Borders — Dark */
-  --cl-border: rgba(108, 106, 96, 0.25);
-  --border-light: rgba(108, 106, 96, 0.40);
-  --border-focus: rgba(108, 106, 96, 0.50);
-  --border-subtle: rgba(108, 106, 96, 0.15);
-  --grid-line: rgba(108, 106, 96, 0.10);
+  /* CDS Borders — same as light */
+  --cl-border: rgba(0, 0, 0, 0.08);
+  --border-light: rgba(0, 0, 0, 0.14);
+  --border-focus: rgba(0, 0, 0, 0.14);
+  --border-subtle: rgba(0, 0, 0, 0.04);
+  --grid-line: rgba(0, 0, 0, 0.015);
 
-  /* CDS Semantic — Dark */
-  --cl-success: #5FB87A;
-  --success-soft: rgba(95, 184, 122, 0.12);
-  --cl-warning: #D4A84A;
-  --warning-soft: rgba(212, 168, 74, 0.12);
-  --cl-error: #E05555;
-  --error-soft: rgba(224, 85, 85, 0.12);
-  --cl-info: #5A9ED4;
-  --info-soft: rgba(90, 158, 212, 0.12);
+  /* CDS Semantic — same as light */
+  --cl-success: #3D7C4F;
+  --success-soft: rgba(61, 124, 79, 0.1);
+  --cl-warning: #C27A1A;
+  --warning-soft: rgba(194, 122, 26, 0.1);
+  --cl-error: #B93A2A;
+  --error-soft: rgba(185, 58, 42, 0.1);
+  --cl-info: #78716C;
+  --info-soft: rgba(120, 113, 108, 0.1);
 
-  /* Agent Collab: inverted bg for contrast (cream in dark mode) */
-  --agent-content-bg: #F5F5F0;
-  --agent-content-fg: #1A1A18;
-  --agent-content-fg-muted: #6B6A68;
+  /* Agent Collab: same as light (BP light-only) */
+  --agent-content-bg: #2B2A27;
+  --agent-content-fg: #EEEEEE;
+  --agent-content-fg-muted: #BEC0B6;
   --agent-content-fg-faint: #9A9893;
-  --agent-code-bg: rgba(0, 0, 0, 0.07);
-  --agent-code-fg: #2B2A27;
-  --agent-border: rgba(0, 0, 0, 0.1);
+  --agent-code-bg: rgba(255, 255, 255, 0.12);
+  --agent-code-fg: #E0DDD6;
+  --agent-border: rgba(255, 255, 255, 0.12);
 
-  /* Shadows — Dark (Phase 6) */
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2), 0 0 0 0.5px rgba(108,106,96,0.08);
-  --shadow-md: 0 2px 6px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(108,106,96,0.1);
-  --shadow-lg: 0 4px 16px rgba(0,0,0,0.4), 0 0 0 0.5px rgba(108,106,96,0.15);
-  --shadow-card: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(108,106,96,0.12);
-  --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.4), 0 0 0 0.5px rgba(108,106,96,0.2);
-  --shadow-composer: 0 0.25rem 1.25rem rgba(0,0,0,0.4), 0 0 0 0.5px rgba(108,106,96,0.15);
-  --shadow-composer-hover: 0 0.25rem 1.25rem rgba(0,0,0,0.4), 0 0 0 0.5px rgba(108,106,96,0.3);
-  --shadow-composer-focus: 0 0.25rem 1.25rem rgba(0,0,0,0.5), 0 0 0 0.5px rgba(108,106,96,0.3);
-  --shadow-modal: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(108,106,96,0.2);
+  /* Shadows — BP: Zero shadows, borders only */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-card: none;
+  --shadow-card-hover: none;
+  --shadow-composer: none;
+  --shadow-composer-hover: none;
+  --shadow-composer-focus: none;
+  --shadow-modal: none;
 }
 
 /* ============================================================
@@ -396,8 +392,8 @@
 
 .modal-content {
   background: var(--bg-surface);
-  border-radius: 16px;
-  box-shadow: var(--shadow-modal);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
   max-width: 500px;
   padding: 24px;
   animation: fadeIn 200ms var(--ease-claude);
@@ -444,9 +440,21 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--cl-accent);
+    outline: 2px solid var(--bp-copper);
     outline-offset: 2px;
   }
+
+  /* Gold Studio — ensure focus rings survive outline-none on inputs/selects */
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--bp-copper) !important;
+    outline-offset: 1px;
+  }
+
+  /* Gold Studio — active press feedback for interactive rows */
+  .bp-row-interactive { transition: background 150ms ease-out; }
+  .bp-row-interactive:active { background: var(--bp-surface-inset) !important; }
 
   /* ── Impact Pulse Animations ── */
 
@@ -464,4 +472,258 @@
     0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
     50% { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.15); }
   }
+}
+
+/* ============================================================
+   BUSINESS PORTAL — Design System Tokens
+   Industrial Precision, Light Mode
+   Manufacturing control room meets editorial authority
+   ============================================================ */
+
+:root {
+  /* BP Canvas & Surfaces — 3-level model, warm paper */
+  --bp-canvas: #F4F2ED;
+  --bp-surface-1: #FEFDFB;
+  --bp-surface-inset: #F9F7F3;
+
+  /* BP Text — warm near-black like printed specs */
+  --bp-ink-primary: #1C1917;
+  --bp-ink-secondary: #57534E;
+  --bp-ink-tertiary: #78716C;
+  --bp-ink-muted: #A8A29E;
+
+  /* BP Accent — copper from the manufacturing domain */
+  --bp-copper: #B45624;
+  --bp-copper-soft: rgba(180,86,36,0.10);
+  --bp-copper-light: #F4E8DF;
+  --bp-copper-hover: #9A4A1F;
+  --bp-warm-gold: #C2952B;
+
+  /* BP Status — industrial indicator lights */
+  --bp-operational: #3D7C4F;
+  --bp-operational-green: #3D7C4F;
+  --bp-operational-light: #E7F3EB;
+  --bp-caution: #C27A1A;
+  --bp-caution-amber: #C27A1A;
+  --bp-caution-light: #FDF3E3;
+  --bp-fault: #B93A2A;
+  --bp-fault-red: #B93A2A;
+  --bp-fault-light: #FBEAE8;
+  --bp-dismissed: #A8A29E;
+  --bp-dismissed-light: rgba(0,0,0,0.05);
+  --bp-re-review: #9B59B6;
+  --bp-re-review-light: rgba(155,89,182,0.12);
+  --bp-info: #3B82F6;
+  --bp-info-light: rgba(59,130,246,0.10);
+
+  /* BP Layer Colors — medallion architecture tones */
+  --bp-lz: #5B8AB5;
+  --bp-lz-light: #E3EDF5;
+  --bp-bronze: #92400E;
+  --bp-bronze-light: #F4E0D0;
+  --bp-silver: #475569;
+  --bp-silver-light: #E2E8F0;
+  --bp-gold: #8B6914;
+  --bp-gold-light: #F5E6C8;
+
+  /* BP Borders — whisper-quiet */
+  --bp-border: rgba(0,0,0,0.08);
+  --bp-border-subtle: rgba(0,0,0,0.04);
+  --bp-border-strong: rgba(0,0,0,0.14);
+
+  /* BP Code block surface */
+  --bp-code-block: #2B2A27;
+
+  /* BP Typography */
+  --bp-font-display: 'Instrument Serif', Georgia, serif;
+  --bp-font-body: 'Outfit', system-ui, sans-serif;
+  --bp-font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* BP Spacing scale — 4px base */
+  --bp-space-1: 4px;
+  --bp-space-2: 8px;
+  --bp-space-3: 12px;
+  --bp-space-4: 16px;
+  --bp-space-5: 20px;
+  --bp-space-6: 24px;
+  --bp-space-8: 32px;
+}
+
+/* Business Portal scoped styles — only applied inside .bp-shell */
+.bp-shell {
+  background: var(--bp-canvas);
+  color: var(--bp-ink-primary);
+  font-family: var(--bp-font-body);
+}
+
+.bp-shell * {
+  font-feature-settings: "tnum" 0;
+}
+
+/* BP Typography utilities */
+.bp-display {
+  font-family: var(--bp-font-display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.bp-mono {
+  font-family: var(--bp-font-mono);
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* BP Status Rail — the signature element */
+.bp-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+}
+
+.bp-rail-operational { background: var(--bp-operational); }
+.bp-rail-caution { background: var(--bp-caution); }
+.bp-rail-fault {
+  background: var(--bp-fault);
+  animation: bp-fault-pulse 2s ease-in-out infinite;
+}
+
+@keyframes bp-fault-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Skeleton loader — subtle shimmer instead of opacity flash */
+@keyframes bp-skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* BP Card */
+.bp-card {
+  background: var(--bp-surface-1);
+  border: 1px solid var(--bp-border);
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 150ms ease;
+}
+
+.bp-card:hover {
+  border-color: var(--bp-border-strong);
+}
+
+/* BP Card with status rail needs left padding for the rail */
+.bp-card-railed {
+  padding-left: 3px;
+}
+
+/* BP Inset (search bars, inputs) */
+.bp-inset {
+  background: var(--bp-surface-inset);
+  border: 1px solid var(--bp-border);
+  border-radius: 6px;
+}
+
+/* BP Panel header (section title bar inside a card) */
+.bp-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--bp-border-subtle);
+}
+
+/* BP Link (copper accent) */
+.bp-link {
+  color: var(--bp-copper);
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+.bp-link:hover {
+  color: var(--bp-copper-hover);
+}
+
+/* BP Badge base */
+.bp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.bp-badge-critical { background: var(--bp-fault-light); color: var(--bp-fault); }
+.bp-badge-warning { background: var(--bp-caution-light); color: var(--bp-caution); }
+.bp-badge-info { background: var(--bp-surface-inset); color: var(--bp-ink-tertiary); }
+.bp-badge-operational { background: var(--bp-operational-light); color: var(--bp-operational); }
+
+/* BP Quality tier badges */
+.bp-tier-gold {
+  background: linear-gradient(135deg, #F5E6C8, #E8D5A8);
+  color: #8B6914;
+  border: 1px solid rgba(139,105,20,0.2);
+}
+
+.bp-tier-silver {
+  background: linear-gradient(135deg, #E8E8EC, #D4D4D8);
+  color: #52525B;
+  border: 1px solid rgba(82,82,91,0.2);
+}
+
+.bp-tier-bronze {
+  background: linear-gradient(135deg, #F4E0D0, #E8CCB8);
+  color: #92400E;
+  border: 1px solid rgba(146,64,14,0.2);
+}
+
+/* BP Button */
+.bp-btn-primary {
+  background: var(--bp-copper);
+  color: white;
+  font-family: var(--bp-font-body);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 8px 20px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.bp-btn-primary:hover {
+  background: var(--bp-copper-hover);
+}
+
+.bp-btn-secondary {
+  background: var(--bp-surface-1);
+  color: var(--bp-ink-primary);
+  font-family: var(--bp-font-body);
+  font-weight: 500;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--bp-border);
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+.bp-btn-secondary:hover {
+  border-color: var(--bp-border-strong);
+}
+
+/* BP Source dot indicator */
+.bp-source-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
