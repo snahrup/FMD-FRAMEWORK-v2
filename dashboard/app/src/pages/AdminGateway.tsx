@@ -36,37 +36,17 @@ const ALL_PAGES = [
   { href: "/logs", label: "Execution Log", group: "Operations" },
   { href: "/runner", label: "Pipeline Runner", group: "Operations" },
   { href: "/notebook-debug", label: "Pipeline Testing", group: "Operations" },
-  { href: "/load-progress", label: "Load Progress", group: "Operations" },
   { href: "/sources", label: "Source Manager", group: "Data" },
   { href: "/blender", label: "Data Blender", group: "Data" },
   { href: "/flow", label: "Flow Explorer", group: "Data" },
   { href: "/journey", label: "Data Journey", group: "Data" },
   { href: "/counts", label: "Record Counts", group: "Data" },
-  { href: "/data-manager", label: "Data Manager", group: "Data" },
   { href: "/sql-explorer", label: "SQL Explorer", group: "Data" },
-  { href: "/lineage", label: "Data Lineage", group: "Insights" },
-  { href: "/classification", label: "Data Classification", group: "Insights" },
-  { href: "/catalog", label: "Data Catalog", group: "Insights" },
-  { href: "/profile", label: "Data Profiler", group: "Insights" },
-  { href: "/columns", label: "Column Evolution", group: "Insights" },
-  { href: "/microscope", label: "Data Microscope", group: "Insights" },
-  { href: "/sankey", label: "Sankey Flow", group: "Insights" },
-  { href: "/replay", label: "Transformation Replay", group: "Insights" },
-  { href: "/pulse", label: "Impact Pulse", group: "Insights" },
-  { href: "/impact", label: "Impact Analysis", group: "Insights" },
-  { href: "/labs/dq-scorecard", label: "DQ Scorecard", group: "Quality" },
-  { href: "/labs/cleansing", label: "Cleansing Rules", group: "Quality" },
-  { href: "/labs/scd-audit", label: "SCD Audit", group: "Quality" },
-  { href: "/labs/gold-mlv", label: "Gold MLV Manager", group: "Quality" },
-  { href: "/test-audit", label: "Test Audit", group: "Testing" },
-  { href: "/test-swarm", label: "Test Swarm", group: "Testing" },
-  { href: "/mri", label: "MRI", group: "Testing" },
   { href: "/admin", label: "Admin & Governance", group: "Admin" },
   { href: "/config", label: "Config Manager", group: "Admin" },
   { href: "/notebook-config", label: "Notebook Config", group: "Admin" },
   { href: "/settings", label: "Settings", group: "Admin" },
   { href: "/setup", label: "Environment Setup", group: "Admin" },
-  { href: "/db-explorer", label: "Database Explorer", group: "Admin" },
 ];
 
 // ── Tab definitions ──
@@ -92,7 +72,7 @@ function PageVisibilityTab({ password }: { password: string }) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
     mountedRef.current = true;
@@ -140,9 +120,9 @@ function PageVisibilityTab({ password }: { password: string }) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 py-8 justify-center" style={{ color: 'var(--bp-ink-muted)' }}>
+      <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin" />
-        <span className="text-xs" style={{ fontFamily: 'var(--bp-font-body)' }}>Loading page visibility...</span>
+        <span className="text-xs">Loading page visibility...</span>
       </div>
     );
   }
@@ -152,15 +132,15 @@ function PageVisibilityTab({ password }: { password: string }) {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h2 style={{ fontFamily: 'var(--bp-font-body)', fontSize: '18px', fontWeight: 600, color: 'var(--bp-ink-primary)' }}>Page Visibility</h2>
-        <p className="text-xs mt-0.5" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
+        <h2 className="font-display text-base font-semibold">Page Visibility</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
           Toggle which pages appear in the sidebar. Hidden pages are still accessible via direct URL.
         </p>
       </div>
 
       {groups.map((group) => (
         <div key={group}>
-          <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--bp-ink-muted)' }}>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">
             {group}
           </p>
           <div className="grid grid-cols-2 gap-2">
@@ -170,21 +150,19 @@ function PageVisibilityTab({ password }: { password: string }) {
                 <button
                   key={page.href}
                   onClick={() => toggle(page.href)}
-                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer"
-                  style={{
-                    border: `1px solid ${isHidden ? 'var(--bp-border)' : 'var(--bp-copper-light)'}`,
-                    background: isHidden ? 'var(--bp-surface-1)' : 'var(--bp-copper-light)',
-                    color: isHidden ? 'var(--bp-ink-muted)' : 'var(--bp-ink-primary)',
-                    fontFamily: 'var(--bp-font-body)',
-                  }}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+                    isHidden
+                      ? "border-border/50 bg-card text-muted-foreground/50"
+                      : "border-primary/20 bg-primary/5 text-foreground"
+                  }`}
                 >
                   {isHidden ? (
-                    <EyeOff className="w-3.5 h-3.5" style={{ color: 'var(--bp-ink-muted)' }} />
+                    <EyeOff className="w-3.5 h-3.5 text-muted-foreground/40" />
                   ) : (
-                    <Eye className="w-3.5 h-3.5" style={{ color: 'var(--bp-copper)' }} />
+                    <Eye className="w-3.5 h-3.5 text-primary" />
                   )}
                   <span className={isHidden ? "line-through" : ""}>{page.label}</span>
-                  <span className="ml-auto text-[9px]" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-muted)' }}>
+                  <span className="ml-auto text-[9px] font-mono text-muted-foreground/40">
                     {page.href}
                   </span>
                 </button>
@@ -198,24 +176,24 @@ function PageVisibilityTab({ password }: { password: string }) {
         <button
           onClick={save}
           disabled={saving}
-          className="bp-btn-primary flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 cursor-pointer"
         >
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
           {saving ? "Saving..." : "Save Changes"}
         </button>
         {saved && (
-          <span className="text-xs flex items-center gap-1" style={{ color: 'var(--bp-operational)' }}>
+          <span className="text-xs text-emerald-500 flex items-center gap-1">
             <CheckCircle2 className="w-3 h-3" /> Saved
           </span>
         )}
         {error && (
-          <span className="text-xs flex items-center gap-1" style={{ color: 'var(--bp-fault)' }}>
+          <span className="text-xs text-red-400 flex items-center gap-1">
             <AlertTriangle className="w-3 h-3" /> {error}
           </span>
         )}
       </div>
 
-      <p className="text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>
+      <p className="text-[10px] text-muted-foreground/50">
         {hiddenPages.length} page{hiddenPages.length !== 1 ? "s" : ""} hidden.
         Changes apply to all users immediately.
       </p>
@@ -262,9 +240,9 @@ function EnvironmentTab() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 py-8 justify-center" style={{ color: 'var(--bp-ink-muted)' }}>
+      <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin" />
-        <span className="text-xs" style={{ fontFamily: 'var(--bp-font-body)' }}>Loading current configuration...</span>
+        <span className="text-xs">Loading current configuration...</span>
       </div>
     );
   }
@@ -272,13 +250,13 @@ function EnvironmentTab() {
   return (
     <div className="space-y-4 max-w-3xl">
       <div>
-        <h2 style={{ fontFamily: 'var(--bp-font-body)', fontSize: '18px', fontWeight: 600, color: 'var(--bp-ink-primary)' }}>Environment</h2>
-        <p className="text-xs mt-0.5" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
+        <h2 className="font-display text-base font-semibold">Environment</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
           Select Fabric resources from live API. "Save &amp; Propagate" writes to all config targets.
         </p>
       </div>
       {loadError && (
-        <div className="rounded-md p-3 text-xs" style={{ border: '1px solid var(--bp-caution)', background: 'var(--bp-caution-light)', color: 'var(--bp-caution)' }}>
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-400">
           Could not load current config: {loadError}. Starting with empty configuration.
         </div>
       )}
@@ -313,12 +291,12 @@ function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="w-80 space-y-4">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-12 w-12 rounded-xl flex items-center justify-center" style={{ background: 'var(--bp-copper-light)', border: '1px solid var(--bp-border)' }}>
-            <Lock className="w-5 h-5" style={{ color: 'var(--bp-copper)' }} />
+          <div className="h-12 w-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+            <Lock className="w-5 h-5 text-primary" />
           </div>
           <div className="text-center">
-            <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: '20px', fontWeight: 600, color: 'var(--bp-ink-primary)' }}>Admin Access</h1>
-            <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
+            <h1 className="font-display text-lg font-semibold">Admin Access</h1>
+            <p className="text-xs text-muted-foreground mt-1">
               Enter the admin password to continue.
             </p>
           </div>
@@ -332,23 +310,21 @@ function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
             onKeyDown={(e) => e.key === "Enter" && submit()}
             placeholder="Password"
             autoFocus
-            className="w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-colors"
-            style={{
-              border: `1px solid ${error ? 'var(--bp-fault)' : 'var(--bp-border)'}`,
-              background: 'var(--bp-surface-inset)',
-              color: 'var(--bp-ink-primary)',
-              fontFamily: 'var(--bp-font-body)',
-            }}
+            className={`w-full px-3 py-2.5 rounded-lg border bg-card text-sm outline-none transition-colors ${
+              error
+                ? "border-red-400/50 focus:border-red-400"
+                : "border-border focus:border-primary"
+            }`}
           />
           {error && (
-            <p className="text-xs flex items-center gap-1" style={{ color: 'var(--bp-fault)' }}>
+            <p className="text-xs text-red-400 flex items-center gap-1">
               <AlertTriangle className="w-3 h-3" /> Invalid password
             </p>
           )}
           <button
             onClick={submit}
             disabled={loading || !pw.trim()}
-            className="bp-btn-primary w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 cursor-pointer"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
             {loading ? "Verifying..." : "Unlock"}
@@ -372,12 +348,12 @@ export default function AdminGateway() {
   }
 
   return (
-    <div className="flex gap-6 min-h-0" style={{ padding: '32px', maxWidth: '1280px' }}>
+    <div className="flex gap-6 min-h-0">
       {/* Left sub-nav */}
       <div className="w-44 flex-shrink-0">
         <div className="flex items-center gap-2 mb-4 px-2">
-          <ShieldCheck className="w-4 h-4" style={{ color: 'var(--bp-ink-tertiary)' }} />
-          <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: '32px', color: 'var(--bp-ink-primary)' }}>
+          <ShieldCheck className="w-4 h-4 text-muted-foreground" />
+          <h1 className="font-display text-sm font-semibold tracking-tight text-muted-foreground">
             Admin
           </h1>
         </div>
@@ -388,13 +364,11 @@ export default function AdminGateway() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-                style={{
-                  background: isActive ? 'var(--bp-copper-light)' : 'transparent',
-                  color: isActive ? 'var(--bp-copper)' : 'var(--bp-ink-tertiary)',
-                  border: isActive ? '1px solid var(--bp-border)' : '1px solid transparent',
-                  fontFamily: 'var(--bp-font-body)',
-                }}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                  isActive
+                    ? "bg-primary/10 text-primary border border-primary/20"
+                    : "text-muted-foreground hover:text-foreground hover:bg-card border border-transparent"
+                }`}
               >
                 <tab.icon className="w-3.5 h-3.5" />
                 {tab.label}
