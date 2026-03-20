@@ -24,6 +24,10 @@ import {
 interface LayerSummary {
   tables: number;
   rows: number;
+  fullLoadTables?: number;
+  fullLoadRows?: number;
+  incrementalTables?: number;
+  incrementalDeltaRows?: number;
   hasRowCounts?: boolean;
 }
 
@@ -79,6 +83,9 @@ interface SourceDetail {
     lz: number | null;
     bronze: number | null;
     silver: number | null;
+    lzRowSource?: string;
+    bronzeRowSource?: string;
+    silverRowSource?: string;
     isIncremental: boolean;
     registered: boolean;
   }>;
@@ -133,6 +140,22 @@ function timeAgo(iso: string | null): string {
   const hr = Math.floor(min / 60);
   if (hr < 24) return `${hr}h ago`;
   return `${Math.floor(hr / 24)}d ago`;
+}
+
+/** Build an honest sub-label for a layer's row count.
+ *  - Full loads only: "7.7B rows written"
+ *  - Incremental only: "42K incremental deltas"
+ *  - Mixed: "7.7B rows written (42K are deltas from 52 incremental tables)"
+ */
+function rowSubLabel(layer: LayerSummary | undefined): string {
+  if (!layer) return "—";
+  const incr = layer.incrementalDeltaRows ?? 0;
+  const incrTables = layer.incrementalTables ?? 0;
+  const total = layer.rows ?? 0;
+  if (total === 0) return "no rows yet";
+  if (incrTables === 0) return `${fmtCompact(total)} rows written`;
+  if (incrTables === layer.tables) return `${fmtCompact(total)} incremental deltas`;
+  return `${fmtCompact(total)} rows written (${fmtCompact(incr)} deltas from ${incrTables} incr.)`;
 }
 
 // ============================================================================
@@ -195,8 +218,9 @@ function KPI({ label, value, sub, accent }: { label: string; value: string; sub?
 }
 
 /** Layer bar showing table count with visual width */
-function LayerBar({ label, tables, rows, maxTables, color }: { label: string; tables: number; rows: number; maxTables: number; color: string }) {
-  const pct = maxTables > 0 ? Math.max((tables / maxTables) * 100, 2) : 0;
+function LayerBar({ label, layer, maxTables, color }: { label: string; layer: LayerSummary; maxTables: number; color: string }) {
+  const pct = maxTables > 0 ? Math.max((layer.tables / maxTables) * 100, 2) : 0;
+  const hasIncr = (layer.incrementalTables ?? 0) > 0;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
       <div style={{ width: 50, fontSize: 11, fontWeight: 600, color: "var(--bp-ink-muted)", textAlign: "right" }}>{label}</div>
@@ -212,7 +236,11 @@ function LayerBar({ label, tables, rows, maxTables, color }: { label: string; ta
           }}
         />
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", paddingLeft: 8, fontSize: 12, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
-          {tables} tables {rows > 0 && <span style={{ fontWeight: 400, marginLeft: 4, color: "var(--bp-ink-muted)" }}>({fmtCompact(rows)} rows)</span>}
+          {layer.tables} tables {layer.rows > 0 && (
+            <span style={{ fontWeight: 400, marginLeft: 4, color: "var(--bp-ink-muted)" }}>
+              ({fmtCompact(layer.rows)} rows{hasIncr ? "*" : ""})
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -320,9 +348,18 @@ function SourceDetailTable({ detail }: { detail: SourceDetail }) {
                     <span style={{ fontWeight: 500 }}>{r.table}</span>
                     <span style={{ color: "var(--bp-ink-muted)", fontSize: 11, marginLeft: 6 }}>{r.schema}</span>
                   </td>
-                  <td style={{ ...tdStyle, textAlign: "right" }}>{fmt(r.lz)}</td>
-                  <td style={{ ...tdStyle, textAlign: "right" }}>{fmt(r.bronze)}</td>
-                  <td style={{ ...tdStyle, textAlign: "right" }}>{fmt(r.silver)}</td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>
+                    {fmt(r.lz)}
+                    {r.lzRowSource?.includes("incremental") && <span title="Incremental delta (not total)" style={{ fontSize: 10, color: "var(--bp-copper, #c47a5a)", marginLeft: 3 }}>Δ</span>}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>
+                    {fmt(r.bronze)}
+                    {r.bronzeRowSource?.includes("incremental") && <span title="Incremental delta (not total)" style={{ fontSize: 10, color: "var(--bp-copper, #c47a5a)", marginLeft: 3 }}>Δ</span>}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>
+                    {fmt(r.silver)}
+                    {r.silverRowSource?.includes("incremental") && <span title="Incremental delta (not total)" style={{ fontSize: 10, color: "var(--bp-copper, #c47a5a)", marginLeft: 3 }}>Δ</span>}
+                  </td>
                   <td style={tdStyle}>
                     {r.isIncremental
                       ? <span style={{ fontSize: 11, color: "var(--bp-copper, #c47a5a)", fontWeight: 600 }}>Incremental</span>
@@ -460,8 +497,8 @@ export default function LoadCenter() {
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--bp-ink-primary)", margin: 0 }}>Load Center</h1>
           <p style={{ fontSize: 13, color: "var(--bp-ink-muted)", margin: "4px 0 0" }}>
-            Physical tables from lakehouse scan + row counts from load history.
-            {status?.scannedAt && <> Scanned {timeAgo(status.scannedAt)}.</>}
+            Successfully loaded tables and rows from engine run history.
+            {status?.scannedAt && <> Physical scan: {timeAgo(status.scannedAt)}.</>}
             {status && <span style={{ marginLeft: 6, fontSize: 11, color: "var(--bp-ink-muted)" }}>({status.queryTimeSec}s)</span>}
           </p>
         </div>
@@ -580,9 +617,9 @@ export default function LoadCenter() {
       {/* KPI row */}
       {totals && (
         <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
-          <KPI label="Landing Zone" value={fmt(totals.lz?.tables)} sub={`${fmtCompact(totals.lz?.rows || 0)} rows`} accent="#3b82f6" />
-          <KPI label="Bronze" value={fmt(totals.bronze?.tables)} sub={`${fmtCompact(totals.bronze?.rows || 0)} rows`} accent="#f59e0b" />
-          <KPI label="Silver" value={fmt(totals.silver?.tables)} sub={`${fmtCompact(totals.silver?.rows || 0)} rows`} accent="#8b5cf6" />
+          <KPI label="Landing Zone" value={fmt(totals.lz?.tables)} sub={rowSubLabel(totals.lz)} accent="#3b82f6" />
+          <KPI label="Bronze" value={fmt(totals.bronze?.tables)} sub={rowSubLabel(totals.bronze)} accent="#f59e0b" />
+          <KPI label="Silver" value={fmt(totals.silver?.tables)} sub={rowSubLabel(totals.silver)} accent="#8b5cf6" />
           <KPI
             label="Gaps"
             value={fmt(status?.gapCount ?? 0)}
@@ -677,15 +714,15 @@ export default function LoadCenter() {
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <span style={{ fontWeight: 600 }}>{src.lz.tables}</span>
-                    <span style={{ color: "var(--bp-ink-muted)", fontSize: 12, marginLeft: 6 }}>{fmtCompact(src.lz.rows)} rows</span>
+                    <span style={{ color: "var(--bp-ink-muted)", fontSize: 12, marginLeft: 6 }}>{fmtCompact(src.lz.rows)}</span>
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <span style={{ fontWeight: 600 }}>{src.bronze.tables}</span>
-                    <span style={{ color: "var(--bp-ink-muted)", fontSize: 12, marginLeft: 6 }}>{fmtCompact(src.bronze.rows)} rows</span>
+                    <span style={{ color: "var(--bp-ink-muted)", fontSize: 12, marginLeft: 6 }}>{fmtCompact(src.bronze.rows)}</span>
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <span style={{ fontWeight: 600 }}>{src.silver.tables}</span>
-                    <span style={{ color: "var(--bp-ink-muted)", fontSize: 12, marginLeft: 6 }}>{fmtCompact(src.silver.rows)} rows</span>
+                    <span style={{ color: "var(--bp-ink-muted)", fontSize: 12, marginLeft: 6 }}>{fmtCompact(src.silver.rows)}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
                     {src.lz.tables === src.bronze.tables && src.bronze.tables === src.silver.tables ? (
@@ -708,9 +745,9 @@ export default function LoadCenter() {
                   <div style={{ padding: "16px 20px 20px 48px", borderBottom: "1px solid var(--bp-border)", background: "var(--bp-surface-2, rgba(0,0,0,0.01))" }}>
                     {/* Layer bars */}
                     <div style={{ marginBottom: 16 }}>
-                      <LayerBar label="LZ" tables={src.lz.tables} rows={src.lz.rows} maxTables={maxTables} color="#3b82f6" />
-                      <LayerBar label="Bronze" tables={src.bronze.tables} rows={src.bronze.rows} maxTables={maxTables} color="#f59e0b" />
-                      <LayerBar label="Silver" tables={src.silver.tables} rows={src.silver.rows} maxTables={maxTables} color="#8b5cf6" />
+                      <LayerBar label="LZ" layer={src.lz} maxTables={maxTables} color="#3b82f6" />
+                      <LayerBar label="Bronze" layer={src.bronze} maxTables={maxTables} color="#f59e0b" />
+                      <LayerBar label="Silver" layer={src.silver} maxTables={maxTables} color="#8b5cf6" />
                     </div>
 
                     {/* Table detail */}

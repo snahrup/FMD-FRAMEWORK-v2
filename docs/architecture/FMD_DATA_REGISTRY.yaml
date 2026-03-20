@@ -1,0 +1,522 @@
+# FMD Data Registry — Machine-Readable Truth Map
+# Last audited: 2026-03-20 | Source: full codebase read (not memory)
+#
+# RULE: Any change to data flow, endpoints, or table dependencies
+# MUST be reflected here. No fix is complete without updating this file.
+#
+# Classifications:
+#   authoritative  — Engine-written, always current, safe for frontend truth
+#   derived        — Computed from authoritative sources
+#   cached         — Populated on-demand, may be stale, NOT safe for frontend truth
+#   legacy         — Deprecated, still written for backward compat, do NOT read
+#   external       — Outside system (Fabric API, source SQL servers)
+#   debug-only     — For developer inspection, never user-facing
+
+# ============================================================================
+# SQLITE TABLES
+# ============================================================================
+
+tables:
+
+  # --- AUTHORITATIVE (engine-written) ---
+
+  engine_task_log:
+    classification: authoritative
+    written_by: engine/logging_db.py
+    purpose: Per-entity per-layer execution log. THE primary source of truth for load status and row counts.
+    key_columns:
+      - id (autoincrement)
+      - RunId
+      - EntityId
+      - Layer (landing | bronze | silver)
+      - Status (succeeded | failed | skipped)
+      - RowsRead
+      - RowsWritten
+      - BytesTransferred
+      - DurationSeconds
+      - SourceServer, SourceDatabase, SourceTable
+      - TargetLakehouse, TargetPath
+      - WatermarkBefore, WatermarkAfter
+      - LoadType (full | incremental)
+      - ErrorType, ErrorMessage, ErrorSuggestion
+      - created_at
+    composite_index: "(EntityId, Layer, created_at)"
+    row_count_approx: 79000
+    safe_for_frontend: true
+    caveats:
+      - RowsWritten for incremental loads is the DELTA, not total table rows
+      - To get "latest status per entity per layer", use MAX(id) GROUP BY EntityId, Layer
+
+  engine_runs:
+    classification: authoritative
+    written_by: engine/logging_db.py
+    purpose: Run-level summaries (aggregated across all entities)
+    key_columns:
+      - RunId
+      - Status (InProgress | Succeeded | Failed | Aborted)
+      - TotalEntities, SucceededEntities, FailedEntities, SkippedEntities
+      - TotalRowsRead, TotalRowsWritten, TotalBytesTransferred
+      - TotalDurationSeconds
+      - StartedAt, EndedAt
+    row_count_approx: 33
+    safe_for_frontend: true
+
+  lz_entities:
+    classification: authoritative
+    written_by: deploy_from_scratch.py, source_manager routes
+    purpose: Landing Zone entity registry (what source tables are registered)
+    key_columns:
+      - LandingzoneEntityId
+      - DataSourceId
+      - SourceSchema, SourceName
+      - IsActive, IsIncremental, IsIncrementalColumn
+      - LakehouseId
+    row_count_approx: 1728
+    safe_for_frontend: true
+    caveats:
+      - Row count here = registered entities, NOT loaded entities
+      - "1,728 entities" means 1,728 source tables registered, not 1,728 tables with data
+
+  bronze_entities:
+    classification: authoritative
+    written_by: deploy_from_scratch.py, source_manager routes
+    purpose: Bronze layer entity registry
+    key_columns: [BronzeLayerEntityId, LandingzoneEntityId, LakehouseId, IsActive]
+    row_count_approx: 1728
+    safe_for_frontend: true
+
+  silver_entities:
+    classification: authoritative
+    written_by: deploy_from_scratch.py, source_manager routes
+    purpose: Silver layer entity registry
+    key_columns: [SilverLayerEntityId, BronzeLayerEntityId, LakehouseId, IsActive]
+    row_count_approx: 1728
+    safe_for_frontend: true
+
+  datasources:
+    classification: authoritative
+    written_by: deploy_from_scratch.py, source_manager routes
+    purpose: Source system definitions (MES, ETQ, M3 ERP, M3 Cloud, OPTIVA)
+    key_columns: [DataSourceId, Name, DisplayName, Namespace, ConnectionId, IsActive]
+    row_count_approx: 8
+    safe_for_frontend: true
+
+  connections:
+    classification: authoritative
+    written_by: deploy_from_scratch.py, source_manager routes
+    purpose: SQL Server connection configurations
+    key_columns: [ConnectionGuid, Name, ServerName, DatabaseName, Type]
+    safe_for_frontend: true
+
+  watermarks:
+    classification: authoritative
+    written_by: engine/logging_db.py
+    purpose: Incremental load high watermarks
+    key_columns: [LandingzoneEntityId, LoadValue, LastLoadDatetime]
+    row_count_approx: 1200
+    safe_for_frontend: true
+
+  quality_scores:
+    classification: derived
+    written_by: quality refresh job (routes/quality.py)
+    purpose: Data quality KPIs per entity
+    source_tables: [engine_task_log, column_metadata]
+    row_count_approx: 1725
+    safe_for_frontend: true
+    caveats:
+      - Computed metric, not raw measurement
+      - Must be refreshed explicitly via POST /api/quality/refresh
+
+  # --- CACHE (NOT safe for frontend truth) ---
+
+  lakehouse_row_counts:
+    classification: cached
+    written_by: POST /api/load-center/refresh (background thread)
+    purpose: Physical table row counts from Fabric SQL Analytics Endpoint
+    key_columns: [lakehouse, schema_name, table_name, row_count, scanned_at]
+    safe_for_frontend: false
+    caveats:
+      - EMPTY unless someone clicks "Refresh Counts" button
+      - Even when populated, SQL endpoint has 2-3 WEEK sync lag with actual lakehouse
+      - NEVER use as primary data source for any user-facing metric
+      - Load Center REPAIRED (RP-01) — now uses engine_task_log as primary, this table as optional enrichment
+
+  load_center_runs:
+    classification: authoritative
+    written_by: routes/load_center.py (on run start, phase transitions, completion)
+    purpose: Durable run state for Load Center smart loads. Survives restart/navigation.
+    key_columns: [id, started_at, completed_at, phase, active, plan_json, progress_json, error, triggered_by]
+    safe_for_frontend: true
+    caveats:
+      - "This tracks operational run lifecycle, NOT load results. engine_task_log remains authoritative for what was loaded."
+      - "In-memory _run_state is the hot cache for active runs. SQLite is the durable fallback."
+      - "On startup, active runs are marked 'interrupted'."
+
+  health_trend_snapshots:
+    classification: cached
+    written_by: background aggregation
+    purpose: 24h KPI trend data
+    safe_for_frontend: false
+    caveats:
+      - Only useful for historical trend visualization
+      - Not authoritative for current state
+
+  # --- LEGACY (do NOT read) ---
+
+  entity_status:
+    classification: legacy
+    written_by: engine/logging_db.py (backward compat)
+    purpose: "DEPRECATED — entity status per layer. Still written but NO routes read it."
+    key_columns: [LandingzoneEntityId, Layer, Status, LoadEndDateTime, ErrorMessage]
+    safe_for_frontend: false
+    migrate_to: "All routes now use get_canonical_entity_status() which derives from engine_task_log (RP-03, 2026-03-20)"
+    caveats:
+      - May not update in all code paths
+      - "REPAIRED (RP-03): No route reads this table for display. All consumers use get_canonical_entity_status() → engine_task_log."
+      - "Surviving writes: engine/logging_db.py (backward compat), upsert_entity_status() (deprecated). These are INTENTIONAL — kept for remote sync consumers."
+      - "Admin table browser (data_manager) can view raw data — this is intentional for debugging."
+
+  # --- METADATA (dashboard-managed) ---
+
+  column_metadata:
+    classification: derived
+    written_by: schema discovery jobs
+    safe_for_frontend: true
+
+  column_classifications:
+    classification: derived
+    written_by: classification scan
+    safe_for_frontend: true
+
+  business_glossary:
+    classification: authoritative
+    written_by: glossary routes
+    safe_for_frontend: true
+
+  entity_annotations:
+    classification: authoritative
+    written_by: glossary routes
+    safe_for_frontend: true
+
+  admin_config:
+    classification: authoritative
+    written_by: admin routes
+    purpose: UI settings (hiddenPages, theme, etc.)
+    safe_for_frontend: true
+
+  pipeline_audit:
+    classification: authoritative
+    written_by: engine/logging_db.py
+    purpose: Generic pipeline audit (backward compat with Fabric pipeline model)
+    safe_for_frontend: true
+
+  copy_activity_audit:
+    classification: authoritative
+    written_by: engine/logging_db.py
+    purpose: Copy activity audit (backward compat)
+    safe_for_frontend: true
+
+  notebook_executions:
+    classification: authoritative
+    written_by: notebook trigger routes
+    safe_for_frontend: true
+
+  import_jobs:
+    classification: authoritative
+    written_by: source_manager routes
+    purpose: Source import job tracking
+    safe_for_frontend: true
+
+  server_labels:
+    classification: authoritative
+    written_by: sql_explorer routes
+    safe_for_frontend: true
+
+  lakehouses:
+    classification: authoritative
+    written_by: deploy_from_scratch.py
+    safe_for_frontend: true
+
+  workspaces:
+    classification: authoritative
+    written_by: deploy_from_scratch.py
+    safe_for_frontend: true
+
+  pipelines:
+    classification: authoritative
+    written_by: deploy_from_scratch.py
+    safe_for_frontend: true
+
+# ============================================================================
+# PAGE → ENDPOINT → TABLE MAP
+# ============================================================================
+
+pages:
+
+  BusinessOverview:
+    file: pages/BusinessOverview.tsx
+    route: /overview
+    portal: business
+    polling: 30s
+    endpoints:
+      - path: GET /api/overview/kpis
+        file: routes/overview.py
+        tables: [engine_task_log, lz_entities, datasources, quality_scores]
+        classification: "REPAIRED (RP-02, 2026-03-20) — two-tier freshness (24h + coverage), smarter alerts, loaded vs registered"
+        caveats: "Freshness shows 24h recency when available, falls back to ever-loaded coverage. Alerts = never-succeeded + consistently-failing (7d window)."
+        returns_new_fields: [freshness_ever_loaded, freshness_last_success, loaded_entities]
+      - path: GET /api/overview/sources
+        file: routes/overview.py
+        tables: [datasources, lz_entities, engine_task_log]
+        classification: "REPAIRED (RP-02, 2026-03-20) — reads engine_task_log instead of entity_status"
+      - path: GET /api/overview/activity
+        file: routes/overview.py
+        tables: [engine_task_log, lz_entities, datasources]
+        classification: authoritative
+    known_issues:
+      - "M3: REPAIRED (RP-02, 2026-03-20) — two-tier freshness prevents 0% after one failed run"
+
+  LoadCenter:
+    file: pages/LoadCenter.tsx
+    route: /load-center
+    portal: engineering
+    polling: 5s (when run active)
+    endpoints:
+      - path: GET /api/load-center/status
+        file: routes/load_center.py
+        tables: [engine_task_log, lz_entities, datasources, bronze_entities, silver_entities, lakehouse_row_counts]
+        classification: "REPAIRED (RP-01 + RP-04, 2026-03-20) — primary: engine_task_log, optional enrichment: lakehouse_row_counts"
+        caveats: "Row counts split by load type: fullLoadRows (true totals from full loads + physical scans) vs incrementalDeltaRows (deltas from incremental loads). Physical scan rows always classified as fullLoadRows."
+        new_fields_rp04: [fullLoadTables, fullLoadRows, incrementalTables, incrementalDeltaRows]
+      - path: GET /api/load-center/source-detail
+        file: routes/load_center.py
+        tables: [engine_task_log, lz_entities, datasources, bronze_entities, silver_entities, lakehouse_row_counts]
+        classification: "REPAIRED (RP-01, 2026-03-20) — primary: engine_task_log with physical scan fallback. Returns rowSource per layer."
+      - path: POST /api/load-center/refresh
+        file: routes/load_center.py
+        tables: [lakehouse_row_counts]
+        classification: cached
+        caveats: "Hits Fabric SQL endpoint (2-3 week lag). Optional enrichment — Load Center works without it."
+      - path: POST /api/load-center/run
+        file: routes/load_center.py
+        tables: [lz_entities, datasources, bronze_entities, silver_entities, watermarks]
+        classification: authoritative
+    known_issues:
+      - "M1: REPAIRED (RP-01, 2026-03-20) — was reading empty cache, now reads engine_task_log"
+      - "M2: REPAIRED (RP-01, 2026-03-20) — source detail now falls back to engine log RowsWritten"
+      - "REPAIRED (RP-04, 2026-03-20): incremental RowsWritten now explicitly distinguished from full totals — frontend shows Δ indicator and context-aware labels"
+
+  ExecutionMatrix:
+    file: pages/ExecutionMatrix.tsx
+    route: /matrix
+    portal: engineering
+    polling: 5s (when auto-refresh on)
+    endpoints:
+      - path: GET /api/entity-digest
+        file: routes/entities.py
+        tables: [lz_entities, datasources, engine_task_log, quality_scores, bronze_entities, silver_entities]
+        classification: "REPAIRED (RP-03, 2026-03-20) — uses get_canonical_entity_status() which derives from engine_task_log"
+    known_issues:
+      - "M5: REPAIRED (RP-03, 2026-03-20) — now reads engine_task_log via get_canonical_entity_status()"
+
+  EngineControl:
+    file: pages/EngineControl.tsx
+    route: /engine
+    portal: engineering
+    endpoints:
+      - path: GET /api/engine/status
+        file: routes/engine.py
+        tables: [engine_runs]
+        classification: authoritative
+      - path: GET /api/engine/logs
+        file: routes/engine.py
+        tables: [engine_task_log]
+        classification: authoritative
+      - path: GET /api/engine/health
+        file: routes/engine.py
+        tables: [engine_runs, engine_task_log]
+        classification: authoritative
+      - path: GET /api/engine/metrics
+        file: routes/engine.py
+        tables: [engine_runs]
+        classification: authoritative
+      - path: POST /api/engine/start
+        file: routes/engine.py
+        tables: [engine_runs]
+        classification: authoritative
+    known_issues: []
+
+  ErrorIntelligence:
+    file: pages/ErrorIntelligence.tsx
+    route: /errors
+    portal: engineering
+    endpoints:
+      - path: GET /api/error-intelligence
+        file: routes/monitoring.py
+        tables: [engine_task_log]
+        classification: authoritative
+    known_issues: []
+
+  BusinessAlerts:
+    file: pages/business/BusinessAlerts.tsx
+    route: /alerts
+    portal: business
+    polling: 30s
+    endpoints:
+      - path: GET /api/alerts
+        file: routes/alerts.py
+        tables: [lz_entities, engine_task_log, datasources]
+        classification: authoritative
+    known_issues: []
+
+  BusinessCatalog:
+    file: pages/business/BusinessCatalog.tsx
+    route: /catalog-portal
+    portal: business
+    endpoints:
+      - path: GET /api/gold/domains
+        file: routes/glossary.py
+        tables: [gs_domain_workspaces]
+        classification: authoritative
+      - path: GET /api/overview/entities
+        file: routes/overview.py
+        tables: [lz_entities, engine_task_log, datasources]
+        classification: "REPAIRED (RP-02, 2026-03-20) — reads engine_task_log instead of entity_status"
+      - path: GET /api/mdm/quality/scores
+        file: routes/quality.py
+        tables: [quality_scores]
+        classification: derived
+      - path: GET /api/glossary/annotations/bulk
+        file: routes/glossary.py
+        tables: [entity_annotations]
+        classification: authoritative
+    known_issues: []
+
+  BusinessSources:
+    file: pages/business/BusinessSources.tsx
+    route: /sources-portal
+    portal: business
+    polling: 30s
+    endpoints:
+      - path: GET /api/overview/kpis
+        file: routes/overview.py
+        tables: [engine_task_log, engine_runs, lz_entities]
+        classification: authoritative
+      - path: GET /api/overview/sources
+        file: routes/overview.py
+        tables: [datasources, lz_entities, bronze_entities, silver_entities]
+        classification: authoritative
+      - path: GET /api/overview/entities
+        file: routes/overview.py
+        tables: [lz_entities, engine_task_log, datasources]
+        classification: "REPAIRED (RP-02, 2026-03-20) — reads engine_task_log instead of entity_status"
+    known_issues: []
+
+  SourceManager:
+    file: pages/SourceManager.tsx
+    route: /sources
+    portal: engineering
+    endpoints:
+      - path: GET /api/entity-digest
+        file: routes/entities.py
+        tables: [lz_entities, datasources, engine_task_log, quality_scores, bronze_entities, silver_entities]
+        classification: "REPAIRED (RP-03, 2026-03-20) — uses get_canonical_entity_status() which derives from engine_task_log"
+      - path: GET /api/connections
+        file: routes/control_plane.py
+        tables: [connections]
+        classification: authoritative
+      - path: GET /api/datasources
+        file: routes/control_plane.py
+        tables: [datasources]
+        classification: authoritative
+    known_issues: []
+
+  ExecutionLog:
+    file: pages/ExecutionLog.tsx
+    route: /logs
+    portal: engineering
+    endpoints:
+      - path: GET /api/pipeline-executions
+        file: routes/pipeline.py
+        tables: [pipeline_audit]
+        classification: authoritative
+      - path: GET /api/copy-executions
+        file: routes/monitoring.py
+        tables: [copy_activity_audit]
+        classification: authoritative
+      - path: GET /api/notebook-executions
+        file: routes/monitoring.py
+        tables: [notebook_executions]
+        classification: authoritative
+    known_issues: []
+
+  SqlExplorer:
+    file: pages/SqlExplorer.tsx
+    route: /sql-explorer
+    portal: engineering
+    endpoints:
+      - path: GET /api/sql-explorer/*
+        file: routes/sql_explorer.py
+        tables: "On-prem SQL (sys.tables, sys.columns) + Fabric SQL endpoint"
+        classification: external
+    known_issues: []
+
+  AdminGateway:
+    file: pages/AdminGateway.tsx
+    route: /admin
+    portal: engineering
+    endpoints:
+      - path: GET /api/setup/current-config
+        file: routes/admin.py
+        tables: [workspaces, lakehouses, datasources, pipelines]
+        classification: authoritative
+      - path: GET /api/admin/config
+        file: routes/admin.py
+        tables: [admin_config]
+        classification: authoritative
+    known_issues: []
+
+  # Gold Studio pages
+  GoldLedger:
+    file: pages/gold/GoldLedger.tsx
+    route: /gold/ledger
+    portal: gold
+    endpoints:
+      - path: GET /api/gold-studio/stats
+        file: routes/gold_studio.py
+        tables: [gs_specimens, gs_extracted_entities, gs_clusters, gs_canonical_entities, gs_gold_specs]
+        classification: authoritative
+      - path: GET /api/gold-studio/specimens
+        file: routes/gold_studio.py
+        tables: [gs_specimens, gs_jobs]
+        classification: authoritative
+    known_issues: []
+
+# ============================================================================
+# EXTERNAL DATA SOURCES
+# ============================================================================
+
+external_sources:
+
+  source_sql_servers:
+    classification: external
+    access: pyodbc, Windows auth, VPN required
+    servers: [m3-db1, M3-DB3, sqllogshipprd, sql2016live]
+    used_by: [engine/extractor.py, sql_explorer routes, source_manager routes]
+    caveats: "Short hostnames only. No .ipaper.com suffix."
+
+  fabric_sql_endpoint:
+    classification: external
+    access: Service Principal OAuth (analysis.windows.net scope)
+    used_by: [load_center refresh, blender, sql_explorer lakehouse routes, gold_studio schema discovery]
+    caveats: "2-3 WEEK sync lag. NEVER use for dashboard truth."
+
+  fabric_rest_api:
+    classification: external
+    access: Service Principal OAuth (api.fabric.microsoft.com scope)
+    used_by: [notebook triggers, pipeline deployment, job monitoring]
+
+  onelake_adls:
+    classification: external
+    access: Service Principal OAuth (storage.azure.com scope) or filesystem mount
+    used_by: [engine/loader.py, engine/onelake_io.py, bronze_processor, silver_processor]
