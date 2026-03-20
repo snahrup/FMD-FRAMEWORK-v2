@@ -5,15 +5,17 @@ Endpoints:
 
 Data sources:
     - SQLite: lz_entities, bronze_entities, silver_entities, lakehouses,
-              entity_status, column_metadata (cache)
-    - Fabric SQL Analytics Endpoint: INFORMATION_SCHEMA.COLUMNS queries
-      (via _query_lakehouse, lazy-imported to avoid circular dependency)
+              engine_task_log, column_metadata (cache)
+    - OneLake local parquet: schema discovery from local delta/parquet files
+      (via polars scan_parquet, falls back gracefully if mount unavailable)
 
-Layer values in entity_status are LOWERCASE: "landing", "bronze", "silver"
-entity_status uses LandingzoneEntityId (NOT EntityId).
+Layer values in engine_task_log are LOWERCASE: "landing", "bronze", "silver"
+engine_task_log uses EntityId (= LandingzoneEntityId from lz_entities).
 """
+import glob
 import logging
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
@@ -21,69 +23,105 @@ import dashboard.app.api.control_plane_db as cpdb
 
 log = logging.getLogger("fmd.routes.lineage")
 
-# Cache TTL — re-query Fabric SQL after 24 hours
+# Cache TTL — re-query after 24 hours
 _CACHE_TTL_HOURS = 24
+
+# Polars dtype → SQL-like type name mapping
+_DTYPE_MAP = {
+    "Int8": "tinyint", "Int16": "smallint", "Int32": "int", "Int64": "bigint",
+    "UInt8": "tinyint", "UInt16": "smallint", "UInt32": "int", "UInt64": "bigint",
+    "Float32": "real", "Float64": "float",
+    "Boolean": "bit", "Utf8": "varchar", "String": "varchar",
+    "Date": "date", "Datetime": "datetime2", "Time": "time",
+    "Duration": "bigint", "Binary": "varbinary", "LargeBinary": "varbinary",
+    "Decimal": "decimal", "Null": "null",
+}
+
+
+def _polars_dtype_to_sql(dtype) -> str:
+    """Convert a polars dtype to a SQL-like type string."""
+    name = str(dtype)
+    # Strip parameterized parts: "Decimal(38, 6)" -> "Decimal"
+    base = name.split("(")[0].split("[")[0].strip()
+    return _DTYPE_MAP.get(base, name.lower())
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _query_lakehouse_columns(lakehouse_name: str, schema: str, table: str) -> list[dict]:
-    """Query INFORMATION_SCHEMA.COLUMNS for a lakehouse table.
+def _read_onelake_schema(lakehouse_name: str, schema: str, table: str) -> list[dict]:
+    """Read column schema from local OneLake parquet/delta files via polars.
 
     Returns a list of dicts with keys:
         name, dataType, nullable, maxLength, precision, scale, ordinal
 
-    Raises HttpError on failure (caller decides whether to swallow).
-    Lazy-imports _query_lakehouse and _sanitize from data_access to avoid
-    circular import at module load time.
+    Returns empty list if OneLake mount unavailable or table not found.
     """
-    from dashboard.app.api.routes.data_access import _query_lakehouse, _sanitize
+    try:
+        import polars as pl
+    except ImportError:
+        log.debug("polars not available — cannot read OneLake schema")
+        return []
 
-    s = _sanitize(schema)
-    t = _sanitize(table)
+    # Lazy-import to avoid circular dependency
+    from dashboard.app.api.routes.data_access import _get_onelake_mount
 
-    raw = _query_lakehouse(
-        lakehouse_name,
-        f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
-        f"CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, "
-        f"ORDINAL_POSITION "
-        f"FROM INFORMATION_SCHEMA.COLUMNS "
-        f"WHERE TABLE_SCHEMA = '{s}' AND TABLE_NAME = '{t}' "
-        f"ORDER BY ORDINAL_POSITION",
-    )
+    mount = _get_onelake_mount()
+    if not mount:
+        return []
 
-    columns = []
-    for r in raw:
-        try:
-            ordinal = int(r.get("ORDINAL_POSITION") or 0)
-        except (TypeError, ValueError):
-            ordinal = 0
-        try:
-            max_len = int(r["CHARACTER_MAXIMUM_LENGTH"]) if r.get("CHARACTER_MAXIMUM_LENGTH") is not None else None
-        except (TypeError, ValueError):
-            max_len = None
-        try:
-            precision = int(r["NUMERIC_PRECISION"]) if r.get("NUMERIC_PRECISION") is not None else None
-        except (TypeError, ValueError):
-            precision = None
-        try:
-            scale = int(r["NUMERIC_SCALE"]) if r.get("NUMERIC_SCALE") is not None else None
-        except (TypeError, ValueError):
-            scale = None
+    # Try delta Tables path first (Bronze/Silver), then Files path (LZ)
+    table_dir = mount / f"{lakehouse_name}.Lakehouse" / "Tables" / schema / table
+    if not table_dir.is_dir():
+        # LZ uses Files/{schema}/{table}.parquet (single file, not a dir)
+        lz_file = mount / f"{lakehouse_name}.Lakehouse" / "Files" / schema / f"{table}.parquet"
+        if lz_file.is_file():
+            try:
+                lf = pl.scan_parquet(str(lz_file))
+                columns = []
+                for i, (col_name, dtype) in enumerate(lf.schema.items()):
+                    columns.append({
+                        "name": col_name,
+                        "dataType": _polars_dtype_to_sql(dtype),
+                        "nullable": True,
+                        "maxLength": None,
+                        "precision": None,
+                        "scale": None,
+                        "ordinal": i + 1,
+                    })
+                return columns
+            except Exception as e:
+                log.warning("Failed to read LZ parquet schema %s: %s", lz_file, e)
+                return []
+        return []
 
-        columns.append({
-            "name": r.get("COLUMN_NAME", ""),
-            "dataType": r.get("DATA_TYPE", ""),
-            "nullable": (r.get("IS_NULLABLE", "YES") or "YES") == "YES",
-            "maxLength": max_len,
-            "precision": precision,
-            "scale": scale,
-            "ordinal": ordinal,
-        })
+    # Delta table — find parquet parts
+    parts = glob.glob(str(table_dir / "*.parquet"))
+    if not parts:
+        # Delta lake stores parts in subdirs sometimes
+        parts = glob.glob(str(table_dir / "**" / "*.parquet"), recursive=True)
+    if not parts:
+        return []
 
-    return columns
+    try:
+        lf = pl.scan_parquet(parts[0])
+        columns = []
+        for i, (col_name, dtype) in enumerate(lf.schema.items()):
+            columns.append({
+                "name": col_name,
+                "dataType": _polars_dtype_to_sql(dtype),
+                "nullable": True,
+                "maxLength": None,
+                "precision": None,
+                "scale": None,
+                "ordinal": i + 1,
+            })
+        return columns
+    except Exception as e:
+        log.warning("Failed to read OneLake schema for %s/%s/%s: %s",
+                    lakehouse_name, schema, table, e)
+        return []
 
 
 def _cache_columns(entity_id: int, layer: str, columns: list[dict]) -> None:
@@ -161,7 +199,8 @@ def _load_cached_columns(entity_id: int, layer: str) -> list[dict] | None:
         age = datetime.now(timezone.utc) - captured_at
         if age > timedelta(hours=_CACHE_TTL_HOURS):
             return None
-    except Exception:
+    except Exception as e:
+        log.debug("Failed to parse lineage cache timestamp '%s': %s", captured_at_str, e)
         return None  # unparseable timestamp → treat as stale
 
     return [
@@ -194,15 +233,15 @@ def _get_columns_for_layer(
     if cached is not None:
         return cached
 
-    # Cache miss — query Fabric SQL
+    # Cache miss — read schema from local OneLake parquet files
     try:
-        cols = _query_lakehouse_columns(lakehouse_name, schema, table)
+        cols = _read_onelake_schema(lakehouse_name, schema, table)
         if cols:
             _cache_columns(entity_id, layer, cols)
         return cols
     except Exception as e:
         log.warning(
-            "Column query failed for entity %d layer %s (%s.%s.%s): %s",
+            "OneLake schema read failed for entity %d layer %s (%s.%s.%s): %s",
             entity_id, layer, lakehouse_name, schema, table, e,
         )
         return []
@@ -270,17 +309,23 @@ def get_lineage_columns(params: dict) -> dict:
         )
         silver = silver_rows[0] if silver_rows else None
 
-    # 3. Resolve which layers are loaded
+    # 3. Resolve which layers are loaded (from engine_task_log)
     status_rows = db.query(
-        "SELECT Layer, Status FROM entity_status "
-        "WHERE LandingzoneEntityId = ? AND Status = 'loaded'",
+        """
+        SELECT Layer, Status FROM (
+            SELECT Layer, Status,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY Layer
+                       ORDER BY created_at DESC,
+                                CASE Status WHEN 'succeeded' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END
+                   ) AS rn
+            FROM engine_task_log
+            WHERE EntityId = ?
+        ) WHERE rn = 1 AND Status = 'succeeded'
+        """,
         (entity_id,),
     )
     loaded_layers = {(r.get("Layer") or "").lower() for r in status_rows}
-    # Normalise "landingzone" → "landing" if present
-    if "landingzone" in loaded_layers:
-        loaded_layers.discard("landingzone")
-        loaded_layers.add("landing")
 
     # 4. Resolve lakehouse names
     def _lh_name(lh_id) -> str:

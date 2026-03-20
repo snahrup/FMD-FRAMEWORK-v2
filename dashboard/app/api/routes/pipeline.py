@@ -50,7 +50,8 @@ def _load_runner_state() -> dict:
     if _RUNNER_STATE_FILE.exists():
         try:
             _runner_state = json.loads(_RUNNER_STATE_FILE.read_text())
-        except Exception:
+        except Exception as e:
+            log.warning("Failed to load runner state file: %s", e)
             _runner_state = {"active": False}
     return _runner_state
 
@@ -78,7 +79,8 @@ def _get_config() -> dict:
         try:
             cfg_path = Path(__file__).parent.parent / "config.json"
             _CONFIG = json.loads(cfg_path.read_text())
-        except Exception:
+        except Exception as e:
+            log.warning("Failed to load config.json: %s", e)
             _CONFIG = {}
     return _CONFIG
 
@@ -160,10 +162,10 @@ def _get_fabric_job_instances(force_refresh: bool = False) -> list[dict]:
                             j["pipelineName"] = p.get("displayName", "")
                             j["workspaceId"] = ws_id
                             all_jobs.append(j)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                    except Exception as e:
+                        log.debug("Failed to fetch job instances for pipeline %s: %s", p.get("displayName", "?"), e)
+            except Exception as e:
+                log.debug("Failed to list workspace items for %s: %s", ws_id[:8], e)
         _fab_jobs_cache["data"] = all_jobs
         _fab_jobs_cache["ts"] = now
         return all_jobs
@@ -326,8 +328,16 @@ def get_bronze_view(params: dict) -> list:
 
 @route("GET", "/api/silver-view")
 def get_silver_view(params: dict) -> list:
-    # Silver execution tracking uses entity_status
-    return db.query("SELECT * FROM entity_status WHERE Layer = 'silver' ORDER BY updated_at DESC LIMIT 200")
+    # Silver execution tracking from engine_task_log
+    return db.query(
+        """
+        SELECT EntityId AS LandingzoneEntityId, Layer, Status, created_at AS LoadEndDateTime,
+               RowsWritten, ErrorMessage, 'engine' AS UpdatedBy
+        FROM engine_task_log
+        WHERE Layer = 'silver'
+        ORDER BY created_at DESC LIMIT 200
+        """
+    )
 
 
 @route("GET", "/api/pipeline-executions")
@@ -506,7 +516,7 @@ def sse_pipeline_stream(http_handler, params: dict) -> None:
             if any(e["event"] in ("final", "error") for e in new_events):
                 break
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-        pass
+        pass  # intentionally suppressed: client disconnected from SSE stream
 
 
 # ---------------------------------------------------------------------------
