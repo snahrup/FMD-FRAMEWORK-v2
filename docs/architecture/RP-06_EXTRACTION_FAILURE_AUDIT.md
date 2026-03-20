@@ -11,7 +11,7 @@
 
 All failures are in the **Landing Zone layer only** — Bronze/Silver never ran because LZ had nothing to process.
 
-Three distinct root causes, ordered by blast radius:
+Four distinct root causes, ordered by blast radius:
 
 | # | Root Cause | Failures | Entities | % of Total | Fixable? |
 |---|-----------|----------|----------|-----------|----------|
