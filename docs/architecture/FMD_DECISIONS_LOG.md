@@ -204,6 +204,26 @@ CREATE TABLE load_center_runs (
 
 ---
 
+### [D-010] 2026-03-20 — RP-06: 3/20 extraction failures triaged — 3 root causes, 0 engine code bugs
+
+**Decision**: The 3/20 extraction failures (5,655 of 5,706 tasks) have been fully triaged. Three root causes identified:
+1. **VPN/network outage** (99.3%): All 5 source servers unreachable. Ops fix, not code.
+2. **Watermark type mismatch** (35 entities): `seed_watermark_values()` wrote pipeline timestamps as watermarks for integer ID columns. Fix: delete bad entries + fix seed script.
+3. **Missing source table** (1 entity): `ipc_CSS_INVT_LOT_MASTER_2` no longer exists. Fix: deactivate entity.
+
+**Why**: AUDIT-009 flagged 1,595 failed entities. Investigation revealed the engine extraction code itself is correct — `build_source_query()` and `_compute_watermark()` work properly. All failures trace to upstream causes (network, bad seed data, missing table).
+
+**Impact**:
+- No engine code changes needed for the 99.3% majority (VPN fix is operational)
+- 35 watermark entries need deletion from SQLite `watermarks` table
+- `scripts/configure_incremental_loads.py` needs column-type-aware seeding to prevent recurrence
+- 1 entity needs deactivation
+- Full audit documented in `docs/architecture/RP-06_EXTRACTION_FAILURE_AUDIT.md`
+
+**Supersedes**: None (new investigation)
+
+---
+
 ## Template for New Entries
 
 ```

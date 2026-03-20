@@ -133,13 +133,13 @@
 ### [AUDIT-009] Engine task log has 1,595 failed entities from latest run
 - **Stage**: Engine execution — 2026-03-20 run
 - **Expected**: Source tables extracted successfully
-- **Actual**: 0 succeeded, 1,595 failed after 9+ hours
-- **Real vs Stubbed**: Real failure
+- **Actual**: 51 succeeded, 5,655 failed across 3 runs over ~19 hours
+- **Real vs Stubbed**: Real failure — three distinct root causes identified
 - **Mismatch**: All entities failing extraction
 - **Impact**: No new data loaded since 2026-03-17
-- **Root cause**: Needs investigation — errors include "Unsafe table identifier" (Excel sheet names with special chars like `$`), possible VPN/auth issues
-- **Repair priority**: P1
-- **Status**: OPEN
+- **Root cause**: INVESTIGATED (RP-06). Three root causes: (1) VPN/network outage — 99.3% of failures, all 5 sources unreachable (AUDIT-012); (2) Watermark type mismatch — 35 entities with timestamp values on integer ID columns (AUDIT-013); (3) Missing source table — 1 entity (AUDIT-014)
+- **Repair priority**: P0 (RC-1 ops) / P1 (RC-2 code)
+- **Status**: SUPERSEDED by AUDIT-012, AUDIT-013, AUDIT-014
 - **Repair packet**: RP-06
 
 ### [AUDIT-010] Bronze/Silver processing depends on LZ files existing
@@ -163,6 +163,45 @@
 - **Root cause**: Gold Studio is still under development. Packets A-G complete, remaining work documented.
 - **Repair priority**: P3
 - **Status**: OPEN (known limitation)
+
+### [AUDIT-012] 3/20 extraction: 99.3% failures caused by VPN/network outage
+- **Stage**: Engine extraction — 2026-03-20 (3 runs)
+- **Expected**: LZ extraction succeeds for all 1,592 entities
+- **Actual**: 5,618 of 5,656 failures are Named Pipes connection timeouts (error 53/64). All 5 source servers unreachable. VPN was down from at least 3/19 through most of 3/20. Brief ~8min connectivity window in run 3 allowed 51 entities to succeed.
+- **Real vs Stubbed**: Real infrastructure failure
+- **Mismatch**: Engine retried for 9+ hours against unreachable servers
+- **Impact**: No new data since 2026-03-17. All sources stale by 3 days.
+- **Root cause**: VPN/network outage. NOT a code bug. Engine circuit breaker (692b98b) should limit retry burn.
+- **Repair priority**: P0 (ops — verify VPN, then re-run)
+- **Status**: OPEN
+- **Repair packet**: RP-06
+- **Detail**: See `docs/architecture/RP-06_EXTRACTION_FAILURE_AUDIT.md`
+
+### [AUDIT-013] 35 entities have timestamp watermarks on integer ID columns
+- **Stage**: Watermark seeding — `scripts/configure_incremental_loads.py`
+- **Expected**: Watermark value matches the data type of the watermark column (int → int, datetime → datetime)
+- **Actual**: `seed_watermark_values()` writes `MAX(LoadEndDateTime)` (a pipeline execution timestamp) as the watermark for ALL incremental entities, regardless of column type. Integer ID columns (`lab_record_id`, `M3XferID`, `SEQU`, etc.) get timestamp strings.
+- **Real vs Stubbed**: Real bug in seed script
+- **Mismatch**: `WHERE [int_col] > '2026-03-17T04:25:48Z'` → SQL Server conversion error
+- **Impact**: 35 entities permanently fail incremental extraction until watermark values are corrected
+- **Root cause**: `seed_watermark_values()` line 377 uses pipeline execution timestamp, not `MAX(watermark_column)` from source data. Engine's runtime `_compute_watermark()` is correct — only the seed script is wrong.
+- **Repair priority**: P1
+- **Status**: OPEN
+- **Repair packet**: RP-06
+- **Fix**: Delete 35 bad watermark entries (forces full-load re-seed via correct `_compute_watermark()`), then fix seed script to detect column types
+
+### [AUDIT-014] Entity references non-existent source table
+- **Stage**: Entity registration — `dbo.ipc_CSS_INVT_LOT_MASTER_2` on m3-db1/mes
+- **Expected**: Registered entities reference existing source tables
+- **Actual**: Table does not exist on source server (SQL error 42S02: Invalid object name)
+- **Real vs Stubbed**: Real — table was likely dropped or renamed at source
+- **Mismatch**: Entity registered for a phantom table
+- **Impact**: 1 entity fails every run
+- **Root cause**: Source table removed after entity registration. No validation step checks for this.
+- **Repair priority**: P3
+- **Status**: OPEN
+- **Repair packet**: RP-06
+- **Fix**: Deactivate entity (IsActive = 0)
 
 ---
 
