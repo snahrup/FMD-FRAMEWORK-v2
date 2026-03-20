@@ -69,7 +69,7 @@ def get_overview_kpis(params: dict) -> dict:
 
         # ------------------------------------------------------------------
         # Open alerts: entities with error status on any layer (real operational failures)
-        # Falls back to quality_scores if entity_status has no errors.
+        # Falls back to quality_scores if engine_task_log has no errors.
         # ------------------------------------------------------------------
         error_row = conn.execute(
             """
@@ -282,7 +282,7 @@ def get_overview_activity(params: dict) -> list:
             tuple(_SYSTEM_SOURCES),
         ).fetchall()
 
-        # Map raw entity_status.Status values to frontend-expected enum.
+        # Map raw engine_task_log Status values to frontend-expected enum.
         # DB stores: 'loaded', 'not_started', 'error', '' etc.
         # Frontend expects: 'success', 'error', 'warning', 'running', 'pending'
         _STATUS_MAP = {
@@ -327,8 +327,8 @@ def get_overview_entities(params: dict) -> list:
     Each entity includes:
         - LandingzoneEntityId, SchemaName, TableName, SourceName (= source system)
         - DataSourceId, IsActive
-        - LastLoadDate (most recent LoadEndDateTime across all layers)
-        - BronzeStatus, SilverStatus (from entity_status per layer)
+        - LastLoadDate (most recent created_at across all succeeded layers)
+        - BronzeStatus, SilverStatus (from engine_task_log per layer, latest row)
 
     Excludes system sources. Maps raw column names to what the frontend expects.
     """
@@ -344,14 +344,30 @@ def get_overview_entities(params: dict) -> list:
                 ds.DisplayName AS SourceDisplayName,
                 e.DataSourceId,
                 e.IsActive,
-                MAX(CASE WHEN es.Status = 'loaded' THEN es.LoadEndDateTime END) AS LastLoadDate,
-                MAX(CASE WHEN es.Layer = 'bronze' AND es.Status = 'loaded'
-                         THEN 'loaded' END) AS BronzeStatus,
-                MAX(CASE WHEN es.Layer = 'silver' AND es.Status = 'loaded'
-                         THEN 'loaded' END) AS SilverStatus
+                t_lz.Status  AS LzStatus,
+                t_brz.Status AS BronzeStatus,
+                t_slv.Status AS SilverStatus,
+                MAX(CASE WHEN t_lz.Status  = 'succeeded' THEN t_lz.created_at
+                         WHEN t_brz.Status = 'succeeded' THEN t_brz.created_at
+                         WHEN t_slv.Status = 'succeeded' THEN t_slv.created_at
+                         ELSE NULL END) AS LastLoadDate
             FROM lz_entities e
             JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
-            LEFT JOIN entity_status es ON es.LandingzoneEntityId = e.LandingzoneEntityId
+            LEFT JOIN (
+                SELECT EntityId, Layer, Status, created_at,
+                       ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn
+                FROM engine_task_log
+            ) t_lz  ON t_lz.EntityId  = e.LandingzoneEntityId AND t_lz.Layer  = 'landing' AND t_lz.rn  = 1
+            LEFT JOIN (
+                SELECT EntityId, Layer, Status, created_at,
+                       ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn
+                FROM engine_task_log
+            ) t_brz ON t_brz.EntityId = e.LandingzoneEntityId AND t_brz.Layer = 'bronze'  AND t_brz.rn = 1
+            LEFT JOIN (
+                SELECT EntityId, Layer, Status, created_at,
+                       ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn
+                FROM engine_task_log
+            ) t_slv ON t_slv.EntityId = e.LandingzoneEntityId AND t_slv.Layer = 'silver'  AND t_slv.rn = 1
             WHERE e.IsActive = 1
               AND ds.Name NOT IN ({placeholders})
             GROUP BY e.LandingzoneEntityId
