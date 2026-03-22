@@ -246,6 +246,28 @@ One-time remediation: `scripts/remediate_watermarks.py` deletes 255 corrupted wa
 
 ---
 
+### [D-012] 2026-03-22 — RP-07: Gold Studio honest labels — frontend discloses feature maturity
+
+**Decision**: Gold Studio frontend pages now honestly label the maturity level of each capability:
+
+1. **Clustering**: Stats strip shows "name-only" qualifier on confidence metric. Maturity notice below stats: "Clustering uses exact name matching within each division. Confidence is fixed at 80%. Fuzzy and schema-aware matching are planned."
+2. **"Promote to Canonical"** → renamed to **"Mark Standalone"** (button only sets provenance flag, doesn't create canonical entity)
+3. **Validation**: "Validation Rules" → "Validation Checks" with subtitle "Structure only — checks SQL, columns, and target name. Data validation and reconciliation are planned." Button changed from "Run Validation" → "Run Structure Check."
+4. **Reconciliation**: Section labeled "Manual entry only — automatic legacy-vs-gold comparison is planned."
+5. **Schema Discovery**: No frontend change (not exposed as a button). Backend stub documented in AUDIT-011.
+
+**Why**: AUDIT-011 identified that Gold Studio frontend implies sophisticated capabilities (ML clustering, comprehensive validation, automated reconciliation) that don't exist yet. Users seeing "80% confidence" or "Validated" status may over-trust results that are based on trivial checks. Honest labels set correct expectations without removing functionality.
+
+**Impact**:
+- No backend changes — all capabilities still work exactly as before
+- Users can clearly distinguish what's real vs planned
+- No features removed — only labels made honest
+- GoldMlvManager.tsx already had honest "Coming Soon" / "Labs" labels (no change needed)
+
+**Supersedes**: None (first honest-label pass for Gold Studio)
+
+---
+
 ## Template for New Entries
 
 ```

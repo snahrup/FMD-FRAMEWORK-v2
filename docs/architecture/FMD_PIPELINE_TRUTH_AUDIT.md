@@ -156,13 +156,15 @@
 ### [AUDIT-011] Gold Studio extraction is real but clustering/validation are naive
 - **Stage**: Gold Studio pipeline
 - **Expected**: Full ML-based entity clustering, comprehensive validation
-- **Actual**: SQL parser extraction (Packet G) is real and working. Clustering uses naive string matching. Validation checks metadata only, not data.
-- **Real vs Stubbed**: Extraction=REAL, Clustering=NAIVE, Validation=METADATA-ONLY
-- **Mismatch**: Frontend suggests sophisticated capabilities that aren't fully implemented
-- **Impact**: Users may trust cluster suggestions or validation results that are incomplete
+- **Actual**: SQL parser extraction (Packet G) is real and working. Clustering uses exact name matching (not fuzzy/ML). Validation runs 3 structure checks only (sql_present, columns_defined, target_name_set). Schema discovery is stubbed (job created but immediately completed with no logic).
+- **Real vs Stubbed**: Extraction=REAL, Clustering=NAIVE (exact name match, hardcoded 80% confidence), Validation=STRUCTURE-ONLY (3 checks), Schema Discovery=STUBBED, Reconciliation=MANUAL-ONLY
+- **Mismatch**: ~~Frontend suggests sophisticated capabilities that aren't fully implemented~~ Now: frontend labels honestly disclose maturity level of each capability
+- **Impact**: ~~Users may trust cluster suggestions or validation results that are incomplete~~ Reduced: honest labels set correct expectations
 - **Root cause**: Gold Studio is still under development. Packets A-G complete, remaining work documented.
 - **Repair priority**: P3
-- **Status**: OPEN (known limitation)
+- **Status**: PARTIALLY REPAIRED (RP-07, 2026-03-22) — honest labels added to frontend. Backend capabilities unchanged.
+- **Repair packet**: RP-07
+- **Changes**: (1) Clusters page: stats strip shows "name-only" qualifier on confidence, maturity notice below stats, "Promote to Canonical" → "Mark Standalone". (2) Validation page: "Validation Rules" → "Validation Checks" with "structure only" notice, "Run Validation" → "Run Structure Check", reconciliation section labeled "manual entry only". (3) Schema discovery: no frontend change needed (not exposed as UI button).
 
 ### [AUDIT-012] 3/20 extraction: 99.3% failures caused by VPN/network outage
 - **Stage**: Engine extraction — 2026-03-20 (3 runs)

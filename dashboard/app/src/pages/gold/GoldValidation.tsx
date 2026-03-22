@@ -537,7 +537,7 @@ export default function GoldValidation() {
       {/* SLIDE-OVER: Validation Detail */}
       <SlideOver open={!!selSpec} onClose={() => { setSelSpec(null); setLatestRun(null); }} title={selSpec?.name ?? selSpec?.target_name ?? ""} subtitle="Validation Detail" footer={
         <div className="flex gap-2">
-          <button type="button" onClick={() => selSpec && runValidation(selSpec.id)} className="rounded-md px-4 py-2 text-sm font-medium hover:opacity-90" style={{ background: "var(--bp-copper)", color: "var(--bp-surface-1)", ...bf }}>Run Validation</button>
+          <button type="button" onClick={() => selSpec && runValidation(selSpec.id)} className="rounded-md px-4 py-2 text-sm font-medium hover:opacity-90" style={{ background: "var(--bp-copper)", color: "var(--bp-surface-1)", ...bf }}>Run Structure Check</button>
           {latestRun?.status === "failed" && <button type="button" onClick={() => setShowWaiver(true)} className="rounded-md px-4 py-2 text-sm font-medium hover:opacity-90" style={{ background: "var(--bp-caution-amber)", color: "var(--bp-surface-1)", ...bf }}>File Waiver</button>}
         </div>
       }>
@@ -554,7 +554,8 @@ export default function GoldValidation() {
           );
         })()}
 
-        <h3 className="mb-3" style={{ ...df, fontSize: 15, color: "var(--bp-ink-primary)" }}>Validation Rules</h3>
+        <h3 className="mb-1" style={{ ...df, fontSize: 15, color: "var(--bp-ink-primary)" }}>Validation Checks</h3>
+        <p style={{ ...bf, fontSize: 11, color: "var(--bp-ink-muted)", marginBottom: 12 }}>Structure only — checks SQL, columns, and target name. Data validation and reconciliation are planned.</p>
         <div className="rounded-lg overflow-hidden mb-6" style={{ border: "1px solid var(--bp-border)" }}>
           <table className="w-full">
             <thead><tr><th style={th}>Rule</th><th style={th}>Type</th><th style={th}>Expected</th><th style={th}>Actual</th><th style={th}>Status</th></tr></thead>
@@ -590,7 +591,8 @@ export default function GoldValidation() {
 
         {/* Reconciliation */}
         {reconciliation.length > 0 && (<>
-          <h3 className="mb-3" style={{ ...df, fontSize: 15, color: "var(--bp-ink-primary)" }}>Reconciliation</h3>
+          <h3 className="mb-1" style={{ ...df, fontSize: 15, color: "var(--bp-ink-primary)" }}>Reconciliation</h3>
+          <p style={{ ...bf, fontSize: 11, color: "var(--bp-ink-muted)", marginBottom: 12 }}>Manual entry only — automatic legacy-vs-gold comparison is planned.</p>
           <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--bp-border)" }}>
             <table className="w-full">
               <thead><tr><th style={th}>Metric</th><th style={th}>Legacy Value</th><th style={th}>Gold Value</th><th style={th}>Delta</th><th style={th}>Status</th></tr></thead>
