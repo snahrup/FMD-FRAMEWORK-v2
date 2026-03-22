@@ -627,8 +627,8 @@ export default function LoadCenter() {
         </div>
       )}
 
-      {/* Empty state — no sources registered or loaded */}
-      {!loading && status && (!status.sources || status.sources.length === 0) && (
+      {/* Empty state — sources exist but nothing has been loaded yet */}
+      {!loading && status && totals && totals.lz?.tables === 0 && totals.bronze?.tables === 0 && totals.silver?.tables === 0 && (
         <div style={{
           padding: "48px 32px",
           textAlign: "center",
