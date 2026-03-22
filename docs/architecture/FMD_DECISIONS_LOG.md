@@ -224,6 +224,28 @@ CREATE TABLE load_center_runs (
 
 ---
 
+### [D-011] 2026-03-20 — RP-06B: Watermark seeding is now column-type-aware
+
+**Decision**: `seed_watermark_values()` in `scripts/configure_incremental_loads.py` now detects whether a watermark column is datetime or integer before seeding:
+- **Datetime columns**: Seeded from pipeline execution timestamp (existing behavior, which is safe for datetime comparisons)
+- **Integer/identity columns**: Seeded from `MAX([wm_col])` captured during discovery, or skipped if unavailable (forces full-load, which self-seeds correctly via `_compute_watermark()`)
+- **Unknown type**: Skipped (safe default)
+
+One-time remediation: `scripts/remediate_watermarks.py` deletes 255 corrupted watermark entries and deactivates 3 phantom entity registrations for non-existent table `ipc_CSS_INVT_LOT_MASTER_2`.
+
+**Why**: The original `seed_watermark_values()` wrote pipeline execution timestamps as watermark values for ALL incremental entities regardless of column type. This caused 35+ SQL type conversion errors on integer watermark columns and incorrect incremental windows on 220+ datetime columns.
+
+**Impact**:
+- Watermark seeding will never produce type mismatches again
+- Discovery step now captures `MAX(wm_col)` for identity columns (reusable for seeding)
+- 255 entities will do one full-load cycle on next run, then self-correct via `_compute_watermark()`
+- 3 phantom entity registrations deactivated (will no longer fail every run)
+- Remediation script is idempotent — safe to re-run
+
+**Supersedes**: None (new fix for bug discovered in RP-06 audit)
+
+---
+
 ## Template for New Entries
 
 ```

@@ -7,8 +7,10 @@ Connects to on-prem source SQL servers (VPN required) and:
   2. Discovers watermark columns for incremental loads (datetime/identity)
   3. Updates metadata DB: IsIncremental + IsIncrementalColumn on LandingzoneEntity
   4. Updates metadata DB: PrimaryKeys on BronzeLayerEntity
-  5. Seeds LastLoadValue with last successful LZ execution timestamp per entity
-     (so the next run is immediately incremental — no wasted full-load cycle)
+  5. Seeds LastLoadValue with column-type-aware values:
+     - Datetime watermark columns: seeded from last successful LZ execution timestamp
+     - Integer/identity watermark columns: seeded from MAX(wm_col) on the source table
+     - Unknown column type: skipped (forces safe full-load, engine self-seeds via _compute_watermark)
 
 Watermark priority:
   rowversion (SKIP — binary can't compare as varchar)
@@ -16,7 +18,7 @@ Watermark priority:
   *Created*/*Inserted* datetime  → priority 3
   identity column               → priority 4
   other datetime                → priority 5
-  (Only priority ≤ 3 auto-qualify as incremental)
+  (Priority ≤ 3 and identity columns auto-qualify as incremental)
 
 Usage:
     python scripts/configure_incremental_loads.py              # run for real
@@ -25,6 +27,11 @@ Usage:
 
 Requires: VPN connected (for source SQL servers), pyodbc
 Author: Steve Nahrup
+
+History:
+  RP-06B (2026-03-20): Fixed seed_watermark_values to be column-type-aware.
+    Previously seeded ALL columns with pipeline timestamps, causing SQL type
+    conversion errors on integer watermark columns (AUDIT-013). See D-011.
 """
 
 import argparse
@@ -244,7 +251,8 @@ def discover_watermarks(meta_conn, dry_run=False):
         except Exception as e:
             print(f"  Watermark discovery failed: {e}")
 
-        src_conn.close()
+        # NOTE: src_conn stays open — needed for MAX(wm_col) queries in entity loop below.
+        # Closed after entity processing is complete.
 
         # Get entities for this datasource
         meta_cursor.execute(
@@ -265,6 +273,7 @@ def discover_watermarks(meta_conn, dry_run=False):
                 "id": eid, "ns": ns, "schema": schema, "name": table,
                 "primary_keys": None, "watermark_col": None, "watermark_type": None,
                 "watermark_priority": None, "watermark_candidates": [],
+                "watermark_max_value": None,
                 "is_incremental": False,
             }
 
@@ -286,17 +295,38 @@ def discover_watermarks(meta_conn, dry_run=False):
                     print(f"    [WARN] Failed to update PrimaryKeys for entity {eid}: {e}")
 
             # Determine incremental load strategy
+            # Priority <= 3 = datetime watermark (auto-qualifies)
+            # Priority 4 = identity column (also qualifies — RP-06B)
             candidates = wm_map.get(key, [])
             result["watermark_candidates"] = candidates
             watermarks = sorted(candidates, key=lambda w: w["priority"])
             best_wm = watermarks[0] if watermarks else None
-            if best_wm and best_wm["priority"] <= 3:
+            qualifies = best_wm and (best_wm["priority"] <= 3 or best_wm.get("is_identity"))
+            if qualifies:
                 ds_inc += 1
                 total_incremental += 1
                 result["watermark_col"] = best_wm["column"]
                 result["watermark_type"] = best_wm["type"]
                 result["watermark_priority"] = best_wm["priority"]
                 result["is_incremental"] = True
+
+                # RP-06B: For identity/integer columns, capture MAX value from source
+                # so seed_watermark_values can use the real value, not a timestamp
+                if best_wm.get("is_identity") and not dry_run:
+                    try:
+                        safe_s = schema.replace("]", "]]")
+                        safe_t = table.replace("]", "]]")
+                        safe_c = best_wm["column"].replace("]", "]]")
+                        src_cursor.execute(
+                            f"SELECT MAX([{safe_c}]) FROM [{safe_s}].[{safe_t}]"
+                        )
+                        max_row = src_cursor.fetchone()
+                        if max_row and max_row[0] is not None:
+                            result["watermark_max_value"] = str(max_row[0])
+                    except Exception as e:
+                        # Non-fatal: seed step will skip this entity (forces full load)
+                        pass
+
                 try:
                     meta_cursor.execute(
                         "UPDATE integration.LandingzoneEntity "
@@ -312,6 +342,9 @@ def discover_watermarks(meta_conn, dry_run=False):
 
         print(f"  {len(entities)} entities: {ds_pks} PKs, {ds_inc} incremental")
 
+        # Close source connection after all entity processing (including MAX queries)
+        src_conn.close()
+
     return {
         "total": total_entities,
         "incremental": total_incremental,
@@ -320,14 +353,30 @@ def discover_watermarks(meta_conn, dry_run=False):
     }
 
 
-def seed_watermark_values(meta_conn, dry_run=False):
-    """Seed LastLoadValue from last successful LZ execution timestamps.
+def seed_watermark_values(meta_conn, dry_run=False, discovery_results=None):
+    """Seed LastLoadValue with column-type-aware values.
 
-    For entities that are now marked IsIncremental=1 but have empty/no LastLoadValue,
-    uses the most recent successful LZ pipeline execution timestamp as the watermark.
-    This avoids a wasted full-load cycle.
+    Column type detection (RP-06B fix):
+    - datetime columns: seed from last successful LZ execution timestamp (safe)
+    - integer/identity columns: seed from MAX([wm_col]) captured during discovery,
+      or skip if discovery results aren't available (forces full-load, which is safe
+      because the engine's _compute_watermark() correctly seeds from actual data)
+
+    Previous behavior (BUG): seeded ALL columns with pipeline execution timestamps,
+    causing SQL type conversion errors on integer watermark columns (35+ entities).
+    See AUDIT-013 in FMD_PIPELINE_TRUTH_AUDIT.md.
     """
     cursor = meta_conn.cursor()
+
+    # Build a lookup of discovery results for column type + MAX values
+    disc_lookup = {}  # entity_id -> {watermark_type, watermark_max_value}
+    if discovery_results and discovery_results.get("results"):
+        for r in discovery_results["results"]:
+            if r.get("is_incremental") and r.get("watermark_type"):
+                disc_lookup[r["id"]] = {
+                    "type": r["watermark_type"],
+                    "max_value": r.get("watermark_max_value"),  # populated during discovery
+                }
 
     # Find incremental entities with missing/empty watermark values
     cursor.execute("""
@@ -352,7 +401,12 @@ def seed_watermark_values(meta_conn, dry_run=False):
     seeded = 0
     skipped_has_value = 0
     skipped_no_exec = 0
+    skipped_int_no_max = 0
     total = len(rows)
+
+    # Column names that are almost certainly integers (heuristic fallback
+    # when discovery results aren't available)
+    _INT_SUFFIXES = ('_id', 'id', '_num', 'seq', 'sequ', 'number', 'row_number')
 
     print(f"\n  Found {total} incremental entities to check for watermark seeding")
 
@@ -366,23 +420,60 @@ def seed_watermark_values(meta_conn, dry_run=False):
             skipped_has_value += 1
             continue
 
-        # Need a timestamp to seed with
-        if not last_load:
-            skipped_no_exec += 1
+        # Determine column type from discovery results or heuristic
+        disc = disc_lookup.get(eid, {})
+        col_type = disc.get("type")  # e.g. 'datetime', 'datetime2', 'int', 'bigint'
+        is_datetime_col = col_type in ('datetime', 'datetime2', 'datetimeoffset', 'smalldatetime') if col_type else None
+
+        # Heuristic fallback when no discovery data
+        if is_datetime_col is None:
+            col_lower = incr_col.lower()
+            if any(col_lower.endswith(s) or col_lower == s for s in _INT_SUFFIXES):
+                is_datetime_col = False
+            elif any(kw in col_lower for kw in ('date', 'time', 'modif', 'updat', 'creat', 'chang')):
+                is_datetime_col = True
+            else:
+                # Unknown type — safer to skip than to seed with wrong type
+                is_datetime_col = None
+
+        # Determine seed value based on column type
+        if is_datetime_col:
+            # Datetime column: pipeline execution timestamp is acceptable
+            if not last_load:
+                skipped_no_exec += 1
+                if dry_run:
+                    print(f"    [DRY] {ns}.{schema}.{table} — datetime col, no LZ execution, skip")
+                continue
+            seed_value = last_load.strftime('%Y-%m-%d %H:%M:%S') if hasattr(last_load, 'strftime') else str(last_load)
+            seed_source = "exec_timestamp"
+        elif is_datetime_col is False:
+            # Integer/identity column: need MAX from source, or skip
+            max_val = disc.get("max_value")
+            if max_val is not None:
+                seed_value = str(max_val)
+                seed_source = "source_max"
+            else:
+                skipped_int_no_max += 1
+                if dry_run:
+                    print(f"    [DRY] {ns}.{schema}.{table} — int col '{incr_col}', no MAX available, skip (will full-load)")
+                else:
+                    print(f"    [SKIP] {ns}.{schema}.{table} — int col '{incr_col}', no MAX available (will full-load then self-seed)")
+                continue
+        else:
+            # Unknown type — skip to be safe
+            skipped_int_no_max += 1
             if dry_run:
-                print(f"    [DRY] {ns}.{schema}.{table} — no LZ execution found, would skip")
+                print(f"    [DRY] {ns}.{schema}.{table} — unknown type for '{incr_col}', skip (will full-load)")
+            else:
+                print(f"    [SKIP] {ns}.{schema}.{table} — unknown type for '{incr_col}' (will full-load then self-seed)")
             continue
 
-        # Use the last successful LZ load timestamp as watermark seed
-        seed_value = last_load.strftime('%Y-%m-%d %H:%M:%S') if hasattr(last_load, 'strftime') else str(last_load)
-
         if dry_run:
-            print(f"    [DRY] {ns}.{schema}.{table} — would seed watermark '{incr_col}' = '{seed_value}'")
+            print(f"    [DRY] {ns}.{schema}.{table} — would seed '{incr_col}' = '{seed_value}' (via {seed_source})")
             seeded += 1
             continue
 
         try:
-            # Upsert the LastLoadValue
             cursor.execute("""
                 IF EXISTS (SELECT 1 FROM execution.LandingzoneEntityLastLoadValue WHERE LandingzoneEntityId = ?)
                     UPDATE execution.LandingzoneEntityLastLoadValue
@@ -400,10 +491,12 @@ def seed_watermark_values(meta_conn, dry_run=False):
     print(f"\n  Watermark Seeding Results:")
     print(f"    Seeded: {seeded}")
     print(f"    Already had value: {skipped_has_value}")
-    print(f"    No LZ execution (can't seed): {skipped_no_exec}")
+    print(f"    No LZ execution (datetime cols): {skipped_no_exec}")
+    print(f"    Int/unknown cols skipped (will full-load): {skipped_int_no_max}")
     print(f"    Total incremental entities: {total}")
 
-    return {"seeded": seeded, "skipped_has_value": skipped_has_value, "skipped_no_exec": skipped_no_exec}
+    return {"seeded": seeded, "skipped_has_value": skipped_has_value,
+            "skipped_no_exec": skipped_no_exec, "skipped_int_no_max": skipped_int_no_max}
 
 
 def main():
@@ -439,11 +532,12 @@ def main():
         print(f"\n  Discovery Summary: {discovery_results['total']} entities, "
               f"{discovery_results['pks']} PKs, {discovery_results['incremental']} incremental")
 
-    # Step 2: Seed watermark values
+    # Step 2: Seed watermark values (column-type-aware, RP-06B)
     print("\n" + "-" * 50)
-    print("STEP 2: Seed Watermark Values from Execution History")
+    print("STEP 2: Seed Watermark Values (column-type-aware)")
     print("-" * 50)
-    seed_results = seed_watermark_values(meta_conn, dry_run=args.dry_run)
+    seed_results = seed_watermark_values(meta_conn, dry_run=args.dry_run,
+                                         discovery_results=discovery_results)
 
     meta_conn.close()
 
@@ -471,7 +565,9 @@ def main():
     print("DONE")
     if not args.dry_run and discovery_results and discovery_results["incremental"] > 0:
         print(f"\n  {discovery_results['incremental']} entities configured for incremental loads.")
-        print(f"  {seed_results['seeded']} watermark values seeded from execution history.")
+        print(f"  {seed_results['seeded']} watermark values seeded (datetime from exec history, integer from source MAX).")
+        if seed_results.get('skipped_int_no_max', 0) > 0:
+            print(f"  {seed_results['skipped_int_no_max']} integer/unknown columns skipped (will full-load then self-seed).")
         print(f"  Next LZ run will use incremental queries (only new/changed rows).")
     elif args.dry_run:
         print("\n  This was a dry run. Re-run without --dry-run to apply changes.")
