@@ -268,6 +268,25 @@ One-time remediation: `scripts/remediate_watermarks.py` deletes 255 corrupted wa
 
 ---
 
+### [D-013] 2026-03-22 — RP-08: Load Center refresh polling + empty state
+
+**Decision**: Two Load Center UX fixes:
+1. **Refresh polling**: `handleRefresh` now polls `GET /status` every 2s until `refreshRunning` becomes false, instead of a hardcoded 2s `setTimeout`. Each poll updates the UI with fresh data, so the user sees progress in real time.
+2. **Empty state**: When `status.sources` is empty (no loaded data), the page now shows a guidance panel with icon, explanation text, and action buttons (Preview Run + Refresh from SQL Endpoint) instead of a blank table.
+
+**Why**: The hardcoded 2s timeout was a known fragile pattern — SQL Endpoint scans can take 10-30s depending on Fabric load, so the frontend would reload before the scan completed and show stale data. The empty state was missing entirely — new installs or fresh environments showed zeros with no explanation of what to do.
+
+**Impact**:
+- Refresh button stays in "refreshing" state until the scan actually finishes
+- UI updates progressively during the poll (user sees counts ticking up)
+- Max poll duration: ~2 minutes (60 iterations × 2s), then gives up gracefully
+- Empty state guides new users toward Source Manager registration and first load
+- No backend changes required — all fixes are frontend-only
+
+**Supersedes**: None
+
+---
+
 ## Template for New Entries
 
 ```
