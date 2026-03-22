@@ -472,13 +472,26 @@ export default function LoadCenter() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await postJson("/load-center/refresh");
-      // Wait a moment then reload
-      setTimeout(() => loadStatus(true), 2000);
+      const resp = await postJson<{ status: string }>("/load-center/refresh");
+      if (resp.status === "already_running") {
+        // Another refresh is in progress — just poll for its completion
+      }
+      // Poll /status until refreshRunning becomes false
+      const poll = async () => {
+        for (let i = 0; i < 60; i++) { // max ~2min
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const data = await fetchJson<StatusResponse>("/load-center/status");
+            setStatus(data);
+            if (!data.refreshRunning) return;
+          } catch { /* keep polling */ }
+        }
+      };
+      await poll();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Refresh failed");
     } finally {
-      setTimeout(() => setRefreshing(false), 3000);
+      setRefreshing(false);
     }
   };
 
@@ -611,6 +624,54 @@ export default function LoadCenter() {
       {loading && !status && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 40, justifyContent: "center", color: "var(--bp-ink-muted)" }}>
           <Loader2 style={{ width: 18, height: 18, animation: "spin 1s linear infinite" }} /> Loading physical counts...
+        </div>
+      )}
+
+      {/* Empty state — no sources registered or loaded */}
+      {!loading && status && (!status.sources || status.sources.length === 0) && (
+        <div style={{
+          padding: "48px 32px",
+          textAlign: "center",
+          background: "var(--bp-surface-1)",
+          border: "1px solid var(--bp-border)",
+          borderRadius: 12,
+        }}>
+          <Database style={{ width: 40, height: 40, color: "var(--bp-ink-muted)", margin: "0 auto 16px", opacity: 0.5 }} />
+          <h2 style={{ fontSize: 18, fontWeight: 600, color: "var(--bp-ink-primary)", margin: "0 0 8px" }}>
+            No loaded sources yet
+          </h2>
+          <p style={{ fontSize: 14, color: "var(--bp-ink-muted)", maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>
+            The Load Center shows table and row counts from engine run history.
+            Register entities in the Source Manager, then run a load to see data here.
+          </p>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+            <button
+              onClick={handleDryRun}
+              disabled={runLoading}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "8px 16px", borderRadius: 6, fontSize: 13, fontWeight: 500,
+                border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)",
+                color: "var(--bp-ink-secondary)", cursor: "pointer",
+              }}
+            >
+              <Zap style={{ width: 14, height: 14 }} />
+              Preview Run
+            </button>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "8px 16px", borderRadius: 6, fontSize: 13, fontWeight: 500,
+                border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)",
+                color: "var(--bp-ink-secondary)", cursor: "pointer",
+              }}
+            >
+              <RefreshCw style={{ width: 14, height: 14 }} />
+              Refresh from SQL Endpoint
+            </button>
+          </div>
         </div>
       )}
 

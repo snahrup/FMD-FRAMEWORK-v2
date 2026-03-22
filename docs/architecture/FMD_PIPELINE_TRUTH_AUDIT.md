@@ -205,6 +205,30 @@
 - **Repair packet**: RP-06B
 - **Fix applied**: `scripts/remediate_watermarks.py` deactivates entities 597, 1725, 1727 (entity 1667 was already inactive)
 
+### [AUDIT-015] Load Center refresh uses hardcoded 2s timeout
+- **Stage**: Load Center — `LoadCenter.tsx` handleRefresh
+- **Expected**: Frontend waits until the background SQL Endpoint scan actually completes before reloading
+- **Actual**: ~~`setTimeout(() => loadStatus(true), 2000)` — reloads after a fixed 2s regardless of whether the scan is done~~
+- **Real vs Stubbed**: Real mechanism, poor timing
+- **Mismatch**: ~~Refresh button shows "done" but data may not yet be updated~~
+- **Impact**: ~~User sees stale counts after clicking Refresh, has to manually reload~~
+- **Root cause**: Frontend used a guess (2s) instead of polling the `refreshRunning` flag that the backend already exposes in `/status`.
+- **Repair priority**: P2
+- **Status**: REPAIRED (RP-08, 2026-03-22) — frontend now polls `/status` every 2s until `refreshRunning` becomes false, updating the UI with each poll response
+- **Repair packet**: RP-08
+
+### [AUDIT-016] Load Center has no empty state guidance
+- **Stage**: Load Center — `LoadCenter.tsx`
+- **Expected**: When no sources have loaded data, show helpful guidance on what to do next
+- **Actual**: ~~KPIs show 0/—, sources table is empty, no explanation~~
+- **Real vs Stubbed**: Not a data bug — missing UX
+- **Mismatch**: ~~New users or fresh installs see a blank page with no guidance~~
+- **Impact**: ~~User doesn't know what to do — no explanation that entities need to be registered and loaded first~~
+- **Root cause**: No empty state component existed.
+- **Repair priority**: P3
+- **Status**: REPAIRED (RP-08, 2026-03-22) — empty state with icon, explanation, and action buttons (Preview Run + Refresh from SQL Endpoint) now renders when sources array is empty
+- **Repair packet**: RP-08
+
 ---
 
 ## Superseded Entries

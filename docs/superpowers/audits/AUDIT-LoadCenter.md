@@ -1,9 +1,9 @@
 # Page Truth Audit: LoadCenter
 
-**Date:** 2026-03-19
-**Auditor:** bright-falcon
+**Date:** 2026-03-19 (original) | **Updated:** 2026-03-22 (RP-08 re-audit)
+**Auditor:** bright-falcon (original) | sharp-tower (re-audit)
 **Route:** `/load-center`
-**Health:** 🟡 Fragile
+**Health:** 🟢 Functional (upgraded from 🟡 Fragile — RP-01/04/05/08 applied)
 
 ---
 
@@ -24,8 +24,8 @@
 
 | Role | File | Lines |
 |------|------|-------|
-| Page component | `dashboard/app/src/pages/LoadCenter.tsx` | 713 |
-| API route | `dashboard/app/api/routes/load_center.py` | 774 |
+| Page component | `dashboard/app/src/pages/LoadCenter.tsx` | ~780 |
+| API route | `dashboard/app/api/routes/load_center.py` | ~930 |
 
 ---
 
@@ -33,11 +33,11 @@
 
 | Endpoint | Method | Data Source | Status |
 |----------|--------|-------------|--------|
-| `/api/load-center/status` | GET | SQLite: `lakehouse_row_counts` + `engine_task_log` + entity tables | ✅ Real |
-| `/api/load-center/source-detail` | GET | Same tables | ✅ Real |
-| `/api/load-center/refresh` | POST | Fabric SQL Endpoint | ⚠️ Fragile — VPN + SP token required |
-| `/api/load-center/run` | POST | SQLite entities | 🔴 **BROKEN — `_build_source_lookup` is undefined** |
-| `/api/load-center/run-status` | GET | In-memory `_run_state` | ⚠️ Orphan — frontend never calls it |
+| `/api/load-center/status` | GET | SQLite: `engine_task_log` (primary) + `lakehouse_row_counts` (enrichment) + entity tables | ✅ Real (RP-01) |
+| `/api/load-center/source-detail` | GET | Same tables | ✅ Real (RP-01) |
+| `/api/load-center/refresh` | POST | Fabric SQL Endpoint | ⚠️ Fragile — VPN + SP token required. ~~Hardcoded 2s timeout~~ → poll-based (RP-08) |
+| `/api/load-center/run` | POST | SQLite entities → engine/start or Fabric notebooks | ✅ Real (~~_build_source_lookup crash~~ fixed in RP-01 rewrite) |
+| `/api/load-center/run-status` | GET | In-memory `_run_state` + SQLite `load_center_runs` | ✅ Real (RP-05). ~~Orphan~~ — frontend gets run state via `/status` response. |
 
 ### External Dependencies
 - [x] Requires Fabric token (SQL Endpoint for refresh)
@@ -49,11 +49,17 @@
 
 ## 4. Data Contracts
 
-### `/api/load-center/run` — CRITICAL CRASH
-Both "Preview Run" and "Load Everything" call this endpoint. The handler calls `_build_source_lookup()` at line 422, which is undefined. **NameError at runtime — 500 on every call.**
+### `/api/load-center/run` — ~~CRITICAL CRASH~~ FIXED
+~~Both "Preview Run" and "Load Everything" call this endpoint. The handler calls `_build_source_lookup()` at line 422, which is undefined.~~
 
-### Row counts — semantic mismatch
-Row counts come from `engine_task_log.RowsWritten` (last successful load), NOT current physical row counts. If rows are deleted or tables truncated after load, counts are stale.
+**Fixed in RP-01 rewrite.** The entire `/run` endpoint was rewritten. It now:
+1. Queries all active entities with Bronze/Silver/watermark state
+2. Categorizes into fullLoad / incremental / gapFill / needsOptimize
+3. Dry run returns the plan
+4. Non-dry run starts worker thread → engine/start → notebook fallback
+
+### Row counts — semantic mismatch (known limitation)
+Row counts come from `engine_task_log.RowsWritten` (last successful load), NOT current physical row counts. Incremental loads show deltas with Δ indicator (RP-04). Physical totals available via "Refresh Counts" button.
 
 ---
 
@@ -63,10 +69,10 @@ Row counts come from `engine_task_log.RowsWritten` (last successful load), NOT c
 |-------|---------|----------|-------------|
 | Loading | Initial fetch | ✅ | Spinner |
 | Error | Fetch fail | ✅ | Red error banner |
-| Empty | No data | ❌ | **KPIs show 0, empty table, no guidance** |
+| Empty | No data | ✅ | Empty state with guidance (RP-08) |
 | Success | Data loaded | ✅ | KPIs + source rows |
 | Run active | Load running | ✅ | Auto-refresh 5s, run banner |
-| Refreshing | POST /refresh | ⚠️ | Button disabled, **hardcoded 3s timeout doesn't match actual duration** |
+| Refreshing | POST /refresh | ✅ | Button disabled, poll for completion (RP-08) |
 | Re-fetching | Subsequent load | ❌ | **No indicator — spinner gated on `!status`** |
 
 ---
@@ -75,26 +81,17 @@ Row counts come from `engine_task_log.RowsWritten` (last successful load), NOT c
 
 | Feature | Classification | Evidence |
 |---------|---------------|----------|
-| Table counts per source per layer | 🟢 Real | SQLite `lakehouse_row_counts` |
-| Row counts per source per layer | 🟢 Real | `engine_task_log` merge |
+| Table counts per source per layer | 🟢 Real | `engine_task_log` (RP-01) |
+| Row counts per source per layer | 🟢 Real | `engine_task_log.RowsWritten` with Δ labels (RP-04) |
 | Gap detection | 🟢 Real | Cross-layer comparison |
 | Source drill-down | 🟢 Real | `/source-detail` endpoint |
 | Refresh from SQL Endpoint | 🟢 Real but fragile | Requires Fabric availability |
-| **Preview Run (dry run)** | 🔴 **Broken** | `_build_source_lookup` undefined |
-| **Load Everything** | 🔴 **Broken** | Same crash |
-| Gap-fill auto-registration | 🟡 Real but unreachable | Code exists, blocked by crash |
-| Notebook trigger fallback | 🟡 Real but unreachable | Code exists, blocked by crash |
-| Run progress auto-refresh | 🟢 Real | 5s polling |
-| MethodBadge component | ⚫ Dead code | Defined but never rendered |
-
-### Misleading UI
-
-1. **"Load Everything" button** — Appears clickable, crashes on click (500)
-2. **"Preview Run" button** — Same crash
-3. **Row counts as physical truth** — Actually from last load's `RowsWritten`, not current state
-4. **"Refresh Counts"** — Only refreshes table counts, not row counts from engine log
-5. **Green check on source rows** — Equal table counts ≠ same tables
-6. **"Physical tables from lakehouse scan"** subtitle — Data is from cache, could be days old
+| Preview Run (dry run) | 🟢 Real | ~~_build_source_lookup crash~~ fixed in RP-01 rewrite |
+| Load Everything | 🟢 Real | ~~Same crash~~ fixed in RP-01 rewrite |
+| Gap-fill auto-registration | 🟢 Real | `_ensure_bronze_registration` / `_ensure_silver_registration` |
+| Notebook trigger fallback | 🟢 Real | Falls back when engine unavailable |
+| Run progress auto-refresh | 🟢 Real | 5s polling via `/status` response |
+| Run state persistence | 🟢 Real | SQLite `load_center_runs` table (RP-05) |
 
 ---
 
@@ -102,78 +99,49 @@ Row counts come from `engine_task_log.RowsWritten` (last successful load), NOT c
 
 | Action | Endpoint | Risk |
 |--------|----------|------|
-| Refresh | POST `/load-center/refresh` | Mostly safe — read-only from Fabric. Race condition on `_refresh_running` flag. |
-| Dry Run | POST `/load-center/run` (dryRun:true) | **BROKEN — crashes before execution** |
-| Run | POST `/load-center/run` (dryRun:false) | **BROKEN — crashes before execution** |
+| Refresh | POST `/load-center/refresh` | Mostly safe — read-only from Fabric. Uses `_refresh_lock` + `_refresh_running` flag. |
+| Dry Run | POST `/load-center/run` (dryRun:true) | ✅ Safe — read-only categorization |
+| Run | POST `/load-center/run` (dryRun:false) | ⚠️ Triggers engine or notebooks — irreversible |
 
-**Thread safety issues:** `_run_state` is reassigned outside lock. `_refresh_running` is a global bool without atomic access.
+**Thread safety:** `_run_state` uses `.clear()` + `.update()` under `_run_lock` (RP-05). `_refresh_running` uses `_refresh_lock`.
 
 ---
 
 ## 8. Root-Cause Bug Clusters
 
-### Cluster A: `_build_source_lookup` undefined — CRITICAL
-Both run buttons crash. The entire "smart load" feature is dead.
-- **Fix:** Implement the function or remove the call (source lookup may not even be needed)
+### ~~Cluster A: `_build_source_lookup` undefined — CRITICAL~~ FIXED (RP-01)
+The entire `/run` endpoint was rewritten in RP-01. The function no longer exists or is referenced.
 
-### Cluster B: Stale data presented as live truth
-Row counts from `engine_task_log` reflect last load, not current state. Subtitle implies live scan.
-- **Fix:** Add staleness warning, clarify data source in UI
+### Cluster B: Stale data presented as live truth — KNOWN LIMITATION
+Row counts from `engine_task_log` reflect last load, not current state. RP-04 added Δ labels for incremental loads. Physical scan via "Refresh Counts" is the only way to get true totals.
 
-### Cluster C: Refresh timing mismatch
-Frontend waits 3s then reloads, but actual SQL Endpoint queries take 10-60+ seconds.
-- **Fix:** Poll for completion instead of hardcoded timeout
+### ~~Cluster C: Refresh timing mismatch~~ FIXED (RP-08)
+~~Frontend waits 3s then reloads.~~ Now polls backend for refresh completion.
 
-### Cluster D: Thread safety
-`_run_state` and `_refresh_running` accessed from multiple threads without consistent locking.
-- **Fix:** Use mutable dict with lock, never reassign
+### ~~Cluster D: Thread safety~~ FIXED (RP-05)
+`_run_state` uses `.clear()` + `.update()` under `_run_lock`. `_refresh_running` uses `_refresh_lock`.
 
 ---
 
-## 9. Minimal Repair Order
+## 9. Remaining Items
 
-| Priority | Fix | Cluster | Effort | Impact |
-|----------|-----|---------|--------|--------|
-| 1 | Fix `_build_source_lookup` — implement or remove | A | S | Critical — unblocks entire smart load |
-| 2 | Fix refresh timing — poll instead of 3s timeout | C | S | High — refresh actually works |
-| 3 | Add empty state for fresh installs | — | S | Medium — UX |
-| 4 | Fix thread safety on `_run_state` | D | S | Medium — prevents race conditions |
-| 5 | Add staleness warning when data > 1h old | B | S | Low — transparency |
-| 6 | Show re-fetch indicator during refresh | — | S | Low — UX |
-
----
-
-## 10. Proposed Packet Sequence
-
-### Packet A: Truth & Alignment
-- [ ] Fix or remove `_build_source_lookup` call
-- [ ] Fix thread safety (use `.clear()` + `.update()` under lock)
-- [ ] Fix green-check logic to compare table sets, not just counts
-
-### Packet B: Page Shell
-- [ ] Add empty state for fresh installs
-- [ ] Add staleness warning when scannedAt > 1 hour
-- [ ] Add re-fetch indicator during status reload
-- [ ] Remove MethodBadge dead code
-
-### Packet C: Core Workflows
-- [ ] Fix refresh flow — poll for completion instead of hardcoded timeout
-- [ ] Wire frontend to run-status endpoint (or fold into status poll)
-- [ ] Replace self-call HTTP to engine/start with direct function call
-
-### Packet D: Hardening & Polish
-- [ ] Add confirmation before "Load Everything"
-- [ ] Add error recovery — allow retry without page refresh
-- [ ] Add source filter to run (currently loads everything always)
+| Priority | Issue | Effort | Status |
+|----------|-------|--------|--------|
+| 1 | ~~Fix `_build_source_lookup`~~ | — | FIXED (RP-01) |
+| 2 | ~~Fix refresh timing~~ | S | FIXED (RP-08) |
+| 3 | ~~Add empty state~~ | S | FIXED (RP-08) |
+| 4 | ~~Fix thread safety~~ | S | FIXED (RP-05) |
+| 5 | Re-fetch indicator during status reload | S | OPEN (P3) |
+| 6 | Confirmation before "Load Everything" | S | OPEN (P3) |
+| 7 | Source filter for run (load specific sources) | M | OPEN (P3) |
 
 ---
 
-## 11. Verification Checklist
+## 10. Repair History
 
-- [ ] "Load Everything" executes without crash
-- [ ] "Preview Run" shows accurate plan
-- [ ] Refresh waits for actual completion before reloading
-- [ ] Empty state renders on fresh install
-- [ ] Staleness is visible when data is old
-- [ ] Thread safety verified under concurrent access
-- [ ] No console errors or 500s
+| Packet | Date | What |
+|--------|------|------|
+| RP-01 | 2026-03-20 | Rewired data source from `lakehouse_row_counts` to `engine_task_log`. Eliminated `_build_source_lookup` crash. |
+| RP-04 | 2026-03-20 | Added full vs incremental distinction with Δ labels. |
+| RP-05 | 2026-03-20 | Run state persisted to SQLite. Thread safety via locks. |
+| RP-08 | 2026-03-22 | Fixed refresh polling, added empty state, updated stale audit doc. |
