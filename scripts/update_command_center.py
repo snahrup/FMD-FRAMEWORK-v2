@@ -24,30 +24,53 @@ OUTPUT = ROOT / "docs" / "PACKET_COMMAND_CENTER.html"
 
 PACKETS = [
     # Truth lane (RP-NN)
-    {"id": "RP-01", "title": "Load Center rewired to engine_task_log", "prs": [3, 4, 5], "lane": "truth"},
-    {"id": "RP-02", "title": "Overview two-tier freshness + loaded/registered", "prs": [3, 4, 5], "lane": "truth"},
-    {"id": "RP-03", "title": "Entity Status routes migrated from deprecated table", "prs": [3, 4, 5], "lane": "truth"},
-    {"id": "RP-04", "title": "Full vs incremental row distinction", "prs": [3, 4, 5], "lane": "truth"},
-    {"id": "RP-05", "title": "Run state persisted to SQLite", "prs": [3, 4, 5], "lane": "truth"},
-    {"id": "RP-06", "title": "3/20 extraction failure audit", "prs": [7], "lane": "truth"},
-    {"id": "RP-06B", "title": "Watermark remediation + seed hardening", "prs": [8], "lane": "truth"},
-    {"id": "RP-06C", "title": "Connectivity verified, all 5 sources extract", "prs": [9], "lane": "truth"},
-    {"id": "RP-07", "title": "Gold Studio honest labels", "prs": [10], "lane": "truth"},
-    {"id": "RP-08", "title": "Load Center refresh polling + empty state", "prs": [12], "lane": "truth"},
-    # Census / docs (merged between RP-07 and RP-08 chronologically)
-    {"id": "Census", "title": "Dashboard packet map and audit baseline", "prs": [11], "lane": "truth"},
-    {"id": "RP-09", "title": "Source Manager truth alignment", "prs": [], "lane": "truth"},
-    {"id": "RP-10", "title": "Gateway connection infrastructure", "prs": [], "lane": "truth"},
-    {"id": "RP-11", "title": "Config Manager GUIDs + cascade modal", "prs": [], "lane": "truth"},
-    {"id": "RP-12", "title": "Overview activity panel enum mismatch", "prs": [], "lane": "truth"},
+    # "why" = plain-English impact shown in the dashboard's signal boxes
+    {"id": "RP-01", "title": "Load Center rewired to engine_task_log", "prs": [3, 4, 5], "lane": "truth",
+     "why": "Load Center was showing zeros for all table counts because it read from an empty cache table instead of the real engine log."},
+    {"id": "RP-02", "title": "Overview two-tier freshness + loaded/registered", "prs": [3, 4, 5], "lane": "truth",
+     "why": "Overview was claiming 0% data freshness after any failed run, and showing registered entity counts as if they were loaded tables."},
+    {"id": "RP-03", "title": "Entity Status routes migrated from deprecated table", "prs": [3, 4, 5], "lane": "truth",
+     "why": "Multiple pages were reading from a deprecated entity_status table that disagreed with actual engine results, causing phantom failures."},
+    {"id": "RP-04", "title": "Full vs incremental row distinction", "prs": [3, 4, 5], "lane": "truth",
+     "why": "Incremental load deltas were being displayed as total row counts, making it look like tables had far fewer rows than reality."},
+    {"id": "RP-05", "title": "Run state persisted to SQLite", "prs": [3, 4, 5], "lane": "truth",
+     "why": "Load Center lost all run state when you navigated away or refreshed the page. Now persists through restarts."},
+    {"id": "RP-06", "title": "3/20 extraction failure audit", "prs": [7], "lane": "truth",
+     "why": "Root-caused why the 3/20 extraction run failed: VPN outage, watermark type mismatches, and phantom source tables."},
+    {"id": "RP-06B", "title": "Watermark remediation + seed hardening", "prs": [8], "lane": "truth",
+     "why": "255 watermark entries had wrong column types, causing incremental loads to silently skip data. Seed script now validates types."},
+    {"id": "RP-06C", "title": "Connectivity verified, all 5 sources extract", "prs": [9], "lane": "truth",
+     "why": "Confirmed all 5 source databases are reachable and extracting cleanly after the VPN outage fix."},
+    {"id": "RP-07", "title": "Gold Studio honest labels", "prs": [10], "lane": "truth",
+     "why": "Gold Studio was presenting naive clustering and structure-only validation as production-ready features. Labels now disclose limitations."},
+    {"id": "RP-08", "title": "Load Center refresh polling + empty state", "prs": [12], "lane": "truth",
+     "why": "Load Center had a hardcoded 2-second delay instead of real polling, and showed a confusing blank page on fresh installs."},
+    # Census / docs
+    {"id": "Census", "title": "Dashboard packet map and audit baseline", "prs": [11], "lane": "truth",
+     "why": "Established the master inventory of all 53 routes, what's been audited, and what packets are needed."},
+    {"id": "RP-09", "title": "Source Manager truth alignment", "prs": [13], "lane": "truth",
+     "why": "Clicking 'Analyze' on a source shows 'undefined' everywhere because the frontend expects a rich analysis result the backend doesn't return. Also, 'Discover & Register' silently misses SqlServer-type connections due to a filter bug."},
+    {"id": "RP-10", "title": "Gateway connection infrastructure", "prs": [], "lane": "truth",
+     "why": "The Gateway Connections section is completely broken — no backend endpoint exists. Connections KPI always shows 0. Wizard Step 1 can't list available databases."},
+    {"id": "RP-11", "title": "Config Manager GUIDs + cascade modal", "prs": [], "lane": "truth",
+     "why": "Config Manager shows blank pipeline GUIDs and the cascade deletion modal has display issues, making it unsafe to manage pipeline configs."},
+    {"id": "RP-12", "title": "Overview activity panel enum mismatch", "prs": [], "lane": "truth",
+     "why": "Overview activity feed may show wrong icons or labels because the frontend status enums don't match what the backend actually sends."},
     # UI lane (UP-NN)
-    {"id": "UP-01", "title": "Font token fix (--font-display → --bp-font-display)", "prs": [], "lane": "ui"},
-    {"id": "UP-02", "title": "DataProfiler hex purge (30+ hardcoded colors)", "prs": [], "lane": "ui"},
-    {"id": "UP-03", "title": "ExecutionMatrix hex purge (7+ chart colors)", "prs": [], "lane": "ui"},
-    {"id": "UP-04", "title": "EngineControl LogLine (8 log-level colors)", "prs": [], "lane": "ui"},
-    {"id": "UP-05", "title": "DataLineage layer badges", "prs": [], "lane": "ui"},
-    {"id": "UP-06", "title": "Table header standardization", "prs": [], "lane": "ui"},
-    {"id": "UP-07", "title": "Minor token cleanup (ConfigManager, DatabaseExplorer)", "prs": [], "lane": "ui"},
+    {"id": "UP-01", "title": "Font token fix (--font-display → --bp-font-display)", "prs": [], "lane": "ui",
+     "why": "4 pages use the wrong CSS variable for display fonts, so they fall back to the browser default instead of the design system font."},
+    {"id": "UP-02", "title": "DataProfiler hex purge (30+ hardcoded colors)", "prs": [], "lane": "ui",
+     "why": "DataProfiler has 30+ hardcoded hex colors that won't respond to theme changes and look inconsistent with the rest of the dashboard."},
+    {"id": "UP-03", "title": "ExecutionMatrix hex purge (7+ chart colors)", "prs": [], "lane": "ui",
+     "why": "Chart colors in Execution Matrix are hardcoded hex values instead of design tokens, breaking visual consistency."},
+    {"id": "UP-04", "title": "EngineControl LogLine (8 log-level colors)", "prs": [], "lane": "ui",
+     "why": "Log level colors (info/warn/error) are hardcoded hex instead of semantic tokens, making them inconsistent with the alert system."},
+    {"id": "UP-05", "title": "DataLineage layer badges", "prs": [], "lane": "ui",
+     "why": "Layer badge colors in Data Lineage are hardcoded, so they don't match the LZ/Bronze/Silver color convention used elsewhere."},
+    {"id": "UP-06", "title": "Table header standardization", "prs": [], "lane": "ui",
+     "why": "Some tables use generic Tailwind backgrounds while others use design system surface tokens, creating visible inconsistency."},
+    {"id": "UP-07", "title": "Minor token cleanup (ConfigManager, DatabaseExplorer)", "prs": [], "lane": "ui",
+     "why": "Scattered hardcoded #fff and #FEFDFB values that should be design system tokens."},
 ]
 
 PAGES = [
@@ -512,12 +535,16 @@ code {{ background:var(--panel2); padding:2px 6px; border-radius:6px; font-size:
       </div>
       <div class="hero-right">
         <div class="signal">
-          <strong>Current state</strong>
-          <span>{"<strong>" + current["id"] + ": " + current["title"] + "</strong> is the active packet." if current else "All scoped truth packets are merged."}</span>
+          <strong>In progress</strong>
+          <span>{"<strong>" + current["id"] + ": " + current["title"] + "</strong>" if current else "All scoped truth packets are merged."}</span>
         </div>
         <div class="signal">
-          <strong>What 100% covered actually means</strong>
-          <span>Every route audited, every truth candidate resolved or waived, every UI/token candidate resolved or waived, census refreshed so docs match reality.</span>
+          <strong>Why this matters</strong>
+          <span>{current.get("why", "No active packet.") if current else "No active packet — all scoped truth work is merged."}</span>
+        </div>
+        <div class="signal">
+          <strong>What comes next</strong>
+          <span>{"<strong>" + next_up["id"] + ":</strong> " + next_up.get("why", next_up["title"]) if next_up else "No further packets scoped yet."}</span>
         </div>
       </div>
     </div>
