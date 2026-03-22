@@ -725,16 +725,13 @@ export function SourceOnboardingWizard({
       <div className="bg-card rounded-xl border border-border p-6">
         <div className="flex items-center gap-3 mb-3">
           <h2 className="text-lg font-semibold text-foreground">Source Onboarding</h2>
-          <span className="text-xs bg-[#FDF3E3] dark:bg-[#C27A1A]/20 text-[#C27A1A] px-2 py-0.5 rounded-full font-medium">
-            Setup Required
+          <span className="text-xs bg-destructive/10 text-destructive px-2 py-0.5 rounded-full font-medium">
+            API Unavailable
           </span>
         </div>
-        <p className="text-sm text-muted-foreground mb-3">
-          Run the migration script to enable onboarding tracking:
+        <p className="text-sm text-muted-foreground">
+          Could not reach the onboarding API. Make sure the dashboard API server is running.
         </p>
-        <code className="text-xs font-mono bg-muted border border-border rounded-lg px-3 py-2 block">
-          scripts/create_source_onboarding.sql
-        </code>
       </div>
     );
   }
@@ -1609,11 +1606,11 @@ export function SourceOnboardingWizard({
                           </button>
                         ) : importComplete ? (
                           <a
-                            href="/"
+                            href="/load-center"
                             className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm transition-colors"
                           >
                             <ExternalLink className="h-4 w-4" />
-                            View Import Progress
+                            View in Load Center
                           </a>
                         ) : importError ? (
                           <button
