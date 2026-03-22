@@ -226,7 +226,7 @@
 - **Impact**: ~~User doesn't know what to do — no explanation that entities need to be registered and loaded first~~
 - **Root cause**: No empty state component existed.
 - **Repair priority**: P3
-- **Status**: REPAIRED (RP-08, 2026-03-22) — empty state with icon, explanation, and action buttons (Preview Run + Refresh from SQL Endpoint) now renders when sources array is empty
+- **Status**: REPAIRED (RP-08, 2026-03-22) — empty state with icon, explanation, and action buttons (Preview Run + Refresh from SQL Endpoint) now renders when all layer table counts are zero (`totals.lz.tables === 0 && totals.bronze.tables === 0 && totals.silver.tables === 0`)
 - **Repair packet**: RP-08
 
 ---
