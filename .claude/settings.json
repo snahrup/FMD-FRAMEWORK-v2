@@ -1,2 +1,15 @@
 {
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/hooks/post_merge_update.sh"
+          }
+        ]
+      }
+    ]
+  }
 }

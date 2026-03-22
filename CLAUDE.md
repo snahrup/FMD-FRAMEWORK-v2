@@ -35,6 +35,8 @@ Fabric Metadata-Driven (FMD) Framework: an enterprise data pipeline for Microsof
 11. No opportunistic refactors during failure remediation.
 12. All UI must scale to N sources (never hardcode source count).
 13. `docs/data-source-audit.html` is the source of truth for dashboard data sources.
+14. **After merging any PR**, run `python scripts/update_command_center.py` and commit the updated `docs/PACKET_COMMAND_CENTER.html`. A PostToolUse hook handles this automatically, but if it fails, do it manually.
+15. To add a new packet to the command center, edit the `PACKETS` and/or `PAGES` lists in `scripts/update_command_center.py`, then regenerate.
 
 ## Note-Taking
 
