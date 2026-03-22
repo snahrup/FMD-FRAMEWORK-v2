@@ -1,116 +1,324 @@
 # Dashboard Census — Packet Map & Audit Coverage
 
-> One inventory of what's been through the audit/packet workflow and what hasn't.
+> Complete inventory of every dashboard page: what's been audited, what hasn't, and what needs work.
 > Date: 2026-03-22 | Author: Steve Nahrup
 
 ---
 
 ## How to Read This
 
-Every page/subsystem in the dashboard is listed below with one of three statuses:
+Every nav-visible page is listed with an **audit status** and findings classified into **4 buckets**:
+
+| Bucket | Abbrev | What It Covers |
+|--------|--------|---------------|
+| **Data Truth** | DT | Source-of-truth issues — wrong table, wrong query, wrong metric formula |
+| **Workflow** | WF | State management, integration, broken buttons, missing endpoints |
+| **UI Consistency** | UI | Visual drift — mismatched fonts, spacing, badge styles, layout inconsistencies |
+| **Design Tokens** | TK | Hardcoded colors/fonts instead of `var(--bp-*)` tokens |
+
+Audit status per page:
 
 | Status | Meaning |
 |--------|---------|
-| **PACKETIZED** | Has been through audit → triage → repair packet → implementation → PR → merge |
-| **PARTIALLY** | Has audit doc OR partial repairs, but not fully through the workflow |
-| **NOT YET** | No audit, no packet, no truth doc coverage |
+| **PACKETIZED** | Audit → triage → repair packet → PR → merged |
+| **PARTIALLY** | Has audit doc OR incidental fixes, not fully through workflow |
+| **NOT YET** | No audit, no packet |
 
-"Packetized" means: there is a documented audit finding AND a repair packet that addressed it. The fix might not cover 100% of the page, but the systematic workflow was applied.
+**Packetization rule**: DT and WF issues get **truth repair packets** (RP-NN). UI and TK issues get separate **UI packets** (UP-NN). Never mix them unless the change is tiny and directly adjacent.
 
 ---
 
-## Navigation Inventory (19 visible items + 6 portal items)
+## Page-by-Page Inventory
 
-### Engineering Sidebar (19 items in 7 groups)
+### 1. Overview — `/overview` — BusinessOverview.tsx
+**Audit status: PACKETIZED** | Packets: RP-02, RP-03
 
-#### Overview Group
-| # | Nav Label | Route | Page File | Audit Status | Packets | Notes |
-|---|-----------|-------|-----------|-------------|---------|-------|
-| 1 | Overview | `/overview` | BusinessOverview.tsx | **PACKETIZED** | RP-02 (KPIs), RP-03 (entity_status) | AUDIT-003 freshness fixed. AUDIT-005 loaded-vs-registered partially fixed. AUDIT-BusinessOverview.md exists — found additional bugs (activity panel status enum mismatch) still OPEN. |
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | AUDIT-003: Freshness showed 0% after failed run → two-tier freshness (RP-02). AUDIT-005: Registered shown as loaded → loaded/registered split (RP-02). AUDIT-004: entity_status disagreement → all routes on engine_task_log (RP-03). | REPAIRED |
+| WF | Activity panel status enum mismatch: backend returns `"loaded"`, frontend filters for `"success"`/`"error"` → panel shows empty. | OPEN (P2) |
+| UI | Clean. Uses `.bp-card`, `SeverityBadge`, `SourceBadge` components. Best example to follow. | GOOD |
+| TK | Compliant — proper `var(--bp-font-*)` and `var(--bp-*)` token usage throughout. | GOOD |
 
-#### Load Group
-| # | Nav Label | Route | Page File | Audit Status | Packets | Notes |
-|---|-----------|-------|-----------|-------------|---------|-------|
-| 2 | Load Center | `/load-center` | LoadCenter.tsx | **PACKETIZED** | RP-01 (data source), RP-04 (incremental Δ), RP-05 (run state) | AUDIT-001, -002, -007, -008 all REPAIRED. AUDIT-006 (auto-refresh) P3 open. AUDIT-LoadCenter.md exists — found "Load Everything" button crash still OPEN. |
-| 3 | Source Manager | `/sources` | SourceManager.tsx | **PARTIALLY** | RP-03 (entity_status dep removed) | AUDIT-SourceManager.md exists — found missing `/api/gateway-connections`, import phases 2-5 stubbed, analyze-source shape mismatch. No repair packet yet. |
+**Truth repair candidate**: WF activity panel enum mismatch (P2)
+**UI packet candidate**: None needed
 
-#### Monitor Group
-| # | Nav Label | Route | Page File | Audit Status | Packets | Notes |
-|---|-----------|-------|-----------|-------------|---------|-------|
-| 4 | Execution Matrix | `/matrix` | ExecutionMatrix.tsx | **PARTIALLY** | RP-03 (entity_status dep removed) | Status derivation fixed. No dedicated audit doc. No dedicated repair packet. |
-| 5 | Error Intelligence | `/errors` | ErrorIntelligence.tsx | **NOT YET** | — | No audit, no packet. Reads engine_task_log directly (likely correct). |
-| 6 | Execution Log | `/logs` | ExecutionLog.tsx | **NOT YET** | — | No audit, no packet. Reads pipeline execution tables. |
+---
 
-#### Explore Group
-| # | Nav Label | Route | Page File | Audit Status | Packets | Notes |
-|---|-----------|-------|-----------|-------------|---------|-------|
-| 7 | SQL Explorer | `/sql-explorer` | SqlExplorer.tsx | **NOT YET** | — | Standalone tool. Reads on-prem + lakehouse SQL. |
-| 8 | Data Blender | `/blender` | DataBlender.tsx | **NOT YET** | — | Standalone tool. Reads source tables for join analysis. |
-| 9 | Data Lineage | `/lineage` | DataLineage.tsx | **NOT YET** | — | Column-level lineage visualization. |
-| 10 | Data Catalog | `/catalog` | DataCatalog.tsx | **NOT YET** | — | Entity catalog browser. |
-| 11 | Data Profiler | `/profile` | DataProfiler.tsx | **NOT YET** | — | Column profiling. |
+### 2. Load Center — `/load-center` — LoadCenter.tsx
+**Audit status: PACKETIZED** | Packets: RP-01, RP-04, RP-05
 
-#### Gold Studio Group
-| # | Nav Label | Route | Page File | Audit Status | Packets | Notes |
-|---|-----------|-------|-----------|-------------|---------|-------|
-| 12 | Ledger | `/gold/ledger` | GoldLedger.tsx | **PARTIALLY** | RP-07 (honest labels — but ledger was already honest) | AUDIT-011 covers Gold Studio as a whole. Extraction is REAL (Packet G). No per-page audit doc. |
-| 13 | Clusters | `/gold/clusters` | GoldClusters.tsx | **PACKETIZED** | RP-07 (honest labels) | AUDIT-011. Clustering is NAIVE (name-only, 80% hardcoded). Labels now honest. |
-| 14 | Canonical | `/gold/canonical` | GoldCanonical.tsx | **PARTIALLY** | — | AUDIT-011 covers it. REAL functionality. No per-page audit. |
-| 15 | Specifications | `/gold/specs` | GoldSpecs.tsx | **PARTIALLY** | — | AUDIT-011 covers it. REAL functionality. No per-page audit. |
-| 16 | Validation | `/gold/validation` | GoldValidation.tsx | **PACKETIZED** | RP-07 (honest labels) | AUDIT-011. Validation is STRUCTURE-ONLY (3 checks). Labels now honest. |
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | AUDIT-001: Read empty `lakehouse_row_counts` → engine_task_log (RP-01). AUDIT-002: Drill-down dashes → fallback chain (RP-01). AUDIT-007: Incremental shown as total → Δ labels (RP-04). AUDIT-006: Auto-refresh never fires → demoted to P3. | REPAIRED (P3 residual) |
+| WF | AUDIT-008: Run state lost on nav → SQLite persistence (RP-05). "Load Everything" + "Preview Run" buttons crash: `_build_source_lookup` undefined. | OPEN (P1) |
+| UI | Consistent BP token usage. `thStyle` object reused for table headers. | GOOD |
+| TK | Compliant — hardcoded padding values (not tokens) but colors are tokenized. | MINOR |
 
-#### Quality Group
-| # | Nav Label | Route | Page File | Audit Status | Packets | Notes |
-|---|-----------|-------|-----------|-------------|---------|-------|
-| 17 | DQ Scorecard | `/labs/dq-scorecard` | DqScorecard.tsx | **NOT YET** | — | Labs page. |
-| 18 | Cleansing Rules | `/labs/cleansing` | CleansingRuleEditor.tsx | **NOT YET** | — | Labs page. |
-| 19 | SCD Audit | `/labs/scd-audit` | ScdAudit.tsx | **NOT YET** | — | Labs page. |
+**Truth repair candidate**: WF button crash (P1 — needs its own packet)
+**UI packet candidate**: None needed
 
-#### Admin Group
-| # | Nav Label | Route | Page File | Audit Status | Packets | Notes |
-|---|-----------|-------|-----------|-------------|---------|-------|
-| 20 | Config Manager | `/config` | ConfigManager.tsx | **PARTIALLY** | — | AUDIT-ConfigManager.md exists — found missing GUID columns, cascade modal broken, deploy stub 501. No repair packet yet. |
-| 21 | Environment Setup | `/setup` | EnvironmentSetup.tsx | **NOT YET** | — | Setup wizard. |
-| 22 | Database Explorer | `/db-explorer` | DatabaseExplorer.tsx | **NOT YET** | — | Raw table browser on control plane DB. |
-| 23 | Settings | `/settings` | Settings.tsx | **NOT YET** | — | App settings. |
+---
 
-### Business Portal Sidebar (6 items)
-| # | Nav Label | Route | Page File | Audit Status | Packets | Notes |
-|---|-----------|-------|-----------|-------------|---------|-------|
-| 24 | Overview | `/overview` | BusinessOverview.tsx | **PACKETIZED** | (same as #1) | Shared page between engineering and portal. |
-| 25 | Alerts | `/alerts` | BusinessAlerts.tsx | **NOT YET** | — | Reads engine_task_log. |
-| 26 | Sources | `/sources-portal` | BusinessSources.tsx | **PARTIALLY** | RP-03 (entity_status dep removed) | No dedicated audit doc. |
-| 27 | Catalog | `/catalog-portal` | BusinessCatalog.tsx | **PARTIALLY** | RP-03 (entity_status dep removed) | No dedicated audit doc. |
-| 28 | Requests | `/requests` | BusinessRequests.tsx | **NOT YET** | — | Request management. |
-| 29 | Help | `/help` | BusinessHelp.tsx | **NOT YET** | — | Help page. |
+### 3. Source Manager — `/sources` — SourceManager.tsx
+**Audit status: PARTIALLY** | Packets: RP-03 (entity_status removal only)
 
-### Hidden Routes (not in nav, but routed in App.tsx)
-| Route | Page File | Audit Status | Notes |
-|-------|-----------|-------------|-------|
-| `/engine` | EngineControl.tsx | **PARTIALLY** | AUDIT-EngineControl.md exists — ghost endpoint, type mismatches. No repair packet. |
-| `/control` | ControlPlane.tsx | **NOT YET** | Removed from nav. |
-| `/admin` | AdminGateway.tsx | **NOT YET** | Removed from nav. |
-| `/flow` | FlowExplorer.tsx | **NOT YET** | Removed from nav. |
-| `/counts` | RecordCounts.tsx | **NOT YET** | Removed from nav. |
-| `/journey` | DataJourney.tsx | **NOT YET** | Removed from nav. |
-| `/notebook-config` | NotebookConfig.tsx | **NOT YET** | Removed from nav. |
-| `/runner` | PipelineRunner.tsx | **NOT YET** | Removed from nav. |
-| `/validation` | ValidationChecklist.tsx | **NOT YET** | Removed from nav. |
-| `/notebook-debug` | NotebookDebug.tsx | **NOT YET** | Removed from nav. |
-| `/live` | LiveMonitor.tsx | **NOT YET** | Removed from nav. |
-| `/load-progress` | LoadProgress.tsx | **NOT YET** | Removed from nav. |
-| `/columns` | ColumnEvolution.tsx | **NOT YET** | Removed from nav. |
-| `/microscope` | DataMicroscope.tsx | **NOT YET** | Removed from nav. |
-| `/sankey` | SankeyFlow.tsx | **NOT YET** | Removed from nav. |
-| `/replay` | TransformationReplay.tsx | **NOT YET** | Removed from nav. |
-| `/pulse` | ImpactPulse.tsx | **NOT YET** | Removed from nav. |
-| `/test-audit` | TestAudit.tsx | **NOT YET** | Dev tooling. |
-| `/test-swarm` | TestSwarm.tsx | **NOT YET** | Dev tooling. |
-| `/mri` | MRI.tsx | **NOT YET** | Dev tooling. |
-| `/labs/gold-mlv` | GoldMlvManager.tsx | **NOT YET** | Already labeled "Coming Soon" / "Labs". |
-| `/catalog-portal/:id` | DatasetDetail.tsx | **NOT YET** | Detail page for catalog entries. |
-| `/impact` | ImpactAnalysis.tsx | **NOT YET** | Removed from nav. |
-| `/classification` | DataClassification.tsx | **NOT YET** | Removed from nav. |
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | entity_status dependency removed (RP-03). No other DT issues found. | REPAIRED |
+| WF | `/api/gateway-connections` has no backend route (P1). `/api/analyze-source` returns wrong object structure (P2). Import phases 2-5 stubbed (P2). VPN required for discovery/optimization. | OPEN |
+| UI | Consistent BP token usage. | GOOD |
+| TK | Compliant. | GOOD |
+
+**Truth repair candidate**: WF missing endpoint + shape mismatch (needs packet)
+**UI packet candidate**: None needed
+**Existing audit doc**: AUDIT-SourceManager.md
+
+---
+
+### 4. Execution Matrix — `/matrix` — ExecutionMatrix.tsx
+**Audit status: PARTIALLY** | Packets: RP-03 (entity_status removal only)
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Status derivation fixed via `get_canonical_entity_status()` (RP-03). | REPAIRED |
+| WF | No known issues. | OK |
+| UI | Recharts bar chart has hardcoded colors in tick/tooltip. Badge styles are inline (no reusable component). | MODERATE |
+| TK | 7+ hardcoded hex colors: `#1C1917`, `#78716C`, `#A8A29E`, `#FEFDFB`, `#57534E`, `#3D7C4F`, `#B93A2A`. Wrong font token: `var(--font-display)` (missing `bp-` prefix). | CRITICAL |
+
+**Truth repair candidate**: None
+**UI packet candidate**: YES — token violations (hardcoded hex, wrong font var)
+
+---
+
+### 5. Error Intelligence — `/errors` — ErrorIntelligence.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Reads engine_task_log directly — likely correct but unverified. | UNAUDITED |
+| WF | Unaudited. | UNAUDITED |
+| UI | Uses `<Badge>` component + inline styles (clean pattern). Consistent across severity levels. | GOOD |
+| TK | Compliant — proper BP token usage. | GOOD |
+
+**Truth repair candidate**: Needs audit (users diagnose failures here)
+**UI packet candidate**: None needed
+
+---
+
+### 6. Execution Log — `/logs` — ExecutionLog.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Reads pipeline execution tables — unverified. | UNAUDITED |
+| WF | Unaudited. | UNAUDITED |
+| UI | Mixed Tailwind + inline styles for status badges. Table headers use `text-muted-foreground` (generic) instead of BP tokens. | MODERATE |
+| TK | Wrong font token: `var(--font-mono)` and `var(--font-display)` (missing `bp-` prefix). Hardcoded `#1C1917` in cell styles. | HIGH |
+
+**Truth repair candidate**: Needs audit
+**UI packet candidate**: YES — font token fix + hardcoded color
+
+---
+
+### 7. SQL Explorer — `/sql-explorer` — SqlExplorer.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Standalone query tool — low DT risk. | LOW RISK |
+| WF | Unaudited. | UNAUDITED |
+| UI | Mostly compliant. Badge at line 139 mixes hardcoded `rgba(180,86,36,0.2)` with BP token. | MINOR |
+| TK | One badge opacity hardcoded, otherwise compliant. | MINOR |
+
+**Truth repair candidate**: Low priority (standalone tool)
+**UI packet candidate**: Minor badge fix
+
+---
+
+### 8. Data Blender — `/blender` — DataBlender.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Standalone join analysis tool — low DT risk. | LOW RISK |
+| WF | Unaudited. | UNAUDITED |
+| UI | Clean layout. | OK |
+| TK | Wrong font token: `var(--font-display)` (missing `bp-` prefix). Hardcoded `#1C1917`. | HIGH |
+
+**Truth repair candidate**: Low priority (standalone tool)
+**UI packet candidate**: YES — font token fix
+
+---
+
+### 9. Data Lineage — `/lineage` — DataLineage.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Column-level lineage — unverified. | UNAUDITED |
+| WF | Unaudited. | UNAUDITED |
+| UI | Hardcoded layer badge colors (`#E2E8F0`, `#475569`). Mixed `rgba` borders. | MODERATE |
+| TK | Hardcoded hex in badge backgrounds. Table headers mix tokens with hardcoded rgba. | HIGH |
+
+**Truth repair candidate**: Needs audit
+**UI packet candidate**: YES — hardcoded layer colors
+
+---
+
+### 10. Data Catalog — `/catalog` — DataCatalog.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Entity catalog — unverified. | UNAUDITED |
+| WF | Unaudited. | UNAUDITED |
+| UI | Grid-based layout (no tables). Compliant. | GOOD |
+| TK | Compliant — no violations found. | GOOD |
+
+**Truth repair candidate**: Needs audit
+**UI packet candidate**: None needed
+
+---
+
+### 11. Data Profiler — `/profile` — DataProfiler.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Column profiling — unverified. | UNAUDITED |
+| WF | Unaudited. | UNAUDITED |
+| UI | Inconsistent spacing. | MODERATE |
+| TK | **30+ hardcoded hex colors** in `TYPE_MAP` and `LAYER_COLORS` constants. Hardcoded `#EDEAE4`, `#FEFDFB`, `#78716C` in inline styles. | CRITICAL |
+
+**Truth repair candidate**: Needs audit
+**UI packet candidate**: YES — worst token violator in the codebase
+
+---
+
+### 12–16. Gold Studio — `/gold/*`
+**Audit status: PACKETIZED (Clusters, Validation) / PARTIALLY (Ledger, Canonical, Specs)**
+
+| Page | Route | Packets | DT | WF | UI | TK |
+|------|-------|---------|----|----|----|----|
+| Ledger | `/gold/ledger` | — | Extraction REAL (Packet G) | OK | GOOD | GOOD |
+| Clusters | `/gold/clusters` | RP-07 | AUDIT-011: naive name matching → honest labels | OK | GOOD | GOOD |
+| Canonical | `/gold/canonical` | — | REAL functionality | OK | GOOD | GOOD |
+| Specs | `/gold/specs` | — | REAL functionality | OK | GOOD | GOOD |
+| Validation | `/gold/validation` | RP-07 | AUDIT-011: 3 structure checks → honest labels | OK | GOOD | GOOD |
+
+Gold Studio pages are the most design-system-compliant in the codebase (built latest, with BP tokens from the start).
+
+**Truth repair candidate**: None remaining (RP-07 covered honest labels)
+**UI packet candidate**: None needed
+
+---
+
+### 17. DQ Scorecard — `/labs/dq-scorecard` — DqScorecard.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Unaudited. | UNAUDITED |
+| WF | Unaudited. | UNAUDITED |
+| UI | "Coming Soon" placeholder. Redundant className + inline fontFamily. | MINOR |
+| TK | Compliant (minimal content). | OK |
+
+---
+
+### 18. Cleansing Rules — `/labs/cleansing` — CleansingRuleEditor.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Unaudited. | UNAUDITED |
+| WF | Unaudited. | UNAUDITED |
+| UI | "Coming Soon" placeholder. Same redundancy as DQ Scorecard. | MINOR |
+| TK | Compliant (minimal content). | OK |
+
+---
+
+### 19. SCD Audit — `/labs/scd-audit` — ScdAudit.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Unaudited. | UNAUDITED |
+| WF | Unaudited. | UNAUDITED |
+| UI | "Coming Soon" placeholder. Same redundancy. | MINOR |
+| TK | Compliant (minimal content). | OK |
+
+---
+
+### 20. Config Manager — `/config` — ConfigManager.tsx
+**Audit status: PARTIALLY** | Existing audit: AUDIT-ConfigManager.md
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Pipeline GUID columns blank (missing in SELECT). | OPEN (P2) |
+| WF | Cascade modal never triggers (`refData.count` always undefined). Deploy endpoint returns 501. | OPEN (P2, P3) |
+| UI | Clean layout. | OK |
+| TK | Hardcoded `#fff` white text, hardcoded `#FEFDFB` backgrounds. | MODERATE |
+
+**Truth repair candidate**: YES — blank GUIDs, broken cascade modal
+**UI packet candidate**: Minor token fixes
+
+---
+
+### 21. Database Explorer — `/db-explorer` — DatabaseExplorer.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | Raw table browser on control plane DB — low DT risk. | LOW RISK |
+| WF | Unaudited. | UNAUDITED |
+| UI | Mostly compliant. | GOOD |
+| TK | One hardcoded `#fff` white text. Otherwise compliant. | MINOR |
+
+---
+
+### 22. Environment Setup — `/setup` — EnvironmentSetup.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT–TK | Unaudited. Multi-file setup wizard. | UNAUDITED |
+
+---
+
+### 23. Settings — `/settings` — Settings.tsx
+**Audit status: NOT YET**
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT–TK | Unaudited. Multi-file settings area. | UNAUDITED |
+
+---
+
+### 24. Engine Control — `/engine` — EngineControl.tsx (hidden from nav)
+**Audit status: PARTIALLY** | Existing audit: AUDIT-EngineControl.md
+
+| Bucket | Findings | Status |
+|--------|----------|--------|
+| DT | All capabilities real (start/stop/plan/retry/metrics/logs/SSE). | OK |
+| WF | Ghost endpoint `/api/engine/jobs` polled every 15s → always 404 (P2). Type mismatches in `last_run` + `layers` response fields (P2). | OPEN |
+| UI | Table headers use `bg-muted` (generic Tailwind) instead of BP tokens. RunSummaryModal uses `shadow-2xl` (BP uses zero shadows). | MODERATE |
+| TK | LogLine component: 8 hardcoded hex colors (`#f87171`, `#fbbf24`, `#93c5fd`, `#9ca3af`, `#fca5a5`, `#fde68a`, `#e2e8f0`, `#6b7280`). | CRITICAL |
+
+**Truth repair candidate**: YES — ghost endpoint, type mismatches
+**UI packet candidate**: YES — LogLine hex colors, table header tokens
+
+---
+
+### Business Portal Pages (25–29)
+
+| # | Page | Route | DT | WF | UI | TK |
+|---|------|-------|----|----|----|-----|
+| 25 | Alerts | `/alerts` | UNAUDITED (reads engine_task_log) | UNAUDITED | OK | Select missing fontFamily (line 505) |
+| 26 | Sources | `/sources-portal` | RP-03 (entity_status removed) | UNAUDITED | OK | OK |
+| 27 | Catalog | `/catalog-portal` | RP-03 (entity_status removed) | UNAUDITED | OK | OK |
+| 28 | Requests | `/requests` | UNAUDITED | UNAUDITED | OK | OK |
+| 29 | Help | `/help` | N/A | N/A | OK | OK |
 
 ---
 
@@ -118,101 +326,59 @@ Every page/subsystem in the dashboard is listed below with one of three statuses
 
 | Category | Count | Packetized | Partially | Not Yet |
 |----------|-------|-----------|-----------|---------|
-| **Nav-visible pages** | 29 | 4 | 8 | 17 |
+| **Nav-visible (engineering)** | 23 | 4 | 5 | 14 |
+| **Nav-visible (portal)** | 6 | 1 | 2 | 3 |
 | **Hidden routes** | 24 | 0 | 1 | 23 |
-| **Total** | 53 | **4 (8%)** | **9 (17%)** | **40 (75%)** |
-
-### Packetized (4)
-1. Overview (RP-02, RP-03)
-2. Load Center (RP-01, RP-04, RP-05)
-3. Gold Clusters (RP-07)
-4. Gold Validation (RP-07)
-
-### Partially Covered (9)
-5. Source Manager — has audit doc, no repair packet
-6. Execution Matrix — entity_status removed, no audit doc
-7. Gold Ledger — AUDIT-011 covers it
-8. Gold Canonical — AUDIT-011 covers it
-9. Gold Specifications — AUDIT-011 covers it
-10. Config Manager — has audit doc, no repair packet
-11. Engine Control — has audit doc, no repair packet
-12. Business Sources — entity_status removed, no audit doc
-13. Business Catalog — entity_status removed, no audit doc
-
-### Not Yet (40)
-Everything else — error intelligence, execution log, SQL explorer, data blender, data lineage, data catalog, data profiler, all quality/labs pages, all admin pages except config manager, all business portal pages except overview, all 24 hidden routes.
+| **Total** | 53 | **5 (9%)** | **8 (15%)** | **40 (75%)** |
 
 ---
 
-## Existing Truth Docs & Packets
+## Candidate Packet List
 
-### Foundation Documents (4)
-| Doc | What It Covers |
-|-----|---------------|
-| FMD_DATA_BIBLE.md | Data flow, storage layers, authoritative tables |
-| FMD_DATA_REGISTRY.yaml | Machine-readable page → endpoint → table map |
-| FMD_METRIC_DEFINITIONS.md | KPI formulas and sources |
-| FMD_PIPELINE_TRUTH_AUDIT.md | 14 AUDIT entries (mismatch ledger) |
+### Truth Repair Candidates (RP-NN)
 
-### Decision Records (12)
-D-001 through D-012 in FMD_DECISIONS_LOG.md
+| Priority | Page | Issue | Severity | Existing Audit |
+|----------|------|-------|----------|----------------|
+| **1** | Load Center | "Load Everything" + "Preview Run" crash (`_build_source_lookup` undefined) | P1 | AUDIT-LoadCenter.md |
+| **2** | Source Manager | Missing `/api/gateway-connections` endpoint + analyze-source shape mismatch + stubbed imports | P1/P2 | AUDIT-SourceManager.md |
+| **3** | Engine Control | Ghost endpoint `/api/engine/jobs` (404 noise) + type mismatches | P2 | AUDIT-EngineControl.md |
+| **4** | Config Manager | Blank pipeline GUIDs + broken cascade modal | P2 | AUDIT-ConfigManager.md |
+| **5** | Overview | Activity panel status enum mismatch | P2 | (in AUDIT-BusinessOverview.md) |
+| **6** | Error Intelligence | Unaudited — users diagnose failures here | — | None |
+| **7** | Business Alerts | Unaudited — reads engine_task_log, same enum bug class as Overview | — | None |
+| **8** | Execution Log | Unaudited — pipeline execution history | — | None |
+
+### UI Packet Candidates (UP-NN)
+
+| Priority | Scope | Issue | Severity | Pages |
+|----------|-------|-------|----------|-------|
+| **1** | Font token fix | `var(--font-display)` → `var(--bp-font-display)` everywhere | CRITICAL | ExecutionMatrix, ExecutionLog, DataBlender, DataProfiler |
+| **2** | DataProfiler hex purge | 30+ hardcoded colors in TYPE_MAP / LAYER_COLORS | CRITICAL | DataProfiler |
+| **3** | ExecutionMatrix hex purge | 7+ hardcoded hex in chart tick/tooltip/bar colors | CRITICAL | ExecutionMatrix |
+| **4** | EngineControl LogLine | 8 hardcoded hex for log level colors | CRITICAL | EngineControl |
+| **5** | DataLineage layer badges | Hardcoded `#E2E8F0`, `#475569` in badge backgrounds | HIGH | DataLineage |
+| **6** | Table header standardization | Some use `bg-muted` (generic), some `var(--bp-surface-1)` (correct) | MODERATE | EngineControl, ExecutionLog |
+| **7** | Minor token fixes | Scattered `#fff`, `#FEFDFB` hardcodes | LOW | ConfigManager, DatabaseExplorer, DataBlender |
+
+### Mixed Candidates (truth + UI in same page, but keep packets separate)
+- **Engine Control**: truth packet for ghost endpoint/type mismatches + separate UI packet for LogLine hex
+- **Execution Log**: truth audit first, then UI packet for font tokens
+
+---
+
+## Existing Truth Docs Index
+
+### Foundation (4)
+- `FMD_DATA_BIBLE.md` — data flow and storage layers
+- `FMD_DATA_REGISTRY.yaml` — page → endpoint → table map
+- `FMD_METRIC_DEFINITIONS.md` — KPI formulas
+- `FMD_PIPELINE_TRUTH_AUDIT.md` — 14 AUDIT entries
+
+### Decisions (12)
+D-001 through D-012 in `FMD_DECISIONS_LOG.md`
 
 ### Repair Packets (9)
-RP-01 through RP-07 (with RP-06B and RP-06C as sub-packets)
+RP-01 through RP-07 (including RP-06B, RP-06C)
 
 ### Page Audit Docs (5)
-AUDIT-BusinessOverview.md, AUDIT-LoadCenter.md, AUDIT-EngineControl.md, AUDIT-ConfigManager.md, AUDIT-SourceManager.md
-
----
-
-## Recommended Next-Priority Subsystems
-
-Based on: user-facing visibility, data correctness risk, and existing audit findings.
-
-### Tier 1 — Has audit doc with known open bugs (repair packet needed)
-| Priority | Page | Why | Existing Audit |
-|----------|------|-----|----------------|
-| **1** | Source Manager | Missing backend endpoint, import phases stubbed, shape mismatch. Users hit this early in onboarding flow. | AUDIT-SourceManager.md |
-| **2** | Engine Control | Ghost endpoint polled every 15s (404 noise), type mismatches in last_run. Users monitor runs here. | AUDIT-EngineControl.md |
-| **3** | Config Manager | Pipeline GUIDs blank, cascade modal broken, deploy stub 501. Admin-facing but misleading. | AUDIT-ConfigManager.md |
-
-### Tier 2 — Nav-visible, no audit yet, likely data-correctness risk
-| Priority | Page | Why |
-|----------|------|-----|
-| **4** | Error Intelligence | Reads engine_task_log directly — probably correct, but unaudited. Users go here to diagnose failures. |
-| **5** | Execution Log | Shows pipeline/copy/notebook execution history. Unaudited. |
-| **6** | Business Alerts | Reads engine_task_log. Status enum mapping not verified (same bug class as Overview activity panel). |
-| **7** | Business Sources | entity_status removed (RP-03) but no dedicated audit. |
-| **8** | Business Catalog | entity_status removed (RP-03) but no dedicated audit. |
-
-### Tier 3 — Nav-visible tools (lower data-correctness risk)
-| Priority | Page | Why |
-|----------|------|-----|
-| **9** | SQL Explorer | Standalone tool, lower risk of data misrepresentation. |
-| **10** | Data Blender | Standalone tool. |
-| **11-13** | Quality/Labs pages | DQ Scorecard, Cleansing Rules, SCD Audit — likely early-stage. |
-
-### Tier 4 — Hidden routes
-Low priority unless re-added to nav. 24 pages removed from navigation — routes kept alive but users don't see them.
-
----
-
-## Open Bugs From Existing Audits (Not Yet Packetized)
-
-These were found during page audits but never got a repair packet:
-
-| Source | Bug | Severity |
-|--------|-----|----------|
-| AUDIT-BusinessOverview | Activity panel status enum mismatch ("loaded" vs "success"/"error") | P2 |
-| AUDIT-LoadCenter | "Load Everything" + "Preview Run" buttons crash (`_build_source_lookup` undefined) | P1 |
-| AUDIT-EngineControl | Ghost endpoint `/api/engine/jobs` polled every 15s, always 404 | P2 |
-| AUDIT-EngineControl | Type mismatches in `last_run` + `layers` response fields | P2 |
-| AUDIT-ConfigManager | Pipeline GUID columns blank (missing in SELECT) | P2 |
-| AUDIT-ConfigManager | Cascade modal never triggers (`refData.count` undefined) | P2 |
-| AUDIT-ConfigManager | Deploy endpoint returns 501 | P3 |
-| AUDIT-SourceManager | `/api/gateway-connections` has no backend route | P1 |
-| AUDIT-SourceManager | `/api/analyze-source` returns wrong object structure | P2 |
-| AUDIT-SourceManager | Import phases 2-5 stubbed | P2 |
-| AUDIT-011 | Schema discovery is stubbed (backend-only, no UI exposure) | P3 |
-| AUDIT-011 | Clustering is naive (name-only matching) | P3 |
-| AUDIT-006 | lakehouse_row_counts never auto-populated | P3 |
+`AUDIT-BusinessOverview.md`, `AUDIT-LoadCenter.md`, `AUDIT-EngineControl.md`, `AUDIT-ConfigManager.md`, `AUDIT-SourceManager.md` — all in `docs/superpowers/audits/`
