@@ -18,7 +18,7 @@ Watermark priority:
   *Created*/*Inserted* datetime  → priority 3
   identity column               → priority 4
   other datetime                → priority 5
-  (Only priority ≤ 3 auto-qualify as incremental)
+  (Priority ≤ 3 and identity columns auto-qualify as incremental)
 
 Usage:
     python scripts/configure_incremental_loads.py              # run for real
