@@ -173,9 +173,9 @@
 - **Impact**: No new data since 2026-03-17. All sources stale by 3 days.
 - **Root cause**: VPN/network outage. NOT a code bug. Engine circuit breaker (692b98b) should limit retry burn.
 - **Repair priority**: P0 (ops — verify VPN, then re-run)
-- **Status**: OPEN
-- **Repair packet**: RP-06
-- **Detail**: See `docs/architecture/RP-06_EXTRACTION_FAILURE_AUDIT.md`
+- **Status**: REPAIRED (RP-06C, 2026-03-22) — VPN verified reachable (all 5 sources), test extraction succeeded (1 entity per source), watermark remediation executed (255 deleted), phantom entities deactivated (3). Safe to run full extraction.
+- **Repair packet**: RP-06C
+- **Detail**: See `docs/architecture/RP-06C_CONNECTIVITY_VERIFICATION.md`
 
 ### [AUDIT-013] 35 entities have timestamp watermarks on integer ID columns
 - **Stage**: Watermark seeding — `scripts/configure_incremental_loads.py`
