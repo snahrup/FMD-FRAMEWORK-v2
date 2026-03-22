@@ -301,8 +301,8 @@ export default function GoldClusters() {
     [reconClusterId, fetchStats, fetchClusters, showToast]
   );
 
-  // Promote unclustered entity to standalone canonical — opens canonical creation flow
-  // For now, advances provenance to 'clustered' (standalone) so it leaves the unclustered list
+  // Mark unclustered entity as standalone — sets provenance to 'canonicalized'
+  // which removes it from the unclustered list. Does NOT create a canonical entity record.
   const handlePromote = useCallback(
     async (entityId: number) => {
       try {
@@ -314,9 +314,9 @@ export default function GoldClusters() {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         await Promise.all([fetchStats(), fetchUnclustered()]);
-        showToast("Entity promoted", "success");
+        showToast("Entity marked as standalone", "success");
       } catch {
-        showToast("Failed to promote entity", "error");
+        showToast("Failed to mark entity as standalone", "error");
       }
     },
     [fetchStats, fetchUnclustered, showToast]
@@ -352,7 +352,7 @@ export default function GoldClusters() {
             { label: "Total Clusters", value: stats.total_clusters },
             { label: "Unresolved", value: stats.unresolved, highlight: true },
             { label: "Resolved", value: stats.resolved },
-            { label: "Avg Confidence", value: `${stats.avg_confidence}%` },
+            { label: "Avg Confidence (name-only)", value: `${stats.avg_confidence}%` },
             {
               label: "Not Clustered",
               value: stats.not_clustered,
@@ -361,6 +361,11 @@ export default function GoldClusters() {
           ]}
         />
       )}
+
+      {/* Maturity notice — clustering uses exact name matching, not fuzzy/ML */}
+      <p style={{ fontFamily: "var(--bp-font-body)", fontSize: 11, color: "var(--bp-ink-muted)", margin: "6px 0 0", letterSpacing: "0.01em" }}>
+        Clustering uses exact name matching within each division. Confidence is fixed at 80%. Fuzzy and schema-aware matching are planned.
+      </p>
 
       <div style={{ paddingBottom: 20 }}>
         {/* Filter bar */}
@@ -589,7 +594,7 @@ export default function GoldClusters() {
                             background: "var(--bp-copper)",
                           }}
                         >
-                          Promote to Canonical
+                          Mark Standalone
                         </button>
                         <button
                           type="button"
