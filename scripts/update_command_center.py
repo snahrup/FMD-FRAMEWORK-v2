@@ -128,6 +128,9 @@ PACKETS = [
      "why": "7 findings: BoolBadge labeled all booleans Active/Inactive (wrong for IsIncremental/IsProcessed), silent fetch errors, pagination crash on non-numeric. 6 fixed, 1 deferred."},
     {"id": "AUDIT-ND", "title": "Notebook Debug audit + contract/validation fixes", "prs": [47], "lane": "truth",
      "why": "7 findings: CRITICAL failureReason shape mismatch, missing UUID validation on IDs, silent fetch failures, invalid layer catch-all. 6 fixed, 1 deferred."},
+    # Hidden wave 2a — monitoring cluster
+    {"id": "AUDIT-LM", "title": "Live Monitor audit + all-time filter + Bronze duration fix", "prs": [48], "lane": "truth",
+     "why": "8 findings: CRITICAL 'All time' filter returned zero results (minutes=0 = now), Bronze duration always 0s (same timestamp aliased twice), 20+ hardcoded hex, a11y gaps. 6 fixed, 2 deferred."},
 ]
 
 PAGES = [
@@ -206,8 +209,8 @@ PAGES = [
     {"name": "Notebook Debug", "route": "/notebook-debug", "lane": "Hidden/Audited", "packets": ["AUDIT-ND"],
      "focus": "Audited — CRITICAL failureReason contract fix + UUID validation + fetch guards", "next": "Done for now"},
     # Monitoring / Progress
-    {"name": "Live Monitor", "route": "/live", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — real-time pipeline monitor", "next": "Audit if re-enabled"},
+    {"name": "Live Monitor", "route": "/live", "lane": "Hidden/Audited", "packets": ["AUDIT-LM"],
+     "focus": "Audited — CRITICAL all-time filter fix + Bronze duration fix + tokens + a11y", "next": "Done for now"},
     {"name": "Load Progress", "route": "/load-progress", "lane": "Hidden", "packets": [],
      "focus": "Hidden — per-entity load progress tracker", "next": "Audit if re-enabled"},
     # Data exploration / visualization
