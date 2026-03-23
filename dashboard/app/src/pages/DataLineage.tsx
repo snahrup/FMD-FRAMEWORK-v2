@@ -33,7 +33,7 @@ function ColumnLineageRow({ col, layers }: { col: string; layers: MedallionLayer
         return (
           <div key={layer} className="flex items-center gap-1">
             {layer !== "source" && (
-              <ArrowRight className={cn("h-3 w-3")} style={{ color: present ? "var(--bp-ink-muted)" : "rgba(0,0,0,0.08)" }} />
+              <ArrowRight className={cn("h-3 w-3")} style={{ color: present ? "var(--bp-ink-muted)" : "var(--bp-border)" }} />
             )}
             <div
               className={cn(
@@ -54,7 +54,7 @@ function ColumnLineageRow({ col, layers }: { col: string; layers: MedallionLayer
       <span
         className="ml-2 text-[9px] px-1.5 py-0.5 rounded"
         style={isSystem
-          ? { backgroundColor: "#E2E8F0", color: "#475569" }
+          ? { backgroundColor: "var(--bp-silver-light)", color: "var(--bp-silver)" }
           : { backgroundColor: "var(--bp-copper-light)", color: "var(--bp-copper)" }
         }
       >
@@ -290,8 +290,8 @@ export default function DataLineage() {
       <KpiRow>
         <KpiCard label="Total Entities" value={formatRowCount(totalEntities)} icon={Database} iconColor="text-[var(--bp-ink-muted)]" />
         <KpiCard label="Landing Zone" value={formatRowCount(withLz)} icon={HardDrive} iconColor="text-[var(--bp-ink-muted)]" subtitle={`${totalEntities ? ((withLz / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
-        <KpiCard label="Bronze" value={formatRowCount(withBronze)} icon={Table2} iconColor="text-[#9A4A1F]" subtitle={`${totalEntities ? ((withBronze / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
-        <KpiCard label="Silver" value={formatRowCount(withSilver)} icon={Sparkles} iconColor="text-[#475569]" subtitle={`${totalEntities ? ((withSilver / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
+        <KpiCard label="Bronze" value={formatRowCount(withBronze)} icon={Table2} iconColor="text-[var(--bp-copper-hover)]" subtitle={`${totalEntities ? ((withBronze / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
+        <KpiCard label="Silver" value={formatRowCount(withSilver)} icon={Sparkles} iconColor="text-[var(--bp-silver)]" subtitle={`${totalEntities ? ((withSilver / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
         <KpiCard label="Full Chain" value={formatRowCount(fullChain)} icon={Crown} iconColor="text-[var(--bp-operational)]" subtitle="Source \u2192 Silver complete" />
       </KpiRow>
 
@@ -361,7 +361,7 @@ export default function DataLineage() {
                           key={e.id}
                           className="cursor-pointer transition-colors"
                           style={{
-                            borderBottom: "1px solid rgba(0,0,0,0.04)",
+                            borderBottom: "1px solid var(--bp-border-subtle)",
                             ...(isSelected ? { backgroundColor: "var(--bp-surface-inset)", borderLeft: "2px solid var(--bp-copper)" } : {}),
                           }}
                           onClick={() => setSelectedEntity(isSelected ? null : e)}
