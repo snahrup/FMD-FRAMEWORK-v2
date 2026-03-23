@@ -126,18 +126,24 @@ export default function EnvironmentSetup() {
       {/* Content */}
       <div className="rounded-xl p-6" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
         {mode === "provision" && (
-          <ProvisionAll
-            onComplete={(newConfig) => {
-              setConfig(newConfig);
-              setMode("settings");
-            }}
-          />
+          <div id="panel-provision" role="tabpanel">
+            <ProvisionAll
+              onComplete={(newConfig) => {
+                setConfig(newConfig);
+                setMode("settings");
+              }}
+            />
+          </div>
         )}
         {mode === "wizard" && (
-          <SetupWizard config={config} onConfigChange={setConfig} />
+          <div id="panel-wizard" role="tabpanel">
+            <SetupWizard config={config} onConfigChange={setConfig} />
+          </div>
         )}
         {mode === "settings" && (
-          <SetupSettings config={config} onConfigChange={setConfig} />
+          <div id="panel-settings" role="tabpanel">
+            <SetupSettings config={config} onConfigChange={setConfig} />
+          </div>
         )}
       </div>
     </div>
