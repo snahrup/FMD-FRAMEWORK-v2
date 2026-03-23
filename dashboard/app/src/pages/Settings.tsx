@@ -1039,7 +1039,7 @@ export function GeneralTab() {
                     className="flex-shrink-0 cursor-pointer transition-colors"
                     title={enabled ? "Disable" : "Enable"}
                     aria-label={`${enabled ? "Disable" : "Enable"} ${feature.label}`}
-                    aria-pressed={enabled}
+                    aria-checked={enabled}
                     role="switch"
                   >
                     {enabled ? (
