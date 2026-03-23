@@ -50,7 +50,7 @@ PACKETS = [
      "why": "Established the master inventory of all 53 routes, what's been audited, and what packets are needed."},
     {"id": "RP-09", "title": "Source Manager truth alignment", "prs": [13], "lane": "truth",
      "why": "Clicking 'Analyze' on a source shows 'undefined' everywhere because the frontend expects a rich analysis result the backend doesn't return. Also, 'Discover & Register' silently misses SqlServer-type connections due to a filter bug."},
-    {"id": "RP-10", "title": "Gateway connection infrastructure", "prs": [], "lane": "truth",
+    {"id": "RP-10", "title": "Gateway connection infrastructure", "prs": [14], "lane": "truth",
      "why": "The Gateway Connections section is completely broken — no backend endpoint exists. Connections KPI always shows 0. Wizard Step 1 can't list available databases."},
     {"id": "RP-11", "title": "Config Manager GUIDs + cascade modal", "prs": [], "lane": "truth",
      "why": "Config Manager shows blank pipeline GUIDs and the cascade deletion modal has display issues, making it unsafe to manage pipeline configs."},
