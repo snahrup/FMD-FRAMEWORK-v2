@@ -281,6 +281,9 @@ function LayerDrawer({
   return (
     <div
       ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${nodeLabel} layer details`}
       className="fixed top-0 right-0 h-full w-[400px] z-[300] flex flex-col animate-[slideInRight_0.25s_ease-out]"
       style={{ background: 'var(--bp-surface-1)', borderLeft: '1px solid var(--bp-border)' }}
     >
@@ -297,6 +300,7 @@ function LayerDrawer({
         </div>
         <button
           onClick={onClose}
+          aria-label="Close drawer"
           className="p-1.5 rounded-md text-muted-foreground/40 hover:text-foreground hover:bg-muted/50 transition-colors"
         >
           <X className="w-4 h-4" />
@@ -376,7 +380,7 @@ function LayerDrawer({
 
       {/* Entity list */}
       <div className="flex-1 overflow-y-auto">
-        <div className="px-5 py-2 sticky top-0 backdrop-blur-sm z-10" style={{ backgroundColor: 'rgba(254, 253, 251, 0.95)' }}>
+        <div className="px-5 py-2 sticky top-0 backdrop-blur-sm z-10" style={{ backgroundColor: 'color-mix(in srgb, var(--bp-surface-1) 95%, transparent)' }}>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40">
             Entities ({sortedEntities.length})
           </p>
@@ -705,6 +709,7 @@ export default function ImpactPulse() {
         <p className="text-sm text-[var(--bp-fault)]">{error}</p>
         <button
           onClick={refresh}
+          aria-label="Retry loading data"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -725,13 +730,13 @@ export default function ImpactPulse() {
   }
 
   return (
-    <div className="h-full w-full relative" style={{ backgroundColor: '#F4F2ED' }}>
+    <div className="h-full w-full relative" style={{ backgroundColor: 'var(--bp-canvas)' }}>
       {/* ── Floating header (glassmorphic, overlaid on canvas) ── */}
       <div className="absolute top-4 left-4 right-4 z-50 pointer-events-none">
         <div className="pointer-events-auto inline-flex items-center gap-4 rounded-lg px-5 py-3" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
           {/* Title */}
           <div className="flex items-center gap-2.5">
-            <Radar className="w-5 h-5" style={{ color: '#B45624' }} />
+            <Radar className="w-5 h-5" style={{ color: 'var(--bp-copper)' }} />
             <div>
               <h1 className="text-[20px] font-normal tracking-tight leading-none" style={{ fontFamily: 'var(--bp-font-display)', color: 'var(--bp-ink-primary)' }}>
                 Impact Pulse
@@ -767,6 +772,7 @@ export default function ImpactPulse() {
           {/* Refresh */}
           <button
             onClick={refresh}
+            aria-label="Refresh entity data"
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors"
           >
             <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
@@ -798,7 +804,7 @@ export default function ImpactPulse() {
           position="bottom-right"
           nodeStrokeWidth={3}
           nodeColor={(node: Node) => (node.data as LayerNodeData)?.color || "#A8A29E"}
-          style={{ background: "#FEFDFB" }}
+          style={{ background: "var(--bp-surface-1)" }}
           maskColor="rgba(0,0,0,0.15)"
         />
       </ReactFlow>
@@ -826,21 +832,21 @@ export default function ImpactPulse() {
 
         /* React Flow overrides for Industrial Precision theme */
         .react-flow__controls {
-          background: #FEFDFB !important;
-          border: 1px solid rgba(0,0,0,0.08) !important;
+          background: var(--bp-surface-1) !important;
+          border: 1px solid var(--bp-border) !important;
           border-radius: 8px !important;
           box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important;
         }
         .react-flow__controls-button {
-          background: #FEFDFB !important;
-          border-color: rgba(0,0,0,0.08) !important;
-          fill: #1C1917 !important;
+          background: var(--bp-surface-1) !important;
+          border-color: var(--bp-border) !important;
+          fill: var(--bp-ink-primary) !important;
         }
         .react-flow__controls-button:hover {
-          background: #F9F7F3 !important;
+          background: var(--bp-surface-inset) !important;
         }
         .react-flow__minimap {
-          border: 1px solid rgba(0,0,0,0.08) !important;
+          border: 1px solid var(--bp-border) !important;
           border-radius: 8px !important;
           box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important;
         }

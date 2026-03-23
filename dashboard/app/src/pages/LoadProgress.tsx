@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Activity, CheckCircle2, Clock, Database, HardDrive, Loader2,
+  Activity, CheckCircle2, Clock, Database, Loader2,
   RefreshCw, Server, TrendingUp, Zap, Circle, ArrowUpRight,
   BarChart3, Timer, Layers,
 } from "lucide-react";
@@ -100,6 +100,94 @@ function parseLogData(logData: string | null): { rowsCopied?: number; duration?:
   try { return JSON.parse(logData); } catch { return null; }
 }
 
+// ── Adapt raw API response to the LoadData shape ──
+// The backend /api/load-progress returns {sources, recentRuns, overall, serverTime}
+// with different field names.  This adapter bridges that gap so the rest of
+// the component works without backend changes.
+
+interface RawApiResponse {
+  sources?: Array<{
+    DataSourceId?: number;
+    dataSourceName?: string;
+    totalEntities?: number;
+    lzLoaded?: number;
+    brzLoaded?: number;
+    slvLoaded?: number;
+  }>;
+  recentRuns?: Array<{
+    RunId?: string;
+    Mode?: string;
+    Status?: string;
+    TotalEntities?: number;
+    SucceededEntities?: number;
+    FailedEntities?: number;
+    TotalDurationSeconds?: number;
+    StartedAt?: string;
+    EndedAt?: string;
+  }>;
+  overall?: {
+    totalEntities?: number;
+    lzLoaded?: number;
+    brzLoaded?: number;
+    slvLoaded?: number;
+  };
+  serverTime?: string;
+  error?: string;
+  // If the backend already sends the LoadData shape, these will be present:
+  bySource?: SourceProgress[];
+  recentActivity?: RecentActivity[];
+  loadedEntities?: LoadedEntity[];
+}
+
+function adaptApiResponse(raw: RawApiResponse): LoadData {
+  // If the response already has the expected shape, pass through
+  if (raw.bySource && Array.isArray(raw.bySource)) {
+    return raw as unknown as LoadData;
+  }
+
+  const totalEntities = Number(raw.overall?.totalEntities ?? 0);
+  const lzLoaded = Number(raw.overall?.lzLoaded ?? 0);
+  const pending = totalEntities - lzLoaded;
+  const pct = totalEntities > 0 ? Math.round((lzLoaded / totalEntities) * 100) : 0;
+
+  // Find the latest run for timing info
+  const latestRun = raw.recentRuns?.[0];
+
+  const bySource: SourceProgress[] = (raw.sources ?? []).map((s) => {
+    const total = Number(s.totalEntities ?? 0);
+    const loaded = Number(s.lzLoaded ?? 0);
+    const pend = total - loaded;
+    return {
+      Source: s.dataSourceName ?? "Unknown",
+      TotalEntities: total,
+      LoadedCount: loaded,
+      PendingCount: pend,
+      PctComplete: total > 0 ? Math.round((loaded / total) * 100) : 0,
+      FirstLoaded: null,
+      LastLoaded: null,
+    };
+  });
+
+  return {
+    overall: {
+      TotalEntities: totalEntities,
+      LoadedEntities: lzLoaded,
+      PendingEntities: pending,
+      PctComplete: pct,
+      RunStarted: latestRun?.StartedAt ? String(latestRun.StartedAt) : null,
+      LastActivity: latestRun?.EndedAt ? String(latestRun.EndedAt) : (latestRun?.StartedAt ? String(latestRun.StartedAt) : null),
+      ElapsedSeconds: latestRun?.TotalDurationSeconds != null ? Number(latestRun.TotalDurationSeconds) : null,
+    },
+    bySource,
+    recentActivity: [],
+    loadedEntities: [],
+    pendingBySource: bySource.filter((s) => s.PendingCount > 0).map((s) => ({ Source: s.Source, cnt: s.PendingCount })),
+    concurrencyTimeline: [],
+    serverTime: raw.serverTime ?? new Date().toISOString(),
+    error: raw.error,
+  };
+}
+
 // ── Normalize API response (all values come back as strings from pyodbc) ──
 
 function num(v: unknown): number {
@@ -174,9 +262,10 @@ export default function LoadProgress() {
     try {
       const resp = await fetch("/api/load-progress");
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const raw: LoadData = await resp.json();
-      if (raw.error) throw new Error(raw.error);
-      const d = normalizeData(raw);
+      const rawJson = await resp.json();
+      const adapted = adaptApiResponse(rawJson);
+      if (adapted.error) throw new Error(adapted.error);
+      const d = normalizeData(adapted);
 
       // Track newly loaded entities for animation
       if (dataRef.current && d.overall.LoadedEntities > prevLoadedCount.current) {
@@ -231,7 +320,7 @@ export default function LoadProgress() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-[32px] font-normal tracking-tight" style={{ fontFamily: 'var(--bp-font-display)', color: 'var(--bp-ink-primary)' }}>Load Progress</h1>
-          <p className="text-sm mt-0.5" style={{ fontFamily: "var(--font-sans)", color: '#57534E' }}>
+          <p className="text-sm mt-0.5" style={{ fontFamily: "var(--font-sans)", color: 'var(--bp-ink-secondary)' }}>
             Real-time Landing Zone load monitoring
           </p>
         </div>
@@ -244,7 +333,7 @@ export default function LoadProgress() {
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all text-xs font-medium",
                 autoRefresh
                   ? "border-[var(--bp-operational)] bg-[var(--bp-operational-light)] text-[var(--bp-operational)]"
-                  : "text-[#A8A29E] hover:text-[#1C1917]"
+                  : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-primary)]"
               )}
             >
               {autoRefresh ? (
@@ -261,7 +350,7 @@ export default function LoadProgress() {
               value={refreshInterval}
               onChange={(e) => setRefreshInterval(Number(e.target.value))}
               className="rounded px-2 py-1 text-xs"
-              style={{ backgroundColor: '#FEFDFB', border: '1px solid rgba(0,0,0,0.08)', color: '#78716C' }}
+              style={{ backgroundColor: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-tertiary)' }}
             >
               <option value={3}>3s</option>
               <option value={5}>5s</option>
@@ -273,7 +362,7 @@ export default function LoadProgress() {
             onClick={fetchData}
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all"
-            style={{ border: '1px solid rgba(0,0,0,0.08)', color: '#78716C' }}
+            style={{ border: '1px solid var(--bp-border)', color: 'var(--bp-ink-tertiary)' }}
           >
             <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
             Refresh
@@ -292,78 +381,86 @@ export default function LoadProgress() {
         </div>
       )}
 
+      {/* ── Loading state ── */}
+      {loading && !data && (
+        <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin mb-3 text-[var(--bp-copper)]" />
+          <p className="text-sm">Loading progress data...</p>
+        </div>
+      )}
+
       {/* ── Overall Progress Hero ── */}
       {overall && (
-        <div className="rounded-xl p-6" style={{ border: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB' }}>
+        <div className="rounded-xl p-6" style={{ border: '1px solid var(--bp-border)', backgroundColor: 'var(--bp-surface-1)' }}>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className={cn(
                 "p-2.5 rounded-xl",
-                isActive ? "bg-[var(--bp-copper-light)]" : overall.PctComplete >= 100 ? "bg-[var(--bp-operational-light)]" : "bg-[#EDEAE4]"
+                isActive ? "bg-[var(--bp-copper-light)]" : overall.PctComplete >= 100 ? "bg-[var(--bp-operational-light)]" : "bg-[var(--bg-muted)]"
               )}>
                 {isActive ? (
                   <Loader2 className="h-5 w-5 text-[var(--bp-copper)] animate-spin" />
                 ) : overall.PctComplete >= 100 ? (
                   <CheckCircle2 className="h-5 w-5 text-[var(--bp-operational)]" />
                 ) : (
-                  <Database className="h-5 w-5" style={{ color: '#A8A29E' }} />
+                  <Database className="h-5 w-5" style={{ color: 'var(--bp-ink-muted)' }} />
                 )}
               </div>
               <div>
                 <div className="text-3xl font-bold tracking-tight">
                   {overall.LoadedEntities.toLocaleString()}
-                  <span className="text-lg font-normal" style={{ color: '#A8A29E' }}>
+                  <span className="text-lg font-normal" style={{ color: 'var(--bp-ink-muted)' }}>
                     {" "}/ {overall.TotalEntities.toLocaleString()}
                   </span>
                 </div>
-                <p className="text-xs" style={{ color: '#78716C' }}>entities loaded to Landing Zone</p>
+                <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>entities loaded to Landing Zone</p>
               </div>
             </div>
 
             {/* KPI cards */}
             <div className="flex gap-4">
-              <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: '#F9F7F3' }}>
+              <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
                 <div className={cn(
                   "text-2xl font-bold tabular-nums",
-                  overall.PctComplete >= 100 ? "text-[var(--bp-operational)]" : overall.PctComplete > 0 ? "text-[var(--bp-copper)]" : "text-[#A8A29E]"
+                  overall.PctComplete >= 100 ? "text-[var(--bp-operational)]" : overall.PctComplete > 0 ? "text-[var(--bp-copper)]" : "text-[var(--bp-ink-muted)]"
                 )} style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
                   {overall.PctComplete}%
                 </div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: '#A8A29E' }}>Complete</p>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Complete</p>
               </div>
-              <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: '#F9F7F3' }}>
+              <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
                 <div className="text-2xl font-bold tabular-nums text-[var(--bp-caution)]" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
                   {overall.PendingEntities.toLocaleString()}
                 </div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: '#A8A29E' }}>Pending</p>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Pending</p>
               </div>
               {totalRowsLoaded > 0 && (
-                <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: '#F9F7F3' }}>
+                <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
                   <div className="text-2xl font-bold tabular-nums text-[var(--bp-operational)]" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
                     {totalRowsLoaded.toLocaleString()}
                   </div>
-                  <p className="text-[10px] uppercase tracking-wider" style={{ color: '#A8A29E' }}>Rows Loaded</p>
+                  <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Rows Loaded</p>
                 </div>
               )}
-              <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: '#F9F7F3' }}>
-                <div className="text-2xl font-bold tabular-nums" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#A8A29E' }}>
+              <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
+                <div className="text-2xl font-bold tabular-nums" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: 'var(--bp-ink-muted)' }}>
                   {formatDuration(overall.ElapsedSeconds)}
                 </div>
-                <p className="text-[10px] uppercase tracking-wider" style={{ color: '#A8A29E' }}>Elapsed</p>
+                <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Elapsed</p>
               </div>
               {overall.LastActivity && (
-                <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: '#F9F7F3' }}>
+                <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
                   <div className="text-2xl font-bold tabular-nums text-[var(--bp-ink-tertiary)]" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
                     {timeAgo(overall.LastActivity)}
                   </div>
-                  <p className="text-[10px] uppercase tracking-wider" style={{ color: '#A8A29E' }}>Last Load</p>
+                  <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Last Load</p>
                 </div>
               )}
             </div>
           </div>
 
           {/* Stacked progress bar — each source gets its own colored segment, same order as cards below */}
-          <div className="relative h-3 rounded-full overflow-hidden flex" style={{ backgroundColor: '#EDEAE4' }}>
+          <div className="relative h-3 rounded-full overflow-hidden flex" style={{ backgroundColor: 'var(--bg-muted)' }}>
             {data?.bySource?.map((s) => {
               const pct = overall.TotalEntities > 0
                 ? (s.LoadedCount / overall.TotalEntities) * 100
@@ -407,7 +504,7 @@ export default function LoadProgress() {
 
       {/* ── Source Progress Cards ── */}
       {data?.bySource && data.bySource.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
           {data.bySource.map((s) => {
             const c = getColor(s.Source);
             const isFiltered = sourceFilter === s.Source;
@@ -419,7 +516,7 @@ export default function LoadProgress() {
                   "rounded-xl border p-4 text-left transition-all hover:scale-[1.02]",
                   isFiltered
                     ? `${c.bg} border-2 ${c.ring.replace("ring-", "border-")}`
-                    : "bg-[#FEFDFB] hover:border-[#A8A29E]/30"
+                    : "bg-[var(--bp-surface-1)] hover:border-[var(--bp-ink-muted)]/30"
                 )}
               >
                 <div className="flex items-center justify-between mb-2">
@@ -438,7 +535,7 @@ export default function LoadProgress() {
                 </div>
 
                 {/* Mini progress bar */}
-                <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ backgroundColor: '#EDEAE4' }}>
+                <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ backgroundColor: 'var(--bg-muted)' }}>
                   <div
                     className={cn("h-full rounded-full transition-all duration-1000", c.bar)}
                     style={{ width: `${Math.min(s.PctComplete, 100)}%` }}
@@ -498,7 +595,7 @@ export default function LoadProgress() {
         const H = 60;  // viewBox height
 
         return (
-          <div className="rounded-xl p-5" style={{ border: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB' }}>
+          <div className="rounded-xl p-5" style={{ border: '1px solid var(--bp-border)', backgroundColor: 'var(--bp-surface-1)' }}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Layers className="h-4 w-4 text-[var(--bp-copper)]" />
@@ -591,8 +688,10 @@ export default function LoadProgress() {
       })()}
 
       {/* ── Tab bar ── */}
-      <div className="flex gap-1 p-1 rounded-lg bg-muted w-fit">
+      <div className="flex gap-1 p-1 rounded-lg bg-muted w-fit" role="tablist" aria-label="Load progress views">
         <button
+          role="tab"
+          aria-selected={activeTab === "activity"}
           onClick={() => setActiveTab("activity")}
           className={cn(
             "flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-all",
@@ -610,6 +709,8 @@ export default function LoadProgress() {
           )}
         </button>
         <button
+          role="tab"
+          aria-selected={activeTab === "loaded"}
           onClick={() => setActiveTab("loaded")}
           className={cn(
             "flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-all",
@@ -630,7 +731,7 @@ export default function LoadProgress() {
 
       {/* ── Live Activity Feed ── */}
       {activeTab === "activity" && (
-        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB' }}>
+        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--bp-border)', backgroundColor: 'var(--bp-surface-1)' }}>
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-[var(--bp-copper)]" />
@@ -654,7 +755,7 @@ export default function LoadProgress() {
               </div>
             ) : (
               <table className="w-full text-sm">
-                <thead className="text-[11px] uppercase tracking-wider sticky top-0" style={{ color: '#78716C', backgroundColor: '#F9F7F3' }}>
+                <thead className="text-[11px] uppercase tracking-wider sticky top-0" style={{ color: 'var(--bp-ink-tertiary)', backgroundColor: 'var(--bp-surface-inset)' }}>
                   <tr>
                     <th className="text-left px-4 py-2 font-medium">Time</th>
                     <th className="text-left px-4 py-2 font-medium">Source</th>
@@ -718,7 +819,7 @@ export default function LoadProgress() {
 
       {/* ── Loaded Entities Table ── */}
       {activeTab === "loaded" && (
-        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB' }}>
+        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--bp-border)', backgroundColor: 'var(--bp-surface-1)' }}>
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-[var(--bp-operational)]" />
@@ -738,7 +839,7 @@ export default function LoadProgress() {
               </div>
             ) : (
               <table className="w-full text-sm">
-                <thead className="text-[11px] uppercase tracking-wider sticky top-0" style={{ color: '#78716C', backgroundColor: '#F9F7F3' }}>
+                <thead className="text-[11px] uppercase tracking-wider sticky top-0" style={{ color: 'var(--bp-ink-tertiary)', backgroundColor: 'var(--bp-surface-inset)' }}>
                   <tr>
                     <th className="text-center px-4 py-2 font-medium">Status</th>
                     <th className="text-left px-4 py-2 font-medium">Source</th>
@@ -782,7 +883,7 @@ export default function LoadProgress() {
                           </span>
                         </td>
                         <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
-                          {e.Schema || "dbo"}
+                          {e.Schema || "\u2014"}
                         </td>
                         <td className="px-4 py-2 font-mono text-xs font-medium">
                           {e.TableName}
