@@ -13,8 +13,6 @@ import { useSourceConfig, resolveSourceLabel, getSourceColor } from "@/hooks/use
 import {
   KpiCard,
   ProgressRing,
-  StatusRail,
-  toRailStatus,
   SourceBadge,
 } from "@/components/business";
 import { RefreshCw, Search, ChevronRight, Database } from "lucide-react";
@@ -215,7 +213,7 @@ function SourceCard({ src }: { src: SourceHealth }) {
 
 export default function BusinessSources() {
   const { t } = useTerminology();
-  const { sources: sourceConfigs, loading: configLoading } = useSourceConfig();
+  useSourceConfig(); // trigger cache hydration for resolveSourceLabel / getSourceColor
 
   const [kpis, setKpis] = useState<KPIData | null>(null);
   const [sources, setSources] = useState<SourceHealth[]>([]);
