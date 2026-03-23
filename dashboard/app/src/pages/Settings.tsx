@@ -183,7 +183,6 @@ function DeployWizard() {
   const [preflightLoading, setPreflightLoading] = useState(false);
   const [fabricWorkspaces, setFabricWorkspaces] = useState<{ id: string; displayName: string }[]>([]);
   const [fabricConnections, setFabricConnections] = useState<{ id: string; displayName: string; type: string }[]>([]);
-  const [securityGroups, setSecurityGroups] = useState<{ id: string; displayName: string; description: string }[]>([]);
   const [fabricLoading, setFabricLoading] = useState(false);
 
   // Load existing config + live Fabric data to populate dropdowns
@@ -197,11 +196,9 @@ function DeployWizard() {
         }>("/notebook-config").catch(() => null),
         fetchJson<{ workspaces: { id: string; displayName: string }[] }>("/fabric/workspaces").catch(() => ({ workspaces: [] })),
         fetchJson<{ connections: { id: string; displayName: string; type: string }[] }>("/fabric/connections").catch(() => ({ connections: [] })),
-        fetchJson<{ groups: { id: string; displayName: string; description: string }[] }>("/fabric/security-groups").catch(() => ({ groups: [] })),
-      ]).then(([config, ws, conns, groups]) => {
+      ]).then(([config, ws, conns]) => {
         setFabricWorkspaces(ws?.workspaces ?? []);
         setFabricConnections(conns?.connections ?? []);
-        setSecurityGroups(groups?.groups ?? []);
 
         const prefilled: string[] = [];
         const vals: Record<string, string> = { lakehouse_schema_enabled: 'true', ...fields };
@@ -425,6 +422,7 @@ function DeployWizard() {
             <select
               value={fields.workspace_config || ""}
               onChange={(e) => setFields({ ...fields, workspace_config: e.target.value })}
+              aria-label="Config Workspace"
               className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2"
               style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
             >
@@ -458,6 +456,7 @@ function DeployWizard() {
             <select
               value={fields.con_fmd_fabric_sql || ""}
               onChange={(e) => setFields({ ...fields, con_fmd_fabric_sql: e.target.value })}
+              aria-label="Fabric SQL Connection"
               className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2"
               style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
             >
@@ -491,6 +490,7 @@ function DeployWizard() {
             <select
               value={fields.lakehouse_schema_enabled || "true"}
               onChange={(e) => setFields({ ...fields, lakehouse_schema_enabled: e.target.value })}
+              aria-label="Enable Lakehouse Schemas"
               className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2"
               style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
             >
@@ -747,7 +747,7 @@ function DeployWizard() {
             </p>
           </div>
 
-          <div className="rounded-lg p-3 space-y-1" style={{ background: 'rgba(185, 58, 42, 0.08)' }}>
+          <div className="rounded-lg p-3 space-y-1" style={{ background: 'var(--bp-fault-light)' }}>
             <p className="text-xs font-semibold" style={{ color: 'var(--bp-fault)' }}>What happens when you click Deploy:</p>
             <ul className="text-xs space-y-0.5" style={{ color: 'var(--bp-ink-secondary)' }}>
               <li>Old DEV and PROD workspaces will be <strong>automatically deleted</strong></li>
@@ -784,7 +784,7 @@ function DeployWizard() {
           <button
             onClick={handleDeploy}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors"
-            style={{ background: 'var(--bp-fault)', color: '#fff' }}
+            style={{ background: 'var(--bp-fault)', color: 'var(--bp-surface-1)' }}
           >
             <Rocket className="h-4 w-4" />
             Deploy Now
@@ -827,7 +827,7 @@ function DeployWizard() {
         </div>
 
         {/* Activity log — terminal keeps dark bg per spec */}
-        <div className="rounded-xl overflow-hidden" style={{ background: '#0d1117', border: '1px solid var(--bp-border)' }}>
+        <div className="rounded-xl overflow-hidden" style={{ background: 'var(--bp-code-block)', border: '1px solid var(--bp-border)' }}>
           <div className="px-4 py-2 flex items-center gap-2" style={{ borderBottom: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
             <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--bp-operational)' }} />
             <span className="text-xs font-medium" style={{ color: 'var(--bp-ink-muted)', fontFamily: 'var(--bp-font-body)' }}>Deployment Log</span>
@@ -838,7 +838,7 @@ function DeployWizard() {
                 <span className="flex-shrink-0 select-none" style={{ color: 'rgba(255,255,255,0.3)' }}>
                   {DEPLOY_PHASES[i] != null ? formatElapsed(DEPLOY_PHASES[i].after) : '\u00A0\u00A0\u00A0'}
                 </span>
-                <CheckCircle2 className="h-3 w-3 flex-shrink-0 mt-0.5" style={{ color: '#3D7C4F' }} />
+                <CheckCircle2 className="h-3 w-3 flex-shrink-0 mt-0.5" style={{ color: 'var(--bp-operational)' }} />
                 <span style={{ color: 'rgba(255,255,255,0.8)' }}>{msg}</span>
               </div>
             ))}
@@ -1038,6 +1038,9 @@ export function GeneralTab() {
                     onClick={() => toggle(feature.key)}
                     className="flex-shrink-0 cursor-pointer transition-colors"
                     title={enabled ? "Disable" : "Enable"}
+                    aria-label={`${enabled ? "Disable" : "Enable"} ${feature.label}`}
+                    aria-checked={enabled}
+                    role="switch"
                   >
                     {enabled ? (
                       <ToggleRight className="w-8 h-8" style={{ color: 'var(--bp-copper)' }} />
@@ -1086,11 +1089,11 @@ export default function Settings() {
       <div className="w-44 flex-shrink-0">
         <div className="flex items-center gap-2 mb-4 px-2">
           <SettingsIcon className="w-4 h-4" style={{ color: 'var(--bp-ink-tertiary)' }} />
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: '32px', color: '#1C1917', lineHeight: '1.1' }}>
+          <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: '32px', color: 'var(--bp-ink-primary)', lineHeight: '1.1' }}>
             Settings
           </h1>
         </div>
-        <nav className="space-y-0.5">
+        <nav className="space-y-0.5" aria-label="Settings sections">
           {SETTINGS_TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -1098,6 +1101,7 @@ export default function Settings() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                aria-current={isActive ? 'page' : undefined}
                 style={isActive
                   ? { background: 'var(--bp-copper-light)', color: 'var(--bp-copper)', border: '1px solid var(--bp-copper)' }
                   : { color: 'var(--bp-ink-tertiary)', border: '1px solid transparent' }
