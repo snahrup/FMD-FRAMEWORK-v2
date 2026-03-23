@@ -217,6 +217,7 @@ function Sidebar({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full text-xs bg-transparent outline-none"
+            aria-label="Filter tables by name"
             style={{ color: "var(--bp-ink-primary)", fontFamily: "var(--bp-font-body)" }}
           />
         </div>
@@ -287,25 +288,32 @@ function Sidebar({
 // DATA GRID
 // ============================================================================
 
-function BoolBadge({ value }: { value: unknown }) {
+/** Boolean columns that represent an on/off registration status (labeled Active/Inactive).
+ *  All other boolean columns get generic Yes/No labels to avoid misleading text. */
+const ACTIVE_BOOL_COLUMNS = new Set(["IsActive"]);
+
+function BoolBadge({ value, colKey }: { value: unknown; colKey?: string }) {
   const isTrue = value === true || value === 1 || value === "1";
+  const useActiveLabel = colKey ? ACTIVE_BOOL_COLUMNS.has(colKey) : false;
+  const trueLabel = useActiveLabel ? "Active" : "Yes";
+  const falseLabel = useActiveLabel ? "Inactive" : "No";
   return (
     <span
       className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium"
       style={
         isTrue
-          ? { backgroundColor: "var(--bp-operational-light)", color: "var(--bp-operational)", border: "1px solid rgba(61,124,79,0.2)" }
-          : { backgroundColor: "var(--bp-fault-light)", color: "var(--bp-fault)", border: "1px solid rgba(185,58,42,0.2)" }
+          ? { backgroundColor: "var(--bp-operational-light)", color: "var(--bp-operational)", border: "1px solid var(--bp-operational-light)" }
+          : { backgroundColor: "var(--bp-fault-light)", color: "var(--bp-fault)", border: "1px solid var(--bp-fault-light)" }
       }
     >
-      {isTrue ? "Active" : "Inactive"}
+      {isTrue ? trueLabel : falseLabel}
     </span>
   );
 }
 
 function CellValue({ value, type, colKey }: { value: unknown; type: string; colKey?: string }) {
   if (value == null) return <span style={{ color: "var(--bp-ink-muted)", opacity: 0.3 }}>&mdash;</span>;
-  if (type === "boolean") return <BoolBadge value={value} />;
+  if (type === "boolean") return <BoolBadge value={value} colKey={colKey} />;
   if (type === "number") return <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatNumber(value)}</span>;
   const str = String(value);
   // Render status columns with colored badge
@@ -473,7 +481,7 @@ function DataGrid({
                 key={pk}
                 className="transition-colors"
                 style={{
-                  borderBottom: "1px solid rgba(0,0,0,0.04)",
+                  borderBottom: "1px solid var(--bp-border-subtle)",
                   backgroundColor: isEditing ? "var(--bp-copper-light)" : undefined,
                 }}
               >
@@ -654,8 +662,8 @@ function Toast({ message, type, onDismiss }: { message: string; type: "success" 
       className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-lg text-sm animate-[fadeIn_0.2s_ease-out]"
       style={
         type === "success"
-          ? { backgroundColor: "var(--bp-operational-light)", border: "1px solid rgba(61,124,79,0.3)", color: "var(--bp-operational)" }
-          : { backgroundColor: "var(--bp-fault-light)", border: "1px solid rgba(185,58,42,0.3)", color: "var(--bp-fault)" }
+          ? { backgroundColor: "var(--bp-operational-light)", border: "1px solid var(--bp-operational-light)", color: "var(--bp-operational)" }
+          : { backgroundColor: "var(--bp-fault-light)", border: "1px solid var(--bp-fault-light)", color: "var(--bp-fault)" }
       }
     >
       {message}
@@ -683,12 +691,13 @@ export default function DataManager() {
   const [editValues, setEditValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   useEffect(() => {
     setTablesLoading(true);
     fetchJson<TableMeta[]>(`${API}/tables`)
       .then(setTables)
-      .catch(() => {})
+      .catch(() => setToast({ message: "Failed to load table list", type: "error" }))
       .finally(() => setTablesLoading(false));
   }, []);
 
@@ -706,8 +715,10 @@ export default function DataManager() {
         if (search) params.set("search", search);
         const data = await fetchJson<TableDataResponse>(`${API}/table/${tableName}?${params}`);
         setTableData(data);
+        setDataError(null);
       } catch {
         setTableData(null);
+        setDataError("Failed to load table data");
       } finally {
         setDataLoading(false);
       }
@@ -731,6 +742,7 @@ export default function DataManager() {
       setSortOrder("asc");
       setTableSearch("");
       setEditingPk(null);
+      setDataError(null);
     },
     [setSearchParams]
   );
@@ -844,7 +856,7 @@ export default function DataManager() {
                     {tableData?.displayName || selectedTable}
                   </h2>
                   {tableData?.editable && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ backgroundColor: "var(--bp-operational-light)", color: "var(--bp-operational)", border: "1px solid rgba(61,124,79,0.2)" }}>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ backgroundColor: "var(--bp-operational-light)", color: "var(--bp-operational)", border: "1px solid var(--bp-operational-light)" }}>
                       Editable
                     </span>
                   )}
@@ -881,10 +893,11 @@ export default function DataManager() {
                     value={searchInput}
                     onChange={(e) => setSearchInput(e.target.value)}
                     className="w-full text-xs bg-transparent outline-none"
+                    aria-label="Search rows in current table"
                     style={{ color: "var(--bp-ink-primary)", fontFamily: "var(--bp-font-body)" }}
                   />
                   {searchInput && (
-                    <button onClick={() => setSearchInput("")}>
+                    <button onClick={() => setSearchInput("")} aria-label="Clear search">
                       <X className="w-3 h-3" style={{ color: "var(--bp-ink-muted)" }} />
                     </button>
                   )}
@@ -898,6 +911,10 @@ export default function DataManager() {
                 <div className="flex items-center justify-center py-16 gap-2" style={{ color: "var(--bp-ink-muted)" }}>
                   <Loader2 className="w-5 h-5 animate-spin" />
                   <span className="text-sm">Loading...</span>
+                </div>
+              ) : dataError && !tableData ? (
+                <div className="flex items-center justify-center py-16" style={{ color: "var(--bp-fault)" }}>
+                  <span className="text-sm">{dataError}</span>
                 </div>
               ) : tableData ? (
                 <DataGrid

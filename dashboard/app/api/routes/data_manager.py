@@ -435,8 +435,14 @@ def get_table_data(params):
         raise HttpError("Table not found", 404)
 
     cfg = TABLE_REGISTRY[table_name]
-    page = int(params.get("page", 1))
-    per_page = min(int(params.get("per_page", 50)), 500)
+    try:
+        page = max(1, int(params.get("page", 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        per_page = min(max(1, int(params.get("per_page", 50))), 500)
+    except (ValueError, TypeError):
+        per_page = 50
     offset = (page - 1) * per_page
     search = params.get("search", "").strip()
     sort_col = params.get("sort", "")
