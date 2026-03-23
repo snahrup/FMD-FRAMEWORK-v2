@@ -1,78 +1,67 @@
-# AUDIT: NotebookDebug.tsx
+# AUDIT: NotebookDebug (AUDIT-ND)
 
-**Date**: 2026-03-13
+**Date**: 2026-03-23
 **Frontend**: `dashboard/app/src/pages/NotebookDebug.tsx`
-**Backend handler**: MISSING -- all four `/api/notebook-debug/*` endpoints were in the old monolithic `server.py.bak` but have NOT been migrated to the new `routes/*.py` architecture.
-**Endpoints consumed**:
-- `GET /api/notebook-debug/notebooks`
-- `GET /api/notebook-debug/entities?layer=<layer>`
-- `POST /api/notebook-debug/run`
-- `GET /api/notebook-debug/job-status?jobId=<id>&notebookId=<id>`
+**Backend**: `dashboard/app/api/routes/notebook.py`
 
 ---
 
-## Purpose
+## Summary
 
-NotebookDebug (labeled "Pipeline Testing" in the UI) lets users trigger Fabric notebook runs for controlled testing of individual pipeline layers (landing, bronze, silver) against a limited set of entities. It shows entity previews, triggers notebook runs via the Fabric Jobs API, polls for job status, and displays run history.
+The NotebookDebug page ("Pipeline Testing") is functionally sound. The backend routes have been migrated from the old `server.py.bak` into `routes/notebook.py`. The primary issues found are: (1) a response shape mismatch where the backend passes raw Fabric `failureReason` but the frontend expects `{message, errorCode}`, (2) missing `res.ok` guards on all four fetch calls causing silent failures on non-200 responses, (3) missing UUID validation on user-supplied IDs that get interpolated into Fabric API URLs, (4) missing layer validation on the run endpoint allowing invalid layers to fall through to an else clause, and (5) missing input type validation on `maxEntities`.
 
-## Data Flow
+---
 
-1. **On mount**: Fetches `GET /api/notebook-debug/notebooks` to list notebooks in the Fabric CODE workspace. Auto-selects `NB_FMD_PROCESSING_PARALLEL_MAIN`.
-2. **On layer change**: Fetches `GET /api/notebook-debug/entities?layer={layer}` to get entity list from stored procedures / views.
-3. **On "Run Test" click**: POSTs to `/api/notebook-debug/run` with `{notebookId, layer, maxEntities, dataSourceFilter, chunkMode}`. Returns `{jobInstanceId, notebookId, entityCount, ...}`.
-4. **Polling**: Every 5 seconds, fetches `GET /api/notebook-debug/job-status?jobId={id}&notebookId={id}` until status is Completed/Failed/Cancelled.
+## Findings
 
-## API Call Trace
+### ND-01 | CRITICAL | failureReason shape mismatch between backend and frontend
+**Description**: The frontend `JobStatus` and `JobEntry` interfaces expect `failureReason` to be `{ message: string; errorCode: string }` and access `.message` / `.errorCode` directly. The backend `/api/notebook-debug/job-status` endpoint passes the raw Fabric API `failureReason` through unchanged — which can be a dict with different keys, a plain string, or null. When it's a string, `failureReason.message` is `undefined` and the error display silently shows nothing.
+**Fix**: Added `_normalize_failure_reason()` helper in `notebook.py` that normalizes any shape into `{message, errorCode}` or `None`. Applied to both single-job and job-list responses.
+**Status**: FIXED
 
-| Frontend Call | Backend Route | Data Source | Status |
-|---|---|---|---|
-| `GET /api/notebook-debug/notebooks` | `server.py.bak:notebook_debug_list()` | Fabric REST API: `GET /v1/workspaces/{CODE_WS}/items?type=Notebook` | MISSING |
-| `GET /api/notebook-debug/entities?layer=bronze` | `server.py.bak:notebook_debug_get_entities('bronze')` | Fabric SQL: `EXEC [execution].[sp_GetBronzelayerEntity_Full]` | MISSING |
-| `GET /api/notebook-debug/entities?layer=silver` | `server.py.bak:notebook_debug_get_entities('silver')` | Fabric SQL: `EXEC [execution].[sp_GetSilverlayerEntity_Full]` | MISSING |
-| `GET /api/notebook-debug/entities?layer=landing` | `server.py.bak:notebook_debug_get_entities('landing')` | Fabric SQL: `SELECT ... FROM [execution].[vw_LoadSourceToLandingzone]` | MISSING |
-| `POST /api/notebook-debug/run` | `server.py.bak:notebook_debug_run(body)` | Fabric REST API: `POST /v1/workspaces/{CODE_WS}/items/{notebookId}/jobs/instances?jobType=RunNotebook` | MISSING |
-| `GET /api/notebook-debug/job-status` | `server.py.bak:notebook_debug_job_status()` | Fabric REST API: `GET /v1/workspaces/{CODE_WS}/items/{notebookId}/jobs/instances/{jobId}` | MISSING |
+### ND-02 | HIGH | Unguarded .json() on non-ok responses (4 fetch calls)
+**Description**: All four fetch calls in the frontend call `.json()` without checking `res.ok`. On 4xx/5xx responses, `res.json()` may throw a parse error (if body is not JSON) or silently process an error body as if it were valid data.
+**Locations**: Lines 138 (notebooks), 154 (entities), 184 (job-status polling), 231 (run trigger).
+**Fix**: Added `if (!res.ok) throw new Error(...)` before each `.json()` call.
+**Status**: FIXED
 
-## Data Source Correctness Analysis
+### ND-03 | HIGH | Missing UUID validation on user-supplied IDs in URL interpolation
+**Description**: `notebookId`, `jobId`, and `workspaceId` from user input are interpolated directly into Fabric API URLs without format validation. A crafted value could alter the URL path (e.g., `../` sequences). While Fabric's API would likely reject it, defense-in-depth requires validation.
+**Locations**: `post_debug_run`, `get_debug_job_status`, `get_setup_job_status`.
+**Fix**: Added `_is_valid_uuid()` check. All user-supplied IDs are now validated as UUID format before use. Returns 400 on invalid format.
+**Status**: FIXED
 
-### Entity data (bronze/silver layers)
-- **Source**: Fabric SQL stored procedures `sp_GetBronzelayerEntity_Full` / `sp_GetSilverlayerEntity_Full`.
-- **Correctness**: The stored procs return `NotebookParams` JSON which is parsed into entity summaries. The frontend extracts `namespace`, `schema`, `table`, `fileName` from the `params` sub-object. This is correct -- these match what the pipeline notebooks expect.
+### ND-04 | MEDIUM | Missing layer validation on run endpoint
+**Description**: `post_debug_run` validates layer for the entity-list endpoint (`get_debug_entities` raises HttpError for unknown layers) but the run endpoint's count query uses `else: # silver` as a catch-all. Any layer value other than "landing" or "bronze" silently runs as silver.
+**Fix**: Added explicit layer validation at the top of `post_debug_run` — raises 400 for unknown layers. Changed `else` to `elif layer == "silver"`.
+**Status**: FIXED
 
-### Entity data (landing layer)
-- **Source**: Fabric SQL view `[execution].[vw_LoadSourceToLandingzone]`.
-- **Correctness**: Queries `EntityId`, `DataSourceName`, `DataSourceNamespace`, `SourceSchema`, `SourceName`, `TargetFilePath`, `TargetFileName`, `TargetFileType`, `TargetLakehouseGuid`, `WorkspaceGuid`, `ConnectionGuid`, `ConnectionType`, `IsIncremental`. Correctly maps these to the same entity summary format used by bronze/silver.
+### ND-05 | MEDIUM | int() crash on non-numeric maxEntities
+**Description**: `int(params.get("maxEntities", 0))` throws `ValueError` if the user sends a non-numeric string, crashing the request handler with an unhandled exception.
+**Fix**: Wrapped in try/except, returns 400 with a clear message.
+**Status**: FIXED
 
-### Notebook listing
-- **Source**: Fabric REST API workspace items query filtered to `type=Notebook`.
-- **Correctness**: Returns `{id, displayName}` which maps to frontend's `Notebook` interface `{id, name}`. Correct mapping.
+### ND-06 | LOW | Dead fields in LAYER_INFO constant
+**Description**: `LAYER_INFO` objects each have 5 unused fields (`activeBg`, `activeBorder`, `badgeBg`, `badgeText`, `dotColor`) all set to empty strings. These are never read anywhere in the component.
+**Fix**: Removed the unused fields and simplified the type definition.
+**Status**: FIXED
 
-### Job status
-- **Source**: Fabric REST API job instances endpoint.
-- **Correctness**: Maps `status`, `startTimeUtc`, `endTimeUtc`, `failureReason` to the frontend's `JobStatus` interface. Correct.
+### ND-07 | LOW | Hardcoded `#FFFFFF` hex color
+**Description**: Line 316 uses `#FFFFFF` for white text on the active step number badge. The design system has no `--bp-*` token for white/inverse text (only `--text-inverse` from an older system).
+**Fix**: N/A — no suitable bp-token exists.
+**Status**: DEFERRED (needs design-system-level token addition first)
 
-## Issues Found
+---
 
-### 1. CRITICAL -- All four `/api/notebook-debug/*` endpoints are missing from the route layer
+## Deferred Items
 
-The server refactor migrated handler logic from `server.py.bak` into `routes/*.py` modules, but the notebook-debug endpoints were NOT migrated. No file in `dashboard/app/api/routes/` registers any path starting with `/api/notebook-debug/`.
+| ID | Severity | Reason |
+|----|----------|--------|
+| ND-07 | LOW | No `--bp-*` design token for white/inverse text exists in the design system. Fixing requires adding one to `index.css` first, which is outside the scope of this two-file audit. |
 
-**Impact**: The entire NotebookDebug page is non-functional. All four API calls will return 404.
+---
 
-**Fix needed**: Create `dashboard/app/api/routes/notebook_debug.py` that registers these four routes and reimplements the logic currently in `server.py.bak` functions `notebook_debug_list()`, `notebook_debug_get_entities()`, `notebook_debug_run()`, and `notebook_debug_job_status()`.
+## Files Modified
 
-### 2. NOTE -- These endpoints hit Fabric SQL and Fabric REST API, not SQLite
-
-Unlike most other dashboard pages, NotebookDebug does NOT read from the local SQLite control plane DB. It queries:
-- **Fabric SQL** (via ODBC) for stored procedures and views
-- **Fabric REST API** for notebook listing, triggering, and job status polling
-
-This means the migration requires the Fabric SQL connection logic (`query_sql()`) and Fabric API helpers (`get_fabric_token()`) that currently exist only in `server.py.bak`.
-
-### 3. MINOR -- Entity summary field names are correct
-
-Frontend displays `namespace`, `schema`, `table`, `fileName` which match the backend response format. No field name mismatches.
-
-## Verdict
-
-**Page Status: BROKEN** -- 4/4 endpoints missing from route layer. Page renders but all data fetches will 404.
+- `dashboard/app/src/pages/NotebookDebug.tsx` — ND-02 (4x res.ok guards), ND-06 (dead fields removed)
+- `dashboard/app/api/routes/notebook.py` — ND-01 (failureReason normalization), ND-03 (UUID validation), ND-04 (layer validation), ND-05 (maxEntities type safety)
