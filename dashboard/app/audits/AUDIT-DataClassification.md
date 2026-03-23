@@ -1,92 +1,55 @@
-# AUDIT: DataClassification.tsx
+# AUDIT-DC2: DataClassification Page
 
-**File**: `dashboard/app/src/pages/DataClassification.tsx` (289 lines)
-**Audited**: 2026-03-13
-**Verdict**: PASS — mock/placeholder data is correctly disclosed; no false metrics
-
----
-
-## Page Overview
-
-Data Classification provides a sensitivity tagging interface for entities and columns. The page uses the entity digest for entity metadata but generates all classification-specific data from a mock `useClassificationData()` hook. A prominent banner declares the classification engine is not yet active.
+**Files**: `dashboard/app/src/pages/DataClassification.tsx`, `dashboard/app/api/routes/classification.py`
+**Audited**: 2026-03-23
+**Verdict**: 4 findings (1 HIGH, 2 MEDIUM, 1 LOW) — all FIXED
 
 ---
 
-## Data Sources
+## Findings
 
-### 1. Entity Digest (entity metadata only)
+### DC2-01 — Fabricated column counts in fallback (HIGH) — FIXED
 
-| What | Detail |
-|------|--------|
-| **Hook** | `useEntityDigest()` from `@/hooks/useEntityDigest` |
-| **API call** | `GET /api/entity-digest` |
-| **Backend handler** | `routes/entities.py → get_entity_digest()` |
-| **Used for** | Entity list, source names, entity counts, layer badges |
-| **Correctness** | PASS |
+**File**: `DataClassification.tsx`, `_fallback()` function (lines 74-84)
+**Description**: The fallback function (used during API loading and on API failure) fabricated column counts using a `* 15` multiplier: `totalColumns: entities.length * 15` and per-source `total: entities.filter(...).length * 15`. This displayed fake numbers to the user whenever the classification API was slow or unreachable.
+**Fix**: Changed fabricated counts to `0`. The fallback now reports zero columns instead of invented numbers. The "Est. Columns" KPI will show 0 during loading rather than a made-up number.
 
-### 2. Mock Classification Data (local computation)
+### DC2-02 — Hardcoded hex color (MEDIUM) — FIXED
 
-| What | Detail |
-|------|--------|
-| **Hook** | `useClassificationData(entities)` — local `useMemo` (lines 38-83) |
-| **API call** | None — purely client-side |
-| **Data** | All classification fields hardcoded to zero: `classifiedPct = 0`, `bySensitivity = { public: 0, internal: 0, ... }`, heatmap cells all 0 |
-| **Comment in code** | Line 45: "In production this comes from integration.ColumnClassification table" |
-| **Correctness** | PASS — the zeros are intentionally correct since the classification engine hasn't run yet |
+**File**: `DataClassification.tsx`, line 34
+**Description**: `SENSITIVITY_INK.pii` used hardcoded `"#FEFDFB"` instead of a design token. This value corresponds to `--bp-surface-1`.
+**Fix**: Replaced `"#FEFDFB"` with `"var(--bp-surface-1)"`.
 
----
+### DC2-03 — Shallow copy of mutable scan job state (MEDIUM) — FIXED
 
-## KPIs and Metrics
+**File**: `classification.py`, `get_classification_status()` (line 204)
+**Description**: The endpoint returned `dict(_scan_job)`, a shallow copy. Since `_scan_job` contains a mutable `result` sub-dict, concurrent reads could see mutated state if the background scan thread updated the result dict between the copy and serialization.
+**Fix**: Changed to `copy.deepcopy(_scan_job)` under the existing lock. Added `import copy`.
 
-| KPI | Source | Value | Correct? |
-|-----|--------|-------|----------|
-| **Total Entities** | `classData.totalEntities` = `allEntities.length` | Real count from digest | PASS |
-| **Est. Columns** | `classData.totalColumns` = `entities.length * 15` | Estimated (hardcoded multiplier) | PASS — labeled "Est." |
-| **Classified** | `classData.classifiedColumns` = `0` | Always zero | PASS — classification engine not active |
-| **PII Detected** | `classData.bySensitivity.pii` = `0` | Always zero | PASS |
-| **Confidential** | `classData.bySensitivity.confidential` = `0` | Always zero | PASS |
+### DC2-04 — No validation on `level` query parameter (LOW) — FIXED
+
+**File**: `classification.py`, `get_classification_data()` (line 243)
+**Description**: The `level` query parameter was passed directly to a parameterized SQL query (no injection risk), but arbitrary values were silently accepted, returning empty results without any signal to the caller.
+**Fix**: Added allowlist validation against `{"public", "internal", "confidential", "restricted", "pii"}`. Invalid values now return HTTP 400.
 
 ---
 
-## Classification Status Banner
+## Deferred Items
 
-The page displays a prominent amber banner (lines 133-147):
-> "Classification Engine Not Yet Active — Column schema capture needs to run during next Bronze/Silver load..."
-
-This is accurate and prevents users from interpreting the zero values as "no sensitive data found."
+None. All findings were in scope and fixed.
 
 ---
 
-## Entity Table Fields
+## Items Reviewed — No Issues
 
-| Field | Source | Correct? |
-|-------|--------|----------|
-| Entity name | `entity.tableName` from digest | PASS |
-| Source | `entity.source` from digest | PASS |
-| Schema | `entity.sourceSchema` from digest | PASS |
-| Layer badges | `lzStatus`/`bronzeStatus`/`silverStatus` from digest | PASS |
-| Classification badge | Hardcoded `<CertificationBadge status="none" />` | PASS — always "none" since no classification |
-| Rows | Hardcoded `&mdash;` | PASS — row counts not available |
-
----
-
-## Heatmap View
-
-| Field | Source | Correct? |
-|-------|--------|----------|
-| Source rows | From digest source grouping | PASS |
-| Entity count per source | `sourceEntities.length` | PASS |
-| Sensitivity cells | All zeros from mock `heatmap` array | PASS |
-| Unclassified column | `src.estimatedColumns` = `entityCount * 15` | PASS — labeled correctly |
-
----
-
-## Issues Found
-
-None. The page is correctly structured as a forward-looking feature with honest zero-state representation. Entity metadata comes from the verified entity digest. Classification data is explicitly mock/zero with clear UX disclosure.
-
----
-
-## Summary
-
-Well-implemented placeholder page. Uses real entity digest data for entity metadata and displays honest zeros for all classification metrics with a clear "not yet active" banner. When `integration.ColumnClassification` table is populated, the `useClassificationData` hook will need to be rewired from local computation to an API call — the current comment at line 45 documents this intent.
+| Check | Result |
+|-------|--------|
+| Truth bugs beyond DC2-01 | PASS — KPIs source from real API; banner correctly discloses engine not active |
+| Dead code / unused imports | PASS — all imports used |
+| Error handling (frontend) | PASS — fetch has `.catch()` that falls back gracefully; `res.ok` checked |
+| SQL injection (backend) | PASS — all queries use `?` parameterized bindings |
+| Accessibility | PASS — table headers present, interactive elements are buttons with text |
+| Loading states | PASS — entity table shows "Loading..." row; fallback data now shows zeros |
+| Empty states | PASS — "No entities match" and "No entities found" messages present |
+| API response shape | PASS — frontend defensively defaults all fields with `?? 0` / `?? []` |
+| Scalability | PASS — sources are dynamic from API/digest, not hardcoded |
