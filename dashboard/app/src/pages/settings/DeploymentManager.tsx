@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Rocket, StopCircle, Loader2, XCircle, TestTube } from 'lucide-react';
+import { Rocket, StopCircle, XCircle, TestTube } from 'lucide-react';
 import type {
   DeployConfig,
   DeployState,
   PhaseState,
   PhaseItem,
   LogEntry,
-  DeployStatus,
 } from './types';
 import PreDeploymentPanel from './PreDeploymentPanel';
 import PhaseProgressTracker from './PhaseProgressTracker';
@@ -231,6 +230,7 @@ export default function DeploymentManager() {
         {uiState === 'running' && (
           <button
             onClick={handleCancel}
+            aria-label="Cancel deployment"
             className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md transition-colors cursor-pointer"
             style={{ background: 'var(--bp-fault-light)', color: 'var(--bp-fault)', border: '1px solid var(--bp-fault)' }}
           >
