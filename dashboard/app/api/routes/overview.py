@@ -357,6 +357,8 @@ def get_overview_activity(params: dict) -> list:
             "failed": "error",
             "running": "running",
             "in_progress": "running",
+            "degraded": "warning",
+            "partial": "warning",
             "": "pending",
         }
 
