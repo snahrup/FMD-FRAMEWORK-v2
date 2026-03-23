@@ -180,7 +180,12 @@ The page uses `useEntityDigest()` to derive `registeredEntities` instead of fetc
 Both single and bulk delete work correctly with cascade impact preview. The cascade impact endpoint `/api/entities/cascade-impact` returns affected Bronze and Silver entities.
 
 ### Gateway Connection Registration
-Works correctly. The `registerConnection` function generates FMD naming convention (`CON_FMD_{SERVER}_{DB}`) and calls `/api/connections` POST.
+**RP-10 fixed**: `GET /api/gateway-connections` and `POST /api/connections` now implemented.
+- **GET** fetches live from Fabric REST API (`/v1/connections?gatewayId=...`), falls back to static list from `docs/gateway_connections.md` when Fabric is unreachable. Fallback is logged explicitly — never silent.
+- **POST** resolves `connectionGuid` against real gateway connections before upsert. Returns 400 if GUID doesn't match any known connection — no partial rows.
+- Frontend `registerConnection` generates FMD naming convention (`CON_FMD_{SERVER}_{DB}`) — no changes needed.
+- Connections KPI now reflects real gateway count + registered vs available.
 
 ### Onboarding Wizard Modal
 The wizard opens as a modal overlay on the SourceManager page. Props are passed correctly. The `onRefresh` callback invalidates both digest cache and reloads gateway/connection/datasource data.
+Step 1 database picker is populated from `GET /api/gateway-connections` — **RP-10 fixed**: this endpoint now exists.
