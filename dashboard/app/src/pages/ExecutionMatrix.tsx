@@ -48,7 +48,13 @@ function humanDuration(seconds: number | null | undefined): string {
 
 type StatusFilter = "all" | "succeeded" | "failed" | "never-run" | "pending";
 
-const DONUT_COLORS = ["#3D7C4F", "#B93A2A", "#A8A29E"]; // operational, fault, muted
+/** Read a CSS custom property value for use in SVG/Recharts contexts. */
+const cssVar = (name: string) =>
+  typeof document !== 'undefined'
+    ? getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+    : '';
+
+const DONUT_COLORS = [cssVar("--bp-operational"), cssVar("--bp-fault"), cssVar("--bp-ink-muted")]; // operational, fault, muted
 
 // ============================================================================
 // COMPONENT
@@ -312,7 +318,7 @@ export default function ExecutionMatrix() {
       {/* ================================================================ */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>Execution Matrix</h1>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Execution Matrix</h1>
           {engineBadge()}
         </div>
 
@@ -587,7 +593,7 @@ export default function ExecutionMatrix() {
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2">
                   <AlertOctagon className="w-4 h-4" style={{ color: "var(--bp-fault)" }} />
-                  <span style={{ fontSize: "18px", fontWeight: 600, color: "#1C1917" }}>Top Errors</span>
+                  <span style={{ fontSize: "18px", fontWeight: 600, color: "var(--bp-ink-primary)" }}>Top Errors</span>
                   <span className="text-[10px] text-muted-foreground font-normal ml-1">
                     (last {timeRange})
                   </span>
@@ -637,7 +643,7 @@ export default function ExecutionMatrix() {
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2">
                   <Activity className="w-4 h-4" style={{ color: "var(--bp-copper)" }} />
-                  <span style={{ fontSize: "18px", fontWeight: 600, color: "#1C1917" }}>Layer Throughput</span>
+                  <span style={{ fontSize: "18px", fontWeight: 600, color: "var(--bp-ink-primary)" }}>Layer Throughput</span>
                   <span className="text-[10px] text-muted-foreground font-normal ml-1">
                     (last {timeRange} &mdash; {engineMetrics.runs} runs)
                   </span>
@@ -652,28 +658,28 @@ export default function ExecutionMatrix() {
                     >
                       <XAxis
                         dataKey="Layer"
-                        tick={{ fontSize: 11, fill: "#78716C" }}
+                        tick={{ fontSize: 11, fill: cssVar("--bp-ink-tertiary") }}
                         axisLine={false}
                         tickLine={false}
                       />
                       <YAxis
-                        tick={{ fontSize: 10, fill: "#A8A29E" }}
+                        tick={{ fontSize: 10, fill: cssVar("--bp-ink-muted") }}
                         axisLine={false}
                         tickLine={false}
                         width={40}
                       />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: "#FEFDFB",
-                          border: "1px solid rgba(0,0,0,0.08)",
+                          backgroundColor: "var(--bp-surface-1)",
+                          border: "1px solid var(--bp-border)",
                           borderRadius: "8px",
                           fontSize: "12px",
                         }}
-                        labelStyle={{ color: "#1C1917", fontWeight: 600 }}
-                        itemStyle={{ color: "#57534E" }}
+                        labelStyle={{ color: "var(--bp-ink-primary)", fontWeight: 600 }}
+                        itemStyle={{ color: "var(--bp-ink-secondary)" }}
                       />
-                      <Bar dataKey="Succeeded" fill="#3D7C4F" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Failed" fill="#B93A2A" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Succeeded" fill={cssVar("--bp-operational")} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Failed" fill={cssVar("--bp-fault")} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
