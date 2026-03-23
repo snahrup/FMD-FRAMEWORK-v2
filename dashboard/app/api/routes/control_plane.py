@@ -173,6 +173,8 @@ def _build_control_plane() -> dict:
     lh_seen: set = set()
     for lh in lakehouses:
         lh_id = int(lh.get("LakehouseId", 0))
+        # TODO: LakehouseId <= 3 is a fragile heuristic for DEV vs PROD.
+        # Should use a Name-based convention or an explicit Environment column.
         env = "DEV" if lh_id <= 3 else "PROD"
         name = lh.get("Name", "")
         entry_key = f"{name}_{env}"

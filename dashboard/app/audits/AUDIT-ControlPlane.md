@@ -1,145 +1,106 @@
-# AUDIT: ControlPlane.tsx — Data Source Correctness
+# AUDIT-CP: Control Plane Page Audit
 
-**Date**: 2026-03-13
-**Page**: `dashboard/app/src/pages/ControlPlane.tsx`
-**Backend**: `dashboard/app/api/routes/control_plane.py`
-**DB Layer**: `dashboard/app/api/control_plane_db.py`
-
----
-
-## API Calls Made by Frontend
-
-| # | API Call | Trigger | Used For |
-|---|----------|---------|----------|
-| 1 | `GET /api/control-plane` | Initial load + 30s auto-refresh | Health bar, KPI pills, source systems, lakehouses, workspaces, pipeline runs |
-| 2 | `GET /api/load-config` | Initial load + 30s auto-refresh | Entity Metadata tab (table grid) |
-| 3 | `POST /api/entity-digest/resync` | Maintenance button click | Resync entity digest |
-| 4 | `POST /api/maintenance-agent/trigger` | Maintenance button click | Trigger Fabric notebook |
+**Date**: 2026-03-23
+**Frontend**: `dashboard/app/src/pages/ControlPlane.tsx` (778 lines)
+**Backend**: `dashboard/app/api/routes/control_plane.py` (lines 406-409 `/api/control-plane`)
+**Backend**: `dashboard/app/api/routes/source_manager.py` (lines 1142-1174 `/api/load-config`)
+**Endpoints called by page**: `/api/control-plane`, `/api/load-config`, `/api/entity-digest/resync`, `/api/maintenance-agent/trigger`
 
 ---
 
-## Route 1: `GET /api/control-plane` -> `_build_control_plane()`
+## Summary Table
 
-### SQL Queries Executed (via control_plane_db.py)
-
-| # | Function | Table(s) | Columns Selected | Correct? |
-|---|----------|----------|------------------|----------|
-| 1 | `cpdb.get_connections()` | `connections` | ConnectionId, Name, Type, IsActive | CORRECT |
-| 2 | `cpdb.get_datasources()` | `datasources` JOIN `connections` | DataSourceId, Name, Namespace, Type, Description, IsActive, ConnectionName | CORRECT |
-| 3 | `cpdb.get_lz_entities()` | `lz_entities` JOIN `datasources` | LandingzoneEntityId, SourceSchema, SourceName, IsActive, IsIncremental, DataSourceName, Namespace | CORRECT |
-| 4 | `cpdb.get_bronze_entities()` | `bronze_entities` JOIN `lz_entities` JOIN `datasources` | BronzeLayerEntityId, Schema, Name, IsActive, Namespace | CORRECT |
-| 5 | `cpdb.get_silver_entities()` | `silver_entities` JOIN `bronze_entities` JOIN `lz_entities` JOIN `datasources` | SilverLayerEntityId, Schema, Name, IsActive, Namespace | CORRECT |
-| 6 | `cpdb.get_lakehouses()` | `lakehouses` | LakehouseId, Name | CORRECT |
-| 7 | `cpdb.get_workspaces()` | `workspaces` | WorkspaceId, Name | CORRECT |
-| 8 | `cpdb.get_pipelines()` | `pipelines` | PipelineId, Name, IsActive | CORRECT |
-| 9 | `cpdb.get_pipeline_runs_grouped()` | `pipeline_audit` | PipelineRunGuid, PipelineName, EntityLayer, TriggerType, StartTime, EndTime, EndLogData, ErrorData | CORRECT |
-
-### KPI Metrics Traced
-
-| Metric | Source | Calculation | Correct? |
-|--------|--------|-------------|----------|
-| Connections (active) | `connections.IsActive` | `sum(1 for c if IsActive in ("true","1"))` | CORRECT |
-| Sources (active) | `datasources.IsActive` | Same pattern | CORRECT |
-| Entities LZ/BR/SV (active) | `lz_entities.IsActive`, `bronze_entities.IsActive`, `silver_entities.IsActive` | Same pattern, counted separately per layer | CORRECT |
-| Pipelines (active) | `pipelines.IsActive` | Same pattern | CORRECT |
-| Lakehouses count | `lakehouses` | `len(set(Name))` — deduped by name | CORRECT |
-| Workspaces count | `workspaces` | `len(workspaces)` | CORRECT |
-| Pipeline health (OK/FAIL/RUN) | `pipeline_audit` grouped by RunGuid | Derived from LogType timestamps | CORRECT |
-
-### Source Systems Aggregation
-
-Entity counts per namespace are built by iterating `lz_entities`, `bronze_entities`, and `silver_entities` and grouping by `Namespace` (resolved via datasource JOIN). Both `entities` (total) and `activeEntities` (filtered by IsActive) are tracked.
-
-**CORRECT**: Uses the right tables (lz_entities, bronze_entities, silver_entities) and the right column (IsActive) for the right purpose (registration status).
-
-### Does NOT reference empty tables
-
-| Empty Table | Referenced? |
-|-------------|------------|
-| `pipeline_lz_entity` (0 rows) | NO |
-| `pipeline_bronze_entity` (0 rows) | NO |
-| `entity_status` (4998 rows) | NO — not used in this endpoint |
-
-**NOTE**: `entity_status` is intentionally not used by this endpoint. The Control Plane shows *registration* counts (IsActive), not *processing* status. This is correct behavior — the execution matrix endpoint uses entity_status separately.
+| # | Category | Finding | Severity | Status |
+|---|----------|---------|----------|--------|
+| 1 | Hardcoded hex | `#1C1917` in h1 title — should be `var(--bp-ink-primary)` | Low | FIXED |
+| 2 | Token compliance | `--font-display` used instead of `--bp-font-display` | Low | FIXED |
+| 3 | Dead code | `Shield` imported from lucide-react but never used | Low | FIXED |
+| 4 | Honesty | "Last Load" column always shows "never" — `/api/load-config` never returns `lastLoadTime` | Medium | FIXED (column removed) |
+| 5 | Dead code | `lastLoadTime` and `lastWatermarkValue` in `EntityMeta` interface — never populated by API | Low | FIXED (fields removed) |
+| 6 | Honesty | "DEV + PROD split: N each" hardcodes `Math.ceil(total/2)` — fabricated split | Medium | FIXED (replaced with inactive count) |
+| 7 | Error handling | Maintenance button calls `/api/entity-digest/resync` and `/api/maintenance-agent/trigger` — neither endpoint exists. `fetch().json()` on a 404 HTML response throws parse error | High | FIXED (added response.ok checks) |
+| 8 | Accessibility | Search input, source filter select, auto-refresh checkbox missing `aria-label` | Low | FIXED |
+| 9 | Empty states | Metadata tab: no message when entity list is empty (no error, just blank table) | Low | FIXED |
+| 10 | Empty states | Connections tab: no message when `activeSources` is empty | Low | FIXED |
+| 11 | Backend | Lakehouse DEV/PROD classification hardcoded as `LakehouseId <= 3` — fragile magic number | Medium | NOTED (TODO comment added) |
+| 12 | Backend | `_SOURCE_COLORS` array contains hardcoded hex values (`#3b82f6`, etc.) | Low | Deferred — shared route |
 
 ---
 
-## Route 2: `GET /api/load-config` (Entity Metadata tab)
+## Detailed Findings
 
-### SQL Query
+### F1: Hardcoded hex color `#1C1917` (FIXED)
 
-```sql
-SELECT le.LandingzoneEntityId AS entityId,
-       ds.Namespace AS dataSource, ds.DataSourceId AS dataSourceId,
-       le.SourceSchema AS [schema], le.SourceName AS [table], le.FileName,
-       le.IsIncremental, le.IsIncrementalColumn AS watermarkColumn,
-       be.BronzeLayerEntityId AS bronzeEntityId, be.PrimaryKeys AS primaryKeys,
-       se.SilverLayerEntityId AS silverEntityId
-FROM lz_entities le
-LEFT JOIN datasources ds ON le.DataSourceId = ds.DataSourceId
-LEFT JOIN bronze_entities be ON le.LandingzoneEntityId = be.LandingzoneEntityId
-LEFT JOIN silver_entities se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId
-ORDER BY ds.Name, le.SourceSchema, le.SourceName
-```
+**Line 303**: `color: "#1C1917"` in the page title `<h1>`.
+This value is identical to `--bp-ink-primary` defined in `index.css`.
+**Fix**: Replaced with `var(--bp-ink-primary)`.
 
-| Column | Source Table.Column | Correct? |
-|--------|---------------------|----------|
-| entityId | `lz_entities.LandingzoneEntityId` | CORRECT |
-| dataSource | `datasources.Namespace` | CORRECT |
-| schema | `lz_entities.SourceSchema` | CORRECT |
-| table | `lz_entities.SourceName` | CORRECT |
-| FileName | `lz_entities.FileName` | CORRECT |
-| IsIncremental | `lz_entities.IsIncremental` | CORRECT |
-| watermarkColumn | `lz_entities.IsIncrementalColumn` | CORRECT |
-| bronzeEntityId | `bronze_entities.BronzeLayerEntityId` | CORRECT |
-| primaryKeys | `bronze_entities.PrimaryKeys` | CORRECT |
-| silverEntityId | `silver_entities.SilverLayerEntityId` | CORRECT |
+### F2: Non-standard font token (FIXED)
 
-**CORRECT**: All columns come from the right tables. The JOIN chain (lz -> bronze via LandingzoneEntityId, bronze -> silver via BronzeLayerEntityId) is correct.
+**Line 303**: `fontFamily: "var(--font-display)"` uses the legacy CSS variable.
+The design system defines `--bp-font-display` as the canonical token.
+**Fix**: Replaced with `var(--bp-font-display)`.
 
-### Frontend Display of Entity Metadata
+### F3: Unused import `Shield` (FIXED)
 
-| Column Header | Data Field | Display Logic | Correct? |
-|---------------|-----------|---------------|----------|
-| Source | `e.dataSource` | Raw namespace | CORRECT |
-| Schema | `e.schema` | Raw value | CORRECT |
-| Table | `e.table` | Raw value | CORRECT |
-| File Name | `e.FileName` | Raw value | CORRECT |
-| Load Type | `e.IsIncremental` | `=== 1 or === true` -> "INCR", else "FULL" | CORRECT |
-| Watermark | `e.watermarkColumn` | Raw value or dash | CORRECT |
-| Primary Keys | `e.primaryKeys` | Raw value or dash | CORRECT |
-| Bronze | `e.bronzeEntityId` | Truthy -> checkmark | CORRECT |
-| Silver | `e.silverEntityId` | Truthy -> checkmark | CORRECT |
-| Last Load | `e.lastLoadTime` | Formatted timestamp or "never" | **WARNING** |
+**Line 13**: `Shield` is imported from `lucide-react` but never referenced in the component.
+**Fix**: Removed from import list.
 
-### Warning: `lastLoadTime` always null
+### F4-5: Phantom "Last Load" column (FIXED)
 
-The `/api/load-config` response does NOT include `lastLoadTime` or `lastWatermarkValue`. The SQL query does not join `entity_status` or `watermarks`. The frontend references `e.lastLoadTime` which will always be undefined, rendering "never" for all entities.
+The `EntityMeta` interface declared `lastLoadTime` and `lastWatermarkValue` fields, and the table rendered a "Last Load" column. However, the `/api/load-config` endpoint query does not JOIN `entity_status` and never returns these fields. Every entity showed "never" regardless of actual load history.
 
-**Impact**: The "Last Load" column in the Entity Metadata tab always shows "never" even for entities that have been loaded. The data exists in `entity_status.LoadEndDateTime` but is not joined into this query.
+**Fix**: Removed the two dead interface fields and the "Last Load" table column. If load times are needed, the backend query must be updated to JOIN `entity_status.LoadEndDateTime`.
+
+### F6: Fabricated pipeline split (FIXED)
+
+**Line 720**: Displayed "DEV + PROD split: {Math.ceil(total/2)} each" — this assumes pipelines are evenly split between environments, which is not derived from any data.
+
+**Fix**: Replaced with an "Inactive" count that shows `total - active` when they differ. This uses real data.
+
+### F7: Maintenance button calls nonexistent endpoints (FIXED)
+
+`runMaintenanceAgent()` POSTs to:
+- `/api/entity-digest/resync` — does not exist in any route file
+- `/api/maintenance-agent/trigger` — does not exist in any route file
+
+Both return 404 HTML pages. The original code called `.json()` on the response without checking `response.ok`, causing a JSON parse error that masked the real issue.
+
+**Fix**: Added `response.ok` checks before parsing JSON. Errors now show the HTTP status instead of crashing.
+
+**Note**: These endpoints need to be implemented for the Maintenance button to be functional. Currently it will always show "404 Not Found" status messages.
+
+### F8: Missing aria-labels (FIXED)
+
+Added `aria-label` attributes to:
+- Auto-refresh checkbox
+- Entity search input
+- Data source filter select dropdown
+
+### F9-10: Missing empty states (FIXED)
+
+- **Metadata tab**: Added empty state for when no entities are loaded (distinct from filter-no-match)
+- **Connections tab**: Added empty state for when no active sources exist
+
+### F11: Lakehouse DEV/PROD magic number (NOTED)
+
+**control_plane.py line 176**: `env = "DEV" if lh_id <= 3 else "PROD"` uses a hardcoded integer threshold. This is fragile — if lakehouse IDs change during redeployment, the classification breaks silently.
+
+**Fix**: Added a TODO comment. A proper fix would use a name-based convention (e.g., lakehouses with "DEV" in the name) or an explicit `Environment` column in the lakehouses table.
+
+### F12: Backend hardcoded hex colors in `_SOURCE_COLORS` (Deferred)
+
+**control_plane.py lines 425-435**: The `_SOURCE_COLORS` array contains hardcoded hex values and Tailwind class strings. This palette is used by `/api/source-config` which serves multiple pages (not just Control Plane).
+
+**Deferred — shared route**: This palette is consumed by `useSourceConfig` hook across multiple pages. Changing it here could affect other pages.
 
 ---
 
-## IsActive vs Processing Status Confusion Check
+## Not Found (Clean)
 
-| Location | Uses IsActive? | Purpose | Correct Usage? |
-|----------|---------------|---------|----------------|
-| KPI pills (connections, sources, entities, pipelines) | Yes | Registration count | CORRECT — IsActive means "registered and enabled" |
-| Source systems entity counts | Yes (activeEntities) | Active registration per namespace | CORRECT |
-| Source system "Active"/"Partial" badge | Yes (connections + datasources IsActive) | All connections active? | CORRECT |
-| Entity Metadata tab Bronze/Silver columns | Uses bronzeEntityId/silverEntityId presence | Registration exists? | CORRECT — not confused with load status |
-
-**No confusion found.** IsActive is consistently used for registration status, never conflated with entity_status processing status.
-
----
-
-## Summary
-
-| Category | Finding | Severity |
-|----------|---------|----------|
-| CORRECT | All 9 SQL queries target correct tables with correct columns | - |
-| CORRECT | Entity counts per source use lz/bronze/silver entity tables (not empty pipeline_*_entity) | - |
-| CORRECT | IsActive consistently used for registration, not confused with processing status | - |
-| CORRECT | Pipeline health derived from pipeline_audit table correctly | - |
-| WARNING | Entity Metadata tab "Last Load" column always shows "never" — load-config query lacks entity_status JOIN | Medium |
-| CORRECT | No references to empty pipeline_lz_entity or pipeline_bronze_entity tables | - |
+| Check | Result |
+|-------|--------|
+| SQL injection in backend | No user input reaches SQL in `/api/control-plane`; `/api/load-config` uses parameterized queries |
+| Hardcoded source counts | None found — UI scales to N sources via `.map()` |
+| Fake data / stub responses | None — all data comes from SQLite queries |
+| `rgba()` colors | None found |
