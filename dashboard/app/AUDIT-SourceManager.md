@@ -173,7 +173,8 @@ The user experience is: "Import complete" appears in seconds, but actual data lo
 The page uses `useEntityDigest()` to derive `registeredEntities` instead of fetching `/api/entities` directly. This is efficient (single cached request) but means entity data is slightly stale (30s client TTL).
 
 ### Load Optimization Tab
-Works correctly. `fetchLoadConfig()` hits `/api/load-config` (Fabric SQL query), `handleAnalyzeSource()` hits `/api/analyze-source` (connects to on-prem SQL via VPN). Both endpoints are well-implemented.
+`fetchLoadConfig()` hits `/api/load-config` (SQLite query) — works correctly.
+`handleAnalyzeSource()` hits `/api/analyze-source` — **RP-09 fixed**: frontend type `AnalysisResult` now matches actual backend response `{datasourceId, tablesAnalyzed, server, error?}`. Previously had fantasy `summary.*` fields that returned `undefined`.
 
 ### Delete Operations
 Both single and bulk delete work correctly with cascade impact preview. The cascade impact endpoint `/api/entities/cascade-impact` returns affected Bronze and Silver entities.

@@ -650,7 +650,7 @@ def post_discover_all(params: dict) -> dict:
                ds.DataSourceId, ds.Name AS DSName, ds.Namespace
         FROM connections c
         JOIN datasources ds ON ds.ConnectionId = c.ConnectionId
-        WHERE c.Type = 'SQL' AND c.ServerName IS NOT NULL
+        WHERE c.Type IN ('SQL', 'SqlServer') AND c.ServerName IS NOT NULL
         ORDER BY c.Name
     """)
 

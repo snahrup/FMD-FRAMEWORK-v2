@@ -102,29 +102,12 @@ interface LoadConfigEntity {
   FileName: string | null;
 }
 
+/** Matches the actual backend response from GET /api/analyze-source */
 interface AnalysisResult {
-  datasource: string;
   datasourceId: number;
-  server: string;
-  database: string;
-  summary: {
-    total: number;
-    incrementalRecommended: number;
-    fullLoadOnly: number;
-    hasPrimaryKeys: number;
-    noPrimaryKeys: number;
-    bronzeRegistered: number;
-    silverRegistered: number;
-  };
-  entities: Array<{
-    entityId: number;
-    schema: string;
-    table: string;
-    rowCount: number | null;
-    primaryKeys: string[];
-    recommendedLoad: string;
-    recommendedColumn: string | null;
-  }>;
+  tablesAnalyzed: number;
+  server?: string;
+  error?: string;
 }
 
 /** Map a DigestEntity to the legacy RegisteredEntity shape used throughout this page.
@@ -437,9 +420,9 @@ export default function SourceManager() {
 
     setAnalyzing(true);
     setAnalyzeTarget(String(datasourceId));
-    setActionStatus({ type: 'loading', message: `Analyzing ${dsName} — connecting to source SQL Server and scanning tables for PKs, watermarks, and row counts...` });
+    setActionStatus({ type: 'loading', message: `Analyzing ${dsName} — connecting to source SQL Server...` });
     try {
-      // Step 1: Analyze source tables (PKs, watermarks, row counts)
+      // Step 1: Count source tables (lightweight connectivity + table count check)
       const res = await fetch(`/api/analyze-source?datasource=${datasourceId}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -448,7 +431,12 @@ export default function SourceManager() {
       }
       const result: AnalysisResult = await res.json();
 
-      setActionStatus({ type: 'loading', message: `${dsName}: Analyzed ${result.summary.total} tables — registering Bronze/Silver entities...` });
+      if (result.error) {
+        setActionStatus({ type: 'error', message: `${dsName}: ${result.error}` });
+        return;
+      }
+
+      setActionStatus({ type: 'loading', message: `${dsName}: Found ${result.tablesAnalyzed} tables — registering Bronze/Silver entities...` });
 
       // Step 2: Auto-register Bronze/Silver (silent — user doesn't need to know)
       await fetch('/api/register-bronze-silver', {
@@ -459,7 +447,7 @@ export default function SourceManager() {
 
       setActionStatus({
         type: 'success',
-        message: `${dsName}: ${result.summary.total} tables analyzed — ${result.summary.incrementalRecommended} incremental candidates, ${result.summary.hasPrimaryKeys} with PKs`,
+        message: `${dsName}: ${result.tablesAnalyzed} tables found on ${result.server || 'source'}. Bronze/Silver entities registered. Use "Optimize All" to discover PKs and watermarks.`,
       });
       invalidateDigestCache();
       refreshDigest();
