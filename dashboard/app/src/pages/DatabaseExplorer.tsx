@@ -504,7 +504,7 @@ export default function DatabaseExplorer() {
                       onClick={runQuery}
                       disabled={queryLoading || !sql.trim()}
                       className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md disabled:opacity-50 transition-colors"
-                      style={{ backgroundColor: "var(--bp-copper)", color: "#fff" }}
+                      style={{ backgroundColor: "var(--bp-copper)", color: "var(--bp-surface)" }}
                     >
                       {queryLoading ? (
                         <Loader2 className="h-4 w-4 animate-spin" />

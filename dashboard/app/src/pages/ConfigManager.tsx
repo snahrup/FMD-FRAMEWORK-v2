@@ -580,7 +580,7 @@ function CascadeModal({
                   onConfirm(toUpdate);
                 }}
                 disabled={applying || selected.size === 0}
-                className="px-4 py-2 text-sm font-medium text-[#FEFDFB] bg-[var(--bp-copper)] hover:bg-[var(--bp-copper-hover)] rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                className="px-4 py-2 text-sm font-medium text-[var(--bp-surface)] bg-[var(--bp-copper)] hover:bg-[var(--bp-copper-hover)] rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
               >
                 {applying ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
                 Update {selected.size} Reference{selected.size !== 1 ? "s" : ""}
@@ -788,7 +788,7 @@ export default function ConfigManager() {
             onClick={() => setShowDeployPrompt(true)}
             disabled={deploying}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-            style={{ background: "var(--bp-copper)", color: "#FEFDFB" }}
+            style={{ background: "var(--bp-copper)", color: "var(--bp-surface)" }}
           >
             {deploying ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -828,7 +828,7 @@ export default function ConfigManager() {
                 }
               }}
               className="ml-auto flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors"
-              style={{ background: "var(--bp-fault)", color: "#FEFDFB" }}
+              style={{ background: "var(--bp-fault)", color: "var(--bp-surface)" }}
             >
               <Zap className="h-4 w-4" /> Fix All Mismatches
             </button>
@@ -882,7 +882,7 @@ export default function ConfigManager() {
               disabled
               title="Coming soon — use scripts/upload_pipelines.py for now"
               className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-lg opacity-50 cursor-not-allowed"
-              style={{ background: "var(--bp-copper)", color: "#FEFDFB" }}
+              style={{ background: "var(--bp-copper)", color: "var(--bp-surface)" }}
             >
               <Rocket className="h-4 w-4" /> Deploy All Pipelines to Fabric
             </button>
