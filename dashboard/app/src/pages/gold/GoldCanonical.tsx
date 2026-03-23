@@ -38,7 +38,21 @@ interface LineageNode { id?: number; entity_name?: string; specimen_name?: strin
 interface Relationship { related_entity: string; fk_column: string; cardinality: string; direction: string }
 interface Measure { name: string; expression: string; type: string; description: string }
 interface AuditEntry { action: string; created_at: string; notes?: string; object_type?: string; object_id?: number; new_value?: string }
-interface Stats { canonical_entities: number; dimensions: number; facts: number; bridges: number; approved: number; draft: number; pending_steward: number }
+interface Stats {
+  canonical_total: number;
+  canonical_approved: number;
+  specimens: number;
+  tables_extracted: number;
+  columns_cataloged: number;
+  clusters_total: number;
+  unresolved_clusters: number;
+  clusters_resolved: number;
+  gold_specs: number;
+  specs_validated: number;
+  catalog_published: number;
+  catalog_certified: number;
+  certification_rate: number;
+}
 
 const API = "/api/gold-studio";
 
@@ -47,9 +61,9 @@ const API = "/api/gold-studio";
 const TYPE_BG: Record<string, string> = {
   Fact: "var(--bp-copper-soft)",
   Dimension: "var(--bp-dismissed-light)",
-  Bridge: "rgba(91,127,163,0.1)",
+  Bridge: "var(--bp-lz-light)",
   Reference: "var(--bp-dismissed-light)",
-  Aggregate: "rgba(180,86,36,0.06)",
+  Aggregate: "var(--bp-copper-soft)",
 };
 
 const STATUS_CFG: Record<CanonicalEntity["status"], { icon: string; label: string; bg: string; color: string; strike?: boolean }> = {
@@ -61,7 +75,7 @@ const STATUS_CFG: Record<CanonicalEntity["status"], { icon: string; label: strin
 
 const KEY_CFG: Record<string, { color: string; bg: string }> = {
   PK: { color: "var(--bp-copper)", bg: "var(--bp-copper-soft)" },
-  BK: { color: "var(--bp-warm-gold)", bg: "rgba(194,149,43,0.12)" },
+  BK: { color: "var(--bp-warm-gold)", bg: "var(--bp-caution-light)" },
   FK: { color: "var(--bp-lz)", bg: "var(--bp-lz-light)" },
   None: { color: "var(--bp-ink-muted)", bg: "var(--bp-dismissed-light)" },
 };
@@ -142,7 +156,7 @@ function DetailSlideOver({ entityId, onClose }: { entityId: number | null; onClo
           setClusterAudit(merged);
         });
       })
-      .catch(() => {});
+      .catch((err) => { if (!ctrl.signal.aborted) showToast(`Failed to load entity: ${err instanceof Error ? err.message : "unknown error"}`, "error"); });
     // Semantic endpoint returns {items}
     fetchJson<{ items: Measure[] }>(`${API}/semantic?canonical_root_id=${entityId}`).then((r) =>
       setMeasures(r?.items ?? [])
@@ -255,7 +269,7 @@ function DefinitionTab({ detail }: { detail: CanonicalDetail }) {
 }
 
 function ColumnsTab({ columns }: { columns: ColumnDef[] }) {
-  const TH = (h: string) => <th key={h} className="pb-2 pr-3 font-medium" style={font("body", 11, "var(--bp-ink-muted)", { textTransform: "uppercase", letterSpacing: "0.05em" })}>{h}</th>;
+  const TH = (h: string) => <th key={h} scope="col" className="pb-2 pr-3 font-medium" style={font("body", 11, "var(--bp-ink-muted)", { textTransform: "uppercase", letterSpacing: "0.05em" })}>{h}</th>;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left" style={font("body", 13, "var(--bp-ink-primary)")}>
@@ -384,7 +398,7 @@ function ClusterHistoryTab({ entries, lineage }: { entries: AuditEntry[]; lineag
 }
 
 function RelationshipsTab({ rows }: { rows: Relationship[] }) {
-  const TH = (h: string) => <th key={h} className="pb-2 pr-3 font-medium" style={font("body", 11, "var(--bp-ink-muted)", { textTransform: "uppercase", letterSpacing: "0.05em" })}>{h}</th>;
+  const TH = (h: string) => <th key={h} scope="col" className="pb-2 pr-3 font-medium" style={font("body", 11, "var(--bp-ink-muted)", { textTransform: "uppercase", letterSpacing: "0.05em" })}>{h}</th>;
   return (
     <table className="w-full text-left" style={font("body", 13, "var(--bp-ink-primary)")}>
       <thead><tr style={{ borderBottom: "1px solid var(--bp-border)" }}>{["Related Entity", "FK Column", "Cardinality", "Direction"].map(TH)}</tr></thead>
@@ -441,6 +455,7 @@ function DomainGrid({ entities, domains, onSelect }: { entities: CanonicalEntity
             type="button"
             className="flex items-center gap-2 w-full py-3 group"
             onClick={() => toggle(domain)}
+            aria-expanded={!collapsed[domain]}
           >
             <span style={{ fontSize: 12, color: "var(--bp-ink-muted)", transition: "transform 150ms ease-out", transform: collapsed[domain] ? "rotate(-90deg)" : "rotate(0)" }}>{"\u25BC"}</span>
             <span style={font("display", 15, "var(--bp-ink-primary)", { letterSpacing: "-0.01em" })}>{domain}</span>
@@ -452,7 +467,7 @@ function DomainGrid({ entities, domains, onSelect }: { entities: CanonicalEntity
                 <thead>
                   <tr style={{ background: "var(--bp-surface-1)", borderBottom: "1px solid var(--bp-border)" }}>
                     {["Entity", "Type", "Grain", "Cols", "Status", "Provenance"].map((h) => (
-                      <th key={h} className="px-4 py-2 font-medium" style={font("body", 11, "var(--bp-ink-muted)", { textTransform: "uppercase", letterSpacing: "0.05em" })}>{h}</th>
+                      <th key={h} scope="col" className="px-4 py-2 font-medium" style={font("body", 11, "var(--bp-ink-muted)", { textTransform: "uppercase", letterSpacing: "0.05em" })}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -487,7 +502,7 @@ function DomainGrid({ entities, domains, onSelect }: { entities: CanonicalEntity
 
 /* ---------- RELATIONSHIP MAP VIEW ---------- */
 
-function RelationshipMap({ entities, onSelect }: { entities: CanonicalEntity[]; domainFilter: string; onSelect: (id: number) => void }) {
+function RelationshipMap({ entities, onSelect }: { entities: CanonicalEntity[]; onSelect: (id: number) => void }) {
   const [edges, setEdges] = useState<Edge[]>([]);
 
   useEffect(() => {
@@ -561,6 +576,7 @@ export default function GoldCanonical() {
   const [entities, setEntities] = useState<CanonicalEntity[]>([]);
   const [domains, setDomains] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const { domainNames } = useDomainContext();
 
   // Filters
@@ -569,14 +585,18 @@ export default function GoldCanonical() {
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
+  const loadInitialData = useCallback(() => {
+    setLoading(true);
+    setFetchError(null);
     Promise.all([
       fetchJson<Stats>(`${API}/stats`).then((s) => s && setStats(s)),
-      // Domains endpoint returns {items: [{domain, entity_count}]}
       fetchJson<{ items: Array<{ domain: string; entity_count: number }> }>(`${API}/canonical/domains`)
         .then((r) => r?.items && setDomains(r.items.map((d) => d.domain))),
-    ]).finally(() => setLoading(false));
+    ]).catch(() => setFetchError("Failed to load canonical data. Check your connection and try again."))
+      .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { loadInitialData(); }, [loadInitialData]);
 
   useEffect(() => {
     const p = new URLSearchParams({ limit: "200" });
@@ -603,13 +623,12 @@ export default function GoldCanonical() {
 
   const statsItems = stats
     ? [
-        { label: "Canonical Entities", value: stats.canonical_entities },
-        { label: "Dimensions", value: stats.dimensions },
-        { label: "Facts", value: stats.facts, highlight: true },
-        { label: "Bridges", value: stats.bridges },
-        { label: "Approved", value: stats.approved },
-        { label: "Draft", value: stats.draft },
-        { label: "Pending Steward", value: stats.pending_steward, highlight: true },
+        { label: "Canonical Entities", value: stats.canonical_total },
+        { label: "Approved", value: stats.canonical_approved, highlight: true },
+        { label: "Gold Specs", value: stats.gold_specs },
+        { label: "Specs Validated", value: stats.specs_validated },
+        { label: "Catalog Published", value: stats.catalog_published },
+        { label: "Certified", value: stats.catalog_certified, highlight: true },
       ]
     : [];
 
@@ -628,15 +647,23 @@ export default function GoldCanonical() {
     <GoldStudioLayout activeTab="canonical">
       {stats && <StatsStrip items={statsItems} />}
 
+      {fetchError && (
+        <div role="alert" className="flex items-center justify-between rounded-lg px-4 py-3 mb-3" style={{ background: "var(--bp-copper-soft)", border: "1px solid var(--bp-copper)" }}>
+          <span style={font("body", 13, "var(--bp-copper)")}>{fetchError}</span>
+          <button type="button" onClick={loadInitialData} className="rounded-md px-3 py-1 text-sm font-medium" style={{ background: "var(--bp-copper)", color: "var(--bp-surface-1)" }}>Retry</button>
+        </div>
+      )}
+
       {/* Toolbar: view toggle + filters */}
       <div className="flex items-center justify-between gap-4 flex-wrap pb-3">
         {/* View toggle */}
-        <div className="inline-flex rounded-lg overflow-hidden" style={{ border: "1px solid var(--bp-border)" }}>
+        <div className="inline-flex rounded-lg overflow-hidden" role="group" aria-label="View mode" style={{ border: "1px solid var(--bp-border)" }}>
           {(["grid", "map"] as const).map((v) => (
             <button
               key={v}
               type="button"
               onClick={() => setView(v)}
+              aria-pressed={view === v}
               className="px-4 py-1.5 transition-colors"
               style={{
                 background: view === v ? "var(--bp-copper)" : "var(--bp-surface-1)",
@@ -654,6 +681,7 @@ export default function GoldCanonical() {
           <select
             value={filterDomain}
             onChange={(e) => setFilterDomain(e.target.value)}
+            aria-label="Filter by domain"
             className="rounded-md px-3 py-1.5"
             style={{ border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)", ...font("body", 12, "var(--bp-ink-primary)") }}
           >
@@ -664,6 +692,7 @@ export default function GoldCanonical() {
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
+            aria-label="Filter by entity type"
             className="rounded-md px-3 py-1.5"
             style={{ border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)", ...font("body", 12, "var(--bp-ink-primary)") }}
           >
@@ -674,6 +703,7 @@ export default function GoldCanonical() {
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
+            aria-label="Filter by status"
             className="rounded-md px-3 py-1.5"
             style={{ border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)", ...font("body", 12, "var(--bp-ink-primary)") }}
           >
@@ -689,6 +719,7 @@ export default function GoldCanonical() {
             placeholder="Search entities..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search canonical entities"
             className="rounded-md px-3 py-1.5 w-52"
             style={{ border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)", ...font("body", 12, "var(--bp-ink-primary)") }}
           />
@@ -706,7 +737,7 @@ export default function GoldCanonical() {
         <DomainGrid entities={filtered} domains={domains} onSelect={setSelectedId} />
       )}
       {filtered.length > 0 && view === "map" && (
-        <RelationshipMap entities={filtered} domainFilter={filterDomain} onSelect={setSelectedId} />
+        <RelationshipMap entities={filtered} onSelect={setSelectedId} />
       )}
 
       {/* Detail slide-over */}
