@@ -139,11 +139,11 @@ code { background:var(--panel2); padding:2px 6px; border-radius:6px; font-size:1
       <div class="hero-right">
         <div class="signal">
           <strong>In progress</strong>
-          <span><strong>RP-11: Config Manager GUIDs + cascade modal</strong></span>
+          <span>All scoped truth packets are merged.</span>
         </div>
         <div class="signal">
           <strong>Why this matters</strong>
-          <span>Config Manager shows blank pipeline GUIDs and the cascade deletion modal has display issues, making it unsafe to manage pipeline configs.</span>
+          <span>No active packet — all scoped truth work is merged.</span>
         </div>
         <div class="signal">
           <strong>What comes next</strong>
@@ -154,25 +154,25 @@ code { background:var(--panel2); padding:2px 6px; border-radius:6px; font-size:1
 
     <div class="metrics">
       <div class="metric"><div class="label">Total routes</div><div class="value">20</div><div class="hint">Engineering, portal, and hidden routes combined.</div></div>
-      <div class="metric"><div class="label">Merged truth packets</div><div class="value" style="color:var(--blue)">14</div><div class="hint">RP packets merged to main.</div></div>
-      <div class="metric"><div class="label">Open truth candidates</div><div class="value" style="color:var(--amber)">1</div><div class="hint">Remaining truth/workflow queue.</div></div>
+      <div class="metric"><div class="label">Merged truth packets</div><div class="value" style="color:var(--blue)">15</div><div class="hint">RP packets merged to main.</div></div>
+      <div class="metric"><div class="label">Open truth candidates</div><div class="value" style="color:var(--amber)">0</div><div class="hint">Remaining truth/workflow queue.</div></div>
       <div class="metric"><div class="label">Open UI candidates</div><div class="value" style="color:var(--purple)">6</div><div class="hint">UI/token cleanup queue.</div></div>
     </div>
 
     <div class="tri-band">
       <div class="band">
-        <div class="band-head"><h3>Fully packetized routes</h3><div class="ratio">6 / 20 &bull; 30%</div></div>
-        <div class="bar"><div class="fill" style="width:30%; background:linear-gradient(90deg,var(--green),#7be5a3)"></div></div>
+        <div class="band-head"><h3>Fully packetized routes</h3><div class="ratio">7 / 20 &bull; 35%</div></div>
+        <div class="bar"><div class="fill" style="width:35%; background:linear-gradient(90deg,var(--green),#7be5a3)"></div></div>
         <p>Routes that have gone through audit → packet → PR → merged.</p>
       </div>
       <div class="band">
-        <div class="band-head"><h3>Touched coverage</h3><div class="ratio">8 / 20 &bull; 40%</div></div>
-        <div class="bar"><div class="fill" style="width:40%; background:linear-gradient(90deg,var(--amber),#ffd37f)"></div></div>
+        <div class="band-head"><h3>Touched coverage</h3><div class="ratio">9 / 20 &bull; 45%</div></div>
+        <div class="bar"><div class="fill" style="width:45%; background:linear-gradient(90deg,var(--amber),#ffd37f)"></div></div>
         <p>Packetized plus partially covered. Useful but not the same as done.</p>
       </div>
       <div class="band">
-        <div class="band-head"><h3>Still not yet packetized</h3><div class="ratio">12 / 20 &bull; 60%</div></div>
-        <div class="bar"><div class="fill" style="width:60%; background:linear-gradient(90deg,var(--red),#ff9a87)"></div></div>
+        <div class="band-head"><h3>Still not yet packetized</h3><div class="ratio">11 / 20 &bull; 55%</div></div>
+        <div class="bar"><div class="fill" style="width:55%; background:linear-gradient(90deg,var(--red),#ff9a87)"></div></div>
         <p>Routes still needing first audit or first packet pass.</p>
       </div>
     </div>
@@ -221,6 +221,10 @@ code { background:var(--panel2); padding:2px 6px; border-radius:6px; font-size:1
         <div class="mini-title">Gateway connection infrastructure</div>
     </div>
 <div class="mini-card">
+        <div class="mini-top"><span class="pill merged">#17</span><span class="pill packet">RP-11</span></div>
+        <div class="mini-title">Config Manager GUIDs + cascade modal</div>
+    </div>
+<div class="mini-card">
         <div class="mini-top"><span class="pill merged">#16</span><span class="pill packet">RP-12</span></div>
         <div class="mini-title">Overview activity panel enum mismatch</div>
     </div>
@@ -235,14 +239,14 @@ code { background:var(--panel2); padding:2px 6px; border-radius:6px; font-size:1
         <div class="flow-row">
           <div class="flow-card">
             <span class="pill merged">Done</span>
-            <h3>RP-12 — Overview activity panel enum mismatch</h3>
+            <h3>RP-11 — Config Manager GUIDs + cascade modal</h3>
             <p>Merged and closed.</p>
           </div>
           <div class="arrow">→</div>
           <div class="flow-card">
             <span class="pill truth">Now</span>
-            <h3>RP-11 — Config Manager GUIDs + cascade modal</h3>
-            <p>Scoped and ready.</p>
+            <h3>TBD</h3>
+            <p>No packet scoped yet.</p>
           </div>
           <div class="arrow">→</div>
           <div class="flow-card">
@@ -263,8 +267,7 @@ code { background:var(--panel2); padding:2px 6px; border-radius:6px; font-size:1
     <h2>Open pull requests</h2>
     <table>
       <thead><tr><th>PR</th><th>Title</th><th>Branch</th><th>Review</th></tr></thead>
-      <tbody><tr><td>#17</td><td>fix: RP-11 Config Manager truth and workflow repairs</td><td><code>rp-11-config-manager-truth</code></td><td><span class="pill neutral">Pending</span></td></tr>
-<tr><td>#2</td><td>Add reliability scaffolding: pipeline linter, preflight/validator, diagnostics CLI, runbooks, and pipeline hardening</td><td><code>codex/implement-items-from-maintainability-backlog</code></td><td><span class="pill neutral">Pending</span></td></tr></tbody>
+      <tbody><tr><td>#2</td><td>Add reliability scaffolding: pipeline linter, preflight/validator, diagnostics CLI, runbooks, and pipeline hardening</td><td><code>codex/implement-items-from-maintainability-backlog</code></td><td><span class="pill neutral">Pending</span></td></tr></tbody>
     </table>
   </div>
 
@@ -276,8 +279,7 @@ code { background:var(--panel2); padding:2px 6px; border-radius:6px; font-size:1
       </div>
       <table>
         <thead><tr><th>Packet</th><th>Page</th><th>Issue</th><th>State</th></tr></thead>
-        <tbody><tr><td><strong>RP-11</strong></td><td>Config Manager</td><td>Config Manager GUIDs + cascade modal</td><td>Ready now</td></tr>
-<tr><td><strong>Audit</strong></td><td>Error Intelligence</td><td>Needs first audit</td><td>Unaudited</td></tr>
+        <tbody><tr><td><strong>Audit</strong></td><td>Error Intelligence</td><td>Needs first audit</td><td>Unaudited</td></tr>
 <tr><td><strong>Audit</strong></td><td>Data Catalog</td><td>Needs first audit</td><td>Unaudited</td></tr>
 <tr><td><strong>Audit</strong></td><td>Portal Sources</td><td>Needs first audit</td><td>Unaudited</td></tr>
 <tr><td><strong>Audit</strong></td><td>Portal Catalog</td><td>Needs first audit</td><td>Unaudited</td></tr>
@@ -420,9 +422,9 @@ code { background:var(--panel2); padding:2px 6px; border-radius:6px; font-size:1
       <td>Structure-only labeling fixed</td>
       <td>Done</td>
     </tr>
-<tr data-status="NOT YET" data-lane="Truth/UI" data-search="config manager /config guids + cascade modal rp-11">
+<tr data-status="PACKETIZED" data-lane="Truth/UI" data-search="config manager /config guids + cascade modal rp-11">
       <td><strong>Config Manager</strong><div class="route">/config</div></td>
-      <td><span class="pill notyet">NOT YET</span></td>
+      <td><span class="pill packetized">PACKETIZED</span></td>
       <td><span class="pill truth">Truth/UI</span></td>
       <td>GUIDs + cascade modal</td>
       <td>RP-11</td>
@@ -483,15 +485,15 @@ code { background:var(--panel2); padding:2px 6px; border-radius:6px; font-size:1
   <div class="section">
     <h2>What has to happen before 100% covered</h2>
     <ul>
-      <li>Every route must be at least audited. Census currently shows 12 of 20 routes as NOT YET.</li>
+      <li>Every route must be at least audited. Census currently shows 11 of 20 routes as NOT YET.</li>
       <li>All remaining truth/workflow candidates must be repaired, merged, or consciously waived with docs updated.</li>
       <li>All UI/token candidates must be resolved or explicitly accepted as design debt.</li>
       <li>Hidden routes cannot stay a blind spot.</li>
       <li>The census, truth audit, and decisions log must be refreshed after each major packet lane closes.</li>
     </ul>
     <div class="footer-note">
-      Current system state: <strong>30% fully packetized route coverage</strong>.
-      14 truth packets merged, 1 remaining. 6 UI packets queued.
+      Current system state: <strong>35% fully packetized route coverage</strong>.
+      15 truth packets merged, 0 remaining. 6 UI packets queued.
     </div>
   </div>
 </div>
