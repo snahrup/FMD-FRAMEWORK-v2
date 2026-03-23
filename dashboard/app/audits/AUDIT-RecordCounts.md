@@ -1,139 +1,145 @@
-# AUDIT: RecordCounts.tsx
+# AUDIT: RecordCounts.tsx (AUDIT-RC)
 
 **Page**: `dashboard/app/src/pages/RecordCounts.tsx`
-**Date**: 2026-03-13
+**Date**: 2026-03-23
 **Auditor**: Steve Nahrup (automated)
-**Verdict**: 2 BUGS found (1 critical, 1 minor)
+**Verdict**: 8 issues found (1 truth bug, 2 error handling, 2 hardcoded colors, 3 accessibility). All fixed.
 
 ---
 
-## Data Flow Trace
+## 1. Truth Bugs
 
-### 1. Entity Metadata (useEntityDigest hook)
+### T1: Match rate uses Math.round (can show false 100%)
 
-| Step | Artifact | Details |
-|------|----------|---------|
-| Frontend call | `useEntityDigest()` (no filters) | `dashboard/app/src/hooks/useEntityDigest.ts` |
-| API endpoint | `GET /api/entity-digest` | `dashboard/app/api/routes/entities.py:234` |
-| Backend function | `_build_sqlite_entity_digest()` | `dashboard/app/api/routes/entities.py:66` |
-| DB helpers called | `cpdb.get_registered_entities_full()` | `lz_entities` JOIN `datasources` JOIN `connections` |
-| | `cpdb.get_entity_status_all()` | `entity_status` (full table scan) |
-| | `cpdb.get_bronze_view()` | `bronze_entities` JOIN `lz_entities` JOIN `datasources` JOIN `pipeline_bronze_entity` |
-| | `cpdb.get_silver_view()` | `silver_entities` JOIN `bronze_entities` JOIN `lz_entities` JOIN `datasources` |
-| Tables read | `lz_entities` (1,666 rows) | Source entity metadata |
-| | `entity_status` (4,998 rows) | Per-entity per-layer status |
-| | `bronze_entities` (1,666 rows) | Bronze registrations |
-| | `silver_entities` (1,666 rows) | Silver registrations |
-| | `datasources` (8 rows) | For Namespace/DataSourceName |
-| | `connections` (10 rows) | For ServerName/DatabaseName |
-| | `pipeline_bronze_entity` (0 rows) | For IsProcessed state |
-| | `sync_metadata` (1 row) | `last_sync` watermark |
+**Severity**: Medium
+**Line**: 443 (original)
+**Issue**: `Math.round((matched / matchable.length) * 100)` rounds 99.5% up to 100%, showing a perfect match rate when mismatches exist. For accuracy metrics, always round down.
+**Fix**: Changed to `Math.floor()` so the display never overstates match quality.
 
-**Usage in RecordCounts**: The hook provides `allEntities` which is used to build a `entityToSource` lookup map keyed by `${ent.source}.${ent.tableName}` (Namespace + SourceName). This is used to annotate each lakehouse count row with its `dataSource` and `loadType` (incremental vs. full).
+### No fabricated data, no Math.random, no Math.ceil tricks, no hardcoded counts.
 
-**Assessment**: CORRECT. The digest uses `Namespace` from `datasources` as `source` and `SourceName` from `lz_entities` as `tableName`. The entity lookup key construction (`source.tableName`) matches how lakehouse tables are organized by namespace schema.
+The row count comparison logic (lines 316-384) is honest:
+- Counts come from real lakehouse scan data keyed by `schema.table`
+- Status derivation (match/mismatch/bronze-only/silver-only/pending) is correct
+- Delta is `Math.abs(bronzeCount - silverCount)` -- correct
+- Match rate denominator correctly excludes entities without both Bronze AND Silver counts
 
 ---
 
-### 2. Lakehouse Row Counts (primary data)
+## 2. Dead Code
 
-| Step | Artifact | Details |
-|------|----------|---------|
-| Frontend call | `fetchJson("/lakehouse-counts")` or `fetchJson("/lakehouse-counts?force=1")` | Line 170 |
-| API endpoint | `GET /api/lakehouse-counts` | `dashboard/app/api/routes/data_access.py:206` |
-| Backend logic | Reads `lakehouse_counts_cache.json` from disk | File at `dashboard/app/api/lakehouse_counts_cache.json` |
-| Data source | Pre-computed cache file (populated by background sync) | NOT a live query |
-
-**Frontend expectation** (lines 171-180):
-```
-CountsResponse = { LH_BRONZE_LAYER: [...], LH_SILVER_LAYER: [...], _meta?: {...} }
-```
-The code iterates `Object.entries(data)`, skips `_meta`, and expects each value to be `Array<{schema, table, rowCount}>`.
-
-**Actual cache file structure**:
-```json
-{"counts": {"LH_DATA_LANDINGZONE": [], "LH_BRONZE_LAYER": [...], "LH_SILVER_LAYER": [...]}, "savedAt": "..."}
-```
-
-**Backend returns**: The raw JSON file contents verbatim: `{"counts": {...}, "savedAt": "..."}`.
+No dead code found. All imports (React hooks, Lucide icons, hooks, components) are used. The previously-reported `generateMockCounts()` and `isDemo` state have already been removed.
 
 ---
 
-## BUG 1 (CRITICAL): Cache file structure mismatch
+## 3. Error Handling
 
-**Severity**: Critical -- the entire page renders empty due to this.
+### E1: triggerScan swallows all errors silently
 
-The frontend expects lakehouse arrays at the top level of the response:
-```json
-{"LH_BRONZE_LAYER": [...], "LH_SILVER_LAYER": [...]}
-```
+**Severity**: Medium
+**Lines**: 298-303 (original)
+**Issue**: The scan POST request had a bare `catch { /* ignore */ }` and no `res.ok` check. If the API fails or returns a non-OK status, the user sees nothing -- the "Scanning..." indicator just spins indefinitely.
+**Fix**: Added `res.ok` check and catch block that both set `countsError` with a descriptive message and reset `scanning` to false.
 
-But the backend returns the raw cache file which wraps them in a `counts` key:
-```json
-{"counts": {"LH_BRONZE_LAYER": [...], "LH_SILVER_LAYER": [...]}, "savedAt": "..."}
-```
+### E2: Missing `resolveLabel` in useMemo dependency array
 
-When the frontend runs `Object.entries(data)` and checks `Array.isArray(val)`, neither `counts` (an object) nor `savedAt` (a string) pass that check. Result: `countData` is empty, `rows` is empty, and the entire comparison matrix shows zero tables.
-
-**Fix option A** (backend): Unwrap in the route:
-```python
-raw = _json.loads(counts_file.read_text())
-result = raw.get("counts", raw)
-result["_meta"] = {"cachedAt": raw.get("savedAt"), "fromCache": True, ...}
-return result
-```
-
-**Fix option B** (frontend): Unwrap on receipt:
-```ts
-const raw = await fetchJson<any>(path);
-const payload = raw.counts ?? raw;
-```
-
-**File**: `dashboard/app/api/routes/data_access.py:206-218`
+**Severity**: Low
+**Line**: 426 (original)
+**Issue**: `resolveLabel` is called inside the `displayed` useMemo filter callback (line 406) but not listed in the dependency array. If the source config ever re-resolved labels, the memoized result would be stale.
+**Fix**: Added `resolveLabel` to the dependency array.
 
 ---
 
-## BUG 2 (MINOR): Mock data generator is dead code but importable
+## 4. Hardcoded Hex Colors
 
-**Severity**: Low (cosmetic / maintenance)
+### C1: `#94a3b8` used for "Unlinked" source fallback (2 occurrences)
 
-`generateMockCounts()` (lines 76-140) is defined but never called in the current code. The "Demo Data" button logic was removed, but the function remains as dead code. It uses fake source names like `IPC_PowerData`, `IPC_FinanceDB`, `IPC_MES`, `IPC_HRConnect` that don't match real datasource Namespace values (`mes`, `ETQStagingPRD`, `m3fdbprd`, `DI_PRD_Staging`).
-
-No data correctness impact since it's never invoked, but it should be cleaned up.
-
----
-
-## KPI / Metric Correctness Matrix
-
-| Metric | Source | Correct? | Notes |
-|--------|--------|----------|-------|
-| Bronze table count | `stats.total - stats.silverOnly` | YES* | Correct derivation from lakehouse counts (but currently empty due to BUG 1) |
-| Silver table count | `stats.total - stats.bronzeOnly` | YES* | Same caveat |
-| Bronze total rows | `sum(row.bronzeCount)` | YES* | Summed from `LH_BRONZE_LAYER` array entries |
-| Silver total rows | `sum(row.silverCount)` | YES* | Summed from `LH_SILVER_LAYER` array entries |
-| Match count | Tables where `bronzeCount === silverCount` | YES | Correct comparison logic |
-| Mismatch count | Tables where both counts exist but differ | YES | Correct |
-| Match rate | `matched / total * 100` | YES | Correct |
-| Delta | `abs(bronzeCount - silverCount)` | YES | Correct |
-| Data source annotation | `entityToSource` map from digest | YES | Correctly uses `Namespace.SourceName` as key |
-| Load type | `isIncremental` from digest entities | YES | Correctly maps boolean to "Incremental"/"Full" |
-
-*All lakehouse count metrics are structurally correct but produce zero results due to BUG 1.
+**Severity**: Low
+**Lines**: 182, 876 (original)
+**Issue**: Hardcoded slate-400 hex instead of using the design system.
+**Fix**: Changed both to `var(--bp-ink-muted)`.
 
 ---
 
-## Data Source Summary
+## 5. Accessibility
 
-| Frontend metric | SQLite table(s) | Column(s) used | Correct table? | Correct column? |
-|-----------------|------------------|----------------|----------------|-----------------|
-| Entity source/loadType | `lz_entities`, `datasources` | `Namespace`, `SourceName`, `IsIncremental` | YES | YES |
-| Row counts per table | `lakehouse_counts_cache.json` (not SQLite) | `schema`, `table`, `rowCount` | N/A (file cache) | YES |
-| Cache metadata | `lakehouse_counts_cache.json` | `savedAt` | N/A | MISMATCH (see BUG 1) |
+### A1: Missing aria-labels on interactive controls
+
+**Severity**: Medium
+**Issue**: Zero `aria-label` or `role` attributes anywhere on the page.
+**Fixes applied**:
+- Search input: `aria-label="Search tables, schemas, or sources"`
+- Filter select: `aria-label="Filter by match status"`
+- Source card buttons: `aria-label="Filter by source: {name}"` + `aria-pressed`
+- Data journey links: `aria-label="View data journey for {schema}.{table}"`
+
+### A2: Sort headers not keyboard accessible
+
+**Severity**: Medium
+**Issue**: Table column headers with click-to-sort had no keyboard support (no `tabIndex`, no keydown handler).
+**Fixes applied**:
+- Added `tabIndex={0}` on sortable headers
+- Added `onKeyDown` handler for Enter/Space to trigger sort
+- Added `aria-sort="ascending"|"descending"` on the active sort column
+- Added `aria-label="Sort by {column}"` on sortable headers
+- Added `role="columnheader"` on sortable headers
 
 ---
 
-## Recommendations
+## 6. Loading States
 
-1. **Fix BUG 1 immediately** -- the page is completely non-functional with real data. The backend route at `data_access.py:206` should unwrap the `counts` key from the cache file and construct the `_meta` object from `savedAt`.
-2. **Remove dead mock data** -- delete `generateMockCounts()` and the `isDemo` state variable. They serve no purpose.
-3. **Add `LH_DATA_LANDINGZONE` to the matrix** -- the cache file includes LZ counts but the frontend only looks at `LH_BRONZE_LAYER` and `LH_SILVER_LAYER`. Consider showing a three-layer comparison (LZ vs Bronze vs Silver).
+Loading states are properly handled:
+- Initial load: Centered spinner with "Querying lakehouse SQL endpoints..." message (line 724-729)
+- Reload button: Shows spinner icon when `countsLoading` is true (line 674)
+- Scan in progress: Shows spinner + "Scanning..." text + progress info (line 677-685)
+
+No issues found.
+
+---
+
+## 7. Empty States
+
+Empty states are properly handled:
+- No data loaded: Full empty state with icon + heading + instruction to scan (line 712-721)
+- No search results: Table shows "No tables match your search or filter." (line 865-869)
+- Error state: Red card with error message and details (line 702-710)
+
+No issues found.
+
+---
+
+## 8. Cross-Layer Accuracy
+
+The three-layer comparison is correctly implemented:
+- LZ, Bronze, and Silver counts are fetched from the same API response
+- Counts are keyed by `${schema}.${table}` (lowercased) for consistent matching across layers
+- Entity metadata (source, load type, status) is joined via the same key from `useEntityDigest`
+- The layer summary strip (lines 754-788) shows total rows per layer with a delta indicator
+- The StrataBar component receives all three layer counts for visual comparison
+
+No issues found.
+
+---
+
+## 9. Cross-Page Navigation
+
+### Inbound
+- Accepts `?search=` URL parameter to pre-populate the search field (line 263)
+
+### Outbound
+- Each row links to `/journey?table={table}&schema={schema}` via the Route icon (line 606-613)
+
+Both directions are correctly implemented.
+
+---
+
+## Summary of Changes
+
+| # | Category | Description | Lines affected |
+|---|----------|-------------|----------------|
+| T1 | Truth bug | Math.round -> Math.floor for match rate | 443 |
+| E1 | Error handling | triggerScan: add res.ok check + error feedback | 298-312 |
+| E2 | Error handling | Add resolveLabel to displayed useMemo deps | 426 |
+| C1 | Design tokens | Replace #94a3b8 with var(--bp-ink-muted) | 182, 876 |
+| A1 | Accessibility | aria-labels on search, filter, source cards, journey links | 5 locations |
+| A2 | Accessibility | Keyboard support + ARIA on sortable table headers | 642-660 |

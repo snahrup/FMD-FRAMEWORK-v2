@@ -179,12 +179,14 @@ function SourceCards({
         const matched = srcRows.filter(r => r.status === "match").length;
         const errors = srcRows.filter(r => r.status === "mismatch").length;
         const isActive = activeSource === source;
-        const color = source !== "Unlinked" ? getColor(source) : { hex: "#94a3b8" };
+        const color = source !== "Unlinked" ? getColor(source) : { hex: "var(--bp-ink-muted)" };
 
         return (
           <button
             key={source}
             onClick={() => onSourceClick(isActive ? null : source)}
+            aria-label={`Filter by source: ${resolveLabel(source)}`}
+            aria-pressed={isActive}
             className="bp-card"
             style={{
               padding: "12px 16px",
@@ -298,8 +300,15 @@ export default function RecordCounts() {
   const triggerScan = useCallback(async () => {
     setScanning(true);
     try {
-      await fetch(`${API}/lakehouse-counts/scan`, { method: "POST" });
-    } catch { /* ignore */ }
+      const res = await fetch(`${API}/lakehouse-counts/scan`, { method: "POST" });
+      if (!res.ok) {
+        setCountsError(`Scan request failed: ${res.status}`);
+        setScanning(false);
+      }
+    } catch {
+      setCountsError("Failed to start scan — API server not reachable");
+      setScanning(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -423,7 +432,7 @@ export default function RecordCounts() {
     });
 
     return filtered;
-  }, [rows, searchQuery, sortKey, sortDir, filterStatus, activeSource]);
+  }, [rows, searchQuery, sortKey, sortDir, filterStatus, activeSource, resolveLabel]);
 
   // Stats
   const stats = useMemo(() => {
@@ -440,7 +449,7 @@ export default function RecordCounts() {
       (r) => r.bronzeCount != null && r.bronzeCount >= 0
            && r.silverCount != null && r.silverCount >= 0
     );
-    const matchRate = matchable.length > 0 ? Math.round((matched / matchable.length) * 100) : 0;
+    const matchRate = matchable.length > 0 ? Math.floor((matched / matchable.length) * 100) : 0;
     return { total, matched, mismatched, bronzeOnly, silverOnly, totalLzRows, totalBronzeRows, totalSilverRows, matchRate, matchableTotal: matchable.length };
   }, [rows]);
 
@@ -607,6 +616,7 @@ export default function RecordCounts() {
           style={{ color: "var(--bp-ink-muted)", opacity: 0.4 }}
           className="hover:opacity-100 transition-opacity"
           title="View data journey"
+          aria-label={`View data journey for ${row.schema}.${row.tableName}`}
         >
           <Route style={{ width: 14, height: 14 }} />
         </Link>
@@ -633,6 +643,11 @@ export default function RecordCounts() {
         <th
           key={i}
           onClick={key ? () => toggleSort(key as SortKey) : undefined}
+          aria-sort={key && sortKey === key ? (sortDir === "asc" ? "ascending" : "descending") : undefined}
+          aria-label={key && label ? `Sort by ${label}` : undefined}
+          role={key ? "columnheader" : undefined}
+          tabIndex={key ? 0 : undefined}
+          onKeyDown={key ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort(key as SortKey); } } : undefined}
           style={{
             padding: "10px 12px",
             textAlign: align as "left" | "right" | "center",
@@ -796,6 +811,7 @@ export default function RecordCounts() {
               }} />
               <input
                 type="text"
+                aria-label="Search tables, schemas, or sources"
                 className="bp-inset"
                 style={{
                   width: "100%", paddingLeft: 32, paddingRight: 12, paddingTop: 7, paddingBottom: 7,
@@ -812,6 +828,7 @@ export default function RecordCounts() {
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
+                aria-label="Filter by match status"
                 className="bp-inset"
                 style={{
                   padding: "6px 10px", fontSize: 12,
@@ -873,7 +890,7 @@ export default function RecordCounts() {
                     groupedRows.map(([source, srcRows]) => {
                       const isCollapsed = collapsedGroups.has(source);
                       const srcMatched = srcRows.filter(r => r.status === "match").length;
-                      const srcColor = source !== "Unlinked" ? getColor(source) : { hex: "#94a3b8" };
+                      const srcColor = source !== "Unlinked" ? getColor(source) : { hex: "var(--bp-ink-muted)" };
 
                       return (
                         <Fragment key={source}>
