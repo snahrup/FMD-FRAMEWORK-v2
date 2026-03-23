@@ -330,7 +330,17 @@ def post_config_update(params: dict) -> dict:
             raise HttpError(f"Unknown config section: {section}", 400)
         if key not in cfg[section]:
             raise HttpError(f"Unknown key {key} in section {section}", 400)
-        cfg[section][key] = new_val
+        # Coerce to match the existing value's type (int, bool, or string)
+        existing = cfg[section][key]
+        if isinstance(existing, bool):
+            cfg[section][key] = new_val.lower() in ("true", "1", "yes")
+        elif isinstance(existing, int):
+            try:
+                cfg[section][key] = int(new_val)
+            except ValueError:
+                raise HttpError(f"Value for {key} must be an integer, got: {new_val}", 400)
+        else:
+            cfg[section][key] = new_val
         with open(cfg_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
             f.write("\n")
@@ -393,11 +403,22 @@ def get_config_references(params: dict) -> dict:
                 "field": "newGuid",
             })
 
-    p_rows = db.query("SELECT PipelineId, Name FROM pipelines")
+    p_rows = db.query("SELECT PipelineId, PipelineGuid, WorkspaceGuid, Name FROM pipelines")
     for r in p_rows:
-        refs_append = False
-        # pipelines table has no GUIDs in SQLite schema; skip GUID match for pipelines
-        _ = refs_append  # nothing to match on pipelines table in SQLite
+        if (r.get("PipelineGuid") or "").lower() == guid_lower:
+            refs.append({
+                "location": f"Pipeline #{r['PipelineId']} \"{r['Name']}\" → PipelineGuid",
+                "target": "pipeline_db",
+                "params": {"pipelineId": r["PipelineId"]},
+                "field": "newGuid",
+            })
+        if (r.get("WorkspaceGuid") or "").lower() == guid_lower:
+            refs.append({
+                "location": f"Pipeline #{r['PipelineId']} \"{r['Name']}\" → WorkspaceGuid",
+                "target": "pipeline_db",
+                "params": {"pipelineId": r["PipelineId"]},
+                "field": "newWorkspaceGuid",
+            })
 
     # Scan pipeline JSON files
     src_dir = _repo_root() / "src"
