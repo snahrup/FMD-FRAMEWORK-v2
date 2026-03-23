@@ -133,8 +133,31 @@ PAGES = [
      "focus": "Audited — token + dead code + a11y fixes", "next": "Done for now"},
     {"name": "Environment Setup", "route": "/setup", "lane": "Truth", "packets": ["AUDIT-ES"],
      "focus": "Audited — imports + ARIA tablist/tabpanel fixes", "next": "Done for now"},
-    {"name": "Hidden routes (24 total)", "route": "hidden", "lane": "Audit", "packets": [],
-     "focus": "Mostly still unaudited", "next": "Expand later"},
+    # Gold Studio — newly tracked
+    {"name": "Gold Ledger", "route": "/gold/ledger", "lane": "Audit", "packets": [],
+     "focus": "1237-line page, full API, unaudited", "next": "AUDIT-GL"},
+    {"name": "Gold Canonical", "route": "/gold/canonical", "lane": "Audit", "packets": [],
+     "focus": "716-line page, approval + graph viz, unaudited", "next": "AUDIT-GC"},
+    {"name": "Gold Specifications", "route": "/gold/specs", "lane": "Audit", "packets": [],
+     "focus": "480-line page, spec detail + validation, unaudited", "next": "AUDIT-GS"},
+    # Independent pages — newly tracked
+    {"name": "Business Requests", "route": "/requests", "lane": "Audit", "packets": [],
+     "focus": "597-line page, form + history, unaudited", "next": "AUDIT-BR"},
+    {"name": "SQL Explorer", "route": "/sql-explorer", "lane": "Audit", "packets": [],
+     "focus": "145-line wrapper + 2 sub-components, 20 endpoints, unaudited", "next": "AUDIT-SQLX"},
+    # Stubs — Coming Soon placeholders (no API, no data to audit)
+    {"name": "DQ Scorecard", "route": "/labs/dq-scorecard", "lane": "Stub", "packets": [],
+     "focus": "51-line Coming Soon placeholder", "next": "Needs backend first"},
+    {"name": "Cleansing Rules", "route": "/labs/cleansing", "lane": "Stub", "packets": [],
+     "focus": "51-line Coming Soon placeholder", "next": "Needs backend first"},
+    {"name": "SCD Audit", "route": "/labs/scd-audit", "lane": "Stub", "packets": [],
+     "focus": "51-line Coming Soon placeholder", "next": "Needs backend first"},
+    # Static utility — complete as-is
+    {"name": "Help", "route": "/help", "lane": "Complete", "packets": [],
+     "focus": "386-line glossary + guides, no API", "next": "Done"},
+    # Hidden routes not in sidebar
+    {"name": "Hidden routes (15 total)", "route": "hidden", "lane": "Audit", "packets": [],
+     "focus": "Not in sidebar nav", "next": "Expand later"},
 ]
 
 # ──────────────────────────────────────────────────────────────
