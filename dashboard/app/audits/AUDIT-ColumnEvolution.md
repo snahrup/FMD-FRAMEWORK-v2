@@ -1,177 +1,121 @@
 # AUDIT: ColumnEvolution
 
-**Audited:** 2026-03-13
-**File:** `dashboard/app/src/pages/ColumnEvolution.tsx` (~1014 lines)
-**Backend route:** `dashboard/app/api/routes/monitoring.py` — `get_entity_journey()`
+**Audited:** 2026-03-23 (supersedes stale 2026-03-13 audit)
+**File:** `dashboard/app/src/pages/ColumnEvolution.tsx` (~1018 lines)
+**Backend route:** `dashboard/app/api/routes/monitoring.py` — `get_entity_journey()` (line 835)
 **Hooks:** `useEntityDigest` from `@/hooks/useEntityDigest.ts`
-**Schema ref:** `dashboard/app/audits/SCHEMA_REFERENCE.txt`
 
 ---
 
-## Overview
+## BACKEND DEPENDENCY INVESTIGATION
 
-ColumnEvolution lets users select an entity and visualize its column schema transforming through medallion layers (Source, Landing Zone, Bronze, Silver, Gold). It uses an animated layer-stepper with auto-play, showing column cards with diff annotations (NEW, REMOVED, TYPE_CHANGED, SYSTEM) at each layer. Schema diff data powers the comparison between Bronze and Silver.
+### Does `/api/journey` exist?
 
-### Data Flow
+**YES. The endpoint exists and is fully functional.**
 
-```
-EntitySelector (inline component)
-  └─ useEntityDigest() → GET /api/entity-digest → SQLite
+- **Location:** `dashboard/app/api/routes/monitoring.py`, line 835: `@route("GET", "/api/journey")`
+- **Handler:** `get_entity_journey(params: dict) -> dict`
+- **Tests:** `dashboard/app/api/tests/test_routes_monitoring.py` has 3 tests covering param validation and 404
 
-loadJourney(id)
-  └─ GET /api/journey?entity={id}
-       → monitoring.py:get_entity_journey()
-         → SQLite: lz_entities + datasources (LZ metadata)
-         → SQLite: bronze_entities (Bronze metadata)
-         → SQLite: silver_entities (Silver metadata)
-         → SQLite: watermarks (load history)
-         → returns {entityId, lz, bronze, silver, lastLoadValues}
-```
+### Response shape matches frontend expectations
 
----
+The previous audit (2026-03-13) flagged a CRITICAL mismatch between the backend response shape and the frontend `JourneyData` interface. **This has been fixed.** The endpoint now returns a structured response that exactly matches the frontend's `JourneyData` type:
 
-## API Endpoint Trace
-
-### 1. GET /api/entity-digest (entity list for EntitySelector)
-
-| Frontend | Backend | SQL Tables | Correct? |
-|----------|---------|------------|----------|
-| `useEntityDigest()` in EntitySelector | `entities.py:get_entity_digest()` | `lz_entities`, `datasources`, `connections`, `lakehouses`, `bronze_entities`, `silver_entities`, `entity_status` | YES |
-
-- Fields consumed: `id`, `tableName`, `sourceSchema`, `source`
-- All correctly sourced from SQLite. No issues.
-
-### 2. GET /api/journey?entity={id} (column schema + lineage)
-
-| Frontend | Backend | SQL Tables | Correct? |
-|----------|---------|-------------|----------|
-| `loadJourney()` line 758 | `monitoring.py:get_entity_journey()` | `lz_entities`, `datasources`, `bronze_entities`, `silver_entities`, `watermarks` | SHAPE MISMATCH |
-
-**Frontend expects** (from `JourneyData` interface, line 126-172):
-```typescript
-{
-  entityId: number;
-  source: {
-    schema: string;
-    name: string;
-    dataSourceName: string;
-    dataSourceType?: string;
-    namespace?: string;
-    connectionName: string;
-    connectionType?: string;
-  };
-  landing: {
-    entityId: number;
-    fileName: string;
-    filePath: string;
-    fileType: string;
-    lakehouse: string;
-    isIncremental: boolean;
-    incrementalColumn: string | null;
-  };
-  bronze: {
-    entityId: number;
-    schema: string;
-    name: string;
-    primaryKeys: string | null;
-    fileType: string;
-    lakehouse: string;
-    rowCount: number | null;
-    columns: ColumnInfo[];        // <-- CRITICAL: array of INFORMATION_SCHEMA columns
-    columnCount: number;
-  } | null;
-  silver: {
-    entityId: number;
-    schema: string;
-    name: string;
-    fileType: string;
-    lakehouse: string;
-    rowCount: number | null;
-    columns: ColumnInfo[];        // <-- CRITICAL: array of INFORMATION_SCHEMA columns
-    columnCount: number;
-  } | null;
-  gold: null;
-  schemaDiff: SchemaDiffEntry[];  // <-- CRITICAL: Bronze vs Silver column comparison
-}
-```
-
-**Backend actually returns** (from `monitoring.py:get_entity_journey()`, line 269-275):
 ```python
+# monitoring.py returns (lines 991-1047):
 {
-    "entityId": entity_id,
-    "lz": {raw lz_entities row + DataSourceName},
-    "bronze": {raw bronze_entities row} or None,
-    "silver": {raw silver_entities row} or None,
-    "lastLoadValues": [{LoadValue, LastLoadDatetime}]
+    "entityId": int,
+    "source": { "schema", "name", "dataSourceName", "dataSourceType", "namespace", "connectionName", "connectionType" },
+    "landing": { "entityId", "fileName", "filePath", "onelakeSchema", "fileType", "lakehouse", "isIncremental", "incrementalColumn", "customSelect", "customNotebook" },
+    "bronze": { "entityId", "schema", "onelakeSchema", "name", "primaryKeys", "fileType", "lakehouse", "rowCount", "columns": ColumnInfo[], "columnCount" } | null,
+    "silver": { "entityId", "schema", "onelakeSchema", "name", "fileType", "lakehouse", "rowCount", "columns": ColumnInfo[], "columnCount" } | null,
+    "gold": null,
+    "schemaDiff": [ { "columnName", "inBronze", "inSilver", "bronzeType", "silverType", "bronzeNullable", "silverNullable", "status" } ],
+    "lastLoadValues": [...]
 }
 ```
+
+The endpoint:
+- Queries SQLite for entity metadata across `lz_entities`, `datasources`, `connections`, `bronze_entities`, `silver_entities`, `lakehouses`, `watermarks`
+- Fetches column data via `lineage.py` helpers (`_get_columns_for_layer`)
+- Computes `schemaDiff` by comparing Bronze and Silver column lists
+- Includes row counts from `lakehouse_row_counts` cache
+
+### Page functional status: FULLY FUNCTIONAL
+
+All features work end-to-end:
+- Entity selector loads entity list via `/api/entity-digest`
+- Journey data loads via `/api/journey` with correct response shape
+- Column grid displays Bronze and Silver columns with type icons
+- Schema diff badges (NEW, REMOVED, TYPE_CHANGED, SYSTEM) render correctly
+- Layer stepper with auto-play works
+- Gold layer shows honest "coming soon" placeholder
+
+**No backend packet needed.** The previous audit's critical findings (F1-F5) are all resolved.
 
 ---
 
 ## Issues Found
 
-### F1. CRITICAL — Response shape completely different from what frontend expects
+### F1. LOW — Hardcoded hex colors in LAYERS and TYPE_ICON_MAP (lines 40-94)
 
-**Problem:** The refactored `/api/journey` endpoint returns raw SQLite row dicts (`lz`, `bronze`, `silver`) with the original table column names (e.g., `LandingzoneEntityId`, `SourceSchema`, `Schema_`, `BronzeLayerEntityId`). The frontend expects a structured response with nested objects (`source`, `landing`, `bronze`, `silver`, `schemaDiff`) using different field names.
+**Problem:** ~35 hex color values that correspond to BP design tokens. For example:
+- `#B45624` = `var(--bp-copper)`
+- `#3D7C4F` = `var(--bp-operational)`
+- `#C27A1A` = `var(--bp-caution)`
+- `#F4E8DF` = `var(--bp-copper-light)`
 
-The old `server.py.bak` (line 3422-3575) built a carefully structured response:
-- Nested `source` object with `schema`, `name`, `dataSourceName`, `namespace`, `connectionName`
-- Nested `landing` object with `entityId`, `fileName`, `filePath`, `fileType`, `lakehouse`, `isIncremental`
-- Nested `bronze` object with `entityId`, `schema`, `name`, `primaryKeys`, `fileType`, `lakehouse`, `rowCount`, `columns` (ColumnInfo[]), `columnCount`
-- Nested `silver` object with same shape
-- `schemaDiff` array comparing Bronze and Silver column schemas
+**Mitigating factor:** These hex values are used in JavaScript objects for programmatic inline styles, including string concatenation like `${layer.color}12` (appending alpha). CSS `var()` cannot be used in JS string interpolation contexts. The pattern is common across the codebase and all values match their BP token counterparts exactly.
 
-The refactored endpoint returns none of this structure. Every field access in ColumnEvolution.tsx will return `undefined`.
+**Recommendation:** Accept as-is. Converting would require `getComputedStyle()` at runtime, adding complexity for no visual benefit. If the design system ever changes token values, a global find/replace of the hex codes will work.
 
-**Impact:** The page will:
-1. Show the entity name as `undefined.undefined` (line 865: `journey.source.namespace` and `journey.source.name`)
-2. `getMaxLayerIndex()` will return 1 (since `journey.silver` and `journey.bronze` won't match the expected shape)
-3. `buildDisplayColumns()` will return empty arrays (since `journey.bronze?.columns` is undefined)
-4. The column grid will be empty at every layer
-5. No schema diff will be shown
+### F2. LOW — Connector line used raw rgba() (line 428) [FIXED]
 
-### F2. CRITICAL — No column schema data in refactored response
+**Problem:** `rgba(128,128,128,0.15)` used for inactive connector lines between layer steps.
+**Fix applied:** Replaced with `var(--bp-border-subtle)`.
 
-**Problem:** The most important data for ColumnEvolution is `bronze.columns` and `silver.columns` — arrays of `ColumnInfo` objects with `COLUMN_NAME`, `DATA_TYPE`, `IS_NULLABLE`, `CHARACTER_MAXIMUM_LENGTH`, `NUMERIC_PRECISION`, `NUMERIC_SCALE`, `ORDINAL_POSITION`. These are queried from the Fabric lakehouse `INFORMATION_SCHEMA.COLUMNS` by the old `server.py.bak` (line 3473-3516 via `get_lakehouse_columns()` and `ThreadPoolExecutor`).
+### F3. LOW — Missing aria-labels on interactive elements [FIXED]
 
-The refactored endpoint only queries SQLite tables, which do not store per-column metadata. SQLite `bronze_entities` has `PrimaryKeys` and `Name` but no column schema information. Without live Fabric lakehouse queries, column data cannot be retrieved.
+**Problem:** Multiple buttons lacked accessible labels:
+- Auto-play toggle button
+- Layer step buttons
+- Entity selector search input
+- Clear selection button
+- Refresh button
 
-**Fix needed:** The refactored `/api/journey` endpoint must:
-1. Restructure the response to match the `JourneyData` interface
-2. Query Fabric lakehouse SQL endpoints for `INFORMATION_SCHEMA.COLUMNS` on Bronze and Silver tables
-3. Compute `schemaDiff` by comparing Bronze and Silver column lists
-4. Include row counts via `COUNT(*)` on the lakehouse tables
+**Fix applied:** Added `aria-label` to all interactive elements. Added `aria-current="step"` to the active layer button.
 
-Alternatively, a separate endpoint could be created for column schema (e.g., reuse `get_blender_profile` from `data_access.py`) and the frontend refactored to call it.
+### F4. LOW — Error state was minimal (lines 903-908) [FIXED]
 
-### F3. CRITICAL — schemaDiff not returned
+**Problem:** Error state showed just `{error}` text with an icon. No way to retry, and the generic "API 404" message was not user-friendly.
 
-**Problem:** The `schemaDiff` field is consumed by `buildDisplayColumns()` for the Silver layer (line 245-301). It drives the diff badges (NEW, REMOVED, TYPE_CHANGED) that are the core visual feature of ColumnEvolution. Without `schemaDiff`, the Silver layer view will show all columns as "none" diff status (no badges, no diff highlighting).
+**Fix applied:** Enhanced error state with:
+- Larger icon and "Failed to load column schema" heading
+- Error detail in muted text below
+- Retry button that re-fetches the journey data
 
-The old `server.py.bak` (line 3390-3419) computed `schemaDiff` via `_build_schema_diff()` which compared `bronze_columns` and `silver_columns` by `COLUMN_NAME` and `DATA_TYPE`.
+### F5. INFO — `onelakeSchema` field returned by backend but not in frontend type
 
-### F4. LOW — Missing lakehouse name in response
+The backend returns `onelakeSchema` on `landing`, `bronze`, and `silver` objects. The frontend `JourneyData` type does not declare `onelakeSchema` on `landing`. This is harmless (TypeScript just ignores unknown fields), but the type could be tightened.
 
-**Problem:** The frontend reads `journey.source.connectionName` (line 865), `bronze.lakehouse` (for display), `silver.lakehouse`. The refactored endpoint does not JOIN against the `lakehouses` table for Bronze/Silver entities, so lakehouse names are not included. The old endpoint did `JOIN integration.Lakehouse lh ON be.LakehouseId = lh.LakehouseId` to include `LakehouseName`.
+### F6. INFO — `lastLoadValues` returned by backend but unused by ColumnEvolution
 
-### F5. LOW — `source.namespace` vs DataSourceName
-
-**Problem:** The frontend reads `journey.source.namespace || journey.source.dataSourceName` for the header display (line 865). The refactored response puts everything under `lz` with raw column names. Even if the shape were fixed, the refactored query only JOINs `datasources` for `Name AS DataSourceName` and does not include `Namespace`, `Type`, or connection info from the `connections` table.
+The backend returns `lastLoadValues` (watermark history) which ColumnEvolution does not consume. This is shared with DataJourney which does use it. No action needed.
 
 ---
 
-## Frontend Logic Review (assuming correct data)
-
-The frontend column diff logic is sound IF the backend returns the expected shape:
+## Frontend Logic Review
 
 | Function | Logic | Correct? |
 |----------|-------|----------|
 | `buildDisplayColumns(data, 0/1)` | Source/LZ: Bronze columns minus system columns | YES |
 | `buildDisplayColumns(data, 2)` | Bronze: all columns, mark BRONZE_SYSTEM_COLUMNS as "system" | YES |
 | `buildDisplayColumns(data, 3)` | Silver: annotate from schemaDiff, then append bronze_only as "removed" | YES |
-| `computeDiffSummary()` | Count added/removed/typeChanged between previous and current layer | YES |
+| `computeDiffSummary()` | Count added/removed/typeChanged between previous and current | YES |
 | `getMaxLayerIndex()` | Returns 3 if silver, 2 if bronze, 1 otherwise | YES |
-| System column sets | `BRONZE_SYSTEM_COLUMNS`, `SILVER_SYSTEM_COLUMNS` match actual FMD notebook output | YES |
+| `SYSTEM_COLUMNS` sets | Match actual FMD pipeline output | YES |
+| Auto-play interval | 2s loop through reachable layers | YES |
+| `diffName()` helper | Handles both `columnName` and `column` field names | YES |
 
 ---
 
@@ -179,13 +123,14 @@ The frontend column diff logic is sound IF the backend returns the expected shap
 
 | Item | Status |
 |------|--------|
-| Entity list | LIVE — from `/api/entity-digest` via SQLite |
-| Journey data | LIVE — from `/api/journey` via SQLite, BUT response shape is wrong and columns are missing |
-| Column schemas | MISSING — would need live Fabric lakehouse queries (not in refactored endpoint) |
-| Layer definitions | HARDCODED `LAYERS` array — cosmetic, correct |
-| System column names | HARDCODED `SYSTEM_COLUMNS`, `BRONZE_SYSTEM_COLUMNS`, `SILVER_SYSTEM_COLUMNS` — match actual column names |
-| Gold layer | HARDCODED as placeholder ("coming soon") — correct, Gold not implemented |
-| Auto-play timing | HARDCODED 2000ms interval — cosmetic |
+| Entity list | LIVE from `/api/entity-digest` |
+| Journey data | LIVE from `/api/journey` |
+| Column schemas | LIVE from lineage helpers (cached lakehouse column data) |
+| Schema diff | LIVE computed by backend from Bronze vs Silver columns |
+| Layer definitions | HARDCODED `LAYERS` array (cosmetic, correct) |
+| System column names | HARDCODED sets matching actual FMD pipeline column names |
+| Gold layer | Placeholder ("coming soon") -- correct, Gold not yet wired |
+| Auto-play timing | 2000ms interval (cosmetic) |
 
 ---
 
@@ -193,7 +138,10 @@ The frontend column diff logic is sound IF the backend returns the expected shap
 
 | Severity | Count | Description |
 |----------|-------|-------------|
-| CRITICAL | 3 | (1) Response shape completely mismatched — refactored `/api/journey` returns flat SQLite rows, frontend expects structured nested objects with specific field names. (2) No column schema data — refactored endpoint does not query Fabric lakehouse INFORMATION_SCHEMA; `bronze.columns` and `silver.columns` are missing. (3) No `schemaDiff` — diff array not computed, Silver layer diff badges non-functional. |
-| LOW | 2 | Missing lakehouse names and datasource namespace/connection info in response |
+| CRITICAL | 0 | Previous audit's critical findings (F1-F5) have all been resolved |
+| LOW | 4 | Hardcoded hex (accepted), rgba connector (fixed), missing aria-labels (fixed), minimal error state (fixed) |
+| INFO | 2 | Extra backend fields not in TS types, unused `lastLoadValues` |
 
-**Bottom line:** The entity selector works (via entity-digest), but once an entity is selected, the entire column evolution visualization is broken. The refactored `/api/journey` endpoint was simplified to return raw SQLite data without the structured response shape, column schemas, or schema diff that the old `server.py.bak` provided. The page will display "No column schema available yet" for all entities, even those that have been loaded.
+**Bottom line:** The page is fully functional. The backend `/api/journey` endpoint exists, returns the correct structured response, and all frontend features work as designed. The previous audit's critical findings about shape mismatches and missing column data have been resolved since 2026-03-13. Fixes applied: better error handling with retry, aria-labels, and one hardcoded rgba replaced with a BP token.
+
+**No follow-up backend packet needed.**
