@@ -31,7 +31,7 @@ const SENSITIVITY_INK: Record<SensitivityLevel, string> = {
   internal: "var(--bp-copper)",
   confidential: "var(--bp-caution)",
   restricted: "var(--bp-fault)",
-  pii: "#FEFDFB",
+  pii: "var(--bp-surface-1)",
 };
 
 const SENSITIVITY_ORDER: SensitivityLevel[] = ["public", "internal", "confidential", "restricted", "pii"];
@@ -73,14 +73,14 @@ function _fallback(entities: DigestEntity[]): ClassificationData {
   });
   const bySource: BySourceEntry[] = sources.map((s) => ({
     source: s,
-    total: entities.filter((e) => e.source === s).length * 15,
+    total: 0,
     classified: 0,
     piiCount: 0,
     confidentialCount: 0,
   }));
   return {
     totalEntities: entities.length,
-    totalColumns: entities.length * 15,
+    totalColumns: 0,
     classifiedColumns: 0,
     coveragePercent: 0,
     bySensitivity: { public: 0, internal: 0, confidential: 0, restricted: 0, pii: 0 },
