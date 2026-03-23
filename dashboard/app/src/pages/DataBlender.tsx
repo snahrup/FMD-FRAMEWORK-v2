@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { TableBrowser } from '@/components/datablender/TableBrowser';
@@ -93,7 +93,7 @@ export default function DataBlender() {
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-2" style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
         <div className="flex items-center gap-3">
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>Data Blender</h1>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Data Blender</h1>
           <span className="text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>Exploration sandbox — browse, profile, preview blends</span>
         </div>
         <div className="flex items-center gap-3">
