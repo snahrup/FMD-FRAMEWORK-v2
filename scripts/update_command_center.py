@@ -131,6 +131,11 @@ PACKETS = [
     # Hidden wave 2a — monitoring cluster
     {"id": "AUDIT-LM", "title": "Live Monitor audit + all-time filter + Bronze duration fix", "prs": [48], "lane": "truth",
      "why": "8 findings: CRITICAL 'All time' filter returned zero results (minutes=0 = now), Bronze duration always 0s (same timestamp aliased twice), 20+ hardcoded hex, a11y gaps. 6 fixed, 2 deferred."},
+    # Hidden wave 2b — monitoring cluster followers
+    {"id": "AUDIT-IP", "title": "Impact Pulse audit + a11y/token cleanup", "prs": [49], "lane": "truth",
+     "why": "8 findings: 7 hardcoded hex colors, missing dialog/drawer a11y (role, aria-modal), missing button aria-labels. 6 fixed, 2 deferred (shared node/edge components)."},
+    {"id": "AUDIT-LP", "title": "Load Progress audit + API shape adapter", "prs": [50], "lane": "truth",
+     "why": "10 findings: CRITICAL — all progress metrics rendered as zero (backend/frontend shape mismatch), fabricated 'dbo' schema default, 20+ hardcoded hex, missing loading state. 7 fixed, 1 deferred (backend enhancement)."},
 ]
 
 PAGES = [
@@ -211,8 +216,8 @@ PAGES = [
     # Monitoring / Progress
     {"name": "Live Monitor", "route": "/live", "lane": "Hidden/Audited", "packets": ["AUDIT-LM"],
      "focus": "Audited — CRITICAL all-time filter fix + Bronze duration fix + tokens + a11y", "next": "Done for now"},
-    {"name": "Load Progress", "route": "/load-progress", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — per-entity load progress tracker", "next": "Audit if re-enabled"},
+    {"name": "Load Progress", "route": "/load-progress", "lane": "Hidden/Audited", "packets": ["AUDIT-LP"],
+     "focus": "Audited — CRITICAL API shape adapter (all zeros fix), fabricated schema removed", "next": "Backend enhancement for missing data sections"},
     # Data exploration / visualization
     {"name": "Flow Explorer", "route": "/flow", "lane": "Hidden", "packets": [],
      "focus": "Hidden — pipeline flow diagram", "next": "Audit if re-enabled"},
@@ -228,8 +233,8 @@ PAGES = [
      "focus": "Hidden — sankey diagram of data flow", "next": "Audit if re-enabled"},
     {"name": "Transformation Replay", "route": "/replay", "lane": "Hidden", "packets": [],
      "focus": "Hidden — step-by-step transform visualizer", "next": "Audit if re-enabled"},
-    {"name": "Impact Pulse", "route": "/pulse", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — downstream impact dashboard", "next": "Audit if re-enabled"},
+    {"name": "Impact Pulse", "route": "/pulse", "lane": "Hidden/Audited", "packets": ["AUDIT-IP"],
+     "focus": "Audited — token cleanup + drawer/dialog a11y, shared node/edge colors deferred", "next": "Done for now"},
     {"name": "Data Classification", "route": "/classification", "lane": "Hidden/Audited", "packets": ["AUDIT-DC2"],
      "focus": "Audited — fabricated column counts removed, thread-safe scan status, level validation", "next": "Done for now"},
     {"name": "Impact Analysis", "route": "/impact", "lane": "Hidden", "packets": [],
