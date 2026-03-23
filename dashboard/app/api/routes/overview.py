@@ -412,10 +412,13 @@ def get_overview_entities(params: dict) -> list:
                 t_lz.Status  AS LzStatus,
                 t_brz.Status AS BronzeStatus,
                 t_slv.Status AS SilverStatus,
-                MAX(CASE WHEN t_lz.Status  = 'succeeded' THEN t_lz.created_at
-                         WHEN t_brz.Status = 'succeeded' THEN t_brz.created_at
-                         WHEN t_slv.Status = 'succeeded' THEN t_slv.created_at
-                         ELSE NULL END) AS LastLoadDate
+                (SELECT MAX(v) FROM (
+                    SELECT t_lz.created_at  AS v WHERE t_lz.Status  = 'succeeded'
+                    UNION ALL
+                    SELECT t_brz.created_at AS v WHERE t_brz.Status = 'succeeded'
+                    UNION ALL
+                    SELECT t_slv.created_at AS v WHERE t_slv.Status = 'succeeded'
+                )) AS LastLoadDate
             FROM lz_entities e
             JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
             LEFT JOIN (
