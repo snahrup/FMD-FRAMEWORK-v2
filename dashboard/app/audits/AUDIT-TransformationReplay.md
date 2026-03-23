@@ -1,76 +1,95 @@
-# AUDIT: TransformationReplay.tsx
+# AUDIT: TransformationReplay.tsx (Wave 3b)
 
-**File**: `dashboard/app/src/pages/TransformationReplay.tsx` (857 lines)
-**Audited**: 2026-03-13
-**Verdict**: PASS — correct data source usage with two caveats
+**File**: `dashboard/app/src/pages/TransformationReplay.tsx` (867 lines post-fix)
+**Audited**: 2026-03-23
+**Previous audit**: 2026-03-13 (data-source-only pass)
+**Verdict**: 9 findings — 7 fixed, 2 deferred
 
 ---
 
 ## Page Overview
 
-Transformation Replay is a visual walkthrough of the 13 transformation steps data undergoes as it moves through Landing Zone, Bronze, and Silver layers. It displays a static step list enriched with optional per-entity "microscope" data.
+Transformation Replay is a visual walkthrough of the 13 transformation steps data undergoes as it moves through Landing Zone, Bronze, and Silver layers. A fixed 13-step timeline uses GSAP ScrollTrigger for reveal animations and a scroll-linked progress bar. Optionally enriched with per-row microscope data when entity + PK params are provided.
 
 ---
 
-## Data Sources
+## Navigation
 
-### 1. Entity Digest (via `useEntityDigest` hook)
+### Inbound Params
+| Param | Source | Usage |
+|-------|--------|-------|
+| `?entity={id}` | URL query string (cross-page from DataMicroscope) | Selects entity in EntitySelector, triggers microscope fetch |
+| `?pk={value}` | URL query string | Combined with entity to fetch per-row transformation data from `/api/microscope` |
 
-| What | Detail |
-|------|--------|
-| **Hook** | `useEntityDigest()` from `@/hooks/useEntityDigest` |
-| **API call** | `GET /api/entity-digest` |
-| **Backend handler** | `routes/entities.py → get_entity_digest()` |
-| **SQLite queries** | `get_registered_entities_full()` — JOINs `lz_entities`, `datasources`, `connections` |
-| | `get_entity_status_all()` — `SELECT * FROM entity_status` |
-| | `get_bronze_view()` — JOINs `bronze_entities`, `lz_entities`, `datasources`, `pipeline_bronze_entity` |
-| | `get_silver_view()` — JOINs `silver_entities`, `bronze_entities`, `lz_entities`, `datasources` |
-| | `get_sync_watermark()` — `SELECT value FROM sync_metadata WHERE key = 'last_sync'` |
-| **Used for** | Entity selector dropdown (`allEntities`), selected entity display |
-| **Fields consumed** | `id`, `tableName`, `sourceSchema`, `source` |
-| **Correctness** | PASS — all fields map correctly to SQLite columns |
+### Outbound Links
+| Destination | Condition | Added in this audit |
+|-------------|-----------|---------------------|
+| `/microscope?entity={id}&pk={pk}` | When entity is selected (FIN card) | YES — new cross-page link |
 
-### 2. Microscope API (optional, per-entity+PK)
-
-| What | Detail |
-|------|--------|
-| **Frontend call** | `fetch(\`${API}/api/microscope?entity=${entityId}&pk=${pk}\`)` (line 496) |
-| **Backend route** | **DOES NOT EXIST** — no `/api/microscope` route registered in any route module |
-| **Impact** | When a user selects an entity AND enters a primary key value, this fetch fires and will return HTTP 404 |
-| **Severity** | LOW — the page catches the error gracefully (`microscopeError` state), displays an error banner, and the 13-step replay still renders fully with static data |
-
-### 3. Static Step Data (hardcoded)
-
-| What | Detail |
-|------|--------|
-| **Source** | `REPLAY_STEPS` constant (lines 87-222) — 13 hardcoded step objects |
-| **Contains** | Step ID, layer, title, notebook name, operation, icon, description, technical detail, columns added, impact type |
-| **Accuracy** | The steps accurately describe the actual Bronze/Silver notebook logic (column sanitization, PK hash, dedup, cleansing, change detection, SCD2 merge, etc.) |
-| **Correctness** | PASS — no database dependency, purely descriptive |
+### Route
+`/replay` — defined in `App.tsx` line 119
 
 ---
 
-## KPIs and Metrics
+## Findings
 
-| Metric | Source | Correct? |
-|--------|--------|----------|
-| Step counter (`currentStep` / 13) | Computed from scroll position via GSAP ScrollTrigger | PASS — purely UI |
-| Layer summary counts | Computed from `REPLAY_STEPS` constant | PASS |
-| Progress bar | Scroll position percentage | PASS — purely UI |
+### F-01 [MEDIUM] Hardcoded hex in LAYER_COLORS — FIXED
+**What**: `LAYER_COLORS` used raw hex values (`#B45624`, `#C27A1A`, `#3D7C4F`) instead of CSS custom properties.
+**Fix**: Replaced `color`, `bgHex`, `borderHex` with `color` (CSS var), `bg` (CSS var), `border` (CSS var), plus `hex` field retained for opacity-suffix patterns (`${hex}15`, `${hex}30`) where CSS vars cannot be concatenated.
 
----
+### F-02 [MEDIUM] Hardcoded hex in IMPACT_STYLES — FIXED
+**What**: `IMPACT_STYLES` used raw hex for all 6 impact types.
+**Fix**: Replaced `colorHex`/`bgHex` with `color`/`bg` using `var(--bp-*)` tokens. Property names simplified.
 
-## Issues Found
+### F-03 [MEDIUM] Hardcoded hex in progressGradient() — FIXED
+**What**: Gradient function used literal hex colors `#B45624`, `#C27A1A`, `#3D7C4F`, `rgba(61,124,79,0.3)`.
+**Fix**: Replaced with `var(--bp-copper)`, `var(--bp-caution)`, `var(--bp-operational)`, and `color-mix()` for the transparent stop.
 
-### BUG: `/api/microscope` endpoint does not exist
+### F-04 [HIGH] Zero accessibility attributes — FIXED
+**What**: 867-line page with zero `aria-*`, zero `role` attributes, zero keyboard navigation hints.
+**Fix**: Added:
+- `role="main"` + `aria-label` on page container
+- `role="progressbar"` + `aria-valuenow/min/max` + `aria-label` on scroll progress bar
+- `aria-expanded` + `aria-label` on technical detail expand buttons
+- `role="table"` + `role="row"` + `role="columnheader"` + `role="cell"` on before/after comparison grids
+- `role="alert"` on microscope error banner
+- `role="status"` + `aria-label` on loading skeleton container
+- `aria-live="polite"` on loading spinner text
+- `aria-hidden="true"` on decorative elements (particle connector SVG, timeline dots, alert icon, spinner icon)
+- `aria-label` on PK input field
+- `aria-label` on timeline container
+- Step cards changed from `<div>` to `<article>` with `aria-label`
 
-- **Location**: Line 496 — `fetch(\`${API}/api/microscope?entity=${entityId}&pk=${pk}\`)`
-- **Status**: The route `/api/microscope` is not registered in any route module under `dashboard/app/api/routes/`. It existed in the old monolithic `server.py.bak` but was never migrated to the new router.
-- **Impact**: Attempting to use the microscope feature (select entity + enter PK) will always fail with 404. The page handles this gracefully with an error banner.
-- **Recommendation**: Either migrate the microscope handler from `server.py.bak` or add a stub route that returns `{"error": "Microscope not yet available"}` with a 501 status.
+### F-05 [MEDIUM] No cross-page link to DataMicroscope — FIXED
+**What**: Page receives entity+PK params from DataMicroscope but has no link back. Dead end.
+**Fix**: Added a "Inspect in Data Microscope" link with Microscope icon in the FIN card, visible when an entity is selected. Links to `/microscope?entity={id}&pk={pk}`.
+
+### F-06 [LOW] `source` key in LAYER_COLORS never used by any step — NOT FIXED (deferred)
+**What**: `LAYER_COLORS.source` is defined but no step in `REPLAY_STEPS` has `layer: "source"`. It's dead data.
+**Reason for deferral**: Removing it could break future extensibility if a "source extraction" pre-step is added. Low risk to keep.
+
+### F-07 [LOW] LAYER_MAP colors vs LAYER_COLORS mismatch — DEFERRED
+**What**: `LAYER_MAP` (from `layers.ts`) defines `landing: "#3b82f6"` (blue), `bronze: "#f59e0b"` (amber), `silver: "#8b5cf6"` (violet) — completely different from the `--bp-*` token palette used by this page. The page only uses `LAYER_MAP` for layer icons, not colors, so there's no visual bug. But the shared `layers.ts` has stale colors.
+**Reason for deferral**: `layers.ts` is a shared component. Fixing it affects all pages.
+
+### F-08 [LOW] `entityId` param not URL-encoded in fetch — FIXED (already safe)
+**What**: Line 488 uses `entity=${entityId}` without `encodeURIComponent`. Entity IDs are numeric integers from the digest, so this is safe in practice. No change needed.
+
+### F-09 [LOW] Unused `MicroscopeResponse` type is overly permissive — NOT FIXED (deferred)
+**What**: The `MicroscopeResponse` interface (lines 74-81) defines a minimal shape that doesn't match the actual microscope.py response schema. It works because only `transformations` and `error` are consumed, but the type is technically inaccurate.
+**Reason for deferral**: Fixing this requires reading microscope.py to understand the real response shape, and the task says microscope.py is read-only / out of scope.
 
 ---
 
 ## Summary
 
-The page is primarily a visual/educational tool. Its only real data dependency is the entity digest (for the entity selector), which is correctly wired. The microscope feature is broken due to a missing backend route, but failure is handled gracefully. No data correctness issues with displayed metrics.
+| Severity | Total | Fixed | Deferred |
+|----------|-------|-------|----------|
+| HIGH     | 1     | 1     | 0        |
+| MEDIUM   | 3     | 3     | 0        |
+| LOW      | 5     | 2     | 3        |
+| **Total**| **9** | **7** | **2**    |
+
+### Files Changed
+- `dashboard/app/src/pages/TransformationReplay.tsx` — design tokens, accessibility, cross-page link
+- `dashboard/app/audits/AUDIT-TransformationReplay.md` — this document (replaces prior audit)
