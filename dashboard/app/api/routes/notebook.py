@@ -10,6 +10,7 @@ Covers:
 """
 import json
 import logging
+import re
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -19,6 +20,29 @@ from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
 
 log = logging.getLogger("fmd.routes.notebook")
+
+_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _is_valid_uuid(value: str) -> bool:
+    """Check if a string is a valid UUID format."""
+    return bool(_UUID_RE.match(value))
+
+
+def _normalize_failure_reason(raw) -> dict | None:
+    """Normalize failureReason from Fabric API into {message, errorCode} dict.
+
+    The Fabric API may return failureReason as a dict, a string, or None.
+    The frontend expects {message: string, errorCode: string} or null.
+    """
+    if not raw:
+        return None
+    if isinstance(raw, dict):
+        return {
+            "message": raw.get("message", json.dumps(raw)),
+            "errorCode": raw.get("errorCode", "unknown"),
+        }
+    return {"message": str(raw), "errorCode": "unknown"}
 
 
 # ---------------------------------------------------------------------------
@@ -234,12 +258,20 @@ def post_debug_run(params: dict) -> dict:
     """
     notebook_id = (params.get("notebookId") or "").strip()
     layer = params.get("layer", "bronze")
-    max_entities = int(params.get("maxEntities", 0))
+    try:
+        max_entities = int(params.get("maxEntities", 0))
+    except (ValueError, TypeError):
+        raise HttpError("maxEntities must be an integer", 400)
     ds_filter = (params.get("dataSourceFilter") or "").strip()
     chunk_mode = (params.get("chunkMode") or "").strip()
 
     if not notebook_id:
         raise HttpError("notebookId is required", 400)
+    if not _is_valid_uuid(notebook_id):
+        raise HttpError("notebookId must be a valid UUID", 400)
+
+    if layer not in ("landing", "bronze", "silver"):
+        raise HttpError(f"Unknown layer: {layer}. Expected landing, bronze, or silver.", 400)
 
     ws_id = _get_workspace_id()
     if not ws_id:
@@ -267,7 +299,7 @@ def post_debug_run(params: dict) -> dict:
         if ds_filter:
             count_sql += " AND ds.Namespace = ?"
             count_params = (ds_filter,)
-    else:  # silver
+    elif layer == "silver":
         count_sql = (
             "SELECT COUNT(*) as cnt FROM silver_entities se "
             "JOIN bronze_entities be ON se.BronzeLayerEntityId = be.BronzeLayerEntityId "
@@ -342,6 +374,10 @@ def get_debug_job_status(params: dict) -> dict:
 
     if not notebook_id:
         raise HttpError("notebookId is required", 400)
+    if not _is_valid_uuid(notebook_id):
+        raise HttpError("notebookId must be a valid UUID", 400)
+    if job_id and not _is_valid_uuid(job_id):
+        raise HttpError("jobId must be a valid UUID", 400)
 
     ws_id = _get_workspace_id()
     if not ws_id:
@@ -365,7 +401,7 @@ def get_debug_job_status(params: dict) -> dict:
                 "status": data.get("status", "Unknown"),
                 "startTime": data.get("startTimeUtc"),
                 "endTime": data.get("endTimeUtc"),
-                "failureReason": data.get("failureReason"),
+                "failureReason": _normalize_failure_reason(data.get("failureReason")),
             }
         except urllib.error.HTTPError as e:
             if e.code == 404:
@@ -384,13 +420,12 @@ def get_debug_job_status(params: dict) -> dict:
         data = _fabric_get(url, token, timeout=15)
         jobs = []
         for j in data.get("value", []):
-            failure = j.get("failureReason")
             jobs.append({
                 "id": j.get("id", ""),
                 "status": j.get("status", "Unknown"),
                 "startTime": j.get("startTimeUtc", ""),
                 "endTime": j.get("endTimeUtc", ""),
-                "failureReason": failure if failure else None,
+                "failureReason": _normalize_failure_reason(j.get("failureReason")),
             })
         # Sort by start time descending, most recent first
         jobs.sort(key=lambda x: x.get("startTime") or "", reverse=True)
@@ -488,6 +523,10 @@ def get_setup_job_status(params: dict) -> dict:
 
     if not workspace_id or not notebook_id:
         raise HttpError("workspaceId and notebookId are required", 400)
+    if not _is_valid_uuid(workspace_id):
+        raise HttpError("workspaceId must be a valid UUID", 400)
+    if not _is_valid_uuid(notebook_id):
+        raise HttpError("notebookId must be a valid UUID", 400)
 
     try:
         token = _get_fabric_token()

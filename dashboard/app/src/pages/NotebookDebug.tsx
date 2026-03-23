@@ -56,39 +56,21 @@ interface RunResult {
 
 const LAYER_INFO: Record<string, {
   label: string; description: string; step: number;
-  activeBg: string; activeBorder: string;
-  badgeBg: string; badgeText: string;
-  dotColor: string;
 }> = {
   landing: {
     label: "Extract from Source",
     description: "Pull raw data from SQL databases into the Landing Zone",
     step: 1,
-    activeBg: "",
-    activeBorder: "",
-    badgeBg: "",
-    badgeText: "",
-    dotColor: "",
   },
   bronze: {
     label: "Load to Bronze",
     description: "Move landing zone data into structured Bronze tables",
     step: 2,
-    activeBg: "",
-    activeBorder: "",
-    badgeBg: "",
-    badgeText: "",
-    dotColor: "",
   },
   silver: {
     label: "Transform to Silver",
     description: "Apply business rules and SCD Type 2 transformations",
     step: 3,
-    activeBg: "",
-    activeBorder: "",
-    badgeBg: "",
-    badgeText: "",
-    dotColor: "",
   },
 };
 
@@ -136,7 +118,10 @@ export default function NotebookDebug() {
   // Load notebooks on mount
   useEffect(() => {
     fetch(`${API}/notebook-debug/notebooks`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load notebooks (${r.status})`);
+        return r.json();
+      })
       .then((data) => {
         if (data.notebooks) setNotebooks(data.notebooks);
         const main = data.notebooks?.find(
@@ -152,6 +137,7 @@ export default function NotebookDebug() {
     setLoading(true);
     try {
       const res = await fetch(`${API}/notebook-debug/entities?layer=${layer}`);
+      if (!res.ok) throw new Error(`Failed to load entities (${res.status})`);
       const data = await res.json();
       if (data.error) { setError(data.error); return; }
       setEntities(data.entities || []);
@@ -181,6 +167,7 @@ export default function NotebookDebug() {
             ? `jobId=${jobInstanceId}&notebookId=${notebookId}`
             : `notebookId=${notebookId}`;
           const res = await fetch(`${API}/notebook-debug/job-status?${params}`);
+          if (!res.ok) throw new Error(`Job status poll failed (${res.status})`);
           const data = await res.json();
 
           if (data.jobs && data.jobs.length > 0) {
@@ -228,6 +215,10 @@ export default function NotebookDebug() {
           chunkMode,
         }),
       });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Trigger failed (${res.status})`);
+      }
       const data = await res.json();
       if (data.error) { setError(data.error); setRunning(false); return; }
       setRunResult(data);
