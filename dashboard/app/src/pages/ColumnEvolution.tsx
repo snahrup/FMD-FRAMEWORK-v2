@@ -369,6 +369,7 @@ function LayerStepper({
       {/* Auto-play toggle */}
       <button
         onClick={onToggleAutoPlay}
+        aria-label={autoPlaying ? "Pause auto-play" : "Start auto-play through layers"}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer"
         style={autoPlaying
           ? { background: 'var(--bp-copper-light)', border: '1px solid var(--bp-copper)', color: 'var(--bp-copper)' }
@@ -393,6 +394,8 @@ function LayerStepper({
               <button
                 onClick={() => !isDisabled && onSelect(i)}
                 disabled={isDisabled}
+                aria-label={`View ${layer.label} layer`}
+                aria-current={isActive ? "step" : undefined}
                 className="flex items-center gap-2 px-3 py-2 rounded-md transition-all w-full cursor-pointer"
                 style={{
                   background: isActive ? `${layer.color}12` : 'var(--bp-surface-1)',
@@ -425,7 +428,7 @@ function LayerStepper({
                   style={{
                     background: i < activeIndex
                       ? LAYERS[i + 1].color
-                      : "rgba(128,128,128,0.15)",
+                      : "var(--bp-border-subtle)",
                   }}
                 />
               )}
@@ -651,6 +654,7 @@ function EntitySelector({
           <input
             type="text"
             autoFocus
+            aria-label="Filter entities by name, schema, or source"
             placeholder={listLoading ? "Loading entities..." : `Filter ${entities.length} entities...`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -677,6 +681,7 @@ function EntitySelector({
               e.stopPropagation();
               onSelect("");
             }}
+            aria-label="Clear entity selection"
             className="mr-2"
             style={{ color: 'var(--bp-ink-muted)' }}
           >
@@ -872,6 +877,7 @@ export default function ColumnEvolution() {
           {journey && (
             <button
               onClick={() => loadJourney(journey.entityId)}
+              aria-label="Refresh column schema data"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer"
               style={{ border: '1px solid var(--bp-border)', color: 'var(--bp-ink-tertiary)' }}
             >
@@ -901,9 +907,20 @@ export default function ColumnEvolution() {
 
         {/* Error state */}
         {error && (
-          <div className="flex items-center justify-center h-64 gap-2">
-            <XCircle className="w-5 h-5" style={{ color: 'var(--bp-fault)' }} />
-            <span className="text-sm" style={{ color: 'var(--bp-fault)' }}>{error}</span>
+          <div className="flex flex-col items-center justify-center h-64 gap-3">
+            <XCircle className="w-8 h-8" style={{ color: 'var(--bp-fault)' }} />
+            <span className="text-sm font-medium" style={{ color: 'var(--bp-fault)' }}>Failed to load column schema</span>
+            <span className="text-xs max-w-md text-center" style={{ color: 'var(--bp-ink-muted)' }}>{error}</span>
+            {entityIdParam && (
+              <button
+                onClick={() => loadJourney(parseInt(entityIdParam, 10))}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer mt-1"
+                style={{ border: '1px solid var(--bp-border)', color: 'var(--bp-ink-tertiary)' }}
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Retry
+              </button>
+            )}
           </div>
         )}
 
