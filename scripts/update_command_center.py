@@ -150,6 +150,9 @@ PACKETS = [
      "why": "5 findings: /api/journey DOES exist (monitoring.py line 835), prior critical shape mismatches resolved, enhanced error state, a11y fixes. 4 fixed, 1 accepted-as-is."},
     {"id": "AUDIT-DJ", "title": "Data Journey audit + handoff verification", "prs": [56], "lane": "truth",
      "why": "8 findings: navigation handoff verified (?entity={id} consumed correctly), fabricated LZ count of 1 removed, 11 hardcoded hex, dead code. 5 fixed, 3 deferred (backend shape)."},
+    # Microscope cluster — wave 4a
+    {"id": "AUDIT-DMS", "title": "Data Microscope audit + token cleanup", "prs": [57], "lane": "truth",
+     "why": "30+ hardcoded hex replaced with tokens, dead imports removed, a11y labels added. Backend confirmed clean (parameterized SQL, no fabricated data). Navigation params (?entity, ?pk) verified."},
 ]
 
 PAGES = [
@@ -241,8 +244,8 @@ PAGES = [
      "focus": "Audited — handoff verified, fabricated LZ count removed, tokens + a11y", "next": "Backend shape alignment (deferred)"},
     {"name": "Column Evolution", "route": "/columns", "lane": "Hidden/Audited", "packets": ["AUDIT-CE"],
      "focus": "Audited — /api/journey confirmed working, error state enhanced, a11y fixes", "next": "Done for now"},
-    {"name": "Data Microscope", "route": "/microscope", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — deep data inspection tool", "next": "Audit if re-enabled"},
+    {"name": "Data Microscope", "route": "/microscope", "lane": "Hidden/Audited", "packets": ["AUDIT-DMS"],
+     "focus": "Audited — 30+ token fixes, backend clean, nav params verified (?entity, ?pk)", "next": "Done for now"},
     {"name": "Sankey Flow", "route": "/sankey", "lane": "Hidden/Audited", "packets": ["AUDIT-SF"],
      "focus": "Audited — PRIORITY blank-page bug fixed (height chain + ResizeObserver), tokens cleaned", "next": "Done for now"},
     {"name": "Transformation Replay", "route": "/replay", "lane": "Hidden", "packets": [],
