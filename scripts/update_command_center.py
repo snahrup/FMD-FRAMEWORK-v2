@@ -153,6 +153,9 @@ PACKETS = [
     # Microscope cluster — wave 4a
     {"id": "AUDIT-DMS", "title": "Data Microscope audit + token cleanup", "prs": [57], "lane": "truth",
      "why": "30+ hardcoded hex replaced with tokens, dead imports removed, a11y labels added. Backend confirmed clean (parameterized SQL, no fabricated data). Navigation params (?entity, ?pk) verified."},
+    # Microscope cluster — wave 4b (follower)
+    {"id": "AUDIT-TR", "title": "Transformation Replay audit + a11y + microscope link", "prs": [58], "lane": "truth",
+     "why": "9 findings: 10 hardcoded hex in LAYER_COLORS/IMPACT_STYLES → tokens, 20+ aria attributes added (was zero), cross-page Microscope link with entity+pk passthrough. 7 fixed, 2 deferred."},
 ]
 
 PAGES = [
@@ -248,8 +251,8 @@ PAGES = [
      "focus": "Audited — 30+ token fixes, backend clean, nav params verified (?entity, ?pk)", "next": "Done for now"},
     {"name": "Sankey Flow", "route": "/sankey", "lane": "Hidden/Audited", "packets": ["AUDIT-SF"],
      "focus": "Audited — PRIORITY blank-page bug fixed (height chain + ResizeObserver), tokens cleaned", "next": "Done for now"},
-    {"name": "Transformation Replay", "route": "/replay", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — step-by-step transform visualizer", "next": "Audit if re-enabled"},
+    {"name": "Transformation Replay", "route": "/replay", "lane": "Hidden/Audited", "packets": ["AUDIT-TR"],
+     "focus": "Audited — tokens + 20 aria attrs + Microscope cross-page link. Microscope cluster complete.", "next": "Done for now"},
     {"name": "Impact Pulse", "route": "/pulse", "lane": "Hidden/Audited", "packets": ["AUDIT-IP"],
      "focus": "Audited — token cleanup + drawer/dialog a11y, shared node/edge colors deferred", "next": "Done for now"},
     {"name": "Data Classification", "route": "/classification", "lane": "Hidden/Audited", "packets": ["AUDIT-DC2"],
