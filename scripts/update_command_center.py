@@ -119,6 +119,15 @@ PACKETS = [
      "why": "13 findings: CRITICAL — rowCount showed sample cap (100k) as true count, path traversal on lakehouse param, 11 hardcoded rgba colors. 10 fixed, 3 deferred. Noted 3 Blender-endpoint issues for AUDIT-DBL."},
     {"id": "AUDIT-DBL", "title": "Data Blender audit + handoff fixes from Profiler", "prs": [43], "lane": "truth",
      "why": "9 findings: 3 handoff items from AUDIT-DP resolved (lakehouse path traversal, TOP regex inconsistency, Purview error leak), SqlWorkbench crash guard, token cleanup. 7 fixed, 2 deferred."},
+    # Hidden wave 1
+    {"id": "AUDIT-DC2", "title": "Data Classification audit + fake count removal", "prs": [44], "lane": "truth",
+     "why": "4 findings: fabricated column counts using entities.length * 15, hardcoded hex, thread-unsafe scan status, missing level param validation. All 4 fixed."},
+    {"id": "AUDIT-VC", "title": "Validation Checklist audit + mislabel fix", "prs": [45], "lane": "truth",
+     "why": "9 findings: failed counts displayed as 'Pending' in two places. 2 truth fixes, 7 LOW deferred (design tokens, aria, unused fields)."},
+    {"id": "AUDIT-DM", "title": "Data Manager audit + BoolBadge truth fix", "prs": [46], "lane": "truth",
+     "why": "7 findings: BoolBadge labeled all booleans Active/Inactive (wrong for IsIncremental/IsProcessed), silent fetch errors, pagination crash on non-numeric. 6 fixed, 1 deferred."},
+    {"id": "AUDIT-ND", "title": "Notebook Debug audit + contract/validation fixes", "prs": [47], "lane": "truth",
+     "why": "7 findings: CRITICAL failureReason shape mismatch, missing UUID validation on IDs, silent fetch failures, invalid layer catch-all. 6 fixed, 1 deferred."},
 ]
 
 PAGES = [
@@ -194,8 +203,8 @@ PAGES = [
      "focus": "Audited — unused imports + form validation fixes", "next": "Done for now"},
     {"name": "Pipeline Runner", "route": "/runner", "lane": "Hidden/Audited", "packets": ["AUDIT-PR"],
      "focus": "Audited — entity endpoint rewrite + param sanitization + 50 token fixes", "next": "Prepare/Restore no-op fix (separate PR)"},
-    {"name": "Notebook Debug", "route": "/notebook-debug", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — notebook execution debugger", "next": "Audit if re-enabled"},
+    {"name": "Notebook Debug", "route": "/notebook-debug", "lane": "Hidden/Audited", "packets": ["AUDIT-ND"],
+     "focus": "Audited — CRITICAL failureReason contract fix + UUID validation + fetch guards", "next": "Done for now"},
     # Monitoring / Progress
     {"name": "Live Monitor", "route": "/live", "lane": "Hidden", "packets": [],
      "focus": "Hidden — real-time pipeline monitor", "next": "Audit if re-enabled"},
@@ -218,14 +227,14 @@ PAGES = [
      "focus": "Hidden — step-by-step transform visualizer", "next": "Audit if re-enabled"},
     {"name": "Impact Pulse", "route": "/pulse", "lane": "Hidden", "packets": [],
      "focus": "Hidden — downstream impact dashboard", "next": "Audit if re-enabled"},
-    {"name": "Data Classification", "route": "/classification", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — sensitivity/PII classification", "next": "Audit if re-enabled"},
+    {"name": "Data Classification", "route": "/classification", "lane": "Hidden/Audited", "packets": ["AUDIT-DC2"],
+     "focus": "Audited — fabricated column counts removed, thread-safe scan status, level validation", "next": "Done for now"},
     {"name": "Impact Analysis", "route": "/impact", "lane": "Hidden", "packets": [],
      "focus": "Hidden — change impact assessment", "next": "Audit if re-enabled"},
-    {"name": "Data Manager", "route": "/data-manager", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — bulk data operations", "next": "Audit if re-enabled"},
-    {"name": "Validation Checklist", "route": "/validation", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — deployment validation checks", "next": "Audit if re-enabled"},
+    {"name": "Data Manager", "route": "/data-manager", "lane": "Hidden/Audited", "packets": ["AUDIT-DM"],
+     "focus": "Audited — BoolBadge truth fix + silent error handling + pagination crash guard", "next": "Done for now"},
+    {"name": "Validation Checklist", "route": "/validation", "lane": "Hidden/Audited", "packets": ["AUDIT-VC"],
+     "focus": "Audited — failed-as-pending mislabel fix, backend verified correct", "next": "Done for now"},
     # Test / dev pages
     {"name": "Test Audit", "route": "/test-audit", "lane": "Hidden/Dev", "packets": [],
      "focus": "Hidden — dev/test audit page", "next": "Audit if re-enabled"},
