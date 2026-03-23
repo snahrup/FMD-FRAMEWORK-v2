@@ -150,6 +150,8 @@ function PageVisibilityTab({ password }: { password: string }) {
                 <button
                   key={page.href}
                   onClick={() => toggle(page.href)}
+                  aria-pressed={!isHidden}
+                  aria-label={`${isHidden ? "Show" : "Hide"} ${page.label}`}
                   className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
                     isHidden
                       ? "border-border/50 bg-card text-muted-foreground/50"
@@ -309,6 +311,8 @@ function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
             onChange={(e) => { setPw(e.target.value); setError(false); }}
             onKeyDown={(e) => e.key === "Enter" && submit()}
             placeholder="Password"
+            aria-label="Admin password"
+            autoComplete="current-password"
             autoFocus
             className={`w-full px-3 py-2.5 rounded-lg border bg-card text-sm outline-none transition-colors ${
               error
@@ -357,12 +361,14 @@ export default function AdminGateway() {
             Admin
           </h1>
         </div>
-        <nav className="space-y-0.5">
+        <nav className="space-y-0.5" role="tablist" aria-label="Admin sections">
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
+                role="tab"
+                aria-selected={isActive}
                 onClick={() => setActiveTab(tab.id)}
                 className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
                   isActive
@@ -379,7 +385,7 @@ export default function AdminGateway() {
       </div>
 
       {/* Tab content — keep data-fetching tabs mounted to prevent loading flash on re-visit */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
+      <div className="flex-1 min-w-0 overflow-y-auto" role="tabpanel" aria-label={`${activeTab} tab content`}>
         <div className={activeTab === "environment" ? "" : "hidden"}><EnvironmentTab /></div>
         <div className={activeTab === "pages" ? "" : "hidden"}><PageVisibilityTab password={password} /></div>
         {activeTab === "general" && <GeneralTab />}

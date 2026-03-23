@@ -57,16 +57,19 @@ def post_admin_config(params):
     _check_admin_password(params)
     # Support both {key, value} and {hiddenPages} shapes
     if "hiddenPages" in params:
-        import json as _json
         db.execute(
             "INSERT OR REPLACE INTO admin_config (key, value) VALUES (?, ?)",
-            ("hiddenPages", _json.dumps(params["hiddenPages"])),
+            ("hiddenPages", json.dumps(params["hiddenPages"])),
         )
         return {"ok": True, "key": "hiddenPages"}
     key = params.get("key", "")
     value = params.get("value", "")
     if not key:
         raise HttpError("key is required", 400)
+    if len(key) > 128:
+        raise HttpError("key must be 128 characters or fewer", 400)
+    if len(str(value)) > 65536:
+        raise HttpError("value too large", 400)
     db.execute(
         "INSERT OR REPLACE INTO admin_config (key, value) VALUES (?, ?)",
         (key, value),
