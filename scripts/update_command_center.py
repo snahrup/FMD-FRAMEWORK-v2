@@ -120,7 +120,7 @@ PAGES = [
     {"name": "Config Manager", "route": "/config", "lane": "Truth/UI", "packets": ["RP-11", "UP-07"],
      "focus": "Token cleanup merged", "next": "Done for now"},
     {"name": "Engine Control", "route": "/engine", "lane": "Truth/UI", "packets": ["UP-04"],
-     "focus": "Token cleanup merged", "next": "Done for now"},
+     "focus": "Token cleanup merged (hidden from sidebar)", "next": "Done for now"},
     {"name": "Database Explorer", "route": "/explorer", "lane": "UI", "packets": ["UP-07"],
      "focus": "Token cleanup merged", "next": "Done for now"},
     {"name": "Portal Sources", "route": "/sources-portal", "lane": "Truth", "packets": ["AUDIT-PS"],
@@ -155,9 +155,61 @@ PAGES = [
     # Static utility — complete as-is
     {"name": "Help", "route": "/help", "lane": "Complete", "packets": [],
      "focus": "386-line glossary + guides, no API", "next": "Done"},
-    # Hidden routes not in sidebar
-    {"name": "Hidden routes (15 total)", "route": "hidden", "lane": "Audit", "packets": [],
-     "focus": "Not in sidebar nav", "next": "Expand later"},
+    # ── Hidden routes (not in sidebar, routable via URL) ──
+    # Infrastructure / Admin
+    {"name": "Control Plane", "route": "/control", "lane": "Hidden", "packets": [],
+     "focus": "Hidden admin page — pipeline metadata viewer", "next": "Audit if re-enabled"},
+    {"name": "Admin Gateway", "route": "/admin", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — page visibility feature flags", "next": "Audit if re-enabled"},
+    {"name": "Notebook Config", "route": "/notebook-config", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — notebook configuration editor", "next": "Audit if re-enabled"},
+    {"name": "Pipeline Runner", "route": "/runner", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — manual pipeline trigger UI", "next": "Audit if re-enabled"},
+    {"name": "Notebook Debug", "route": "/notebook-debug", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — notebook execution debugger", "next": "Audit if re-enabled"},
+    # Monitoring / Progress
+    {"name": "Live Monitor", "route": "/live", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — real-time pipeline monitor", "next": "Audit if re-enabled"},
+    {"name": "Load Progress", "route": "/load-progress", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — per-entity load progress tracker", "next": "Audit if re-enabled"},
+    # Data exploration / visualization
+    {"name": "Flow Explorer", "route": "/flow", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — pipeline flow diagram", "next": "Audit if re-enabled"},
+    {"name": "Record Counts", "route": "/counts", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — row count comparison across layers", "next": "Audit if re-enabled"},
+    {"name": "Data Journey", "route": "/journey", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — entity journey through medallion layers", "next": "Audit if re-enabled"},
+    {"name": "Column Evolution", "route": "/columns", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — column schema drift tracker", "next": "Audit if re-enabled"},
+    {"name": "Data Microscope", "route": "/microscope", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — deep data inspection tool", "next": "Audit if re-enabled"},
+    {"name": "Sankey Flow", "route": "/sankey", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — sankey diagram of data flow", "next": "Audit if re-enabled"},
+    {"name": "Transformation Replay", "route": "/replay", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — step-by-step transform visualizer", "next": "Audit if re-enabled"},
+    {"name": "Impact Pulse", "route": "/pulse", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — downstream impact dashboard", "next": "Audit if re-enabled"},
+    {"name": "Data Classification", "route": "/classification", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — sensitivity/PII classification", "next": "Audit if re-enabled"},
+    {"name": "Impact Analysis", "route": "/impact", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — change impact assessment", "next": "Audit if re-enabled"},
+    {"name": "Data Manager", "route": "/data-manager", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — bulk data operations", "next": "Audit if re-enabled"},
+    {"name": "Validation Checklist", "route": "/validation", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — deployment validation checks", "next": "Audit if re-enabled"},
+    # Test / dev pages
+    {"name": "Test Audit", "route": "/test-audit", "lane": "Hidden/Dev", "packets": [],
+     "focus": "Hidden — dev/test audit page", "next": "Audit if re-enabled"},
+    {"name": "Test Swarm", "route": "/test-swarm", "lane": "Hidden/Dev", "packets": [],
+     "focus": "Hidden — dev/test swarm page", "next": "Audit if re-enabled"},
+    {"name": "MRI", "route": "/mri", "lane": "Hidden/Dev", "packets": [],
+     "focus": "Hidden — dev/test MRI page", "next": "Audit if re-enabled"},
+    # Labs — hidden Gold
+    {"name": "Gold MLV Manager", "route": "/labs/gold-mlv", "lane": "Hidden", "packets": [],
+     "focus": "Hidden — Gold materialized logical view manager", "next": "Audit if re-enabled"},
+    # Sub-route (not standalone page)
+    {"name": "Dataset Detail", "route": "/catalog-portal/:id", "lane": "Sub-route", "packets": ["AUDIT-PC"],
+     "focus": "Portal Catalog detail view — covered by AUDIT-PC", "next": "Done"},
 ]
 
 # ──────────────────────────────────────────────────────────────
