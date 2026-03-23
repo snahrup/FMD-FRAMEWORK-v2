@@ -334,12 +334,12 @@ function PasteSqlModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
           className="w-full rounded-md resize-none"
           style={{
             background: "var(--bp-code-block)",
-            color: "#E7E5E0",
+            color: "var(--bp-surface-inset)",
             fontFamily: "var(--bp-font-mono)",
             fontSize: 13,
             lineHeight: 1.5,
             padding: "12px 16px",
-            border: "1px solid rgba(255,255,255,0.08)",
+            border: "1px solid var(--bp-border)",
             minHeight: 200,
             outline: "none",
           }}
@@ -554,16 +554,28 @@ function ModalShell({
   wide?: boolean;
   children: React.ReactNode;
 }) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return (
     <>
       {/* Backdrop */}
       <div
         className="fixed inset-0 z-50"
         style={{ background: "rgba(0,0,0,0.3)" }}
+        aria-hidden="true"
         onClick={onClose}
       />
       {/* Panel */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         className="fixed z-50 rounded-lg overflow-hidden"
         style={{
           top: "50%",
@@ -594,6 +606,7 @@ function ModalShell({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close dialog"
             className="rounded-md p-1.5 transition-colors hover:bg-black/5"
             style={{ color: "var(--bp-ink-muted)" }}
           >
@@ -661,6 +674,7 @@ function FilterBar({
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search specimens..."
+          aria-label="Search specimens"
           className="flex-1 bg-transparent outline-none"
           style={{
             fontFamily: "var(--bp-font-body)",
@@ -673,6 +687,7 @@ function FilterBar({
           <button
             type="button"
             onClick={() => onSearch("")}
+            aria-label="Clear search"
             className="hover:bg-black/5 rounded p-0.5"
           >
             <X size={13} style={{ color: "var(--bp-ink-muted)" }} />
@@ -681,7 +696,7 @@ function FilterBar({
       </div>
 
       {/* Division */}
-      <select value={division} onChange={(e) => onDivision(e.target.value)} style={selectStyle}>
+      <select value={division} onChange={(e) => onDivision(e.target.value)} style={selectStyle} aria-label="Filter by division">
         <option value="">All Divisions</option>
         {divisions.map((d) => (
           <option key={d} value={d}>{d}</option>
@@ -689,7 +704,7 @@ function FilterBar({
       </select>
 
       {/* Type */}
-      <select value={type} onChange={(e) => onType(e.target.value)} style={selectStyle}>
+      <select value={type} onChange={(e) => onType(e.target.value)} style={selectStyle} aria-label="Filter by type">
         <option value="">All Types</option>
         {types.map((t) => (
           <option key={t} value={t}>{t.toUpperCase()}</option>
@@ -697,7 +712,7 @@ function FilterBar({
       </select>
 
       {/* Job State */}
-      <select value={jobState} onChange={(e) => onJobState(e.target.value)} style={selectStyle}>
+      <select value={jobState} onChange={(e) => onJobState(e.target.value)} style={selectStyle} aria-label="Filter by job state">
         <option value="">All States</option>
         {["queued", "extracting", "schema_discovery", "extracted", "accepted", "parse_warning", "parse_failed", "needs_connection", "schema_pending"].map((s) => (
           <option key={s} value={s}>{s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</option>
@@ -735,6 +750,7 @@ function EntityTable({ entities }: { entities: ExtractedEntity[] }) {
                 (h, i) => (
                   <th
                     key={h}
+                    scope="col"
                     className={`py-2.5 px-4 font-medium ${i === 3 ? "text-right" : "text-left"}`}
                     style={{
                       fontFamily: "var(--bp-font-body)",
@@ -789,8 +805,8 @@ function EntityTable({ entities }: { entities: ExtractedEntity[] }) {
                     <span
                       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5"
                       style={{
-                        background: ent.cluster_id > 0 ? "rgba(61,124,79,0.10)" : "rgba(194,122,26,0.10)",
-                        color: ent.cluster_id > 0 ? "#3D7C4F" : "#C27A1A",
+                        background: ent.cluster_id > 0 ? "var(--bp-operational-light)" : "var(--bp-caution-light)",
+                        color: ent.cluster_id > 0 ? "var(--bp-operational)" : "var(--bp-caution)",
                         fontFamily: "var(--bp-font-mono)",
                         fontSize: 11,
                       }}
@@ -967,6 +983,7 @@ export default function GoldLedger() {
   const [specimens, setSpecimens] = useState<Specimen[]>([]);
   const [entities, setEntities] = useState<ExtractedEntity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Expanded specimen details cache
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -987,6 +1004,7 @@ export default function GoldLedger() {
   // ── Data fetching ──
 
   const fetchData = useCallback(async () => {
+    setFetchError(null);
     try {
       const [statsRes, specRes] = await Promise.all([
         fetch(`${API}/api/gold-studio/stats`),
@@ -1011,9 +1029,11 @@ export default function GoldLedger() {
           }
         }
         if (allEntities.length > 0) setEntities(allEntities);
+      } else {
+        setFetchError(`Failed to load specimens (HTTP ${specRes.status})`);
       }
-    } catch {
-      // Gracefully handle — page works with empty data
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : "Failed to connect to server");
     } finally {
       setLoading(false);
     }
@@ -1139,6 +1159,31 @@ export default function GoldLedger() {
       {/* Stats */}
       <StatsStrip items={statsItems} />
 
+      {/* Error banner */}
+      {fetchError && (
+        <div
+          role="alert"
+          className="rounded-lg px-4 py-3 mb-4 flex items-center justify-between"
+          style={{
+            background: "var(--bp-fault-light)",
+            border: "1px solid var(--bp-fault-red)",
+            color: "var(--bp-fault-red)",
+            fontFamily: "var(--bp-font-body)",
+            fontSize: 13,
+          }}
+        >
+          <span>{fetchError}</span>
+          <button
+            type="button"
+            onClick={() => { setLoading(true); fetchData(); }}
+            className="bp-btn-secondary"
+            style={{ fontSize: 12, padding: "4px 10px" }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Content area */}
       <div style={{ paddingBottom: 40 }}>
         {/* View toggle + filter bar */}
@@ -1159,7 +1204,7 @@ export default function GoldLedger() {
                   fontSize: 13,
                   fontWeight: 500,
                   background: view === v ? "var(--bp-copper)" : "var(--bp-surface-1)",
-                  color: view === v ? "#fff" : "var(--bp-ink-secondary)",
+                  color: view === v ? "var(--bp-surface-1)" : "var(--bp-ink-secondary)",
                   borderRight: v === "specimen" ? "1px solid var(--bp-border)" : "none",
                 }}
               >
