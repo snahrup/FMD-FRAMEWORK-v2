@@ -117,6 +117,8 @@ PACKETS = [
      "why": "6 findings: DONUT_COLORS race condition at module load, OPTIVA missing from display name map, a11y labels. 4 fixed, 2 deferred (shared hooks)."},
     {"id": "AUDIT-DP", "title": "Data Profiler audit + row count truth fix", "prs": [42], "lane": "truth",
      "why": "13 findings: CRITICAL — rowCount showed sample cap (100k) as true count, path traversal on lakehouse param, 11 hardcoded rgba colors. 10 fixed, 3 deferred. Noted 3 Blender-endpoint issues for AUDIT-DBL."},
+    {"id": "AUDIT-DBL", "title": "Data Blender audit + handoff fixes from Profiler", "prs": [43], "lane": "truth",
+     "why": "9 findings: 3 handoff items from AUDIT-DP resolved (lakehouse path traversal, TOP regex inconsistency, Purview error leak), SqlWorkbench crash guard, token cleanup. 7 fixed, 2 deferred."},
 ]
 
 PAGES = [
@@ -132,8 +134,8 @@ PAGES = [
      "focus": "Dedup + case fix merged", "next": "Done for now"},
     {"name": "Execution Log", "route": "/logs", "lane": "Truth", "packets": ["UP-01", "UP-06", "AUDIT-EL"],
      "focus": "Audit refreshed — PASS", "next": "UP-06 token cleanup"},
-    {"name": "Data Blender", "route": "/blender", "lane": "UI", "packets": ["UP-01"],
-     "focus": "Low truth risk, font drift", "next": "UP-01"},
+    {"name": "Data Blender", "route": "/blender", "lane": "Truth/UI", "packets": ["UP-01", "AUDIT-DBL"],
+     "focus": "Audited — handoff fixes from Profiler + SqlWorkbench crash guard + tokens", "next": "Done for now"},
     {"name": "Data Lineage", "route": "/lineage", "lane": "Truth/UI", "packets": ["UP-05", "AUDIT-DL"],
      "focus": "Audited — backend resilience fix + a11y, hex deferred (shared layers.ts)", "next": "Done for now"},
     {"name": "Data Catalog", "route": "/catalog", "lane": "Truth", "packets": ["AUDIT-DC"],
