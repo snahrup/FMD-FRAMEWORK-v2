@@ -17,7 +17,7 @@ The page is well-built with proper BP design system tokens, scalable source rend
 ### [F1] LastLoadDate picks first matching layer instead of most recent (severity: HIGH)
 **File**: `dashboard/app/api/routes/overview.py:415-418`
 **Was**: Single CASE...WHEN chain inside MAX() aggregate evaluated top-to-bottom — if LZ succeeded, its timestamp was returned even if Bronze or Silver had a more recent load. Since GROUP BY produces one row per entity, the aggregate MAX was a no-op.
-**Fixed**: Changed to SQLite scalar `MAX(val1, val2, val3)` with three separate CASE expressions, one per layer. The scalar MAX correctly picks the latest timestamp across all three layers.
+**Fixed**: Changed to a NULL-safe subquery: `SELECT MAX(v) FROM (VALUES (...), (...), (...)) WHERE v IS NOT NULL`. Each layer's succeeded timestamp is a row; NULLs are filtered before the aggregate MAX. This correctly returns the latest timestamp even when one or two layers have no succeeded load (NULL), unlike SQLite scalar `MAX(a,b,c)` which returns NULL if any argument is NULL.
 **Impact**: "Last Refreshed" column in the table list could show a stale LZ timestamp when Bronze/Silver had newer data. Affects any entity where layers load at different times (i.e., all of them).
 
 ### [F2] Unused imports: StatusRail, toRailStatus (severity: LOW)
