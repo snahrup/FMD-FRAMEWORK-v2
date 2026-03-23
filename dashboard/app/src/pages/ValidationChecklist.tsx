@@ -732,7 +732,7 @@ export default function ValidationChecklist() {
               <CheckItem
                 status={totals.lzNever === 0 && totals.lzFailed === 0 ? "pass" : totals.lzLoaded > 0 ? "warn" : "fail"}
                 label="Landing Zone loads"
-                detail={`${totals.lzLoaded} loaded, ${totals.lzFailed} pending, ${totals.lzNever} never attempted`}
+                detail={`${totals.lzLoaded} loaded, ${totals.lzFailed} failed, ${totals.lzNever} never attempted`}
               />
               <CheckItem
                 status={totals.stuckAtLz === 0 ? "pass" : "warn"}
@@ -819,7 +819,7 @@ function LayerDetail({ layer, loaded, failed, neverAttempted, total }: {
       </div>
       <div className="space-y-0.5 text-xs pl-6" style={{ color: "var(--bp-ink-tertiary)" }}>
         <div className="flex justify-between"><span>Loaded</span><span style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-operational)" }}>{loaded}</span></div>
-        <div className="flex justify-between"><span>Pending</span><span style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-caution)" }}>{failed}</span></div>
+        <div className="flex justify-between"><span>Failed</span><span style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-caution)" }}>{failed}</span></div>
         <div className="flex justify-between"><span>Never attempted</span><span style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-fault)" }}>{neverAttempted}</span></div>
         <div className="w-full h-1.5 rounded-full overflow-hidden mt-1" style={{ background: "var(--bp-surface-inset)" }}>
           <div className="h-full transition-all duration-700" style={{ width: total > 0 ? `${(loaded / total) * 100}%` : "0%", background: "var(--bp-operational)" }} />
