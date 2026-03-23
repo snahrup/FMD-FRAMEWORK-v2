@@ -384,12 +384,45 @@ def generate_html(metrics, packet_states, page_states, merged_prs, open_prs, seq
 
     ui_table = "\n".join(ui_rows)
 
+    # Page detail data for modal popups
+    pkt_by_id = {p["id"]: p for p in PACKETS}
+    page_detail_data = {}
+    for pg in PAGES:
+        packets_detail = []
+        for pid in pg.get("packets", []):
+            pkt = pkt_by_id.get(pid)
+            if not pkt:
+                continue
+            pkt_state = packet_states.get(pid, "queued")
+            pr_nums = pkt.get("prs", [])
+            pr_links = [{"num": n, "merged": n in {pr["number"] for pr in merged_prs}} for n in pr_nums]
+            packets_detail.append({
+                "id": pid,
+                "title": pkt["title"],
+                "lane": pkt["lane"],
+                "state": pkt_state,
+                "why": pkt.get("why", ""),
+                "prs": pr_links,
+            })
+        page_detail_data[pg["name"]] = {
+            "name": pg["name"],
+            "route": pg["route"],
+            "lane": pg["lane"],
+            "focus": pg["focus"],
+            "next": pg["next"],
+            "status": page_states.get(pg["name"], "NOT YET"),
+            "packets": packets_detail,
+        }
+
+    page_detail_json = json.dumps(page_detail_data, indent=None)
+
     # Page-by-page table
     page_rows = []
     for pg in PAGES:
         status = page_states.get(pg["name"], "NOT YET")
         search_str = f'{pg["name"]} {pg["route"]} {pg["focus"]} {pg["next"]}'.lower()
-        page_rows.append(f'''<tr data-status="{status}" data-lane="{pg["lane"]}" data-search="{search_str}">
+        esc_name = pg["name"].replace("'", "\\'")
+        page_rows.append(f'''<tr data-status="{status}" data-lane="{pg["lane"]}" data-search="{search_str}" class="page-row" onclick="showPageDetail('{esc_name}')">
       <td><strong>{pg["name"]}</strong><div class="route">{pg["route"]}</div></td>
       <td>{status_pill(status)}</td>
       <td>{lane_pill(pg["lane"])}</td>
@@ -525,6 +558,45 @@ li {{ margin:6px 0; color:var(--muted); }}
 code {{ background:var(--panel2); padding:2px 6px; border-radius:6px; font-size:12px; }}
 .footer-note {{ margin-top:14px; font-size:12px; color:var(--muted); line-height:1.7; }}
 .timestamp {{ text-align:right; font-size:11px; color:var(--muted2); margin-top:6px; }}
+.page-row {{ cursor:pointer; transition:background .15s; }}
+.page-row:hover {{ background:rgba(255,255,255,.04); }}
+/* ── Modal ── */
+.modal-overlay {{
+  position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,.65); backdrop-filter:blur(6px);
+  display:none; align-items:center; justify-content:center; padding:24px;
+}}
+.modal-overlay.active {{ display:flex; }}
+.modal {{
+  background:var(--panel); border:1px solid var(--line); border-radius:22px;
+  width:100%; max-width:720px; max-height:85vh; overflow-y:auto;
+  padding:28px; position:relative;
+  box-shadow: 0 24px 80px rgba(0,0,0,.5);
+}}
+.modal-close {{
+  position:absolute; top:16px; right:18px; background:none; border:none; color:var(--muted);
+  font-size:22px; cursor:pointer; padding:4px 8px; border-radius:8px; transition:color .15s, background .15s;
+}}
+.modal-close:hover {{ color:var(--ink); background:rgba(255,255,255,.08); }}
+.modal h2 {{ margin:0 0 4px; font-size:24px; }}
+.modal .modal-route {{ color:var(--muted2); font-size:13px; font-family:monospace; margin-bottom:16px; }}
+.modal .modal-meta {{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }}
+.modal hr {{ border:none; border-top:1px solid var(--line); margin:18px 0; }}
+.pkt-card {{
+  background:var(--panel2); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:12px;
+}}
+.pkt-card-head {{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }}
+.pkt-card-head h3 {{ margin:0; font-size:16px; font-weight:700; }}
+.pkt-card .pkt-why {{
+  color:var(--muted); font-size:13px; line-height:1.65; margin:0;
+}}
+.pkt-card .pkt-prs {{ margin-top:10px; display:flex; gap:6px; flex-wrap:wrap; }}
+.pkt-pr {{
+  display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:8px;
+  font-size:11px; font-weight:700; text-decoration:none;
+}}
+.pkt-pr.pr-merged {{ color:var(--green); background:var(--greenbg); }}
+.pkt-pr.pr-open {{ color:var(--amber); background:var(--amberbg); }}
+.modal .empty-state {{ color:var(--muted2); font-size:14px; padding:20px 0; text-align:center; }}
 @media (max-width: 1280px) {{
   .hero-grid, .grid-2, .grid-3, .mini-grid, .flow-row {{ grid-template-columns: 1fr; }}
   .arrow {{ display:none; }}
@@ -696,6 +768,14 @@ code {{ background:var(--panel2); padding:2px 6px; border-radius:6px; font-size:
   </div>
 </div>
 
+<!-- Page detail modal -->
+<div class="modal-overlay" id="pageModal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()" title="Close">&times;</button>
+    <div id="modalContent"></div>
+  </div>
+</div>
+
 <script>
 const search = document.getElementById('search');
 const statusFilter = document.getElementById('statusFilter');
@@ -719,6 +799,96 @@ function applyFilters() {{
 search.addEventListener('input', applyFilters);
 statusFilter.addEventListener('change', applyFilters);
 laneFilter.addEventListener('change', applyFilters);
+
+/* ── Page detail modal ── */
+const PAGE_DATA = {page_detail_json};
+
+function pillHtml(label, cls) {{
+  return '<span class="pill ' + cls + '">' + label + '</span>';
+}}
+
+function statusClass(s) {{
+  return {{PACKETIZED:'packetized',PARTIALLY:'partial','NOT YET':'notyet',MIXED:'mixed'}}[s] || 'neutral';
+}}
+
+function laneClass(l) {{
+  return {{Truth:'truth',UI:'ui',Audit:'audit',Gold:'gold','Truth/UI':'truth','Audit/UI':'ui'}}[l] || 'neutral';
+}}
+
+function pktStateClass(s) {{
+  return {{merged:'merged',open:'truth',queued:'neutral'}}[s] || 'neutral';
+}}
+
+function pktStateLabel(s) {{
+  return {{merged:'Merged',open:'Open PR',queued:'Queued'}}[s] || s;
+}}
+
+function showPageDetail(name) {{
+  const pg = PAGE_DATA[name];
+  if (!pg) return;
+
+  let html = '<h2>' + pg.name + '</h2>';
+  html += '<div class="modal-route">' + pg.route + '</div>';
+  html += '<div class="modal-meta">';
+  html += pillHtml(pg.status, statusClass(pg.status));
+  html += pillHtml(pg.lane, laneClass(pg.lane));
+  html += '</div>';
+
+  html += '<table style="margin-bottom:4px"><tbody>';
+  html += '<tr><td style="width:120px;color:var(--muted);font-weight:600">Current focus</td><td>' + pg.focus + '</td></tr>';
+  html += '<tr><td style="color:var(--muted);font-weight:600">Next step</td><td>' + pg.next + '</td></tr>';
+  html += '</tbody></table>';
+
+  html += '<hr>';
+
+  if (pg.packets.length === 0) {{
+    html += '<div class="empty-state">No packets have touched this page yet.</div>';
+  }} else {{
+    html += '<div style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px">'
+          + pg.packets.length + ' packet' + (pg.packets.length !== 1 ? 's' : '') + ' applied</div>';
+
+    pg.packets.forEach(function(pkt) {{
+      html += '<div class="pkt-card">';
+      html += '<div class="pkt-card-head">';
+      html += '<h3>' + pkt.id + '</h3>';
+      html += '<div style="display:flex;gap:6px">';
+      html += pillHtml(pkt.lane === 'truth' ? 'Truth' : 'UI', pkt.lane === 'truth' ? 'truth' : 'ui');
+      html += pillHtml(pktStateLabel(pkt.state), pktStateClass(pkt.state));
+      html += '</div></div>';
+
+      html += '<div style="font-size:14px;font-weight:600;margin-bottom:6px;color:var(--ink)">' + pkt.title + '</div>';
+
+      if (pkt.why) {{
+        html += '<p class="pkt-why">' + pkt.why + '</p>';
+      }}
+
+      if (pkt.prs && pkt.prs.length > 0) {{
+        html += '<div class="pkt-prs">';
+        pkt.prs.forEach(function(pr) {{
+          const cls = pr.merged ? 'pr-merged' : 'pr-open';
+          const icon = pr.merged ? '&#10003; ' : '&#9679; ';
+          html += '<span class="pkt-pr ' + cls + '">' + icon + 'PR #' + pr.num + '</span>';
+        }});
+        html += '</div>';
+      }}
+
+      html += '</div>';
+    }});
+  }}
+
+  document.getElementById('modalContent').innerHTML = html;
+  document.getElementById('pageModal').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}}
+
+function closeModal() {{
+  document.getElementById('pageModal').classList.remove('active');
+  document.body.style.overflow = '';
+}}
+
+document.addEventListener('keydown', function(e) {{
+  if (e.key === 'Escape') closeModal();
+}});
 </script>
 </body>
 </html>'''

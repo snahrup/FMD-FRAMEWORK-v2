@@ -2555,9 +2555,9 @@ export default function EngineControl() {
                   Auto-scroll
                 </label>
               </div>
+              {/* border-[#30363d]: no exact bp token */}
               <div
                 ref={logContainerRef}
-                {/* border-[#30363d]: no exact bp token */}
                 className="h-[480px] overflow-y-auto rounded-lg border border-[#30363d] bg-[var(--bp-code-block)] p-4 scrollbar-thin [&_span]:!text-opacity-100"
               >
                 {logBuffer.length === 0 ? (
