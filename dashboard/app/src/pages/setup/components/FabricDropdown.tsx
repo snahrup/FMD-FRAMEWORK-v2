@@ -141,6 +141,7 @@ export function FabricDropdown({
           className="transition-colors"
           style={{ color: 'var(--bp-ink-muted)' }}
           title="Refresh"
+          aria-label={`Refresh ${label} options`}
         >
           <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
         </button>
@@ -160,6 +161,7 @@ export function FabricDropdown({
             value={value?.id || ""}
             onChange={handleSelect}
             disabled={loading}
+            aria-label={label}
             className={cn(
               "w-full h-9 rounded-md px-3 text-sm",
               "focus:outline-none focus:ring-2 focus:ring-offset-1",

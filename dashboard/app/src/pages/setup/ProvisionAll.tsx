@@ -15,7 +15,6 @@ import {
   ExternalLink,
   Settings2,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { FabricDropdown } from "./components/FabricDropdown";
 import type { EnvironmentConfig, FabricCapacity } from "./types";
 
@@ -208,7 +207,7 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
 
       {/* Error */}
       {error && (
-        <div className="rounded-md p-3 text-xs" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)', color: 'var(--bp-fault)' }}>
+        <div role="alert" className="rounded-md p-3 text-xs" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)', color: 'var(--bp-fault)' }}>
           {error}
         </div>
       )}
@@ -229,6 +228,7 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
               {done && (
                 <button
                   onClick={handleCopyIds}
+                  aria-label="Copy resource IDs to clipboard"
                   className="text-[10px] flex items-center gap-1 transition-colors"
                   style={{ color: copied ? 'var(--bp-operational)' : 'var(--bp-ink-muted)' }}
                 >

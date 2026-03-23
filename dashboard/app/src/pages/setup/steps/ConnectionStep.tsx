@@ -1,5 +1,5 @@
 import { FabricDropdown } from "../components/FabricDropdown";
-import type { FabricConnection, EnvironmentConfig } from "../types";
+import type { FabricConnection } from "../types";
 import { Cable } from "lucide-react";
 
 const CONNECTION_FIELDS: {

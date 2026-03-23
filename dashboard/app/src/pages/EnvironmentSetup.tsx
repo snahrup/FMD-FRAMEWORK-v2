@@ -76,7 +76,7 @@ export default function EnvironmentSetup() {
         </div>
 
         {/* Mode toggle */}
-        <div className="flex items-center gap-1 rounded-lg p-1" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-inset)' }}>
+        <div className="flex items-center gap-1 rounded-lg p-1" role="tablist" aria-label="Setup mode" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-inset)' }}>
           {([
             { key: "provision" as const, icon: Rocket, label: "Provision" },
             { key: "wizard" as const, icon: Wand2, label: "Wizard" },
@@ -84,6 +84,9 @@ export default function EnvironmentSetup() {
           ]).map(({ key, icon: Icon, label }) => (
             <button
               key={key}
+              role="tab"
+              aria-selected={mode === key}
+              aria-controls={`panel-${key}`}
               onClick={() => setMode(key)}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
@@ -103,13 +106,14 @@ export default function EnvironmentSetup() {
       </div>
 
       {loadError && (
-        <div className="rounded-md p-3 text-xs flex items-center justify-between gap-3" style={{ border: '1px solid var(--bp-caution)', background: 'var(--bp-caution-light)', color: 'var(--bp-caution)' }}>
+        <div role="alert" className="rounded-md p-3 text-xs flex items-center justify-between gap-3" style={{ border: '1px solid var(--bp-caution)', background: 'var(--bp-caution-light)', color: 'var(--bp-caution)' }}>
           <span>Could not load current config: {loadError}. Starting with empty configuration.</span>
           <button
             onClick={() => {
               const ac = new AbortController();
               loadConfig(ac.signal);
             }}
+            aria-label="Retry loading configuration"
             className="flex items-center gap-1 shrink-0 px-2 py-1 rounded transition-colors"
             style={{ border: '1px solid var(--bp-caution)', color: 'var(--bp-caution)' }}
           >
@@ -122,18 +126,24 @@ export default function EnvironmentSetup() {
       {/* Content */}
       <div className="rounded-xl p-6" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
         {mode === "provision" && (
-          <ProvisionAll
-            onComplete={(newConfig) => {
-              setConfig(newConfig);
-              setMode("settings");
-            }}
-          />
+          <div id="panel-provision" role="tabpanel">
+            <ProvisionAll
+              onComplete={(newConfig) => {
+                setConfig(newConfig);
+                setMode("settings");
+              }}
+            />
+          </div>
         )}
         {mode === "wizard" && (
-          <SetupWizard config={config} onConfigChange={setConfig} />
+          <div id="panel-wizard" role="tabpanel">
+            <SetupWizard config={config} onConfigChange={setConfig} />
+          </div>
         )}
         {mode === "settings" && (
-          <SetupSettings config={config} onConfigChange={setConfig} />
+          <div id="panel-settings" role="tabpanel">
+            <SetupSettings config={config} onConfigChange={setConfig} />
+          </div>
         )}
       </div>
     </div>

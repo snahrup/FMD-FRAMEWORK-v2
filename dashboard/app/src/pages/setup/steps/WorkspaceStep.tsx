@@ -1,5 +1,5 @@
 import { FabricDropdown } from "../components/FabricDropdown";
-import type { FabricEntity, EnvironmentConfig, NAMING_CONVENTIONS } from "../types";
+import type { FabricEntity, EnvironmentConfig } from "../types";
 import { FolderOpen } from "lucide-react";
 
 const WORKSPACE_FIELDS: {

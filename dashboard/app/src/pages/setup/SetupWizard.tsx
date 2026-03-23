@@ -10,13 +10,7 @@ import { DatabaseStep } from "./steps/DatabaseStep";
 import { ReviewStep } from "./steps/ReviewStep";
 import type {
   EnvironmentConfig,
-  FabricCapacity,
-  FabricEntity,
-  FabricConnection,
-  FabricSqlDatabase,
-  LakehouseAssignment,
   WizardStep,
-  WIZARD_STEPS,
 } from "./types";
 import { WIZARD_STEPS as STEPS } from "./types";
 
