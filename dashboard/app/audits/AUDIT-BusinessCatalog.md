@@ -27,7 +27,7 @@ All three truth-affecting data-mapping bugs have been fixed in-band. The page no
 ### [F2] Gold domains response shape mismatch (severity: HIGH)
 **File**: `BusinessCatalog.tsx:349-351`
 **Was**: Frontend `GoldDomain` type expects `{id, name, description?, model_count?}`. The backend (`/api/gold/domains` in glossary.py) returns `{name, entityCount}`. Missing `id` (used as React key and in link URL) and `model_count` (displayed as "N datasets"). `entityCount` was silently ignored, so every domain card showed "0 datasets". The `id` field defaulted to `undefined`, creating invalid link targets (`/catalog-portal/domain-undefined`).
-**Fixed**: Normalise backend response: synthesise `id` from index when missing, map `entityCount` to `model_count`.
+**Fixed**: Normalise backend response: map `entityCount` to `model_count`. Domain cards converted to non-link `<div>` elements — no fake navigation until backend provides real domain IDs. "Explore" CTA removed.
 **Impact**: Domain card dataset counts were always 0; domain links pointed to invalid routes.
 
 ### [F3] Unused `useNavigate` import and call (severity: LOW)
@@ -54,11 +54,11 @@ All three truth-affecting data-mapping bugs have been fixed in-band. The page no
 **Fixed**: N/A — intentional UX cap to avoid rendering 1,666 DOM nodes. Documented for future consideration.
 **Impact**: Users cannot browse beyond 120 results without filtering.
 
-### [F7] Domain card links may 404 (severity: MEDIUM)
-**File**: `BusinessCatalog.tsx:97`
-**Was**: `<Link to={/catalog-portal/domain-${domain.id}}>` constructs a route. After fix F2 the `id` is the array index (0, 1, 2...) since the backend has no domain ID. If the domain list order changes, bookmarked links break. Similarly, `entity-${LandingzoneEntityId}` links (`line 157`) point to routes that may not be implemented yet.
-**Fixed**: Deferred — requires backend to return a stable domain identifier. The index-based id is a stopgap.
-**Impact**: Unstable permalinks for domain detail pages.
+### [F7] Domain cards are non-navigable until backend provides real IDs (severity: MEDIUM)
+**File**: `BusinessCatalog.tsx:94-144`
+**Was**: Domain cards were `<Link>` elements pointing to `/catalog-portal/domain-${domain.id}` with IDs fabricated from array indices. These were fake navigable identifiers — unstable, not real backend records.
+**Fixed**: Domain cards converted to `<div>` elements. No clickable navigation. "Explore" CTA removed. Cards now display domain name and dataset count only. Navigation will be restored when BE-1 provides stable domain identifiers.
+**Impact**: Domain cards are now honest — they show what the backend can provide without implying a detail page exists.
 
 ---
 
@@ -101,4 +101,4 @@ The endpoint has no try/except — if the `entity_annotations` table doesn't exi
 | F4 | Silent annotation failure | LOW | Accepted |
 | F5 | Quality scores 50-row default | MEDIUM | Fixed |
 | F6 | 120-card render cap | INFO | Documented |
-| F7 | Unstable domain link IDs | MEDIUM | Deferred (needs BE-1) |
+| F7 | Domain cards non-navigable until real IDs exist | MEDIUM | Fixed (cards → div, no fake links) |
