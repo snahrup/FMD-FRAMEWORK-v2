@@ -84,7 +84,7 @@ export function TableDetail({ table }: TableDetailProps) {
           <span className={cn(
             "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider border flex-shrink-0",
             isLakehouse
-              ? "border-[#3D7C4F]/20 text-[#3D7C4F] bg-[#3D7C4F]/5"
+              ? "border-[var(--bp-operational)]/20 text-[var(--bp-operational)] bg-[var(--bp-operational)]/5"
               : "border-primary/20 text-primary bg-primary/5"
           )}>
             {isLakehouse ? 'Fabric' : 'Read-Only'}
@@ -92,7 +92,7 @@ export function TableDetail({ table }: TableDetailProps) {
           <nav className="flex items-center gap-1 text-[13px] min-w-0">
             {isLakehouse ? (
               <>
-                <Cloud className="h-3.5 w-3.5 text-[#3D7C4F]/60 flex-shrink-0" />
+                <Cloud className="h-3.5 w-3.5 text-[var(--bp-operational)]/60 flex-shrink-0" />
                 <span className="text-muted-foreground">{table.database}</span>
                 <ChevronRight className="h-3 w-3 flex-shrink-0 text-muted-foreground/30" />
               </>
@@ -137,13 +137,15 @@ export function TableDetail({ table }: TableDetailProps) {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-0 px-5 border-b border-border bg-muted">
+      <div className="flex items-center gap-0 px-5 border-b border-border bg-muted" role="tablist" aria-label="Table detail tabs">
         {tabs.map(tab => {
           const active = activeTab === tab.id;
           const Icon = tab.icon;
           return (
             <button
               key={tab.id}
+              role="tab"
+              aria-selected={active}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
                 "relative flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-medium transition-colors cursor-pointer",
@@ -176,7 +178,7 @@ export function TableDetail({ table }: TableDetailProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto" role="tabpanel" aria-label={activeTab === 'columns' ? 'Columns' : 'Data'}>
         {activeTab === 'columns' ? (
           <ColumnsTab info={colInfo} loading={colLoading} error={colError} />
         ) : (
@@ -285,22 +287,22 @@ function ColumnsTab({ info, loading, error }: {
               >
                 <td className="px-4 py-2">
                   <div className="flex items-center gap-2">
-                    {isPk && <Key className="h-3 w-3 flex-shrink-0 text-[#C27A1A]" />}
+                    {isPk && <Key className="h-3 w-3 flex-shrink-0 text-[var(--bp-caution)]" />}
                     <span className={cn("font-medium", isPk ? "text-foreground" : "text-foreground/80")}>{col.COLUMN_NAME}</span>
                   </div>
                 </td>
                 <td className="px-4 py-2">
                   <span className={cn(
                     "inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono",
-                    isPk ? "bg-[#FDF3E3] text-[#C27A1A]" : "bg-muted text-muted-foreground"
+                    isPk ? "bg-[var(--bp-caution-light)] text-[var(--bp-caution)]" : "bg-muted text-muted-foreground"
                   )}>
                     {col.DATA_TYPE}
                   </span>
                 </td>
                 <td className="px-4 py-2 text-center">
                   {isPk ? (
-                    <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-[#FDF3E3]">
-                      <Key className="h-2.5 w-2.5 text-[#C27A1A]" />
+                    <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-[var(--bp-caution-light)]">
+                      <Key className="h-2.5 w-2.5 text-[var(--bp-caution)]" />
                     </span>
                   ) : (
                     <span className="text-muted-foreground/20">-</span>
