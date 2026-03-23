@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
+import { useEntityDigest } from "@/hooks/useEntityDigest";
 import { useEngineStatus, type TimeRange, type EngineLog } from "@/hooks/useEngineStatus";
 import { KPICard } from "@/components/KPICard";
 import { StatusPieChart } from "@/components/PieChart";
@@ -54,13 +54,17 @@ const cssVar = (name: string) =>
     ? getComputedStyle(document.documentElement).getPropertyValue(name).trim()
     : '';
 
-const DONUT_COLORS = [cssVar("--bp-operational"), cssVar("--bp-fault"), cssVar("--bp-ink-muted")]; // operational, fault, muted
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
 export default function ExecutionMatrix() {
+  // Compute donut colors lazily inside the component so CSS custom properties
+  // are guaranteed to be available (module-level evaluation can race stylesheet load).
+  const DONUT_COLORS = useMemo(
+    () => [cssVar("--bp-operational"), cssVar("--bp-fault"), cssVar("--bp-ink-muted")],
+    []
+  );
   // ── Digest data (entity-level status) ──
   const {
     allEntities,
@@ -331,6 +335,7 @@ export default function ExecutionMatrix() {
             value={sourceFilter}
             onChange={(e) => setSourceFilter(e.target.value)}
             className="px-2 py-1.5 rounded-md border border-border bg-card text-foreground text-xs outline-none cursor-pointer"
+            aria-label="Filter by source"
             data-testid="source-filter"
           >
             <option value="all">All Sources</option>
@@ -346,6 +351,7 @@ export default function ExecutionMatrix() {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
             className="px-2 py-1.5 rounded-md border border-border bg-card text-foreground text-xs outline-none cursor-pointer"
+            aria-label="Filter by status"
             data-testid="status-filter"
           >
             <option value="all">All Status</option>
@@ -364,6 +370,7 @@ export default function ExecutionMatrix() {
               placeholder="Search entities..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Search entities by name, schema, or source"
               data-testid="search-input"
             />
           </div>
@@ -374,6 +381,7 @@ export default function ExecutionMatrix() {
             size="sm"
             onClick={() => setAutoRefresh((a) => !a)}
             className="gap-1.5"
+            aria-label={autoRefresh ? "Disable auto-refresh" : "Enable auto-refresh"}
             data-testid="auto-refresh-toggle"
           >
             {autoRefresh ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
@@ -386,6 +394,7 @@ export default function ExecutionMatrix() {
             size="sm"
             onClick={refreshAll}
             disabled={digestLoading || engineLoading}
+            aria-label="Refresh data"
             data-testid="refresh-button"
           >
             {digestLoading || engineLoading ? (
@@ -430,6 +439,7 @@ export default function ExecutionMatrix() {
             onClick={() => setErrorFilter(null)}
             className="ml-auto text-xs underline"
             style={{ color: "var(--bp-caution)" }}
+            aria-label="Clear error filter"
           >
             Clear
           </button>

@@ -36,6 +36,7 @@ _DS_DISPLAY_NAMES = {
     "ETQStagingPRD": "ETQ",
     "m3fdbprd": "M3",
     "DI_PRD_Staging": "M3 Cloud",
+    "OPTIVA": "Optiva",
 }
 
 _DIGEST_CACHE: dict = {}   # {cache_key: {"data": ..., "expires": float}}
