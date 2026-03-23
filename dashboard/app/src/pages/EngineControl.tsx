@@ -180,6 +180,13 @@ async function postJson<T>(path: string, body: Record<string, unknown>): Promise
   return res.json();
 }
 
+// ── CSS-var reader (for Recharts SVG fill props) ──
+
+const cssVar = (name: string) =>
+  typeof document !== 'undefined'
+    ? getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+    : '';
+
 // ── Helpers ──
 
 function fmtDuration(sec: number | null | undefined): string {
@@ -403,19 +410,19 @@ function ProgressBar({ current, total, label }: { current: number; total: number
 
 function LogLine({ entry }: { entry: LogEntry }) {
   const levelColor =
-    entry.level === "ERROR" ? "#f87171" :
-    entry.level === "WARN" ? "#fbbf24" :
-    entry.level === "INFO" ? "#93c5fd" :
-    "#9ca3af";
+    entry.level === "ERROR" ? "var(--bp-fault)" :
+    entry.level === "WARN" ? "var(--bp-caution)" :
+    entry.level === "INFO" ? "var(--bp-info)" :
+    "var(--bp-ink-muted)";
 
   const msgColor =
-    entry.level === "ERROR" ? "#fca5a5" :
-    entry.level === "WARN" ? "#fde68a" :
-    "#e2e8f0";
+    entry.level === "ERROR" ? "var(--bp-fault-light)" :
+    entry.level === "WARN" ? "var(--bp-caution-light)" :
+    "#e2e8f0"; /* no exact bp token for default log text */
 
   return (
     <div className="flex items-start gap-2 py-[3px] font-mono text-[13px] leading-[1.7]">
-      <span className="shrink-0 w-[72px] text-right text-[11px]" style={{ color: "#6b7280" }}>
+      <span className="shrink-0 w-[72px] text-right text-[11px]" style={{ color: "var(--bp-ink-tertiary)" }}>
         {fmtTimeShort(entry.timestamp)}
       </span>
       <span className="shrink-0 w-[42px] text-right font-semibold text-[11px]" style={{ color: levelColor }}>
@@ -1530,8 +1537,8 @@ export default function EngineControl() {
       {/* ═══════════════════════════════════════════════════ */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="flex items-center gap-3" style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>
-            <Zap className="h-7 w-7" style={{ color: "#B45624" }} />
+          <h1 className="flex items-center gap-3" style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>
+            <Zap className="h-7 w-7" style={{ color: "var(--bp-copper)" }} />
             Engine Control
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -2550,7 +2557,8 @@ export default function EngineControl() {
               </div>
               <div
                 ref={logContainerRef}
-                className="h-[480px] overflow-y-auto rounded-lg border border-[#30363d] bg-[#0d1117] p-4 scrollbar-thin [&_span]:!text-opacity-100"
+                {/* border-[#30363d]: no exact bp token */}
+                className="h-[480px] overflow-y-auto rounded-lg border border-[#30363d] bg-[var(--bp-code-block)] p-4 scrollbar-thin [&_span]:!text-opacity-100"
               >
                 {logBuffer.length === 0 ? (
                   <div className="flex items-center justify-center h-full text-muted-foreground/50 text-sm">
@@ -2592,25 +2600,25 @@ export default function EngineControl() {
                     >
                       <XAxis
                         dataKey="layer"
-                        tick={{ fontSize: 11, fill: "#A8A29E" }}
+                        tick={{ fontSize: 11, fill: cssVar("--bp-ink-muted") }}
                         axisLine={false}
                         tickLine={false}
                       />
                       <YAxis
-                        tick={{ fontSize: 11, fill: "#A8A29E" }}
+                        tick={{ fontSize: 11, fill: cssVar("--bp-ink-muted") }}
                         axisLine={false}
                         tickLine={false}
                         width={30}
                       />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: "#FEFDFB",
-                          border: "1px solid rgba(0,0,0,0.08)",
+                          backgroundColor: "var(--bp-surface-1)",
+                          border: "1px solid var(--bp-border)",
                           borderRadius: "8px",
                           fontSize: "12px",
                         }}
-                        labelStyle={{ color: "#1C1917", fontWeight: 600 }}
-                        itemStyle={{ color: "#57534E" }}
+                        labelStyle={{ color: "var(--bp-ink-primary)", fontWeight: 600 }}
+                        itemStyle={{ color: "var(--bp-ink-secondary)" }}
                         formatter={((value: number | undefined, name: string | undefined) => [
                           name === "count" ? `${value ?? 0} runs` : `${value ?? 0}s avg`,
                           name === "count" ? "Runs" : "Avg Duration",
@@ -2619,11 +2627,11 @@ export default function EngineControl() {
                       <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                         {Object.keys(metrics.layers).map((layer, i) => {
                           const colors: Record<string, string> = {
-                            landing: "#A8A29E",
-                            bronze: "#C27A1A",
-                            silver: "#B45624",
+                            landing: cssVar("--bp-ink-muted"),
+                            bronze: cssVar("--bp-caution"),
+                            silver: cssVar("--bp-copper"),
                           };
-                          return <Cell key={i} fill={colors[layer] || "#A8A29E"} />;
+                          return <Cell key={i} fill={colors[layer] || cssVar("--bp-ink-muted")} />;
                         })}
                       </Bar>
                     </BarChart>
@@ -2872,7 +2880,8 @@ export default function EngineControl() {
                                 ) : expandedRunLogs.length === 0 ? (
                                   <p className="text-xs text-muted-foreground text-center py-4">No log entries for this run</p>
                                 ) : (
-                                  <div className="max-h-[480px] overflow-y-auto rounded border border-[#30363d] bg-[#0d1117] p-4">
+                                  {/* border-[#30363d]: no exact bp token */}
+                                  <div className="max-h-[480px] overflow-y-auto rounded border border-[#30363d] bg-[var(--bp-code-block)] p-4">
                                     {expandedRunLogs.map((entry, i) => (
                                       <LogLine key={i} entry={entry} />
                                     ))}
