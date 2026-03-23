@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, Fragment } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
 import {
   Search,
@@ -19,7 +19,6 @@ import {
   EyeOff,
   SortAsc,
   SortDesc,
-  Info,
   CheckCircle2,
   XCircle,
   Fingerprint,
@@ -104,6 +103,8 @@ interface ProfileData {
   rowCount: number;
   columnCount: number;
   profiledColumns: number;
+  sampled?: boolean;
+  sampleSize?: number;
   columns: ProfileColumn[];
 }
 
@@ -117,20 +118,17 @@ function getTypeInfo(dataType: string) {
 }
 
 function qualityColor(pct: number): string {
-  if (pct >= 98) return "var(--bp-operational)";
-  if (pct >= 90) return "var(--bp-operational)";
   if (pct >= 80) return "var(--bp-operational)";
-  if (pct >= 60) return "var(--bp-caution)";
   if (pct >= 40) return "var(--bp-caution)";
   return "var(--bp-fault)";
 }
 
 function nullBg(nullPct: number): string {
   if (nullPct <= 2) return "transparent";
-  if (nullPct <= 10) return "rgba(194, 122, 26, 0.04)"; /* --bp-caution @ 4% */
-  if (nullPct <= 30) return "rgba(194, 122, 26, 0.08)"; /* --bp-caution @ 8% */
-  if (nullPct <= 50) return "rgba(185, 58, 42, 0.06)"; /* --bp-fault @ 6% */
-  return "rgba(185, 58, 42, 0.10)"; /* --bp-fault @ 10% */
+  if (nullPct <= 10) return "color-mix(in srgb, var(--bp-caution) 4%, transparent)";
+  if (nullPct <= 30) return "color-mix(in srgb, var(--bp-caution) 8%, transparent)";
+  if (nullPct <= 50) return "color-mix(in srgb, var(--bp-fault) 6%, transparent)";
+  return "color-mix(in srgb, var(--bp-fault) 10%, transparent)";
 }
 
 function fmt(n: number | null | undefined): string {
@@ -359,7 +357,7 @@ function MissingValueMatrix({ columns }: { columns: ProfileColumn[] }) {
                 className="transition-all duration-300"
                 style={{
                   height: `${nullPct}%`,
-                  backgroundColor: nullPct >= 80 ? "rgba(185,58,42,0.7)" : nullPct >= 50 ? "rgba(185,58,42,0.5)" : nullPct >= 20 ? "rgba(194,122,26,0.5)" : "rgba(194,122,26,0.3)", /* --bp-fault / --bp-caution with opacity gradients */
+                  backgroundColor: nullPct >= 80 ? "color-mix(in srgb, var(--bp-fault) 70%, transparent)" : nullPct >= 50 ? "color-mix(in srgb, var(--bp-fault) 50%, transparent)" : nullPct >= 20 ? "color-mix(in srgb, var(--bp-caution) 50%, transparent)" : "color-mix(in srgb, var(--bp-caution) 30%, transparent)",
                 }}
               />
               {/* Complete portion (bottom = filled) */}
@@ -367,7 +365,7 @@ function MissingValueMatrix({ columns }: { columns: ProfileColumn[] }) {
                 className="transition-all duration-300"
                 style={{
                   height: `${completePct}%`,
-                  backgroundColor: completePct >= 98 ? "rgba(61,124,79,0.5)" : completePct >= 80 ? "rgba(61,124,79,0.4)" : "rgba(61,124,79,0.3)", /* --bp-operational with opacity gradients */
+                  backgroundColor: completePct >= 98 ? "color-mix(in srgb, var(--bp-operational) 50%, transparent)" : completePct >= 80 ? "color-mix(in srgb, var(--bp-operational) 40%, transparent)" : "color-mix(in srgb, var(--bp-operational) 30%, transparent)",
                 }}
               />
               {/* Hover tooltip via pseudo */}
@@ -566,7 +564,7 @@ function EntityPicker({
                     onClick={() => setSelectedEntity(e)}
                     className="w-full flex items-center justify-between px-3 py-2 text-left transition-colors last:border-b-0"
                     style={{
-                      borderBottom: "1px solid rgba(0,0,0,0.02)",
+                      borderBottom: "1px solid var(--bp-border-subtle)",
                       backgroundColor: selectedEntity?.id === e.id ? "var(--bp-canvas)" : undefined,
                     }}
                   >
@@ -802,6 +800,7 @@ export default function DataProfiler() {
             className="p-1.5 rounded-md transition-colors"
             style={{ border: "1px solid var(--bp-border-subtle)", color: "var(--bp-ink-tertiary)" }}
             title="Change table"
+            aria-label="Go back to table selection"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
@@ -877,7 +876,7 @@ export default function DataProfiler() {
           {/* Summary strip */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {[
-              { label: "Rows", value: fmt(profile.rowCount), color: layerColor },
+              { label: profile.sampled ? `Rows (sampled ${fmt(profile.sampleSize)})` : "Rows", value: fmt(profile.rowCount), color: layerColor },
               { label: "Columns", value: `${profile.columnCount}`, color: "var(--bp-ink-secondary)" },
               { label: "Profiled", value: `${profile.profiledColumns}`, color: "var(--bp-ink-secondary)" },
               {
@@ -963,8 +962,13 @@ export default function DataProfiler() {
                           <Fragment key={col.name}>
                             <tr
                               className="cursor-pointer transition-colors"
-                              style={{ borderBottom: "1px solid rgba(0,0,0,0.02)", backgroundColor: nullBg(col.nullPercentage) }}
+                              style={{ borderBottom: "1px solid var(--bp-border-subtle)", backgroundColor: nullBg(col.nullPercentage) }}
                               onClick={() => setExpandedCol(isExpanded ? null : col.name)}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpandedCol(isExpanded ? null : col.name); } }}
+                              tabIndex={0}
+                              role="button"
+                              aria-expanded={isExpanded}
+                              aria-label={`Column ${col.name}, ${col.dataType}, completeness ${pctFmt(col.completeness)}`}
                             >
                               {/* Expand chevron */}
                               <td className="px-2 py-2" style={{ color: "var(--bp-ink-muted)", opacity: 0.3 }}>

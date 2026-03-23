@@ -186,6 +186,9 @@ def _load_cached_columns(entity_id: int, layer: str) -> list[dict] | None:
             "ORDER BY ordinal_position",
             (entity_id, layer),
         ).fetchall()
+    except Exception as e:
+        log.debug("column_metadata query failed (table may not exist): %s", e)
+        return None
     finally:
         conn.close()
 

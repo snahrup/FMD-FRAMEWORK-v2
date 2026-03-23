@@ -878,7 +878,7 @@ def get_blender_profile(params: dict) -> dict:
     """
     import polars as pl
 
-    lakehouse = params.get("lakehouse", "")
+    lakehouse = _sanitize(params.get("lakehouse", ""))
     schema = params.get("schema", "dbo")
     table = params.get("table", "")
     if not lakehouse or not table:
@@ -901,11 +901,18 @@ def get_blender_profile(params: dict) -> dict:
         return {"lakehouse": lakehouse, "schema": schema, "table": table,
                 "rowCount": 0, "columnCount": 0, "profiledColumns": 0, "columns": []}
 
+    # Get true row count from parquet metadata (fast, no full scan)
+    try:
+        true_row_count = lf.select(pl.len()).collect().item()
+    except Exception:
+        true_row_count = -1
+
     # Profile: sample up to 100k rows for statistics
     profiled_names = col_names[:50]
     try:
         sample = lf.head(100_000).collect()
-        row_count = len(sample)
+        sample_size = len(sample)
+        row_count = true_row_count if true_row_count >= 0 else sample_size
     except Exception as e:
         log.error("Profile data read failed for %s.%s.%s: %s", lakehouse, s, t, e)
         cols_meta = []
@@ -927,7 +934,7 @@ def get_blender_profile(params: dict) -> dict:
         col_series = sample[name]
         nulls = int(col_series.null_count())
         distinct = int(col_series.n_unique())
-        null_pct = round(nulls / row_count * 100, 2) if row_count > 0 else 0.0
+        null_pct = round(nulls / sample_size * 100, 2) if sample_size > 0 else 0.0
 
         min_val = None
         max_val = None
@@ -958,7 +965,7 @@ def get_blender_profile(params: dict) -> dict:
             "nullPercentage": null_pct,
             "minValue": min_val,
             "maxValue": max_val,
-            "uniqueness": round(distinct / row_count * 100, 2) if row_count > 0 else 0.0,
+            "uniqueness": round(distinct / sample_size * 100, 2) if sample_size > 0 else 0.0,
             "completeness": round(100 - null_pct, 2),
         })
 
@@ -969,6 +976,8 @@ def get_blender_profile(params: dict) -> dict:
         "rowCount": row_count,
         "columnCount": len(col_names),
         "profiledColumns": len(profiled_names),
+        "sampled": sample_size < row_count if row_count > 0 else False,
+        "sampleSize": sample_size,
         "columns": column_profiles,
     }
 
@@ -986,7 +995,7 @@ def _safe_int(val) -> int | None:
 @route("GET", "/api/blender/sample")
 def get_blender_sample(params: dict) -> dict:
     """Sample rows from a lakehouse table via local OneLake parquet files."""
-    lakehouse = params.get("lakehouse", "")
+    lakehouse = _sanitize(params.get("lakehouse", ""))
     schema = params.get("schema", "dbo")
     table = params.get("table", "")
     try:

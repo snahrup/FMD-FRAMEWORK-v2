@@ -150,7 +150,7 @@ function EntityLineageDetail({ entity, onClose }: { entity: DigestEntity; onClos
               {resolveSourceLabel(entity.source)}{entity.connection ? ` \u00b7 ${entity.connection.server}/${entity.connection.database}` : ""}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0"><X className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0" aria-label="Close detail panel"><X className="h-4 w-4" /></Button>
         </div>
         <div className="flex gap-2 mt-2">
           <Button variant={!columnView ? "default" : "outline"} size="sm" className="text-xs h-7" onClick={() => setColumnView(false)}>
@@ -304,6 +304,7 @@ export default function DataLineage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 h-8 text-sm"
+            aria-label="Search entities by name, schema, or source"
           />
         </div>
         <div className="flex gap-1.5">
@@ -360,11 +361,15 @@ export default function DataLineage() {
                         <tr
                           key={e.id}
                           className="cursor-pointer transition-colors"
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`${e.sourceSchema}.${e.tableName}`}
                           style={{
                             borderBottom: "1px solid var(--bp-border-subtle)",
                             ...(isSelected ? { backgroundColor: "var(--bp-surface-inset)", borderLeft: "2px solid var(--bp-copper)" } : {}),
                           }}
                           onClick={() => setSelectedEntity(isSelected ? null : e)}
+                          onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setSelectedEntity(isSelected ? null : e); } }}
                         >
                           <td className="py-1.5 px-3">
                             <div className="text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)" }}>{e.tableName}</div>
