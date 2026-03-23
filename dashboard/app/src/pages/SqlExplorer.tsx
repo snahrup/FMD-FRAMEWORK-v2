@@ -83,8 +83,10 @@ export default function SqlExplorer() {
         {/* Resize handle */}
         <div
           onMouseDown={handleMouseDown}
-          className="w-[3px] flex-shrink-0 cursor-col-resize transition-colors"
+          className="w-[3px] flex-shrink-0 cursor-col-resize transition-colors hover:bg-[var(--bp-border-strong)]"
           style={{ backgroundColor: "transparent" }}
+          role="separator"
+          aria-label="Resize sidebar"
           title="Drag to resize"
         />
 
@@ -136,7 +138,7 @@ function EmptyState() {
         </div>
       </div>
 
-      <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider" style={{ border: "1px solid rgba(180,86,36,0.2)", color: "var(--bp-copper)", backgroundColor: "var(--bp-copper-light)" }}>
+      <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider" style={{ border: "1px solid var(--bp-copper-soft)", color: "var(--bp-copper)", backgroundColor: "var(--bp-copper-light)" }}>
         Read-Only Mode
       </span>
     </div>

@@ -512,6 +512,8 @@ def post_server_label(params: dict) -> dict:
     label = params.get("label", "").strip()
     if not server or not label:
         raise HttpError("server and label are required", 400)
+    # SECURITY: validate server is registered before allowing label save
+    _validate_server(server)
     _save_server_label(server, label)
     return {"server": server, "label": label}
 
@@ -713,6 +715,9 @@ def get_sql_explorer_lakehouse_file_tables(params: dict) -> list:
     namespace = params.get("namespace", "")
     if not lakehouse or not namespace:
         raise HttpError("lakehouse and namespace params required", 400)
+    # SECURITY: prevent path traversal in namespace parameter
+    if ".." in namespace or "/" in namespace or "\\" in namespace:
+        raise HttpError("Invalid namespace value", 400)
     # List delta table folders under Files/<namespace>/ — use active workspace
     try:
         cfg_ws = _get_config().get("fabric", {}).get("workspace_data_id", "")
@@ -754,6 +759,10 @@ def get_sql_explorer_lakehouse_file_detail(params: dict) -> dict:
     table_folder = params.get("folder", "")
     if not lakehouse or not namespace or not table_folder:
         raise HttpError("lakehouse, namespace, and folder params required", 400)
+    # SECURITY: prevent path traversal
+    for val in (namespace, table_folder):
+        if ".." in val or "/" in val or "\\" in val:
+            raise HttpError("Invalid path parameter", 400)
     return {
         "lakehouse": lakehouse,
         "namespace": namespace,

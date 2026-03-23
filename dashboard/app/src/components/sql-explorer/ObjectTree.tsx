@@ -33,6 +33,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
   const [expandedTableFolders, setExpandedTableFolders] = useState<Set<string>>(new Set());
 
   const [loadingNodes, setLoadingNodes] = useState<Set<string>>(new Set());
+  const [errorNodes, setErrorNodes] = useState<Set<string>>(new Set());
   const [showEmptyDbs, setShowEmptyDbs] = useState(false);
 
   // Inline server label editing
@@ -213,12 +214,17 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
       next.add(serverName);
       if (!databases[serverName]) {
         addLoading(serverName);
+        setErrorNodes(prev => { const s = new Set(prev); s.delete(serverName); return s; });
         try {
           const resp = await fetch(`/api/sql-explorer/databases?server=${encodeURIComponent(serverName)}`);
           if (resp.ok) {
             const data = await resp.json();
             setDatabases(prev => ({ ...prev, [serverName]: data }));
+          } else {
+            setErrorNodes(prev => new Set(prev).add(serverName));
           }
+        } catch {
+          setErrorNodes(prev => new Set(prev).add(serverName));
         } finally { removeLoading(serverName); }
       }
     }
@@ -234,12 +240,17 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
       next.add(key);
       if (!schemas[key]) {
         addLoading(key);
+        setErrorNodes(prev => { const s = new Set(prev); s.delete(key); return s; });
         try {
           const resp = await fetch(`/api/sql-explorer/schemas?server=${encodeURIComponent(serverName)}&database=${encodeURIComponent(dbName)}`);
           if (resp.ok) {
             const data = await resp.json();
             setSchemas(prev => ({ ...prev, [key]: data }));
+          } else {
+            setErrorNodes(prev => new Set(prev).add(key));
           }
+        } catch {
+          setErrorNodes(prev => new Set(prev).add(key));
         } finally { removeLoading(key); }
       }
     }
@@ -255,12 +266,17 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
       next.add(key);
       if (!tables[key]) {
         addLoading(key);
+        setErrorNodes(prev => { const s = new Set(prev); s.delete(key); return s; });
         try {
           const resp = await fetch(`/api/sql-explorer/tables?server=${encodeURIComponent(serverName)}&database=${encodeURIComponent(dbName)}&schema=${encodeURIComponent(schemaName)}`);
           if (resp.ok) {
             const data = await resp.json();
             setTables(prev => ({ ...prev, [key]: data }));
+          } else {
+            setErrorNodes(prev => new Set(prev).add(key));
           }
+        } catch {
+          setErrorNodes(prev => new Set(prev).add(key));
         } finally { removeLoading(key); }
       }
     }
@@ -440,12 +456,19 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
             <span>Cannot reach API server</span>
           </div>
         ) : (
-          <div>
+          <div role="tree" aria-label="SQL Object Explorer">
             {/* Section label */}
             <div className="flex items-center gap-2 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <span>Connections</span>
               <span className="opacity-50">{servers.filter(s => s.status === 'online').length}/{servers.length}</span>
             </div>
+
+            {servers.length > 0 && servers.every(s => s.status !== 'online') && (
+              <div className="flex items-center gap-1.5 px-3 py-2 text-[10px] text-muted-foreground/60 italic">
+                <AlertCircle className="h-3 w-3" />
+                All servers offline
+              </div>
+            )}
 
             {servers.map(srv => {
               const srvExpanded = expandedServers.has(srv.server);
@@ -460,6 +483,9 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                 <div key={srv.server}>
                   {/* Server node */}
                   <div
+                    role="treeitem"
+                    aria-expanded={srvExpanded}
+                    aria-label={`Server: ${srv.display}, ${isOnline ? 'online' : 'offline'}`}
                     onClick={() => isOnline && editingServer !== srv.server && toggleServer(srv.server)}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
@@ -501,15 +527,21 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                     <div className="ml-auto flex items-center gap-1.5">
                       <div className={cn(
                         "h-2 w-2 rounded-full flex-shrink-0",
-                        isOnline ? "bg-[#3D7C4F]" : "bg-destructive"
+                        isOnline ? "bg-[var(--bp-operational)]" : "bg-destructive"
                       )} />
                     </div>
                   </div>
 
                   {/* Databases */}
                   {srvExpanded && (
-                    <div className="ml-5">
-                      {srvDbs.length === 0 && !srvLoading && (
+                    <div className="ml-5" role="group">
+                      {errorNodes.has(srv.server) && (
+                        <div className="flex items-center gap-1 px-2 py-1 text-[10px] text-destructive ml-2">
+                          <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                          <span>Failed to load databases</span>
+                        </div>
+                      )}
+                      {srvDbs.length === 0 && !srvLoading && !errorNodes.has(srv.server) && (
                         <div className="px-2 py-1 text-[10px] text-muted-foreground/60 italic ml-2">No databases</div>
                       )}
                       {srvDbs.map(db => {
@@ -540,10 +572,10 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                   <ChevronRight className="h-2.5 w-2.5 text-muted-foreground" />
                                 )}
                               </span>
-                              <Database className={cn("h-3 w-3 flex-shrink-0", dbEmpty ? "text-muted-foreground/30" : db.isRegistered ? "text-[#C27A1A]" : "text-[#B45624]")} />
-                              <span className={cn("truncate", dbEmpty ? "text-muted-foreground/40" : db.isRegistered ? "text-[#C27A1A] font-semibold" : "text-foreground/80")}>{db.name}</span>
+                              <Database className={cn("h-3 w-3 flex-shrink-0", dbEmpty ? "text-muted-foreground/30" : db.isRegistered ? "text-[var(--bp-caution)]" : "text-[var(--bp-copper)]")} />
+                              <span className={cn("truncate", dbEmpty ? "text-muted-foreground/40" : db.isRegistered ? "text-[var(--bp-caution)] font-semibold" : "text-foreground/80")}>{db.name}</span>
                               {db.isRegistered && (
-                                <span className="text-[8px] px-1 py-px rounded bg-[#C27A1A]/15 text-[#C27A1A] border border-[#C27A1A]/30 font-semibold uppercase tracking-wider flex-shrink-0">
+                                <span className="text-[8px] px-1 py-px rounded bg-[var(--bp-caution)]/15 text-[var(--bp-caution)] border border-[var(--bp-caution)]/30 font-semibold uppercase tracking-wider flex-shrink-0">
                                   Registered
                                 </span>
                               )}
@@ -655,7 +687,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
             {!lhLoading && lakehouses.length > 0 && (
               <>
                 <div className="flex items-center gap-2 px-2 py-1.5 mt-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-t border-border/50 pt-3">
-                  <Cloud className="h-3 w-3 text-[#3D7C4F]/70" />
+                  <Cloud className="h-3 w-3 text-[var(--bp-operational)]/70" />
                   <span>Fabric Lakehouses</span>
                   <span className="opacity-50">{lakehouses.filter(l => l.status === 'online').length}/{lakehouses.length}</span>
                 </div>
@@ -687,12 +719,12 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                             <ChevronRight className="h-3 w-3 text-muted-foreground" />
                           )}
                         </span>
-                        <Database className="h-3.5 w-3.5 text-[#3D7C4F] flex-shrink-0" />
+                        <Database className="h-3.5 w-3.5 text-[var(--bp-operational)] flex-shrink-0" />
                         <span className="font-medium text-foreground truncate">{lh.display}</span>
                         <div className="ml-auto flex items-center gap-1.5">
                           <div className={cn(
                             "h-2 w-2 rounded-full flex-shrink-0",
-                            isOnline ? "bg-[#3D7C4F]" : "bg-destructive"
+                            isOnline ? "bg-[var(--bp-operational)]" : "bg-destructive"
                           )} />
                         </div>
                       </button>
@@ -775,11 +807,11 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                                 className={cn(
                                                   "flex items-center gap-2 w-full px-2 py-1 ml-3 rounded-[var(--radius-md)] text-[11px] transition-colors cursor-pointer",
                                                   sel
-                                                    ? "bg-[#E7F3EB] text-[#3D7C4F] font-medium border-l-2 border-[#3D7C4F]"
+                                                    ? "bg-[var(--bp-operational-light)] text-[var(--bp-operational)] font-medium border-l-2 border-[var(--bp-operational)]"
                                                     : "text-muted-foreground hover:bg-accent hover:text-foreground"
                                                 )}
                                               >
-                                                <Table2 className={cn("h-3 w-3 flex-shrink-0", sel ? "text-[#3D7C4F]" : "text-muted-foreground/50")} />
+                                                <Table2 className={cn("h-3 w-3 flex-shrink-0", sel ? "text-[var(--bp-operational)]" : "text-muted-foreground/50")} />
                                                 <span className="truncate">{tbl.TABLE_NAME}</span>
                                               </button>
                                             );
@@ -808,7 +840,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                   onClick={() => toggleLhFilesFolder(lh.name)}
                                   className={cn(
                                     "flex items-center gap-2 w-full px-2 py-1.5 ml-1 rounded-[var(--radius-md)] text-[11px] font-medium transition-colors cursor-pointer mt-0.5",
-                                    filesExpanded ? "bg-[#FDF3E3] text-[#C27A1A]" : "text-muted-foreground hover:bg-accent"
+                                    filesExpanded ? "bg-[var(--bp-caution-light)] text-[var(--bp-caution)]" : "text-muted-foreground hover:bg-accent"
                                   )}
                                 >
                                   <span className="flex-shrink-0 w-4 flex justify-center">
@@ -820,7 +852,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                       <ChevronRight className="h-2.5 w-2.5" />
                                     )}
                                   </span>
-                                  <FolderOpen className={cn("h-3 w-3 flex-shrink-0", filesExpanded ? "text-[#C27A1A]" : "text-[#C27A1A]/60")} />
+                                  <FolderOpen className={cn("h-3 w-3 flex-shrink-0", filesExpanded ? "text-[var(--bp-caution)]" : "text-[var(--bp-caution)]/60")} />
                                   <span>Files</span>
                                   {filesExpanded && namespaces.length > 0 && (
                                     <span className="ml-auto text-[10px] font-mono opacity-60">{namespaces.length}</span>
@@ -857,7 +889,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                                 <ChevronRight className="h-2.5 w-2.5 text-muted-foreground" />
                                               )}
                                             </span>
-                                            <FolderOpen className="h-3 w-3 text-[#C27A1A]/70 flex-shrink-0" />
+                                            <FolderOpen className="h-3 w-3 text-[var(--bp-caution)]/70 flex-shrink-0" />
                                             <span className="text-foreground/80">{ns.name}</span>
                                           </button>
 
@@ -881,11 +913,11 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                                       className={cn(
                                                         "flex items-center gap-2 w-full px-2 py-1 ml-1 rounded-[var(--radius-md)] text-[11px] transition-colors cursor-pointer",
                                                         fileSel
-                                                          ? "bg-[#FDF3E3] text-[#C27A1A] font-medium border-l-2 border-[#C27A1A]"
+                                                          ? "bg-[var(--bp-caution-light)] text-[var(--bp-caution)] font-medium border-l-2 border-[var(--bp-caution)]"
                                                           : "text-muted-foreground hover:bg-accent hover:text-foreground"
                                                       )}
                                                     >
-                                                      <FileText className={cn("h-3 w-3 flex-shrink-0", fileSel ? "text-[#C27A1A]" : "text-[#C27A1A]/50")} />
+                                                      <FileText className={cn("h-3 w-3 flex-shrink-0", fileSel ? "text-[var(--bp-caution)]" : "text-[var(--bp-caution)]/50")} />
                                                       <span className="truncate text-left">{tblFolder.name}</span>
                                                       <div className="ml-auto flex items-center gap-2">
                                                         {(tblFolder.fileCount ?? 0) > 0 && (
@@ -894,7 +926,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                                           </span>
                                                         )}
                                                         {(tblFolder.totalSize ?? 0) > 0 && (
-                                                          <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-[#FDF3E3] text-[#C27A1A]/70">
+                                                          <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-[var(--bp-caution-light)] text-[var(--bp-caution)]/70">
                                                             {formatFileSize(tblFolder.totalSize ?? 0)}
                                                           </span>
                                                         )}
