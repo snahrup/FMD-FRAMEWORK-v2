@@ -19,7 +19,7 @@ const API = import.meta.env.VITE_API_URL || "";
 
 interface Alert {
   id: string;
-  type: "failure" | "freshness" | "connection";
+  type: "freshness" | "pending" | "connection";
   severity: Severity;
   source: string;
   sourceDisplay: string;
@@ -30,11 +30,11 @@ interface Alert {
   entities: string[];
 }
 
-type AlertType = "failure" | "freshness" | "connection";
+type AlertType = "freshness" | "pending" | "connection";
 
 const TYPE_LABELS: Record<AlertType, string> = {
-  failure: "Failed Refresh",
   freshness: "Freshness SLA",
+  pending: "Never Loaded",
   connection: "Source Offline",
 };
 
@@ -548,17 +548,17 @@ export default function BusinessAlerts() {
           {/* Type chips */}
           <div className="flex items-center gap-1.5">
             <FilterChip
-              label="Failures"
-              active={typeFilter === "failure"}
-              onClick={() =>
-                setTypeFilter(typeFilter === "failure" ? "all" : "failure")
-              }
-            />
-            <FilterChip
               label="Freshness"
               active={typeFilter === "freshness"}
               onClick={() =>
                 setTypeFilter(typeFilter === "freshness" ? "all" : "freshness")
+              }
+            />
+            <FilterChip
+              label="Never Loaded"
+              active={typeFilter === "pending"}
+              onClick={() =>
+                setTypeFilter(typeFilter === "pending" ? "all" : "pending")
               }
             />
             <FilterChip
