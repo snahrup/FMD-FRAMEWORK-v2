@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
+import { useEntityDigest } from "@/hooks/useEntityDigest";
 import {
   useMicroscope,
   useMicroscopePks,
@@ -20,7 +20,6 @@ import {
   Plus,
   Minus,
   ArrowRight,
-  ChevronDown,
   RefreshCw,
   Info,
   X,
@@ -48,16 +47,16 @@ const LAYER_META = {
   },
   bronze: {
     label: "Bronze",
-    color: "text-[#9A4A1F]",
-    bg: "bg-[#EDCFBD]/30",
-    border: "border-[#9A4A1F]/30",
+    color: "text-[var(--bp-copper-hover)]",
+    bg: "bg-[var(--bp-bronze-light)]/30",
+    border: "border-[var(--bp-copper-hover)]/30",
     icon: Table2,
   },
   silver: {
     label: "Silver",
-    color: "text-[#475569]",
-    bg: "bg-[#E2E8F0]/50",
-    border: "border-[#475569]/30",
+    color: "text-[var(--bp-silver)]",
+    bg: "bg-[var(--bp-silver-light)]/50",
+    border: "border-[var(--bp-silver)]/30",
     icon: Sparkles,
   },
 } as const;
@@ -177,11 +176,11 @@ function getCellClasses(status: CellStatus, isSystem: boolean): string {
   if (isSystem) {
     switch (status) {
       case "added":
-        return base + borderStyle + mono + "bg-[#E2E8F0]/30 text-[var(--bp-operational)]";
+        return base + borderStyle + mono + "bg-[var(--bp-silver-light)]/30 text-[var(--bp-operational)]";
       case "not_present":
         return base + borderStyle + mono + "bg-[var(--bp-surface-inset)] text-[var(--bp-ink-muted)] opacity-30";
       default:
-        return base + borderStyle + mono + "bg-[#E2E8F0]/15 text-[var(--bp-ink-primary)]";
+        return base + borderStyle + mono + "bg-[var(--bp-silver-light)]/15 text-[var(--bp-ink-primary)]";
     }
   }
   switch (status) {
@@ -279,13 +278,14 @@ function CellPopover({
     <div
       ref={popoverRef}
       className="absolute z-50 mt-1 w-80 rounded-lg shadow-2xl p-4 animate-in fade-in-0 zoom-in-95"
-      style={{ border: "1px solid rgba(0,0,0,0.08)", backgroundColor: "#FEFDFB" }}
+      style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}
     >
       <div className="flex items-center justify-between mb-3">
-        <h4 className="font-semibold text-sm" style={{ color: "#1C1917" }}>{colName}</h4>
+        <h4 className="font-semibold text-sm" style={{ color: "var(--bp-ink-primary)" }}>{colName}</h4>
         <button
           onClick={onClose}
-          style={{ color: "#78716C" }}
+          aria-label="Close popover"
+          style={{ color: "var(--bp-ink-tertiary)" }}
         >
           <X className="w-4 h-4" />
         </button>
@@ -294,14 +294,14 @@ function CellPopover({
       <div className="space-y-2 text-xs">
         {operation && (
           <div className="flex items-center gap-2">
-            <span style={{ color: "#78716C" }}>Operation:</span>
-            <span className="font-medium" style={{ color: "#1C1917" }}>{operation}</span>
+            <span style={{ color: "var(--bp-ink-tertiary)" }}>Operation:</span>
+            <span className="font-medium" style={{ color: "var(--bp-ink-primary)" }}>{operation}</span>
           </div>
         )}
         {notebook && (
           <div className="flex items-center gap-2">
-            <span style={{ color: "#78716C" }}>Notebook:</span>
-            <code className="text-[11px] px-1.5 py-0.5 rounded font-mono" style={{ backgroundColor: "#EDEAE4" }}>
+            <span style={{ color: "var(--bp-ink-tertiary)" }}>Notebook:</span>
+            <code className="text-[11px] px-1.5 py-0.5 rounded font-mono" style={{ backgroundColor: "var(--bg-muted)" }}>
               {notebook}
             </code>
           </div>
@@ -310,16 +310,16 @@ function CellPopover({
         {beforeValue !== null && afterValue !== null && (
           <div className="mt-2 space-y-1">
             <div className="flex items-center gap-2">
-              <span className="shrink-0" style={{ color: "#78716C" }}>Before:</span>
+              <span className="shrink-0" style={{ color: "var(--bp-ink-tertiary)" }}>Before:</span>
               <code className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--bp-fault-light)] text-[var(--bp-fault)] font-mono truncate max-w-48">
                 {beforeValue}
               </code>
             </div>
             <div className="flex items-center gap-2">
-              <ArrowRight className="w-3 h-3" style={{ color: "#78716C" }} />
+              <ArrowRight className="w-3 h-3" style={{ color: "var(--bp-ink-tertiary)" }} />
             </div>
             <div className="flex items-center gap-2">
-              <span className="shrink-0" style={{ color: "#78716C" }}>After:</span>
+              <span className="shrink-0" style={{ color: "var(--bp-ink-tertiary)" }}>After:</span>
               <code className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--bp-operational-light)] text-[var(--bp-operational)] font-mono truncate max-w-48">
                 {afterValue}
               </code>
@@ -328,10 +328,10 @@ function CellPopover({
         )}
 
         {matchingStep && (
-          <div className="mt-2 pt-2" style={{ borderTop: "1px solid rgba(0,0,0,0.04)" }}>
-            <p style={{ color: "#78716C" }}>{matchingStep.description}</p>
+          <div className="mt-2 pt-2" style={{ borderTop: "1px solid var(--bp-border-subtle)" }}>
+            <p style={{ color: "var(--bp-ink-tertiary)" }}>{matchingStep.description}</p>
             {matchingStep.details && (
-              <p className="mt-1 italic" style={{ color: "#A8A29E" }}>
+              <p className="mt-1 italic" style={{ color: "var(--bp-ink-muted)" }}>
                 {matchingStep.details}
               </p>
             )}
@@ -426,20 +426,20 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
 
   const renderRow = (colName: string, isSystem: boolean) => {
     return (
-      <tr key={colName} className={cn(isSystem && "bg-[#E2E8F0]/20")}>
+      <tr key={colName} className={cn(isSystem && "bg-[var(--bp-silver-light)]/20")}>
         <td
           className={cn(
             "px-3 py-2 text-sm font-mono sticky left-0 z-10 min-w-[200px]"
           )}
           style={{
-            borderBottom: "1px solid rgba(0,0,0,0.04)",
-            backgroundColor: isSystem ? "rgba(226,232,240,0.2)" : "#FEFDFB",
-            color: isSystem ? "#475569" : undefined,
+            borderBottom: "1px solid var(--bp-border-subtle)",
+            backgroundColor: isSystem ? "rgba(226,232,240,0.2)" : "var(--bp-surface-1)",
+            color: isSystem ? "var(--bp-silver)" : undefined,
           }}
         >
           <div className="flex items-center gap-1.5">
             {isSystem && (
-              <span className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[#E2E8F0] text-[#475569]">
+              <span className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[var(--bp-silver-light)] text-[var(--bp-silver)]">
                 SYS
               </span>
             )}
@@ -501,18 +501,19 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
   };
 
   return (
-    <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(0,0,0,0.04)" }}>
+    <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--bp-border-subtle)" }}>
       {/* SCD2 version selector */}
       {data.silver.versions.length > 1 && (
-        <div className="px-4 py-2 bg-[#E2E8F0]/20 flex items-center gap-3" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
-          <span className="text-xs font-medium" style={{ color: "#78716C" }}>
+        <div className="px-4 py-2 bg-[var(--bp-silver-light)]/20 flex items-center gap-3" style={{ borderBottom: "1px solid var(--bp-border-subtle)" }}>
+          <span className="text-xs font-medium" style={{ color: "var(--bp-ink-tertiary)" }}>
             Silver Version:
           </span>
           <select
             value={clampedIdx}
             onChange={(e) => setSilverVersionIdx(Number(e.target.value))}
+            aria-label="Select Silver SCD2 version"
             className="text-xs px-2 py-1 rounded"
-            style={{ border: "1px solid rgba(0,0,0,0.08)", backgroundColor: "#FEFDFB", color: "#1C1917" }}
+            style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", color: "var(--bp-ink-primary)" }}
           >
             {data.silver.versions.map((v, i) => {
               const ver = v as Record<string, unknown>;
@@ -529,7 +530,7 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
               );
             })}
           </select>
-          <span className="text-[10px]" style={{ color: "#78716C" }}>
+          <span className="text-[10px]" style={{ color: "var(--bp-ink-tertiary)" }}>
             {data.silver.versions.length} version(s)
           </span>
         </div>
@@ -538,8 +539,8 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
       <div className="overflow-x-auto">
         <table className="w-full text-left">
           <thead>
-            <tr style={{ backgroundColor: "#EDEAE4" }}>
-              <th className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider sticky left-0 z-10 min-w-[200px]" style={{ color: "#78716C", backgroundColor: "#EDEAE4" }}>
+            <tr style={{ backgroundColor: "var(--bg-muted)" }}>
+              <th className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider sticky left-0 z-10 min-w-[200px]" style={{ color: "var(--bp-ink-tertiary)", backgroundColor: "var(--bg-muted)" }}>
                 Column Name
               </th>
               {layers.map((layer) => {
@@ -569,7 +570,7 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
                 <td
                   colSpan={5}
                   className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest"
-                  style={{ color: "#A8A29E", backgroundColor: "#EDEAE4", borderBottom: "1px solid rgba(0,0,0,0.04)" }}
+                  style={{ color: "var(--bp-ink-muted)", backgroundColor: "var(--bg-muted)", borderBottom: "1px solid var(--bp-border-subtle)" }}
                 >
                   Original Columns ({originalCols.length})
                 </td>
@@ -583,7 +584,7 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
                 <td
                   colSpan={5}
                   className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest"
-                  style={{ color: "rgba(71,85,105,0.6)", backgroundColor: "rgba(226,232,240,0.2)", borderBottom: "1px solid rgba(0,0,0,0.04)" }}
+                  style={{ color: "rgba(71,85,105,0.6)", backgroundColor: "rgba(226,232,240,0.2)", borderBottom: "1px solid var(--bp-border-subtle)" }}
                 >
                   System Columns ({systemCols.length})
                 </td>
@@ -636,13 +637,13 @@ function TransformationCards({
       case "none":
         return <Minus className="w-3.5 h-3.5" style={{ color: "rgba(168,162,158,0.4)" }} />;
       default:
-        return <Info className="w-3.5 h-3.5" style={{ color: "#78716C" }} />;
+        return <Info className="w-3.5 h-3.5" style={{ color: "var(--bp-ink-tertiary)" }} />;
     }
   };
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: "#1C1917" }}>
+      <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--bp-ink-primary)" }}>
         <ArrowRight className="w-4 h-4 text-[var(--bp-copper)]" />
         Transformation Pipeline ({steps.length} steps)
       </h3>
@@ -651,20 +652,20 @@ function TransformationCards({
           <div
             key={step.step}
             className="rounded-lg p-3 transition-colors"
-            style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB" }}
+            style={{ border: "1px solid var(--bp-border-subtle)", backgroundColor: "var(--bp-surface-1)" }}
           >
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center" style={{ color: "rgba(168,162,158,0.5)", backgroundColor: "#EDEAE4" }}>
+              <span className="text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center" style={{ color: "rgba(168,162,158,0.5)", backgroundColor: "var(--bg-muted)" }}>
                 {step.step}
               </span>
               {impactIcon(step.impact)}
               {layerBadge(step.layer)}
             </div>
-            <p className="text-sm font-medium mb-1" style={{ color: "#1C1917" }}>
+            <p className="text-sm font-medium mb-1" style={{ color: "var(--bp-ink-primary)" }}>
               {step.description}
             </p>
             {step.details && (
-              <p className="text-xs line-clamp-2" style={{ color: "#78716C" }}>
+              <p className="text-xs line-clamp-2" style={{ color: "var(--bp-ink-tertiary)" }}>
                 {step.details}
               </p>
             )}
@@ -674,7 +675,7 @@ function TransformationCards({
                   <code
                     key={col}
                     className="text-[10px] px-1.5 py-0.5 rounded font-mono"
-                    style={{ backgroundColor: "#EDEAE4", color: "#78716C" }}
+                    style={{ backgroundColor: "var(--bg-muted)", color: "var(--bp-ink-tertiary)" }}
                   >
                     {col}
                   </code>
@@ -753,14 +754,15 @@ function PkSearchInput({
         <div
           className="flex-1 flex items-center rounded-lg transition-colors"
           style={{
-            border: showDropdown ? "1px solid var(--bp-copper)" : "1px solid rgba(0,0,0,0.04)",
-            backgroundColor: showDropdown ? "rgba(254,253,251,0.8)" : "#FEFDFB",
-            ...(showDropdown ? { boxShadow: "0 0 0 1px rgba(0,0,0,0.08)" } : {}),
+            border: showDropdown ? "1px solid var(--bp-copper)" : "1px solid var(--bp-border-subtle)",
+            backgroundColor: showDropdown ? "rgba(254,253,251,0.8)" : "var(--bp-surface-1)",
+            ...(showDropdown ? { boxShadow: "0 0 0 1px var(--bp-border)" } : {}),
           }}
         >
           <Search className="w-4 h-4 ml-3 flex-shrink-0" style={{ color: "rgba(168,162,158,0.5)" }} />
           <input
             type="text"
+            aria-label="Primary key search"
             placeholder={
               pkColumn
                 ? `Search by ${pkColumn}...`
@@ -774,7 +776,7 @@ function PkSearchInput({
             onFocus={() => setShowDropdown(true)}
             onKeyDown={handleKeyDown}
             className="w-full px-3 py-2.5 bg-transparent text-sm outline-none font-mono"
-            style={{ color: "#1C1917" }}
+            style={{ color: "var(--bp-ink-primary)" }}
           />
           {loading && (
             <Loader2 className="w-4 h-4 mr-3 animate-spin" style={{ color: "rgba(168,162,158,0.5)" }} />
@@ -785,6 +787,7 @@ function PkSearchInput({
                 setSearchInput("");
                 setShowDropdown(false);
               }}
+              aria-label="Clear search"
               className="mr-3"
               style={{ color: "rgba(168,162,158,0.4)" }}
             >
@@ -796,9 +799,9 @@ function PkSearchInput({
 
       {/* PK dropdown */}
       {showDropdown && pks.length > 0 && (
-        <div className="absolute z-[200] mt-1 w-full max-h-60 overflow-y-auto rounded-lg shadow-2xl" style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB" }}>
+        <div className="absolute z-[200] mt-1 w-full max-h-60 overflow-y-auto rounded-lg shadow-2xl" style={{ border: "1px solid var(--bp-border-subtle)", backgroundColor: "var(--bp-surface-1)" }}>
           {pkColumn && (
-            <div className="sticky top-0 px-3 py-2 backdrop-blur-sm" style={{ backgroundColor: "rgba(237,234,228,0.8)", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+            <div className="sticky top-0 px-3 py-2 backdrop-blur-sm" style={{ backgroundColor: "rgba(237,234,228,0.8)", borderBottom: "1px solid var(--bp-border-subtle)" }}>
               <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--bp-copper)]">
                 {pkColumn}
               </span>
@@ -935,10 +938,10 @@ export default function DataMicroscope() {
             <ScanSearch className="h-5 w-5 text-[var(--bp-copper)]" />
           </div>
           <div>
-            <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>
+            <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>
               Data Microscope
             </h1>
-            <p className="text-sm" style={{ color: "#57534E" }}>
+            <p className="text-sm" style={{ color: "var(--bp-ink-secondary)" }}>
               Cross-layer row inspection
             </p>
           </div>
@@ -948,7 +951,7 @@ export default function DataMicroscope() {
             onClick={refresh}
             disabled={microscopeLoading}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors disabled:opacity-50"
-            style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB", color: "#78716C" }}
+            style={{ border: "1px solid var(--bp-border-subtle)", backgroundColor: "var(--bp-surface-1)", color: "var(--bp-ink-tertiary)" }}
           >
             <RefreshCw
               className={cn(
@@ -979,13 +982,13 @@ export default function DataMicroscope() {
             onSelect={handlePkSelect}
           />
           {selectedEntity && (
-            <div className="flex items-center gap-2 text-xs" style={{ color: "#78716C" }}>
+            <div className="flex items-center gap-2 text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>
               <span className="font-mono">
                 {selectedEntity.source}.{selectedEntity.tableName}
               </span>
               {selectedEntity.bronzePKs && (
                 <>
-                  <span style={{ color: "rgba(0,0,0,0.08)" }}>|</span>
+                  <span style={{ color: "var(--bp-border)" }}>|</span>
                   <span>
                     PK: <code className="font-mono">{selectedEntity.bronzePKs}</code>
                   </span>
@@ -1027,7 +1030,7 @@ export default function DataMicroscope() {
       {microscopeLoading && pkParam && (
         <div className="flex flex-col items-center justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin mb-4" style={{ color: "var(--bp-copper)" }} />
-          <p className="text-sm" style={{ color: "#78716C" }}>
+          <p className="text-sm" style={{ color: "var(--bp-ink-tertiary)" }}>
             Querying across layers...
           </p>
         </div>
@@ -1035,9 +1038,9 @@ export default function DataMicroscope() {
 
       {/* Error state */}
       {microscopeError && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-lg" style={{ border: "1px solid rgba(185,58,42,0.3)", backgroundColor: "#FBEAE8" }}>
-          <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "#B93A2A" }} />
-          <p className="text-sm" style={{ color: "#B93A2A" }}>{microscopeError}</p>
+        <div className="flex items-center gap-3 px-4 py-3 rounded-lg" style={{ border: "1px solid rgba(185,58,42,0.3)", backgroundColor: "var(--bp-fault-light)" }}>
+          <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "var(--bp-fault)" }} />
+          <p className="text-sm" style={{ color: "var(--bp-fault)" }}>{microscopeError}</p>
         </div>
       )}
 
@@ -1077,7 +1080,7 @@ export default function DataMicroscope() {
                       available ? meta.bg : "",
                       available ? meta.border : ""
                     )}
-                    style={!available ? { backgroundColor: "#EDEAE4", border: "1px solid rgba(0,0,0,0.04)" } : { border: "1px solid rgba(0,0,0,0.04)" }}
+                    style={!available ? { backgroundColor: "var(--bg-muted)", border: "1px solid var(--bp-border-subtle)" } : { border: "1px solid var(--bp-border-subtle)" }}
                   >
                     <Icon
                       className={cn(
@@ -1117,9 +1120,9 @@ export default function DataMicroscope() {
             microscopeData.source.row) ? (
             <DiffGrid data={microscopeData} />
           ) : (
-            <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg" style={{ border: "1px solid rgba(0,0,0,0.04)", backgroundColor: "#FEFDFB" }}>
+            <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg" style={{ border: "1px solid var(--bp-border-subtle)", backgroundColor: "var(--bp-surface-1)" }}>
               <AlertTriangle className="w-8 h-8 mb-3" style={{ color: "rgba(168,162,158,0.3)" }} />
-              <p className="text-sm" style={{ color: "#78716C" }}>
+              <p className="text-sm" style={{ color: "var(--bp-ink-tertiary)" }}>
                 No row data found for PK value "{pkParam}" across any layer.
               </p>
               <p className="text-xs mt-1" style={{ color: "rgba(168,162,158,0.6)" }}>
