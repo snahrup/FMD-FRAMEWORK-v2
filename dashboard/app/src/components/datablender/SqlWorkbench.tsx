@@ -63,6 +63,13 @@ export function SqlWorkbench({ tableId, tableMeta }: SqlWorkbenchProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lakehouse, sql }),
       });
+      if (!resp.ok) {
+        const text = await resp.text();
+        let msg = `Query failed (HTTP ${resp.status})`;
+        try { const j = JSON.parse(text); if (j.error) msg = j.error; } catch { /* use default */ }
+        setResult({ error: msg });
+        return;
+      }
       const data: QueryResult = await resp.json();
       setResult(data);
     } catch (e) {

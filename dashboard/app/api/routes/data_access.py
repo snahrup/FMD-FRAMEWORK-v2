@@ -852,7 +852,7 @@ def get_purview_status(params: dict) -> dict:
         return {"connected": True, "status": "connected", "account": account}
     except Exception as e:
         log.warning("Purview connectivity check failed: %s", e)
-        return {"connected": False, "status": "unreachable", "account": account, "error": str(e)}
+        return {"connected": False, "status": "unreachable", "account": account}
 
 
 @route("GET", "/api/purview/search")
@@ -1029,15 +1029,17 @@ def post_blender_query(params: dict) -> dict:
     """
     import polars as pl
 
-    lakehouse = params.get("lakehouse", "")
-    sql = params.get("sql", "")
+    lakehouse = _sanitize(params.get("lakehouse", ""))
+    raw_sql = params.get("sql", "")
     if not lakehouse:
         raise HttpError("lakehouse param required", 400)
-    if not sql:
+    if not raw_sql:
         raise HttpError("sql param required", 400)
 
     # SECURITY: SELECT-only enforcement
-    _validate_select_only(sql)
+    _validate_select_only(raw_sql)
+
+    sql = raw_sql
 
     # Enforce LIMIT 100 if not present (polars SQL uses LIMIT not TOP)
     stripped_upper = sql.strip().upper()
@@ -1047,9 +1049,9 @@ def post_blender_query(params: dict) -> dict:
 
     # Convert T-SQL TOP syntax to LIMIT for polars SQL
     import re
-    sql = re.sub(r'\bTOP\s+(\d+)\b', '', sql, flags=re.IGNORECASE)
-    top_match = re.search(r'TOP\s+(\d+)', params.get("sql", ""), re.IGNORECASE)
+    top_match = re.search(r'TOP\s+(\d+)', raw_sql, re.IGNORECASE)
     top_n = int(top_match.group(1)) if top_match else None
+    sql = re.sub(r'\bTOP\s+(\d+)\b', '', sql, flags=re.IGNORECASE)
 
     # Discover all tables in this lakehouse and register them with SQLContext
     mount = _get_onelake_mount()
