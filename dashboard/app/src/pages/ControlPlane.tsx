@@ -10,7 +10,6 @@ import {
   Server,
   Clock,
   Activity,
-  Shield,
   FileJson,
   Layers,
   ChevronDown,
@@ -146,8 +145,6 @@ interface EntityMeta {
   FileName: string;
   IsIncremental: string;
   watermarkColumn: string;
-  lastWatermarkValue: string | null;
-  lastLoadTime: string | null;
   bronzeEntityId: string | null;
   primaryKeys: string;
   silverEntityId: string | null;
@@ -252,21 +249,27 @@ export default function ControlPlane() {
   async function runMaintenanceAgent() {
     setMaintenanceRunning(true);
     setMaintenanceResult(null);
+    const results: string[] = [];
     try {
       // First: server-side resync (fast, SQL-only)
       const resyncRes = await fetch('/api/entity-digest/resync', { method: 'POST' });
-      const resyncData = await resyncRes.json();
+      if (resyncRes.ok) {
+        const resyncData = await resyncRes.json();
+        results.push(`Resync done (${resyncData.steps?.length || 0} steps)`);
+      } else {
+        results.push(`Resync: ${resyncRes.status} ${resyncRes.statusText}`);
+      }
 
       // Second: trigger Fabric notebook (OneLake scan)
       const agentRes = await fetch('/api/maintenance-agent/trigger', { method: 'POST' });
-      const agentData = await agentRes.json();
-
-      if (agentData.error) {
-        // Fabric notebook not deployed yet — just report resync result
-        setMaintenanceResult(`Resync done (${resyncData.steps?.length || 0} steps). Notebook: ${agentData.error}`);
+      if (agentRes.ok) {
+        const agentData = await agentRes.json();
+        results.push(agentData.error ? `Notebook: ${agentData.error}` : 'Maintenance Agent triggered');
       } else {
-        setMaintenanceResult('Resync done + Maintenance Agent triggered in Fabric');
+        results.push(`Notebook: ${agentRes.status} ${agentRes.statusText}`);
       }
+
+      setMaintenanceResult(results.join(' · '));
       // Refresh data after resync
       setRefreshKey(k => k + 1);
     } catch (e: unknown) {
@@ -300,14 +303,14 @@ export default function ControlPlane() {
       {/* ── Header ── */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>Control Plane</h1>
+          <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Control Plane</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Metadata database — the single source of truth driving all FMD pipelines
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-            <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="rounded" />
+            <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="rounded" aria-label="Toggle auto-refresh" />
             Auto
           </label>
           <button
@@ -433,6 +436,7 @@ export default function ControlPlane() {
               <input
                 type="text"
                 placeholder="Search tables..."
+                aria-label="Filter entities by table name"
                 value={entityFilter}
                 onChange={e => setEntityFilter(e.target.value)}
                 className="flex-1 max-w-xs px-3 py-1.5 text-xs bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
@@ -440,6 +444,7 @@ export default function ControlPlane() {
               <select
                 value={entityDsFilter}
                 onChange={e => setEntityDsFilter(e.target.value)}
+                aria-label="Filter by data source"
                 className="px-3 py-1.5 text-xs bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="">All Sources ({entities.length})</option>
@@ -464,7 +469,6 @@ export default function ControlPlane() {
                     <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Primary Keys</th>
                     <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Bronze</th>
                     <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Silver</th>
-                    <th className="px-3 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Last Load</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
@@ -497,14 +501,23 @@ export default function ControlPlane() {
                         <td className="px-3 py-1.5 text-center">
                           {hasSilver ? <CheckCircle className="h-3.5 w-3.5 inline" style={{ color: "var(--bp-ink-tertiary)" }} /> : <span style={{ color: "var(--bp-ink-muted)" }}>—</span>}
                         </td>
-                        <td className="px-3 py-1.5 font-mono text-muted-foreground">
-                          {e.lastLoadTime ? formatTimestamp(e.lastLoadTime) : <span className="text-muted-foreground/30">never</span>}
-                        </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+              {filtered.length === 0 && entities.length === 0 && !entityError && (
+                <div className="p-12 text-center">
+                  <Database className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">No entity metadata loaded.</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">Entities appear here once sources are registered and the metadata DB is synced.</p>
+                </div>
+              )}
+              {filtered.length === 0 && entities.length > 0 && (
+                <div className="p-8 text-center">
+                  <p className="text-sm text-muted-foreground">No entities match the current filters.</p>
+                </div>
+              )}
               {filtered.length > 200 && (
                 <div className="px-4 py-2 text-center text-[10px] text-muted-foreground border-t border-border">
                   Showing 200 of {filtered.length} — use filters to narrow down
@@ -578,6 +591,13 @@ export default function ControlPlane() {
 
       {activeTab === 'connections' && (
         <div className="space-y-3">
+          {activeSources.length === 0 && (
+            <div className="rounded-xl border border-border bg-card p-12 text-center">
+              <Cable className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">No source systems with registered entities.</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">Sources appear here once entities are registered via the deployment script.</p>
+            </div>
+          )}
           {activeSources.map(src => {
             const isExpanded = expandedNs.has(src.namespace);
             const totalEntities = src.entities.landing + src.entities.bronze + src.entities.silver;
@@ -714,10 +734,10 @@ export default function ControlPlane() {
                 <span className="text-xs text-muted-foreground">Active</span>
                 <span className="text-lg font-bold" style={{ color: "var(--bp-operational)" }}>{s.pipelines.active}</span>
               </div>
-              {s.pipelines.total > 0 && (
+              {s.pipelines.total > 0 && s.pipelines.total !== s.pipelines.active && (
                 <div className="flex items-center justify-between pt-2 border-t border-border mt-2">
-                  <span className="text-xs text-muted-foreground">DEV + PROD split</span>
-                  <span className="text-xs font-mono text-foreground">{Math.ceil(s.pipelines.total / 2)} each</span>
+                  <span className="text-xs text-muted-foreground">Inactive</span>
+                  <span className="text-xs font-mono text-muted-foreground">{s.pipelines.total - s.pipelines.active}</span>
                 </div>
               )}
             </div>

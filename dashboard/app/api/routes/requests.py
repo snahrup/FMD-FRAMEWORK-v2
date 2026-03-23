@@ -120,11 +120,18 @@ def create_request(params: dict) -> dict:
     title = (params.get("title") or "").strip()
     if not title:
         raise HttpError("Title is required", 400)
+    if len(title) > 500:
+        raise HttpError("Title must be 500 characters or fewer", 400)
 
     source_name = (params.get("source_name") or "").strip() or None
     description = (params.get("description") or "").strip() or None
     justification = (params.get("justification") or "").strip() or None
     priority = (params.get("priority") or "medium").strip().lower()
+
+    if description and len(description) > 5000:
+        raise HttpError("Description must be 5,000 characters or fewer", 400)
+    if justification and len(justification) > 5000:
+        raise HttpError("Justification must be 5,000 characters or fewer", 400)
 
     if priority not in VALID_PRIORITIES:
         raise HttpError(f"Priority must be one of: {', '.join(sorted(VALID_PRIORITIES))}", 400)
@@ -176,6 +183,10 @@ def update_request(params: dict) -> dict:
     request_id = params.get("id")
     if not request_id:
         raise HttpError("Request ID is required", 400)
+    try:
+        request_id = int(request_id)
+    except (ValueError, TypeError):
+        raise HttpError("Request ID must be an integer", 400)
 
     conn = cpdb._get_conn()
     try:

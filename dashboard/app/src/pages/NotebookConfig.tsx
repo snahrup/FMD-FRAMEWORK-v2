@@ -117,6 +117,7 @@ function CopyButton({ text }: { text: string }) {
       className="transition-colors"
       style={{ color: copied ? 'var(--bp-operational)' : 'var(--bp-ink-muted)' }}
       title="Copy"
+      aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
     >
       {copied ? (
         <CheckCircle2 className="h-3.5 w-3.5" />
@@ -144,6 +145,8 @@ function SectionHeader({
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center gap-3 w-full text-left"
+        aria-expanded={open}
+        aria-label={`${open ? "Collapse" : "Expand"} ${title}`}
       >
         <Icon className="h-5 w-5" style={{ color: 'var(--bp-ink-secondary)' }} />
         <h2 className="flex-1" style={{ fontFamily: 'var(--bp-font-body)', fontSize: '18px', fontWeight: 600, color: 'var(--bp-ink-primary)' }}>{title}</h2>
@@ -219,7 +222,8 @@ function EditableValue({
               }
             }}
             className="flex-1 px-3 py-1.5 rounded-lg text-sm focus:outline-none focus:ring-2"
-            style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-copper)', fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)', boxShadow: '0 0 0 2px rgba(180, 86, 36, 0.15)' }}
+            style={{ background: 'var(--bp-surface-inset)', border: '1px solid var(--bp-copper)', fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)', boxShadow: '0 0 0 2px var(--bp-copper-soft)' }}
+            aria-label={label}
             autoFocus
           />
           <button
@@ -227,6 +231,7 @@ function EditableValue({
             disabled={saving}
             className="p-1.5"
             style={{ color: 'var(--bp-operational)' }}
+            aria-label={`Save ${label}`}
           >
             <Save className="h-4 w-4" />
           </button>
@@ -237,6 +242,7 @@ function EditableValue({
             }}
             className="p-1.5"
             style={{ color: 'var(--bp-ink-muted)' }}
+            aria-label={`Cancel editing ${label}`}
           >
             <X className="h-4 w-4" />
           </button>
@@ -267,6 +273,7 @@ function EditableValue({
             }}
             className="opacity-0 group-hover:opacity-100 p-1 transition-opacity"
             style={{ color: 'var(--bp-ink-muted)' }}
+            aria-label={`Edit ${label}`}
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -278,6 +285,7 @@ function EditableValue({
               }}
               className="text-xs hover:underline"
               style={{ color: 'var(--bp-copper)' }}
+              aria-label={`Set value for ${label}`}
             >
               Set value
             </button>
@@ -440,7 +448,7 @@ export default function NotebookConfig() {
 
   if (!hasLoadedOnce.current && loading) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="flex items-center justify-center h-96" role="status" aria-label="Loading configuration">
         <RefreshCw className="h-8 w-8 animate-spin" style={{ color: 'var(--bp-ink-muted)' }} />
       </div>
     );
@@ -448,7 +456,7 @@ export default function NotebookConfig() {
   if (error && !data) {
     return (
       <div className="p-8">
-        <div className="rounded-xl p-6 flex items-center justify-between" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }}>
+        <div className="rounded-xl p-6 flex items-center justify-between" style={{ background: 'var(--bp-fault-light)', border: '1px solid var(--bp-fault)' }} role="alert">
           <p style={{ color: 'var(--bp-fault)' }}>{error}</p>
           <button
             onClick={load}
@@ -495,6 +503,7 @@ export default function NotebookConfig() {
           onClick={load}
           disabled={loading}
           className="bp-btn-ghost flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors"
+          aria-label="Refresh configuration"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           Refresh
@@ -503,7 +512,7 @@ export default function NotebookConfig() {
 
       {/* ── Readiness Banner ── */}
       {totalEmpty > 0 ? (
-        <div className="rounded-xl p-5 flex items-center gap-3" style={{ background: 'var(--bp-caution-light)', border: '1px solid var(--bp-caution)' }}>
+        <div className="rounded-xl p-5 flex items-center gap-3" style={{ background: 'var(--bp-caution-light)', border: '1px solid var(--bp-caution)' }} role="status">
           <AlertTriangle className="h-6 w-6" style={{ color: 'var(--bp-caution)' }} />
           <span className="text-sm" style={{ color: 'var(--bp-caution)', fontFamily: 'var(--bp-font-body)' }}>
             <strong>{totalEmpty} value{totalEmpty > 1 ? "s" : ""}</strong> still need to be set
@@ -511,7 +520,7 @@ export default function NotebookConfig() {
           </span>
         </div>
       ) : (
-        <div className="rounded-xl p-5 flex items-center gap-3" style={{ background: 'var(--bp-operational-light)', border: '1px solid var(--bp-operational)' }}>
+        <div className="rounded-xl p-5 flex items-center gap-3" style={{ background: 'var(--bp-operational-light)', border: '1px solid var(--bp-operational)' }} role="status">
           <CheckCircle2 className="h-6 w-6" style={{ color: 'var(--bp-operational)' }} />
           <span className="text-sm" style={{ color: 'var(--bp-operational)', fontFamily: 'var(--bp-font-body)' }}>
             All configuration values are set. The setup notebook is ready to run.
