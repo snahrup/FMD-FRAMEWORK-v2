@@ -1,6 +1,8 @@
 """Source manager routes — onboarding, source import, discover, load config.
 
 Covers:
+    GET  /api/gateway-connections      — Fabric gateway connections (live + fallback)
+    POST /api/connections              — register a gateway connection in control plane
     GET  /api/workspaces               — registered Fabric workspaces
     GET  /api/lakehouses               — registered lakehouses
     GET  /api/bronze-entities          — all Bronze layer entities
@@ -22,12 +24,15 @@ Covers:
 import json
 import logging
 import threading
+import urllib.parse
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from dashboard.app.api.router import route, sse_route, HttpError
 from dashboard.app.api import db
+from dashboard.app.api import control_plane_db as cpdb
 
 log = logging.getLogger("fmd.routes.source_manager")
 
@@ -65,6 +70,214 @@ def _get_sql_driver() -> str:
 
 def _sanitize(val: str) -> str:
     return "".join(c for c in val if c.isalnum() or c in "-_ .")
+
+
+# ---------------------------------------------------------------------------
+# Gateway connections — Fabric REST (live) with static fallback
+# ---------------------------------------------------------------------------
+
+_GATEWAY_ID = "66428eaa-90a0-4d3b-ab7a-71406c41a1cb"
+
+# Static fallback — sourced from docs/gateway_connections.md (2026-02-19).
+# Used ONLY when Fabric REST is unreachable (no VPN, expired token, etc.).
+_GATEWAY_FALLBACK: list[dict] = [
+    {"id": "918c04e1-be85-48f0-a836-5967164ff34d", "displayName": "SQLLogShipPRD_HP3000",
+     "server": "SQLLogShipPrd.interplastic.local", "database": "HP3000",
+     "authType": "Basic", "encryption": "Any", "connectivityType": "OnPremisesGateway",
+     "gatewayId": _GATEWAY_ID},
+    {"id": "04c16d88-0a9b-44b0-8a97-a81898fa2fee", "displayName": "SQLLogShipPRd_M3FDBPRD",
+     "server": "sqllogshipprd", "database": "m3fdbprd",
+     "authType": "Basic", "encryption": "Any", "connectivityType": "OnPremisesGateway",
+     "gatewayId": _GATEWAY_ID},
+    {"id": "eace5b34-df2e-4057-a01f-5770ab3f9003", "displayName": "M3-DB1_PRD_MES",
+     "server": "m3-db1", "database": "mes",
+     "authType": "OAuth2", "encryption": "Encrypted", "connectivityType": "OnPremisesGateway",
+     "gatewayId": _GATEWAY_ID},
+    {"id": "9243f2a4-bf6c-4f63-935a-04c9491f0c1a", "displayName": "Data Warehouse",
+     "server": "rptlive.interplastic.com", "database": "datawarehouse",
+     "authType": "Basic", "encryption": "Any", "connectivityType": "OnPremisesGateway",
+     "gatewayId": _GATEWAY_ID},
+    {"id": "af673179-a72b-4c3f-8f9c-af2cb394494f", "displayName": "Diver",
+     "server": "SQL2012Test", "database": "DiverData",
+     "authType": "Basic", "encryption": "Any", "connectivityType": "OnPremisesGateway",
+     "gatewayId": _GATEWAY_ID},
+    {"id": "e4fa94cd-c674-45b3-bc47-2ae85f035881", "displayName": "SalesForcePRD-SQL2019PRD",
+     "server": "SQL2019Live", "database": "SalesforcePRD",
+     "authType": "Basic", "encryption": "Any", "connectivityType": "OnPremisesGateway",
+     "gatewayId": _GATEWAY_ID},
+    {"id": "c5cd66d8-3503-44de-9934-e04715697906", "displayName": "ETQ",
+     "server": "M3-DB3", "database": "ETQStagingPRD",
+     "authType": "Basic", "encryption": "Any", "connectivityType": "OnPremisesGateway",
+     "gatewayId": _GATEWAY_ID},
+    {"id": "1187a5d7-5d6e-4a23-8c54-2a0734350629", "displayName": "M3 Cloud",
+     "server": "sql2016live", "database": "DI_PRD_Staging",
+     "authType": "Basic", "encryption": "NotEncrypted", "connectivityType": "OnPremisesGateway",
+     "gatewayId": _GATEWAY_ID},
+]
+
+# Build lookup by GUID for POST resolution
+_FALLBACK_BY_ID = {c["id"].lower(): c for c in _GATEWAY_FALLBACK}
+
+
+def _get_fabric_token_sm(scope: str) -> str:
+    """Get Fabric SP token (same pattern as data_access.py)."""
+    cfg = _get_config()
+    tenant = cfg.get("fabric", {}).get("tenant_id", "")
+    client_id = cfg.get("fabric", {}).get("client_id", "")
+    client_secret = cfg.get("fabric", {}).get("client_secret", "")
+    if not tenant or not client_id or not client_secret:
+        raise ValueError("Fabric credentials not configured")
+    url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+    data = urllib.parse.urlencode({
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "scope": scope,
+    }).encode()
+    req = urllib.request.Request(url, data=data)
+    resp = urllib.request.urlopen(req, timeout=30)
+    return json.loads(resp.read())["access_token"]
+
+
+def _normalize_fabric_connection(raw: dict, gw_id: str) -> dict:
+    """Normalize a Fabric REST API connection object to the frontend shape."""
+    details = raw.get("connectionDetails", {})
+    creds = raw.get("credentialDetails", {})
+    return {
+        "id": raw.get("id", ""),
+        "displayName": raw.get("name", raw.get("displayName", "")),
+        "server": details.get("parameters", [{}])[0].get("value", "")
+            if details.get("parameters") else details.get("server", ""),
+        "database": details.get("parameters", [{}])[1].get("value", "")
+            if details.get("parameters") and len(details.get("parameters", [])) > 1
+            else details.get("database", ""),
+        "authType": creds.get("credentialType", "Unknown"),
+        "encryption": creds.get("encryptionAlgorithm", "Any"),
+        "connectivityType": raw.get("connectivityType", "OnPremisesGateway"),
+        "gatewayId": gw_id,
+    }
+
+
+def _fetch_live_gateway_connections() -> list[dict] | None:
+    """Attempt to fetch connections from Fabric REST API. Returns None on failure."""
+    try:
+        token = _get_fabric_token_sm("https://api.fabric.microsoft.com/.default")
+    except Exception as e:
+        log.warning("Gateway connections: cannot get Fabric token — %s", e)
+        return None
+
+    headers = {"Authorization": f"Bearer {token}"}
+    url = f"https://api.fabric.microsoft.com/v1/connections?gatewayId={_GATEWAY_ID}"
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        resp = urllib.request.urlopen(req, timeout=15)
+        data = json.loads(resp.read())
+        connections = []
+        for item in data.get("value", []):
+            connections.append(_normalize_fabric_connection(item, _GATEWAY_ID))
+        return connections
+    except Exception as e:
+        log.warning("Gateway connections: Fabric REST failed — %s", e)
+        return None
+
+
+def _resolve_gateway_connection(connection_guid: str) -> dict | None:
+    """Resolve a connection GUID to its full gateway connection record.
+
+    Tries live Fabric first, then falls back to static list.
+    Returns None if the GUID cannot be resolved from either source.
+    """
+    guid_lower = connection_guid.lower()
+
+    # Try live source first
+    live = _fetch_live_gateway_connections()
+    if live is not None:
+        for c in live:
+            if c["id"].lower() == guid_lower:
+                return c
+
+    # Fall back to static list
+    return _FALLBACK_BY_ID.get(guid_lower)
+
+
+@route("GET", "/api/gateway-connections")
+def get_gateway_connections(params):
+    """Fabric gateway connections — live Fabric REST with static fallback."""
+    live = _fetch_live_gateway_connections()
+    if live is not None:
+        log.info("Gateway connections: returned %d from Fabric REST (live)", len(live))
+        return live
+
+    log.warning("Gateway connections: using STATIC FALLBACK (%d connections) — "
+                "Fabric REST unavailable (check VPN + SP credentials)", len(_GATEWAY_FALLBACK))
+    return _GATEWAY_FALLBACK
+
+
+@route("POST", "/api/connections")
+def post_connection(params: dict) -> dict:
+    """Register a gateway connection in the control plane.
+
+    Requires connectionGuid to resolve against a real gateway connection.
+    Will NOT write a partial row if the GUID cannot be resolved.
+    """
+    guid = (params.get("connectionGuid") or "").strip()
+    name = (params.get("name") or "").strip()
+    conn_type = (params.get("type") or "SqlServer").strip()
+
+    if not guid:
+        raise HttpError("connectionGuid is required", 400)
+    if not name:
+        raise HttpError("name is required", 400)
+
+    # Resolve GUID to a real gateway connection — no partial upserts
+    gw = _resolve_gateway_connection(guid)
+    if gw is None:
+        raise HttpError(
+            f"connectionGuid '{guid}' does not match any known gateway connection. "
+            "Verify the GUID exists in the Fabric gateway.",
+            400,
+        )
+
+    # Look up existing row by ConnectionGuid to make this idempotent.
+    # Without this, repeated registrations create duplicate rows because
+    # upsert_connection() keys on ConnectionId (PK), not ConnectionGuid.
+    existing = [c for c in cpdb.get_connections()
+                if (c.get("ConnectionGuid") or "").lower() == guid.lower()]
+    conn_id = existing[0]["ConnectionId"] if existing else None
+
+    cpdb.upsert_connection({
+        "ConnectionId": conn_id,
+        "ConnectionGuid": guid,
+        "Name": name,
+        "DisplayName": gw["displayName"],
+        "Type": conn_type,
+        "ServerName": gw["server"],
+        "DatabaseName": gw["database"],
+        "IsActive": 1,
+    })
+
+    # Re-read to get the actual ConnectionId (covers both insert and update)
+    if conn_id is None:
+        rows = [c for c in cpdb.get_connections()
+                if (c.get("ConnectionGuid") or "").lower() == guid.lower()]
+        conn_id = rows[0]["ConnectionId"] if rows else None
+
+    log.info("Registered connection: %s (id=%s, GUID: %s, server: %s, db: %s)",
+             name, conn_id, guid, gw["server"], gw["database"])
+
+    return {
+        "success": True,
+        "message": f"Registered {name} ({gw['server']} → {gw['database']})",
+        "connection": {
+            "ConnectionId": conn_id,
+            "ConnectionGuid": guid,
+            "Name": name,
+            "DisplayName": gw["displayName"],
+            "Type": conn_type,
+            "ServerName": gw["server"],
+            "DatabaseName": gw["database"],
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
