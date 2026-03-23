@@ -6,6 +6,7 @@ Endpoints:
     GET  /api/classification/summary — ClassificationSummary
     GET  /api/classification/data    — paginated classified column results
 """
+import copy
 import logging
 import threading
 import uuid
@@ -201,7 +202,7 @@ def post_classification_scan(params: dict) -> dict:
 def get_classification_status(params: dict) -> dict:
     """Return current scan job state."""
     with _scan_lock:
-        return dict(_scan_job)
+        return copy.deepcopy(_scan_job)
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +241,11 @@ def get_classification_data(params: dict) -> dict:
 
     source_filter = params.get("source", "").strip()
     level_filter = params.get("level", "").strip()
+
+    # Validate sensitivity level against known values
+    _VALID_LEVELS = {"public", "internal", "confidential", "restricted", "pii"}
+    if level_filter and level_filter not in _VALID_LEVELS:
+        raise HttpError(f"Invalid sensitivity level: {level_filter!r}", 400)
 
     offset = (page - 1) * size
 
