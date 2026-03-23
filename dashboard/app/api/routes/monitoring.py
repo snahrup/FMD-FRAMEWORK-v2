@@ -337,7 +337,7 @@ def get_error_intelligence(params: dict) -> dict:
         "er.StartedAt AS run_started, er.EndedAt AS run_ended "
         "FROM engine_task_log etl "
         "LEFT JOIN engine_runs er ON etl.RunId = er.RunId "
-        "WHERE etl.Status = 'Failed' OR etl.ErrorType IS NOT NULL "
+        "WHERE LOWER(etl.Status) = 'failed' OR etl.ErrorType IS NOT NULL "
         "ORDER BY etl.created_at DESC LIMIT 500"
     )
     for row in task_errors:
@@ -346,8 +346,6 @@ def get_error_intelligence(params: dict) -> dict:
             raw, row.get("ErrorType")
         )
         entity_name = row.get("SourceTable") or ""
-        if row.get("SourceSchema"):
-            entity_name = row["SourceSchema"] + "." + entity_name
         errors.append({
             "id": f"etl-{row.get('id', '')}",
             "source": "engine",
@@ -415,38 +413,6 @@ def get_error_intelligence(params: dict) -> dict:
             "workspaceGuid": "",
             "summary": title,
             "entityName": row.get("CopyActivityName") or "",
-            "errorType": cat,
-        })
-
-    # Entity task errors (entities stuck in failed state — from engine_task_log)
-    es_errors = _safe_query(
-        "SELECT etl.EntityId, etl.Layer, etl.Status, etl.ErrorMessage, "
-        "etl.created_at, le.SourceName, le.SourceSchema "
-        "FROM engine_task_log etl "
-        "LEFT JOIN lz_entities le ON etl.EntityId = le.LandingzoneEntityId "
-        "WHERE etl.Status = 'failed' AND etl.ErrorMessage IS NOT NULL "
-        "AND etl.ErrorMessage != '' "
-        "ORDER BY etl.created_at DESC LIMIT 200"
-    )
-    for row in es_errors:
-        raw = row.get("ErrorMessage") or ""
-        cat, title, sev, suggestion = _classify_error(raw)
-        entity_name = row.get("SourceName") or ""
-        if row.get("SourceSchema"):
-            entity_name = row["SourceSchema"] + "." + entity_name
-        errors.append({
-            "id": f"etl-{row.get('EntityId', '')}-{row.get('Layer', '')}",
-            "source": "engine_task_log",
-            "pipelineName": f"Entity Task ({row.get('Layer', '')})",
-            "workspaceName": "",
-            "startTime": row.get("created_at") or "",
-            "endTime": "",
-            "rawError": raw,
-            "category": cat,
-            "jobInstanceId": "",
-            "workspaceGuid": "",
-            "summary": title,
-            "entityName": entity_name,
             "errorType": cat,
         })
 
