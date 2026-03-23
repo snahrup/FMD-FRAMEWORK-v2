@@ -94,7 +94,7 @@ export function TableBrowser({ selectedTableId, onSelectTable }: TableBrowserPro
         {error === 'offline' && (
           <div className="flex items-center gap-1.5 mt-2 text-[10px] text-warning">
             <AlertCircle className="h-3 w-3" />
-            <span>Offline — showing sample data</span>
+            <span>API offline — no tables available</span>
           </div>
         )}
       </div>

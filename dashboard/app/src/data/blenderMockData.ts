@@ -6,11 +6,11 @@ import type {
 // ── Layer metadata ──
 
 export const layerConfig: Record<DataLayer, { label: string; color: string; lakehouse: string }> = {
-  landing: { label: 'Landing Zone', color: '#3b82f6', lakehouse: 'LH_DATA_LANDINGZONE' },
-  bronze:  { label: 'Bronze',       color: '#d97706', lakehouse: 'LH_BRONZE_LAYER' },
-  silver:  { label: 'Silver',       color: '#6b7280', lakehouse: 'LH_SILVER_LAYER' },
-  gold:    { label: 'Gold',         color: '#eab308', lakehouse: 'LH_GOLD_LAYER' },
-  unknown: { label: 'Unknown',      color: '#9ca3af', lakehouse: '' },
+  landing: { label: 'Landing Zone', color: 'var(--bp-layer-landing, #3b82f6)', lakehouse: 'LH_DATA_LANDINGZONE' },
+  bronze:  { label: 'Bronze',       color: 'var(--bp-layer-bronze, #d97706)',  lakehouse: 'LH_BRONZE_LAYER' },
+  silver:  { label: 'Silver',       color: 'var(--bp-layer-silver, #6b7280)',  lakehouse: 'LH_SILVER_LAYER' },
+  gold:    { label: 'Gold',         color: 'var(--bp-layer-gold, #eab308)',    lakehouse: 'LH_GOLD_LAYER' },
+  unknown: { label: 'Unknown',      color: 'var(--bp-ink-muted, #9ca3af)',     lakehouse: '' },
 };
 
 // ── Tables ──
