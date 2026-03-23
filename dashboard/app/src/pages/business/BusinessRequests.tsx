@@ -16,7 +16,6 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  Search as SearchIcon,
   MessageSquare,
   RefreshCw,
 } from "lucide-react";
@@ -258,6 +257,7 @@ export default function BusinessRequests() {
           {/* Success banner */}
           {successMessage && (
             <div
+              role="status"
               className="mb-4 flex items-center gap-2 rounded-lg px-4 py-3 text-[13px] transition-opacity"
               style={{
                 background: "var(--bp-operational-light)",
@@ -273,6 +273,7 @@ export default function BusinessRequests() {
           {/* Form error */}
           {formError && (
             <div
+              role="alert"
               className="mb-4 flex items-center gap-2 rounded-lg px-4 py-3 text-[13px]"
               style={{
                 background: "var(--bp-fault-light)",
@@ -289,17 +290,20 @@ export default function BusinessRequests() {
             {/* Title */}
             <div className="mb-5">
               <label
+                htmlFor="req-title"
                 className="block text-[12px] font-medium mb-1.5 uppercase tracking-wider"
                 style={{ color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-body)" }}
               >
                 Title <span style={{ color: "var(--bp-fault)" }}>*</span>
               </label>
               <input
+                id="req-title"
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g., Weekly sales by region"
                 required
+                maxLength={200}
                 className="w-full rounded-lg px-4 py-3 text-[14px] outline-none"
                 style={{
                   background: "var(--bp-surface-inset)",
@@ -313,12 +317,14 @@ export default function BusinessRequests() {
             {/* Source */}
             <div className="mb-5">
               <label
+                htmlFor="req-source"
                 className="block text-[12px] font-medium mb-1.5 uppercase tracking-wider"
                 style={{ color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-body)" }}
               >
                 Source
               </label>
               <select
+                id="req-source"
                 value={sourceName}
                 onChange={(e) => setSourceName(e.target.value)}
                 className="w-full rounded-lg px-4 py-3 text-[14px] outline-none cursor-pointer"
@@ -342,12 +348,14 @@ export default function BusinessRequests() {
             {/* Description */}
             <div className="mb-5">
               <label
+                htmlFor="req-description"
                 className="block text-[12px] font-medium mb-1.5 uppercase tracking-wider"
                 style={{ color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-body)" }}
               >
                 Description
               </label>
               <textarea
+                id="req-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="What data do you need and what format?"
@@ -365,12 +373,14 @@ export default function BusinessRequests() {
             {/* Justification */}
             <div className="mb-5">
               <label
+                htmlFor="req-justification"
                 className="block text-[12px] font-medium mb-1.5 uppercase tracking-wider"
                 style={{ color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-body)" }}
               >
                 Justification
               </label>
               <textarea
+                id="req-justification"
                 value={justification}
                 onChange={(e) => setJustification(e.target.value)}
                 placeholder="How will this data be used?"
@@ -396,6 +406,8 @@ export default function BusinessRequests() {
               <div
                 className="inline-flex rounded-lg overflow-hidden"
                 style={{ border: "1px solid var(--bp-border)" }}
+                role="group"
+                aria-label="Priority selection"
               >
                 {PRIORITY_OPTIONS.map((opt) => {
                   const isActive = priority === opt;
@@ -404,10 +416,11 @@ export default function BusinessRequests() {
                       key={opt}
                       type="button"
                       onClick={() => setPriority(opt)}
+                      aria-pressed={isActive}
                       className="px-5 py-2 text-[13px] font-medium capitalize transition-colors"
                       style={{
                         background: isActive ? "var(--bp-copper)" : "var(--bp-surface-1)",
-                        color: isActive ? "#fff" : "var(--bp-ink-secondary)",
+                        color: isActive ? "var(--bp-surface-1)" : "var(--bp-ink-secondary)",
                         fontFamily: "var(--bp-font-body)",
                         borderRight:
                           opt !== "high" ? "1px solid var(--bp-border)" : "none",
@@ -453,10 +466,11 @@ export default function BusinessRequests() {
                 <button
                   key={opt.key}
                   onClick={() => setStatusFilter(opt.key)}
+                  aria-pressed={isActive}
                   className="rounded-full px-3 py-1 text-[12px] font-medium transition-colors"
                   style={{
                     background: isActive ? "var(--bp-copper)" : "var(--bp-surface-inset)",
-                    color: isActive ? "#fff" : "var(--bp-ink-secondary)",
+                    color: isActive ? "var(--bp-surface-1)" : "var(--bp-ink-secondary)",
                     fontFamily: "var(--bp-font-body)",
                     border: "none",
                     cursor: "pointer",
@@ -469,7 +483,7 @@ export default function BusinessRequests() {
           </div>
 
           {/* Request list */}
-          <div className="overflow-y-auto" style={{ maxHeight: "600px" }}>
+          <div className="overflow-y-auto" style={{ maxHeight: "600px" }} aria-label="Request history">
             {loading ? (
               <div className="flex flex-col gap-3">
                 {[0, 1, 2].map((i) => (
