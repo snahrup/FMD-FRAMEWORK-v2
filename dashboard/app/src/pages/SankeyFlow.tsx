@@ -7,7 +7,6 @@ import {
 } from "d3-sankey";
 import {
   useEntityDigest,
-  type DigestEntity,
   type DigestSource,
 } from "@/hooks/useEntityDigest";
 import { LAYERS, getSourceColor } from "@/lib/layers";
@@ -19,7 +18,6 @@ import {
   CheckCircle2,
   Clock,
   AlertTriangle,
-  XCircle,
   Circle,
 } from "lucide-react";
 
@@ -244,6 +242,10 @@ export default function SankeyFlow() {
   if (data && !hasLoadedOnce.current) hasLoadedOnce.current = true;
 
   // ── Responsive dimensions ──
+  // Re-run when data first loads so the ResizeObserver attaches after the
+  // loading spinner is replaced by the real layout (containerRef is null
+  // during the loading state because of the early return).
+  const dataReady = !!data;
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -260,7 +262,7 @@ export default function SankeyFlow() {
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [dataReady]);
 
   // ── Build Sankey data from digest ──
   const { nodes, links, sankeyNodes, sankeyLinks } = useMemo(() => {
@@ -460,7 +462,7 @@ export default function SankeyFlow() {
   // Loading state — only show spinner before first successful load
   if (loading && !hasLoadedOnce.current) {
     return (
-      <div className="h-full flex items-center justify-center gap-3 text-muted-foreground">
+      <div className="flex items-center justify-center gap-3 text-muted-foreground" style={{ height: 'calc(100vh - 3rem)' }}>
         <Loader2 className="w-5 h-5 animate-spin" />
         <span className="text-sm">Loading data flow...</span>
       </div>
@@ -470,7 +472,7 @@ export default function SankeyFlow() {
   // Error state — only show full-page error if we have no stale data to display
   if (error && !data) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-3">
+      <div className="flex flex-col items-center justify-center gap-3" style={{ height: 'calc(100vh - 3rem)' }}>
         <AlertCircle className="w-8 h-8 text-[var(--bp-fault)]" />
         <p className="text-sm text-[var(--bp-fault)]">{error}</p>
         <button
@@ -487,7 +489,7 @@ export default function SankeyFlow() {
   // No data state
   if (!data || sourceList.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground/40">
+      <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground/40" style={{ height: 'calc(100vh - 3rem)' }}>
         <AlertCircle className="w-10 h-10" />
         <p className="text-sm">No entity data available</p>
       </div>
@@ -497,7 +499,7 @@ export default function SankeyFlow() {
   const hasHoverState = hoveredNode !== null || hoveredLink !== null;
 
   return (
-    <div className="h-full flex flex-col relative" style={{ backgroundColor: '#F4F2ED' }}>
+    <div className="flex flex-col relative" style={{ backgroundColor: 'var(--bp-canvas, #F4F2ED)', height: 'calc(100vh - 3rem)' }}>
       {/* Title bar */}
       <div className="flex-shrink-0 px-6 py-4 flex items-center justify-between z-10" style={{ borderBottom: '1px solid var(--bp-border-subtle)', background: 'var(--bp-surface-1)' }}>
         <div>
@@ -632,7 +634,7 @@ export default function SankeyFlow() {
                     width={56}
                     height={24}
                     rx={6}
-                    fill="#FEFDFB"
+                    fill="var(--bp-surface-1, #FEFDFB)"
                     stroke="rgba(0,0,0,0.08)"
                     strokeWidth={1}
                     opacity={0.95}
@@ -642,7 +644,7 @@ export default function SankeyFlow() {
                     y={midY + 4}
                     textAnchor="middle"
                     className="text-[11px] font-semibold"
-                    fill="#1C1917"
+                    fill="var(--bp-ink-primary, #1C1917)"
                   >
                     {(link.value ?? 0).toLocaleString()}
                   </text>
@@ -698,7 +700,7 @@ export default function SankeyFlow() {
                         y={y + h / 2 - 6}
                         textAnchor="end"
                         className="text-[12px] font-semibold"
-                        fill="#1C1917"
+                        fill="var(--bp-ink-primary, #1C1917)"
                         style={{ transition: `opacity ${ANIM_DURATION_MS}ms ease` }}
                       >
                         {node.label}
@@ -708,7 +710,7 @@ export default function SankeyFlow() {
                         y={y + h / 2 + 10}
                         textAnchor="end"
                         className="text-[10px]"
-                        fill="#A8A29E"
+                        fill="var(--bp-ink-muted, #A8A29E)"
                         fillOpacity={0.6}
                       >
                         {node.count.toLocaleString()} entities
@@ -722,7 +724,7 @@ export default function SankeyFlow() {
                         y={y + h / 2 - 6}
                         textAnchor="start"
                         className="text-[12px] font-semibold"
-                        fill="#1C1917"
+                        fill="var(--bp-ink-primary, #1C1917)"
                         style={{ transition: `opacity ${ANIM_DURATION_MS}ms ease` }}
                       >
                         {node.label}
@@ -732,7 +734,7 @@ export default function SankeyFlow() {
                         y={y + h / 2 + 10}
                         textAnchor="start"
                         className="text-[10px]"
-                        fill="#A8A29E"
+                        fill="var(--bp-ink-muted, #A8A29E)"
                         fillOpacity={0.6}
                       >
                         {node.count > 0
