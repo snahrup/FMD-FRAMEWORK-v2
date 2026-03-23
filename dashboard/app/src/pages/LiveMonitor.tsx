@@ -167,13 +167,13 @@ function ProgressBar({ current, total, label, color }: { current: number; total:
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="font-medium" style={{ color: '#1C1917' }}>{label}</span>
-        <span style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#78716C' }}>
+        <span className="font-medium" style={{ color: 'var(--bp-ink-primary)' }}>{label}</span>
+        <span style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: 'var(--bp-ink-tertiary)' }}>
           {current.toLocaleString()} / {total.toLocaleString()}
           {total > 0 && <span className="ml-1">({pct.toFixed(1)}%)</span>}
         </span>
       </div>
-      <div className="h-2.5 rounded-full overflow-hidden" style={{ backgroundColor: '#EDEAE4' }}>
+      <div className="h-2.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bp-canvas)' }}>
         <div
           className={cn("h-full rounded-full transition-all duration-700", color)}
           style={{ width: `${Math.min(pct, 100)}%` }}
@@ -187,28 +187,28 @@ function ProgressBar({ current, total, label, color }: { current: number; total:
 
 function PipelineRunRow({ run }: { run: PipelineRun }) {
   const icon = run.status === 'running'
-    ? <Loader2 className="h-4 w-4 animate-spin" style={{ color: '#C27A1A' }} />
+    ? <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'var(--bp-caution)' }} />
     : run.status === 'failed'
-      ? <XCircle className="h-4 w-4" style={{ color: '#B93A2A' }} />
-      : <CheckCircle2 className="h-4 w-4" style={{ color: '#3D7C4F' }} />;
+      ? <XCircle className="h-4 w-4" style={{ color: 'var(--bp-fault)' }} />
+      : <CheckCircle2 className="h-4 w-4" style={{ color: 'var(--bp-operational)' }} />;
 
   const statusText = run.status === 'running' ? 'Running...' : run.status === 'failed' ? 'Failed' : 'Completed';
-  const statusColor = run.status === 'running' ? '#C27A1A' : run.status === 'failed' ? '#B93A2A' : '#3D7C4F';
+  const statusColor = run.status === 'running' ? 'var(--bp-caution)' : run.status === 'failed' ? 'var(--bp-fault)' : 'var(--bp-operational)';
 
   return (
-    <div className="flex items-center gap-3 py-2 px-3 rounded-md transition-colors" style={{ backgroundColor: '#FEFDFB' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#F9F7F3'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#FEFDFB'}>
+    <div className="flex items-center gap-3 py-2 px-3 rounded-md transition-colors" style={{ backgroundColor: 'var(--bp-surface-1)' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bp-surface-inset)'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--bp-surface-1)'}>
       {icon}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-sm truncate" style={{ color: '#1C1917' }}>{run.name}</span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#EDEAE4', color: '#78716C', fontFamily: "var(--font-mono)" }}>
+          <span className="font-semibold text-sm truncate" style={{ color: 'var(--bp-ink-primary)' }}>{run.name}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bp-canvas)', color: 'var(--bp-ink-tertiary)', fontFamily: "var(--font-mono)" }}>
             {run.layer}
           </span>
         </div>
       </div>
       <span className="text-xs font-medium" style={{ color: statusColor }}>{statusText}</span>
-      <span className="text-xs w-20 text-right" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#A8A29E' }}>{fmtTime(run.startTime)}</span>
-      <span className="text-xs w-16 text-right" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#A8A29E' }}>{fmtDuration(run.durationSec)}</span>
+      <span className="text-xs w-20 text-right" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: 'var(--bp-ink-muted)' }}>{fmtTime(run.startTime)}</span>
+      <span className="text-xs w-16 text-right" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: 'var(--bp-ink-muted)' }}>{fmtDuration(run.durationSec)}</span>
     </div>
   );
 }
@@ -312,7 +312,6 @@ export default function LiveMonitor() {
   const counts = data?.counts || {};
 
   // ── Notebook event stats ──
-  const nbStarts = data?.notebookEvents?.filter(e => e.LogType === 'StartNotebookActivity').length || 0;
   const nbEnds = data?.notebookEvents?.filter(e => e.LogType === 'EndNotebookActivity').length || 0;
   const nbFails = data?.notebookEvents?.filter(e => e.LogType === 'FailNotebookActivity').length || 0;
 
@@ -327,7 +326,7 @@ export default function LiveMonitor() {
   if (loading && !data) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin" style={{ color: '#B45624' }} />
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--bp-copper)' }} />
       </div>
     );
   }
@@ -341,10 +340,10 @@ export default function LiveMonitor() {
             <Activity className="h-6 w-6" style={{ color: 'var(--bp-copper)' }} />
             Live Pipeline Monitor
           </h1>
-          <p className="text-sm mt-1" style={{ fontFamily: "var(--font-sans)", color: '#57534E' }}>
+          <p className="text-sm mt-1" style={{ fontFamily: "var(--font-sans)", color: 'var(--bp-ink-secondary)' }}>
             Real-time entity-level pipeline progress
             {lastRefresh && (
-              <span className="ml-2 text-xs" style={{ fontFamily: "var(--font-mono)", color: '#A8A29E' }}>
+              <span className="ml-2 text-xs" style={{ fontFamily: "var(--font-mono)", color: 'var(--bp-ink-muted)' }}>
                 · Refresh #{refreshCount} · {lastRefresh.toLocaleTimeString()}
               </span>
             )}
@@ -360,6 +359,7 @@ export default function LiveMonitor() {
           <select
             value={timeWindow}
             onChange={(e) => setTimeWindow(Number(e.target.value))}
+            aria-label="Time window filter"
             className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           >
             <option value={5}>Last 5 min</option>
@@ -389,8 +389,8 @@ export default function LiveMonitor() {
       </div>
 
       {error && (
-        <Card style={{ border: '1px solid #B93A2A', backgroundColor: '#FBEAE8' }}>
-          <CardContent className="py-3 flex items-center gap-2 text-sm" style={{ color: '#B93A2A' }}>
+        <Card style={{ border: '1px solid var(--bp-fault)', backgroundColor: 'var(--bp-fault-light)' }}>
+          <CardContent className="py-3 flex items-center gap-2 text-sm" style={{ color: 'var(--bp-fault)' }}>
             <AlertTriangle className="h-4 w-4" />
             {error}
           </CardContent>
@@ -399,7 +399,7 @@ export default function LiveMonitor() {
 
       {/* Pipeline Runs */}
       <Card>
-        <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('pipelines')}>
+        <CardHeader className="pb-2 cursor-pointer" role="button" tabIndex={0} aria-expanded={expandedSections.pipelines} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSection('pipelines'); } }} onClick={() => toggleSection('pipelines')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <Play className="h-4 w-4 text-[var(--bp-copper)]" />
@@ -418,7 +418,7 @@ export default function LiveMonitor() {
                 No pipeline runs {timeWindow === 0 ? '' : `in the last ${timeWindow >= 60 ? `${timeWindow / 60} hours` : `${timeWindow} minutes`}`}
               </p>
             ) : (
-              <div style={{ borderColor: 'rgba(0,0,0,0.04)' }}>
+              <div style={{ borderColor: 'var(--bp-border-subtle)' }}>
                 {pipelineRuns.map(run => (
                   <PipelineRunRow key={run.guid} run={run} />
                 ))}
@@ -430,7 +430,7 @@ export default function LiveMonitor() {
 
       {/* Entity Processing Progress */}
       <Card>
-        <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('progress')}>
+        <CardHeader className="pb-2 cursor-pointer" role="button" tabIndex={0} aria-expanded={expandedSections.progress} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSection('progress'); } }} onClick={() => toggleSection('progress')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <Database className="h-4 w-4 text-[var(--bp-operational)]" />
@@ -447,7 +447,7 @@ export default function LiveMonitor() {
               total={num(counts.lzRegistered)}
               color="bg-[var(--bp-copper)]"
             />
-            <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: '#A8A29E', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
+            <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: 'var(--bp-ink-muted)', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
               <span>Registered: {num(counts.lzRegistered).toLocaleString()}</span>
               <span>·</span>
               <span>Queued: {num(counts.lzPipelineTotal).toLocaleString()}</span>
@@ -461,7 +461,7 @@ export default function LiveMonitor() {
               total={num(counts.brzRegistered)}
               color="bg-[var(--bp-caution)]"
             />
-            <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: '#A8A29E', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
+            <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: 'var(--bp-ink-muted)', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
               <span>Registered: {num(counts.brzRegistered).toLocaleString()}</span>
               <span>·</span>
               <span>Queued: {num(counts.brzPipelineTotal).toLocaleString()}</span>
@@ -477,7 +477,7 @@ export default function LiveMonitor() {
               total={num(counts.slvRegistered)}
               color="bg-[var(--bp-ink-tertiary)]"
             />
-            <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: '#A8A29E', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
+            <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: 'var(--bp-ink-muted)', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
               <span>Registered: {num(counts.slvRegistered).toLocaleString()}</span>
               <span>·</span>
               <span>Queued: {num(counts.slvPipelineTotal).toLocaleString()}</span>
@@ -492,7 +492,7 @@ export default function LiveMonitor() {
 
       {/* Notebook Executions — entity level */}
       <Card>
-        <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('notebooks')}>
+        <CardHeader className="pb-2 cursor-pointer" role="button" tabIndex={0} aria-expanded={expandedSections.notebooks} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSection('notebooks'); } }} onClick={() => toggleSection('notebooks')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <FileText className="h-4 w-4 text-[var(--bp-copper)]" />
@@ -504,7 +504,7 @@ export default function LiveMonitor() {
                 </span>
               )}
               {nbFails > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono" style={{ backgroundColor: '#FBEAE8', color: '#B93A2A' }}>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono" style={{ backgroundColor: 'var(--bp-fault-light)', color: 'var(--bp-fault)' }}>
                   {nbFails} failed
                 </span>
               )}
@@ -520,31 +520,31 @@ export default function LiveMonitor() {
                 <p className="text-xs">This section populates when Bronze/Silver notebooks process entities</p>
               </div>
             ) : (
-              <div className="max-h-[500px] overflow-y-auto" style={{ borderColor: 'rgba(0,0,0,0.04)' }}>
+              <div className="max-h-[500px] overflow-y-auto" style={{ borderColor: 'var(--bp-border-subtle)' }}>
                 {data.notebookEvents.map((evt, i) => {
                   const { action, detail } = parseNotebookDetail(evt.LogData);
                   const isEnd = evt.LogType === 'EndNotebookActivity';
                   const isFail = evt.LogType === 'FailNotebookActivity';
                   const isStart = evt.LogType === 'StartNotebookActivity';
-                  const icon = isFail ? <XCircle className="h-3.5 w-3.5" style={{ color: '#B93A2A' }} />
-                    : isEnd ? <CheckCircle2 className="h-3.5 w-3.5" style={{ color: '#3D7C4F' }} />
-                      : <ArrowRight className="h-3.5 w-3.5" style={{ color: '#C27A1A' }} />;
+                  const icon = isFail ? <XCircle className="h-3.5 w-3.5" style={{ color: 'var(--bp-fault)' }} />
+                    : isEnd ? <CheckCircle2 className="h-3.5 w-3.5" style={{ color: 'var(--bp-operational)' }} />
+                      : <ArrowRight className="h-3.5 w-3.5" style={{ color: 'var(--bp-caution)' }} />;
 
                   return (
-                    <div key={i} className="py-2 px-2" style={{ borderBottom: '1px solid rgba(0,0,0,0.04)', backgroundColor: '#FEFDFB' }}>
+                    <div key={i} className="py-2 px-2" style={{ borderBottom: '1px solid var(--bp-border-subtle)', backgroundColor: 'var(--bp-surface-1)' }}>
                       <div className="flex items-center gap-2">
                         {icon}
-                        <span className="text-xs w-20" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#A8A29E' }}>{fmtTime(evt.LogDateTime)}</span>
-                        <span className="text-sm font-medium truncate flex-1" style={{ color: '#1C1917' }}>{evt.NotebookName}</span>
+                        <span className="text-xs w-20" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: 'var(--bp-ink-muted)' }}>{fmtTime(evt.LogDateTime)}</span>
+                        <span className="text-sm font-medium truncate flex-1" style={{ color: 'var(--bp-ink-primary)' }}>{evt.NotebookName}</span>
                         {evt.EntityId && (
-                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#EDEAE4', color: '#78716C', fontFamily: "var(--font-mono)" }}>
+                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bp-canvas)', color: 'var(--bp-ink-tertiary)', fontFamily: "var(--font-mono)" }}>
                             Entity {evt.EntityId}
                           </span>
                         )}
-                        <span className="text-[10px]" style={{ color: '#A8A29E' }}>{evt.EntityLayer}</span>
+                        <span className="text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>{evt.EntityLayer}</span>
                       </div>
                       {detail && (
-                        <div className="text-xs mt-0.5 ml-6" style={{ color: isFail ? '#B93A2A' : '#78716C' }}>
+                        <div className="text-xs mt-0.5 ml-6" style={{ color: isFail ? 'var(--bp-fault)' : 'var(--bp-ink-tertiary)' }}>
                           {detail}
                         </div>
                       )}
@@ -559,7 +559,7 @@ export default function LiveMonitor() {
 
       {/* Copy Activity — LZ loads */}
       <Card>
-        <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('copies')}>
+        <CardHeader className="pb-2 cursor-pointer" role="button" tabIndex={0} aria-expanded={expandedSections.copies} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSection('copies'); } }} onClick={() => toggleSection('copies')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <Copy className="h-4 w-4 text-[var(--bp-ink-tertiary)]" />
@@ -605,7 +605,7 @@ export default function LiveMonitor() {
 
       {/* Bronze Layer — Recently Processed */}
       <Card>
-        <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('bronze')}>
+        <CardHeader className="pb-2 cursor-pointer" role="button" tabIndex={0} aria-expanded={expandedSections.bronze} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSection('bronze'); } }} onClick={() => toggleSection('bronze')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <Layers className="h-4 w-4 text-[var(--bp-caution)]" />
@@ -655,7 +655,7 @@ export default function LiveMonitor() {
 
       {/* Landing Zone — Recent Files */}
       <Card>
-        <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleSection('lz')}>
+        <CardHeader className="pb-2 cursor-pointer" role="button" tabIndex={0} aria-expanded={expandedSections.lz} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSection('lz'); } }} onClick={() => toggleSection('lz')}>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <HardDrive className="h-4 w-4 text-[var(--bp-ink-tertiary)]" />
