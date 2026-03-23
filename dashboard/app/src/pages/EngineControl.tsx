@@ -2880,7 +2880,7 @@ export default function EngineControl() {
                                 ) : expandedRunLogs.length === 0 ? (
                                   <p className="text-xs text-muted-foreground text-center py-4">No log entries for this run</p>
                                 ) : (
-                                  {/* border-[#30363d]: no exact bp token */}
+                                  /* border-[#30363d]: no exact bp token */
                                   <div className="max-h-[480px] overflow-y-auto rounded border border-[#30363d] bg-[var(--bp-code-block)] p-4">
                                     {expandedRunLogs.map((entry, i) => (
                                       <LogLine key={i} entry={entry} />

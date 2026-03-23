@@ -387,8 +387,7 @@ function MissingValueMatrix({ columns }: { columns: ProfileColumn[] }) {
           <div
             key={col.name}
             className="flex-1 min-w-[4px] max-w-[24px] text-[7px] overflow-hidden truncate text-center"
-            style={{ color: "var(--bp-ink-muted)", opacity: 0.4 }}
-            style={{ writingMode: "vertical-rl", height: 50, transform: "rotate(180deg)" }}
+            style={{ color: "var(--bp-ink-muted)", opacity: 0.4, writingMode: "vertical-rl", height: 50, transform: "rotate(180deg)" }}
           >
             {col.name}
           </div>
@@ -964,8 +963,7 @@ export default function DataProfiler() {
                           <Fragment key={col.name}>
                             <tr
                               className="cursor-pointer transition-colors"
-                              style={{ borderBottom: "1px solid rgba(0,0,0,0.02)" }}
-                              style={{ backgroundColor: nullBg(col.nullPercentage) }}
+                              style={{ borderBottom: "1px solid rgba(0,0,0,0.02)", backgroundColor: nullBg(col.nullPercentage) }}
                               onClick={() => setExpandedCol(isExpanded ? null : col.name)}
                             >
                               {/* Expand chevron */}
