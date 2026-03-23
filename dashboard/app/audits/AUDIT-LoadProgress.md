@@ -1,165 +1,73 @@
-# AUDIT: LoadProgress.tsx — Data Source Correctness
+# AUDIT-LP: LoadProgress.tsx
 
-**Date**: 2026-03-13
+**Date**: 2026-03-23
 **Auditor**: Claude (Opus)
 **Frontend**: `dashboard/app/src/pages/LoadProgress.tsx`
-**Backend endpoint**: `GET /api/load-progress`
-**Status**: BROKEN — endpoint does not exist
+**Backend**: `GET /api/load-progress` in `dashboard/app/api/routes/monitoring.py`
+**Status**: FIXES APPLIED
 
 ---
 
 ## Executive Summary
 
-The LoadProgress page is **completely non-functional**. It calls `GET /api/load-progress` (line 175), but no backend handler is registered for this route. The router returns a 404, so the page always displays the error banner "HTTP 404" and shows zero data.
+The Load Progress page had a critical API response shape mismatch: the backend endpoint (implemented since the last audit) returns `{sources, recentRuns, overall: {totalEntities, lzLoaded, brzLoaded, slvLoaded}}` but the frontend expected `{overall: {TotalEntities, LoadedEntities, PendingEntities, PctComplete, ...}, bySource: [...], recentActivity: [...], loadedEntities: [...]}`. All progress indicators rendered zeroes or empty states because every field name was wrong.
 
-There is no partially-working state to audit further — the page has never loaded real data since the server was refactored to the decorator-based route registry.
-
----
-
-## 1. Frontend API Call Trace
-
-The entire page relies on a single fetch call:
-
-| Component/Section | Data Field | Fetched From | Line |
-|---|---|---|---|
-| Overall progress hero | `overall.TotalEntities`, `LoadedEntities`, `PendingEntities`, `PctComplete` | `GET /api/load-progress` → `.overall` | 175 |
-| KPI cards | `overall.PctComplete`, `PendingEntities`, `ElapsedSeconds`, `LastActivity` | same → `.overall` | 328-359 |
-| Total rows loaded | sum of `loadedEntities[].RowsCopied` | same → `.loadedEntities` | 222 |
-| Stacked progress bar | `bySource[].LoadedCount` / `overall.TotalEntities` | same → `.bySource` | 364-387 |
-| Source progress cards | `bySource[].Source`, `TotalEntities`, `LoadedCount`, `PendingCount`, `PctComplete`, `LastLoaded` | same → `.bySource` | 407-461 |
-| Concurrency timeline chart | `concurrencyTimeline[].time`, `concurrent`, `bySource` | same → `.concurrencyTimeline` | 485-589 |
-| Live activity feed table | `recentActivity[].TableName`, `Source`, `LogType`, `LogTime`, `LogData` | same → `.recentActivity` | 630-715 |
-| All entities table | `loadedEntities[].Source`, `Schema`, `TableName`, `RowsCopied`, `Duration`, `LoadedAt`, `IsIncremental`, `Status` | same → `.loadedEntities` | 717-816 |
-| Pending by source | `pendingBySource[].Source`, `cnt` | same → `.pendingBySource` | (not rendered, but expected in payload) |
-| Server time footer | `serverTime` | same → `.serverTime` | 819-823 |
-
-**Every single metric, table, chart, and KPI on this page comes from the same `GET /api/load-progress` call.** There is no secondary endpoint.
+Additionally: hardcoded hex colors instead of design tokens, a hardcoded 5-column grid violating N-source scalability rules, missing loading state, a fabricated schema default, missing ARIA attributes, and a dead import.
 
 ---
 
-## 2. Backend Handler Status
+## Findings
 
-### Route Registration Audit
-
-Searched all files in `dashboard/app/api/routes/*.py` for `@route("GET", "/api/load-progress")`:
-
-**Result: NO MATCH FOUND.**
-
-The only references to "load-progress" in the entire backend are in the module docstring of `monitoring.py` (lines 1 and 8), which claims:
-```
-GET /api/load-progress — entity load progress (alias of live-monitor counts)
-```
-But the docstring is aspirational — the handler was never implemented. The route registry (`router.py:_routes`) has no entry for `("GET", "/api/load-progress")`.
-
-### What happens at runtime
-
-1. Frontend calls `fetch("/api/load-progress")`
-2. `server.py` `do_GET` dispatches via `dispatch("GET", "/api/load-progress", ...)`
-3. `router.py:_match_route` finds no exact match, no pattern match
-4. Returns `(None, {})`
-5. `dispatch()` returns `404, {...}, '{"error": "Not found"}'`
-6. Frontend catches the non-200 status, sets error state
-7. Page displays: error banner with "HTTP 404"
+| ID | Severity | Description | Status |
+|----|----------|-------------|--------|
+| LP-01 | **CRITICAL** | API response shape mismatch: frontend types (`TotalEntities`, `LoadedEntities`, `bySource`, etc.) do not match backend fields (`totalEntities`, `lzLoaded`, `sources`, etc.). All progress data rendered as zero/empty. | **FIXED** — Added `adaptApiResponse()` that maps the real backend shape to the frontend `LoadData` type |
+| LP-02 | **HIGH** | Backend does not provide `recentActivity`, `loadedEntities`, or `concurrencyTimeline` data. The Live Activity feed, All Entities table, and Concurrency Timeline chart can never show data. | **DEFERRED** — Needs monitoring.py changes to add these queries. Frontend now correctly shows empty states. |
+| LP-03 | **MEDIUM** | 20+ hardcoded hex colors (`#57534E`, `#A8A29E`, `#78716C`, `#FEFDFB`, `#F9F7F3`, `#EDEAE4`, `#1C1917`, `rgba(0,0,0,0.08)`) instead of design tokens. | **FIXED** — All replaced with `var(--bp-ink-secondary)`, `var(--bp-ink-muted)`, `var(--bp-ink-tertiary)`, `var(--bp-surface-1)`, `var(--bp-surface-inset)`, `var(--bg-muted)`, `var(--bp-ink-primary)`, `var(--bp-border)` |
+| LP-04 | **MEDIUM** | Source progress cards use `xl:grid-cols-5`, hardcoding 5 sources. Violates Rule 12 (scale to N sources). | **FIXED** — Replaced with `grid-template-columns: repeat(auto-fill, minmax(200px, 1fr))` |
+| LP-05 | **MEDIUM** | No loading state — page shows blank content during initial fetch. | **FIXED** — Added loading spinner with "Loading progress data..." message |
+| LP-06 | **LOW** | Schema column shows fabricated "dbo" when no schema is present (`e.Schema \|\| "dbo"`) — a truth bug. | **FIXED** — Changed to show em dash when schema is absent |
+| LP-07 | **LOW** | Tab bar missing `role="tablist"`, `role="tab"`, and `aria-selected` attributes. | **FIXED** — Added proper ARIA tab attributes |
+| LP-08 | **LOW** | Unused import: `HardDrive` from lucide-react, never referenced in JSX. | **FIXED** — Removed from import |
+| LP-09 | **LOW** | `pendingBySource` field in `LoadData` interface is populated but never rendered anywhere. Dead data. | NOTED — No fix needed, harmless |
+| LP-10 | **LOW** | `recentlyLoaded` animation logic (lines ~270-278) slices from the front of `loadedEntities` assuming newest-first sort. Fragile assumption if backend sort order changes. | NOTED — Not causing issues currently since `loadedEntities` is always empty |
 
 ---
 
-## 3. BUG: Same Category as ValidationChecklist
+## Deferred Items (require monitoring.py changes)
 
-**Yes, this shares the same root cause pattern.** The monitoring.py module also has these data source bugs in its `/api/live-monitor` endpoint (the closest existing proxy):
+### LP-02: Missing backend data for activity/entities/timeline
 
-### 3a. `lzEntities` and `bronzeEntities` query EMPTY tables (lines 111-124)
+The backend `/api/load-progress` endpoint only returns:
+- Per-source entity counts and LZ/Bronze/Silver loaded counts
+- Recent engine runs
+- Overall totals
 
-```python
-result["bronzeEntities"] = _safe_query(
-    "SELECT ... FROM pipeline_bronze_entity ORDER BY InsertDateTime DESC LIMIT 20"
-)
-result["lzEntities"] = _safe_query(
-    "SELECT ... FROM pipeline_lz_entity ORDER BY InsertDateTime DESC LIMIT 20"
-)
-```
+It does NOT return:
+- `recentActivity` (recent copy activity events with table names, log types, timestamps)
+- `loadedEntities` (per-entity detail: schema, table, rows copied, duration, status)
+- `concurrencyTimeline` (time-bucketed concurrent thread counts)
 
-Both `pipeline_bronze_entity` (0 rows) and `pipeline_lz_entity` (0 rows) are empty. These would always return `[]`.
+The frontend has full UI for all three sections (activity feed, entity table, concurrency chart), but they will always render empty states until the backend is enhanced.
 
-### 3b. `entity_status` used correctly for counts (lines 93-106)
+**Recommendation**: Add these queries to the `/api/load-progress` handler in monitoring.py:
+1. `recentActivity` from `copy_activity_audit` joined to `lz_entities`/`datasources`
+2. `loadedEntities` from `lz_entities` LEFT JOIN `engine_task_log` for status/rows/duration
+3. `concurrencyTimeline` from time-bucketed `copy_activity_audit` events
 
-The `counts` section in `/api/live-monitor` does correctly use `entity_status`:
-```python
-status_rows = _safe_query(
-    "SELECT LOWER(Layer) AS layer, COUNT(*) AS cnt FROM entity_status "
-    "WHERE LOWER(Status) IN ('succeeded', 'loaded') GROUP BY LOWER(Layer)"
-)
-```
-This handles both case conventions and both status values.
+### AUDIT-LM Handoff Items
 
-### 3c. Other monitoring.py routes reference non-existent tables
+From the LiveMonitor audit:
 
-- `/api/copy-executions` → queries `CopyActivityExecution` (table does not exist in schema; actual table is `copy_activity_audit`)
-- `/api/notebook-executions` → queries `NotebookExecution` (table does not exist; actual table is `notebook_executions`)
-- `/api/error-intelligence` → queries `PipelineExecution`, `NotebookExecution`, `CopyActivityExecution` (none exist)
-- `/api/stats` → queries `LandingzoneEntity`, `BronzeLayerEntity`, `SilverLayerEntity` (none exist; actual tables are `lz_entities`, `bronze_entities`, `silver_entities`)
+1. **ROW_NUMBER CTE correctness**: The `ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC)` CTE at line 551-555 of monitoring.py correctly partitions by both EntityId AND Layer, then picks `rn = 1`. This means for multiple runs of the same entity on the same layer, only the latest run's status is used. This is correct behavior for "current status" semantics.
 
-These are silent failures because `_safe_query()` catches exceptions and returns `[]`.
+2. **`landing` vs `landingzone` layer key**: Line 568 uses `LOWER(es_lz.Layer) IN ('landing','landingzone')` to handle both variants. Line 599 in the overall counts does `status_map.get("landing", 0) + status_map.get("landingzone", 0)`. Both correctly handle the inconsistency. The frontend adapter passes this through faithfully.
 
 ---
 
-## 4. Expected Response Shape vs Available Data
+## Files Modified
 
-If the endpoint were to be implemented, here's what SQLite tables could source each field:
+- `dashboard/app/src/pages/LoadProgress.tsx` — All fixes applied (LP-01, LP-03 through LP-08)
 
-| Response Field | Correct Source Table | Status Column / Logic |
-|---|---|---|
-| `overall.TotalEntities` | `lz_entities` → `COUNT(*) WHERE IsActive=1` | OK (1,666 rows) |
-| `overall.LoadedEntities` | `entity_status` → `COUNT(*) WHERE LOWER(Layer) IN ('landing','landingzone') AND LOWER(Status) IN ('loaded','succeeded')` | OK (4,998 rows total, need LZ filter) |
-| `overall.PendingEntities` | TotalEntities - LoadedEntities | Computed |
-| `overall.PctComplete` | `ROUND(LoadedEntities * 100.0 / TotalEntities)` | Computed |
-| `overall.RunStarted` | `engine_runs.StartedAt` (latest run) | OK (4 rows) |
-| `overall.LastActivity` | `entity_status.LoadEndDateTime` (MAX) or `engine_task_log.created_at` (MAX) | `entity_status` preferred (has data) |
-| `overall.ElapsedSeconds` | `julianday('now') - julianday(RunStarted)` from `engine_runs` | Computed |
-| `bySource[].Source` | `datasources.Name` via `lz_entities.DataSourceId` | OK |
-| `bySource[].TotalEntities` | `lz_entities` grouped by DataSourceId | OK |
-| `bySource[].LoadedCount` | `entity_status` WHERE Layer=landing + succeeded/loaded, joined to lz_entities via LandingzoneEntityId, grouped by DataSourceId | OK |
-| `bySource[].PendingCount` | TotalEntities - LoadedCount per source | Computed |
-| `bySource[].FirstLoaded` | `MIN(entity_status.LoadEndDateTime)` per source | OK |
-| `bySource[].LastLoaded` | `MAX(entity_status.LoadEndDateTime)` per source | OK |
-| `recentActivity[]` | `copy_activity_audit` joined with `lz_entities`/`datasources` for Source | `copy_activity_audit` has 0 rows currently; `engine_task_log` also 0 rows |
-| `loadedEntities[]` | `lz_entities` LEFT JOIN `entity_status` for status/dates | OK |
-| `loadedEntities[].RowsCopied` | `engine_task_log.RowsWritten` | 0 rows in engine_task_log |
-| `loadedEntities[].Duration` | `engine_task_log.DurationSeconds` | 0 rows |
-| `pendingBySource[]` | Entities in `lz_entities` without a 'succeeded'/'loaded' row in `entity_status` for landing layer | Computed |
-| `concurrencyTimeline[]` | `copy_activity_audit` time-bucketed by LogDateTime | 0 rows |
-| `serverTime` | `datetime('now')` | Trivial |
+## Files NOT Modified (read-only)
 
-**Key concern**: `copy_activity_audit` (0 rows) and `engine_task_log` (0 rows) mean that even with a correctly implemented endpoint, the `recentActivity`, `concurrencyTimeline`, `RowsCopied`, and `Duration` fields would all be empty/null. The core progress metrics (TotalEntities, LoadedEntities, bySource counts) would work correctly from `lz_entities` + `entity_status`.
-
----
-
-## 5. Findings Summary
-
-| # | Severity | Finding |
-|---|---|---|
-| **B1** | **CRITICAL** | `/api/load-progress` endpoint does not exist. The page is a 404 dead end. All metrics, KPIs, tables, charts, and progress bars are non-functional. |
-| **B2** | **HIGH** | `monitoring.py` docstring claims this endpoint exists (line 8) but no `@route` decorator was ever written for it. |
-| **B3** | **MEDIUM** | The closest existing endpoint (`/api/live-monitor`) queries empty tables `pipeline_lz_entity` and `pipeline_bronze_entity` for its entity lists (lines 111-124), returning empty arrays. It does correctly use `entity_status` for aggregate counts. |
-| **B4** | **MEDIUM** | `/api/stats` (line 202) queries non-existent table names `LandingzoneEntity`, `BronzeLayerEntity`, `SilverLayerEntity` instead of `lz_entities`, `bronze_entities`, `silver_entities`. Always returns `{}`. |
-| **B5** | **MEDIUM** | `/api/copy-executions`, `/api/notebook-executions`, `/api/error-intelligence` all reference tables that don't exist in the schema (`CopyActivityExecution`, `NotebookExecution`, `PipelineExecution`). Silently return `[]`. |
-| **B6** | **LOW** | `recentActivity` and `concurrencyTimeline` would be empty even with a correct implementation because `copy_activity_audit` has 0 rows. These features require active pipeline runs to populate. |
-| **B7** | **LOW** | `loadedEntities[].RowsCopied` and `Duration` would be null because `engine_task_log` has 0 rows. Same dependency on active engine runs. |
-
----
-
-## 6. Required Fix
-
-Implement `@route("GET", "/api/load-progress")` in `monitoring.py` that:
-
-1. Queries `lz_entities` for total entity counts (per source via `datasources` join)
-2. Queries `entity_status` (NOT `pipeline_lz_entity`) for loaded/succeeded counts at the `landing`/`landingzone` layer
-3. Queries `engine_runs` for RunStarted/ElapsedSeconds from the latest run
-4. Queries `entity_status` MAX(LoadEndDateTime) for LastActivity
-5. Builds `bySource` by grouping counts by `datasources.Name` via DataSourceId
-6. Builds `loadedEntities` by LEFT JOINing `lz_entities` to `entity_status` and `engine_task_log`
-7. Builds `recentActivity` from `copy_activity_audit` (will be empty when no runs active, but structurally correct)
-8. Builds `concurrencyTimeline` from time-bucketed `copy_activity_audit` (same caveat)
-9. Returns `pendingBySource` as the difference between total and loaded per source
-10. Returns `serverTime` from `datetime('now')`
-
-The response shape must match the `LoadData` TypeScript interface exactly (lines 66-75 of LoadProgress.tsx).
+- `dashboard/app/api/routes/monitoring.py` — LP-02 deferred
