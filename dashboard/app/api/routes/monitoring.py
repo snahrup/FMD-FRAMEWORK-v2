@@ -56,24 +56,30 @@ def get_live_monitor(params: dict) -> dict:
         minutes = 240
 
     result: dict = {}
-    minutes_param = str(minutes)
+
+    # minutes=0 means "all time" — skip the WHERE time filter entirely
+    time_filter = ""
+    time_params: tuple = ()
+    if minutes > 0:
+        time_filter = "WHERE LogDateTime >= datetime('now', '-' || ? || ' minutes') "
+        time_params = (str(minutes),)
 
     # Pipeline execution events (from pipeline_audit)
     result["pipelineEvents"] = _safe_query(
         "SELECT PipelineName, LogType, LogDateTime, LogData, PipelineRunGuid, EntityLayer "
         "FROM pipeline_audit "
-        "WHERE LogDateTime >= datetime('now', '-' || ? || ' minutes') "
+        + time_filter +
         "ORDER BY LogDateTime DESC LIMIT 50",
-        (minutes_param,)
+        time_params,
     )
 
     # Notebook execution events
     result["notebookEvents"] = _safe_query(
         "SELECT NotebookName, LogType, LogDateTime, LogData, EntityId, EntityLayer, PipelineRunGuid "
         "FROM notebook_executions "
-        "WHERE LogDateTime >= datetime('now', '-' || ? || ' minutes') "
+        + time_filter +
         "ORDER BY LogDateTime DESC LIMIT 200",
-        (minutes_param,)
+        time_params,
     )
 
     # Copy activity events
@@ -81,9 +87,9 @@ def get_live_monitor(params: dict) -> dict:
         "SELECT CopyActivityName, CopyActivityName AS EntityName, LogType, LogDateTime, "
         "LogData, EntityId, EntityLayer, PipelineRunGuid "
         "FROM copy_activity_audit "
-        "WHERE LogDateTime >= datetime('now', '-' || ? || ' minutes') "
+        + time_filter +
         "ORDER BY LogDateTime DESC LIMIT 100",
-        (minutes_param,)
+        time_params,
     )
 
     # Processing counts from entity tables
@@ -117,7 +123,9 @@ def get_live_monitor(params: dict) -> dict:
         "e.SourceSchema AS SchemaName, e.SourceName AS TableName, "
         "t.created_at AS InsertDateTime, "
         "CASE WHEN t.Status = 'succeeded' THEN 1 ELSE 0 END AS IsProcessed, "
-        "t.created_at AS LoadEndDateTime "
+        "CASE WHEN t.DurationSeconds IS NOT NULL AND t.DurationSeconds > 0 "
+        "  THEN datetime(t.created_at, '+' || CAST(CAST(t.DurationSeconds AS INTEGER) AS TEXT) || ' seconds') "
+        "  ELSE NULL END AS LoadEndDateTime "
         "FROM engine_task_log t "
         "JOIN lz_entities e ON e.LandingzoneEntityId = t.EntityId "
         "WHERE t.Layer = 'bronze' "
