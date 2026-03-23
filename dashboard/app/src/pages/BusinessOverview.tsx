@@ -44,7 +44,7 @@ interface ActivityEvent {
   entityName: string;
   source: string;
   layer: string;
-  status: "success" | "error" | "warning" | "running";
+  status: "success" | "error" | "warning" | "running" | "pending";
   lastLoadDate: string | null;
 }
 
@@ -140,7 +140,9 @@ export default function BusinessOverview() {
     .filter((a) => a.status === "error" || a.status === "warning")
     .slice(0, 5);
 
-  const recentActivity = activity.filter((a) => a.status === "success").slice(0, 8);
+  const recentActivity = activity
+    .filter((a) => a.status === "success" || a.status === "running" || a.status === "pending")
+    .slice(0, 8);
 
   return (
     <div style={{ padding: 32, maxWidth: 1280 }}>
@@ -564,6 +566,18 @@ export default function BusinessOverview() {
                 <div>
                   {recentActivity.map((evt, i) => {
                     const srcLabel = resolveSourceLabel(evt.source);
+                    const statusLabel =
+                      evt.status === "success"
+                        ? "refreshed"
+                        : evt.status === "running"
+                        ? "loading"
+                        : "pending";
+                    const statusColor =
+                      evt.status === "running"
+                        ? "var(--bp-caution)"
+                        : evt.status === "pending"
+                        ? "var(--bp-ink-muted)"
+                        : undefined;
                     return (
                       <div
                         key={i}
@@ -573,18 +587,23 @@ export default function BusinessOverview() {
                           fontSize: 13,
                           color: "var(--bp-ink-secondary)",
                           lineHeight: 1.4,
+                          opacity: evt.status === "pending" ? 0.65 : 1,
                         }}
                       >
-                        <span style={{ fontWeight: 500, color: "var(--bp-ink-primary)" }}>
+                        <span style={{ fontWeight: 500, color: statusColor ?? "var(--bp-ink-primary)" }}>
                           {evt.entityName}
                         </span>
-                        {" "}refreshed from {srcLabel} · {layer(evt.layer)}
+                        {" "}{statusLabel} from {srcLabel} · {layer(evt.layer)}
                         <br />
                         <span
                           className="bp-mono"
                           style={{ fontSize: 11, color: "var(--bp-ink-muted)" }}
                         >
-                          {relativeTime(evt.lastLoadDate)}
+                          {evt.status === "running"
+                            ? "In progress"
+                            : evt.status === "pending"
+                            ? "Not started"
+                            : relativeTime(evt.lastLoadDate)}
                         </span>
                       </div>
                     );
