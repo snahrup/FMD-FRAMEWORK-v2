@@ -198,7 +198,7 @@ function AlertBadges({ columns, rowCount }: { columns: ProfileColumn[]; rowCount
         </div>
       )}
       {lowCardinality.length > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-silver)]/30 bg-[#E2E8F0]/30">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-silver)]/30 bg-[var(--bp-silver-light)]/30">
           <Layers3 className="w-3.5 h-3.5 text-[var(--bp-silver)]" />
           <span className="text-[11px] text-[var(--bp-silver)] font-medium">
             {lowCardinality.length} low-cardinality column{lowCardinality.length > 1 ? "s" : ""}
@@ -583,7 +583,7 @@ function EntityPicker({
                         <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--bp-copper-light)]/30 text-[var(--bp-copper-hover)]">BZ</span>
                       )}
                       {e.silverStatus === "loaded" && (
-                        <span className="text-[9px] px-1 py-0.5 rounded bg-[#E2E8F0]/30 text-[var(--bp-silver)]">SV</span>
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--bp-silver-light)]/30 text-[var(--bp-silver)]">SV</span>
                       )}
                     </div>
                   </button>
