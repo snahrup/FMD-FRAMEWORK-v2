@@ -85,6 +85,11 @@ PACKETS = [
      "why": "LastLoadDate showed stale LZ timestamp even when Silver was fresher. Dead imports cleaned. Audit doc established."},
     {"id": "AUDIT-PC", "title": "Portal Catalog audit + quality/domain fixes", "prs": [27], "lane": "truth",
      "why": "Quality tier badges were blank (response shape mismatch). Gold domain cards showed '0 datasets' and broken links. Both fixed."},
+    # Audits (batch 5)
+    {"id": "AUDIT-ST", "title": "Settings page audit + accessibility fixes", "prs": [29], "lane": "truth",
+     "why": "6 hardcoded hex colors, 3 dead code blocks, 6 missing accessibility attributes. Labs toggles lacked proper switch semantics."},
+    {"id": "AUDIT-ES", "title": "EnvironmentSetup page audit + ARIA fixes", "prs": [30], "lane": "truth",
+     "why": "12 unused imports, hardcoded hex, missing tabpanel/tablist ARIA associations, missing aria-labels on buttons and selects."},
 ]
 
 PAGES = [
@@ -124,10 +129,10 @@ PAGES = [
      "focus": "Audited — quality + domain response shape fixes", "next": "Backend enhancements (BE-1, BE-2)"},
     {"name": "Business Alerts", "route": "/alerts", "lane": "Truth", "packets": ["AUDIT-BA"],
      "focus": "Type alignment fixed", "next": "Done for now"},
-    {"name": "Settings", "route": "/settings", "lane": "Audit", "packets": [],
-     "focus": "Large unaudited settings area", "next": "Audit"},
-    {"name": "Environment Setup", "route": "/setup", "lane": "Audit", "packets": [],
-     "focus": "Large unaudited setup wizard", "next": "Audit"},
+    {"name": "Settings", "route": "/settings", "lane": "Truth", "packets": ["AUDIT-ST"],
+     "focus": "Audited — token + dead code + a11y fixes", "next": "Done for now"},
+    {"name": "Environment Setup", "route": "/setup", "lane": "Truth", "packets": ["AUDIT-ES"],
+     "focus": "Audited — imports + ARIA tablist/tabpanel fixes", "next": "Done for now"},
     {"name": "Hidden routes (24 total)", "route": "hidden", "lane": "Audit", "packets": [],
      "focus": "Mostly still unaudited", "next": "Expand later"},
 ]
