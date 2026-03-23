@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
 import EntitySelector from "@/components/EntitySelector";
 import { LAYER_MAP } from "@/lib/layers";
@@ -23,6 +23,7 @@ import {
   Loader2,
   AlertTriangle,
   ChevronRight,
+  Microscope,
   type LucideIcon,
 } from "lucide-react";
 
@@ -34,20 +35,20 @@ gsap.registerPlugin(ScrollTrigger);
 
 const API = import.meta.env.VITE_API_URL || "";
 
-const LAYER_COLORS: Record<string, { color: string; bgHex: string; borderHex: string }> = {
-  source:  { color: "#78716C", bgHex: "#EDEAE4", borderHex: "rgba(0,0,0,0.08)" },
-  landing: { color: "#B45624", bgHex: "#F4E8DF", borderHex: "#B45624" },
-  bronze:  { color: "#C27A1A", bgHex: "#FDF3E3", borderHex: "#C27A1A" },
-  silver:  { color: "#3D7C4F", bgHex: "#E7F3EB", borderHex: "#3D7C4F" },
+const LAYER_COLORS: Record<string, { color: string; bg: string; border: string; hex: string }> = {
+  source:  { color: "var(--bp-ink-tertiary)", bg: "var(--bp-surface-inset)", border: "var(--bp-border)",      hex: "#78716C" },
+  landing: { color: "var(--bp-copper)",       bg: "var(--bp-copper-light)",  border: "var(--bp-copper)",       hex: "#B45624" },
+  bronze:  { color: "var(--bp-caution)",      bg: "var(--bp-caution-light)", border: "var(--bp-caution)",      hex: "#C27A1A" },
+  silver:  { color: "var(--bp-operational)",   bg: "var(--bp-operational-light)", border: "var(--bp-operational)", hex: "#3D7C4F" },
 };
 
-const IMPACT_STYLES: Record<string, { label: string; colorHex: string; bgHex: string }> = {
-  none:      { label: "Pass-through",  colorHex: "#78716C", bgHex: "#EDEAE4" },
-  rename:    { label: "Rename",        colorHex: "#B45624", bgHex: "#F4E8DF" },
-  add:       { label: "Add Columns",   colorHex: "#3D7C4F", bgHex: "#E7F3EB" },
-  transform: { label: "Transform",     colorHex: "#C27A1A", bgHex: "#FDF3E3" },
-  remove:    { label: "Remove Rows",   colorHex: "#B93A2A", bgHex: "#FBEAE8" },
-  merge:     { label: "Delta Merge",   colorHex: "#9A4A1F", bgHex: "#F4E8DF" },
+const IMPACT_STYLES: Record<string, { label: string; color: string; bg: string }> = {
+  none:      { label: "Pass-through",  color: "var(--bp-ink-tertiary)", bg: "var(--bp-surface-inset)" },
+  rename:    { label: "Rename",        color: "var(--bp-copper)",       bg: "var(--bp-copper-light)" },
+  add:       { label: "Add Columns",   color: "var(--bp-operational)",  bg: "var(--bp-operational-light)" },
+  transform: { label: "Transform",     color: "var(--bp-caution)",      bg: "var(--bp-caution-light)" },
+  remove:    { label: "Remove Rows",   color: "var(--bp-fault)",        bg: "var(--bp-fault-light)" },
+  merge:     { label: "Delta Merge",   color: "var(--bp-copper-hover)", bg: "var(--bp-copper-light)" },
 };
 
 // ============================================================================
@@ -228,12 +229,12 @@ const REPLAY_STEPS: ReplayStep[] = [
 /** Build a gradient string that transitions through layer colors */
 function progressGradient(pct: number): string {
   // Copper (landing) -> Caution (bronze) -> Operational (silver)
-  return `linear-gradient(90deg, #B45624 0%, #C27A1A 40%, #3D7C4F 70%, rgba(61,124,79,0.3) ${pct * 100}%, transparent ${pct * 100 + 0.1}%)`;
+  return `linear-gradient(90deg, var(--bp-copper) 0%, var(--bp-caution) 40%, var(--bp-operational) 70%, color-mix(in srgb, var(--bp-operational) 30%, transparent) ${pct * 100}%, transparent ${pct * 100 + 0.1}%)`;
 }
 
-/** Determine which layer segment a step falls in for the timeline connector color */
+/** Return the raw hex color for a layer — needed for gradient stops and opacity suffixes */
 function layerColorHex(layer: LayerKey): string {
-  return LAYER_COLORS[layer]?.color || "#64748b";
+  return LAYER_COLORS[layer]?.hex || "#64748b";
 }
 
 // ============================================================================
@@ -243,7 +244,7 @@ function layerColorHex(layer: LayerKey): string {
 /** Floating data particles between step cards */
 function ParticleConnector({ color }: { color: string }) {
   return (
-    <div className="relative h-16 w-8 flex items-center justify-center overflow-hidden ml-[15px]">
+    <div className="relative h-16 w-8 flex items-center justify-center overflow-hidden ml-[15px]" aria-hidden="true">
       <svg width="8" height="60" viewBox="0 0 8 60" className="absolute">
         {[0, 1, 2].map((i) => (
           <circle
@@ -283,7 +284,7 @@ function StepCard({
   const beforeAfter = microscopeData || step.beforeAfter;
 
   return (
-    <div className="replay-step-card flex gap-4 md:gap-6">
+    <article className="replay-step-card flex gap-4 md:gap-6" aria-label={`Step ${step.id}: ${step.title}`}>
       {/* Left: timeline connector */}
       <div className="flex flex-col items-center flex-shrink-0 w-10">
         {/* Step number circle */}
@@ -291,9 +292,10 @@ function StepCard({
           className="w-9 h-9 rounded-full flex items-center justify-center border-2 text-xs font-bold z-10 transition-all duration-300"
           style={{
             borderColor: layerStyle.color,
-            backgroundColor: `${layerStyle.color}15`,
+            backgroundColor: `${layerStyle.hex}15`,
             color: layerStyle.color,
           }}
+          aria-hidden="true"
         >
           {step.id}
         </div>
@@ -301,7 +303,8 @@ function StepCard({
         {!isLast && (
           <div
             className="w-0.5 flex-1 mt-1"
-            style={{ backgroundColor: `${layerStyle.color}30` }}
+            style={{ backgroundColor: `${layerStyle.hex}30` }}
+            aria-hidden="true"
           />
         )}
       </div>
@@ -317,7 +320,7 @@ function StepCard({
             {/* Layer color badge */}
             <div
               className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider flex-shrink-0"
-              style={{ color: layerStyle.color, background: layerStyle.bgHex, border: `1px solid ${layerStyle.borderHex}` }}
+              style={{ color: layerStyle.color, background: layerStyle.bg, border: `1px solid ${layerStyle.border}` }}
             >
               {layerDef && <layerDef.icon className="w-3 h-3" />}
               {step.layer}
@@ -335,7 +338,7 @@ function StepCard({
           {/* Impact badge */}
           <span
             className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold flex-shrink-0"
-            style={{ color: impactStyle.colorHex, background: impactStyle.bgHex, border: `1px solid ${impactStyle.colorHex}` }}
+            style={{ color: impactStyle.color, background: impactStyle.bg, border: `1px solid ${impactStyle.color}` }}
           >
             {impactStyle.label}
           </span>
@@ -351,6 +354,8 @@ function StepCard({
           onClick={() => setExpanded(!expanded)}
           className="flex items-center gap-1.5 text-[11px] transition-colors mb-3 cursor-pointer"
           style={{ color: 'var(--bp-ink-muted)' }}
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Collapse" : "Expand"} technical detail for step ${step.id}: ${step.title}`}
         >
           <ChevronRight
             className={cn("w-3 h-3 transition-transform duration-200", expanded && "rotate-90")}
@@ -382,21 +387,22 @@ function StepCard({
 
         {/* Before/After comparison (from microscope API or step definition) */}
         {beforeAfter && beforeAfter.length > 0 && (
-          <div className="rounded-md overflow-hidden" style={{ border: '1px solid var(--bp-border)' }}>
-            <div className="grid grid-cols-3 px-3 py-1.5" style={{ background: 'var(--bp-surface-inset)', borderBottom: '1px solid var(--bp-border-subtle)' }}>
-              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Column</span>
-              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-fault)' }}>Before</span>
-              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-operational)' }}>After</span>
+          <div className="rounded-md overflow-hidden" style={{ border: '1px solid var(--bp-border)' }} role="table" aria-label={`Before/after comparison for step ${step.id}`}>
+            <div className="grid grid-cols-3 px-3 py-1.5" style={{ background: 'var(--bp-surface-inset)', borderBottom: '1px solid var(--bp-border-subtle)' }} role="row">
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }} role="columnheader">Column</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-fault)' }} role="columnheader">Before</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-operational)' }} role="columnheader">After</span>
             </div>
             {beforeAfter.slice(0, 5).map((row, i) => (
               <div
                 key={i}
                 className="grid grid-cols-3 px-3 py-1.5"
                 style={{ borderBottom: '1px solid var(--bp-border-subtle)' }}
+                role="row"
               >
-                <span className="text-xs truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }}>{row.column}</span>
-                <span className="text-xs truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-fault)' }}>{row.before}</span>
-                <span className="text-xs truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-operational)' }}>{row.after}</span>
+                <span className="text-xs truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }} role="cell">{row.column}</span>
+                <span className="text-xs truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-fault)' }} role="cell">{row.before}</span>
+                <span className="text-xs truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-operational)' }} role="cell">{row.after}</span>
               </div>
             ))}
             {beforeAfter.length > 5 && (
@@ -420,7 +426,7 @@ function StepCard({
           </span>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -611,13 +617,13 @@ export default function TransformationReplay() {
   }, []);
 
   return (
-    <div className="space-y-6 pb-12" style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
+    <div className="space-y-6 pb-12" style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }} role="main" aria-label="Transformation Replay">
       {/* ── Progress bar (fixed at top of content) ── */}
       <div
         ref={progressBarRef}
         className="sticky top-0 z-30 -mx-6 md:-mx-8 -mt-6 md:-mt-8 px-0"
       >
-        <div className="h-1 w-full overflow-hidden" style={{ background: 'var(--bp-surface-inset)' }}>
+        <div className="h-1 w-full overflow-hidden" style={{ background: 'var(--bp-surface-inset)' }} role="progressbar" aria-valuenow={Math.round(progress * 100)} aria-valuemin={0} aria-valuemax={100} aria-label={`Transformation progress: step ${currentStep} of ${REPLAY_STEPS.length}`}>
           <div
             className="h-full transition-all duration-100 ease-linear rounded-r-full"
             style={{
@@ -660,7 +666,7 @@ export default function TransformationReplay() {
                 <div
                   key={layer}
                   className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider"
-                  style={{ color: LAYER_COLORS[layer].color, background: LAYER_COLORS[layer].bgHex }}
+                  style={{ color: LAYER_COLORS[layer].color, background: LAYER_COLORS[layer].bg }}
                 >
                   <div
                     className="w-1.5 h-1.5 rounded-full"
@@ -703,6 +709,7 @@ export default function TransformationReplay() {
                 }}
                 className="h-[42px] px-3 w-36 rounded-md text-sm outline-none transition-colors"
                 style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)', color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-body)' }}
+                aria-label="Primary key value for microscope lookup"
               />
             </div>
           )}
@@ -710,23 +717,23 @@ export default function TransformationReplay() {
 
         {/* Microscope error banner */}
         {microscopeError && (
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-md" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)', color: 'var(--bp-fault)' }}>
-            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-md" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)', color: 'var(--bp-fault)' }} role="alert">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
             <span className="text-xs">{microscopeError}</span>
           </div>
         )}
       </div>
 
       {/* ── Timeline ── */}
-      <div ref={timelineRef} className="replay-timeline relative">
+      <div ref={timelineRef} className="replay-timeline relative" aria-label="Transformation steps timeline">
         {/* Loading skeleton overlay when fetching microscope data */}
         {microscopeLoading && (
-          <div className="space-y-2">
+          <div className="space-y-2" role="status" aria-label="Loading transformation data">
             {Array.from({ length: 5 }).map((_, i) => (
               <StepSkeleton key={i} index={i} />
             ))}
-            <div className="flex items-center justify-center gap-2 py-8" style={{ color: 'var(--bp-ink-secondary)' }}>
-              <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--bp-copper)' }} />
+            <div className="flex items-center justify-center gap-2 py-8" style={{ color: 'var(--bp-ink-secondary)' }} aria-live="polite">
+              <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--bp-copper)' }} aria-hidden="true" />
               <span className="text-xs">Loading transformation data...</span>
             </div>
           </div>
@@ -825,6 +832,19 @@ export default function TransformationReplay() {
                   </span>
                 )}
               </p>
+              {/* Cross-page link to Data Microscope */}
+              {selectedEntity && (
+                <Link
+                  to={`/microscope${entityIdParam ? `?entity=${entityIdParam}` : ""}${pkParam ? `&pk=${encodeURIComponent(pkParam)}` : ""}`}
+                  className="inline-flex items-center gap-1.5 mt-3 text-xs transition-colors"
+                  style={{ color: 'var(--bp-copper)' }}
+                  aria-label={`View ${selectedEntity.tableName} in Data Microscope`}
+                >
+                  <Microscope className="w-3.5 h-3.5" />
+                  <span>Inspect in Data Microscope</span>
+                  <ChevronRight className="w-3 h-3" />
+                </Link>
+              )}
             </div>
           </div>
         )}
