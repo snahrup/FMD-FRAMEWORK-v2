@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Search } from "lucide-react";
-import { GoldStudioLayout, useGoldToast, useDomainContext } from "@/components/gold/GoldStudioLayout";
+import { GoldStudioLayout, useDomainContext } from "@/components/gold/GoldStudioLayout";
 import { StatsStrip } from "@/components/gold/StatsStrip";
 import { SlideOver } from "@/components/gold/SlideOver";
 import { ProvenanceThread } from "@/components/gold/ProvenanceThread";
@@ -43,8 +43,8 @@ interface SpecDetail extends GoldSpec {
   transformation_rules?: string;
   downstream_reports?: string;
   last_validated?: string;
-  columns: SpecColumn[];
-  transforms: SpecTransform[];
+  columns?: SpecColumn[];
+  transforms?: SpecTransform[];
   validation_runs?: Array<Record<string, unknown>>;
 }
 
@@ -67,6 +67,13 @@ interface ImpactData {
 }
 interface VersionEntry { version: number; created_at?: string; created?: string; status?: string; target_name?: string; }
 interface ValidationRun { id?: number; started_at?: string; date?: string; status: string; critical_count?: number; warning_count?: number; critical_fraction?: string; warnings?: number; }
+
+/* Backend gs_stats returns these field names */
+interface BackendStats {
+  gold_specs?: number;
+  specs_validated?: number;
+  [key: string]: unknown;
+}
 
 interface Stats { total: number; ready: number; pending: number; needs_reval: number; deprecated: number; }
 
@@ -98,13 +105,20 @@ const mono = { fontFamily: "var(--bp-font-mono)", fontSize: 11 } as const;
 const body = (sz: number) => ({ fontFamily: "var(--bp-font-body)", fontSize: sz } as const);
 const display = (sz: number) => ({ fontFamily: "var(--bp-font-display)", fontSize: sz } as const);
 
+/** Map backend gs_stats shape to our Stats interface */
+function mapStats(raw: BackendStats): Stats {
+  const total = raw.gold_specs ?? 0;
+  const ready = raw.specs_validated ?? 0;
+  return { total, ready, pending: total - ready, needs_reval: 0, deprecated: 0 };
+}
+
 /* ========== component ========== */
 export default function GoldSpecs() {
-  const { showToast: _showToast } = useGoldToast();
   const { domainNames } = useDomainContext();
   const [stats, setStats] = useState<Stats>({ total: 0, ready: 0, pending: 0, needs_reval: 0, deprecated: 0 });
   const [specs, setSpecs] = useState<GoldSpec[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [domain, setDomain] = useState("All");
   const [status, setStatus] = useState("All");
   const [search, setSearch] = useState("");
@@ -125,6 +139,7 @@ export default function GoldSpecs() {
   /* fetch list + stats */
   const load = useCallback(() => {
     setLoading(true);
+    setFetchError(null);
     const qs = new URLSearchParams({ limit: "200" });
     if (domain !== "All") qs.set("domain", domain);
     if (status !== "All") qs.set("status", status);
@@ -135,8 +150,8 @@ export default function GoldSpecs() {
         name: s.name ?? s.target_name ?? "Unnamed",
         type: s.type ?? s.entity_type ?? "MLV",
       })));
-    }).catch(() => {}).finally(() => setLoading(false));
-    f<Stats>(`${API}/stats`).then(setStats).catch(() => {});
+    }).catch((err) => { setFetchError(err?.message ?? "Failed to load specs"); }).finally(() => setLoading(false));
+    f<BackendStats>(`${API}/stats`).then((raw) => setStats(mapStats(raw))).catch(() => {});
   }, [domain, status]);
 
   useEffect(load, [load]);
@@ -179,14 +194,25 @@ export default function GoldSpecs() {
         <Select label="Domain" value={domain} options={domainOptions} onChange={setDomain} />
         <Select label="Status" value={status} options={STATUSES} onChange={setStatus} />
         <div className="relative ml-auto" style={{ width: 220 }}>
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--bp-ink-muted)" }} />
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--bp-ink-muted)" }} aria-hidden="true" />
           <input
             value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search specs..."
+            aria-label="Search gold specs"
             className="w-full rounded-md pl-8 pr-3 py-1.5 outline-none"
             style={{ ...body(13), background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }}
           />
         </div>
       </div>
+
+      {/* Error banner */}
+      {fetchError && (
+        <div className="mx-6 mt-3 rounded-md px-4 py-3 flex items-center gap-3" role="alert"
+          style={{ background: "var(--bp-fault-light)", border: "1px solid var(--bp-fault-red)" }}>
+          <span style={{ ...body(13), color: "var(--bp-fault-red)" }}>{fetchError}</span>
+          <button type="button" onClick={load} className="rounded px-2 py-1 text-xs"
+            style={{ background: "var(--bp-fault-red)", color: "var(--bp-surface-1)" }}>Retry</button>
+        </div>
+      )}
 
       {/* Loading indicator */}
       {loading && specs.length === 0 && <GoldLoading />}
@@ -197,10 +223,11 @@ export default function GoldSpecs() {
           const badge = VALIDATION_BADGE[s.validation_status] ?? VALIDATION_BADGE.pending;
           return (
             <button key={s.id} type="button" onClick={() => openDetail(s.id)}
+              aria-label={`Open spec: ${s.name}`}
               className="w-full text-left flex items-center rounded-lg transition-colors hover:bg-black/[0.03] bp-row-interactive relative overflow-hidden"
               style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" }}>
               {/* status rail */}
-              <span className="absolute left-0 top-0 bottom-0 rounded-l-lg" style={{ width: 3, background: STATUS_RAIL[s.status] ?? "var(--bp-ink-muted)" }} />
+              <span className="absolute left-0 top-0 bottom-0 rounded-l-lg" aria-hidden="true" style={{ width: 3, background: STATUS_RAIL[s.status] ?? "var(--bp-ink-muted)" }} />
 
               <div className="flex-1 min-w-0 pl-4 pr-3 py-2">
                 {/* line 1 */}
@@ -211,7 +238,7 @@ export default function GoldSpecs() {
                   <span className="shrink-0" style={{ ...body(12), color: "var(--bp-ink-muted)" }}>{s.source_count} source{s.source_count !== 1 ? "s" : ""}</span>
                   <span className="shrink-0 rounded px-1.5 py-0.5 inline-flex items-center gap-1"
                     style={{ fontSize: 11, fontFamily: "var(--bp-font-body)", background: badge.bg, color: badge.color }}>
-                    <span className={s.validation_status === "needs_revalidation" ? "needs-reval-spin" : ""}>{badge.icon}</span> {badge.label}
+                    <span className={s.validation_status === "needs_revalidation" ? "needs-reval-spin" : ""} aria-hidden="true">{badge.icon}</span> {badge.label}
                   </span>
                   <div className="shrink-0 ml-auto"><ProvenanceThread phase={s.phase} size="sm" /></div>
                 </div>
@@ -237,8 +264,8 @@ export default function GoldSpecs() {
           <>
             {tab === "overview" && <OverviewTab spec={selected} />}
             {tab === "sql" && <SqlTab sql={selected.source_sql ?? selected.sql ?? ""} />}
-            {tab === "columns" && <ColumnsTab columns={selected.columns} />}
-            {tab === "transforms" && <TransformsTab transforms={selected.transforms} />}
+            {tab === "columns" && <ColumnsTab columns={selected.columns ?? []} />}
+            {tab === "transforms" && <TransformsTab transforms={selected.transforms ?? []} />}
             {tab === "impact" && <ImpactTab data={impact} />}
             {tab === "history" && <HistoryTab versions={versions} runs={runs} />}
           </>
@@ -262,6 +289,7 @@ function Select({ label, value, options, onChange }: { label: string; value: str
     <label className="flex items-center gap-1.5">
       <span style={{ ...body(11), color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</span>
       <select value={value} onChange={(e) => onChange(e.target.value)}
+        aria-label={`Filter by ${label.toLowerCase()}`}
         className="rounded-md px-2 py-1.5 outline-none"
         style={{ ...body(13), background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }}>
         {options.map((o) => <option key={o} value={o}>{o === "needs_revalidation" ? "Needs Reval." : o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
@@ -318,22 +346,23 @@ function SqlTab({ sql }: { sql: string }) {
     <div className={expanded ? "fixed inset-0 z-[60] flex flex-col" : "space-y-3"}>
       {/* warning */}
       <div className="rounded-md px-3 py-2 flex items-center gap-2"
-        style={{ background: "rgba(194,122,26,0.10)", border: "1px solid rgba(194,122,26,0.25)" }}>
+        style={{ background: "var(--bp-caution-light)", border: "1px solid var(--bp-caution-amber)" }}>
         <span style={{ ...body(12), color: "var(--bp-caution-amber)" }}>Editing SQL will mark this spec as Needs Revalidation</span>
       </div>
-      {/* code block */}
-      <div className="relative rounded-lg overflow-hidden" style={{ background: "#2B2A27", flex: expanded ? 1 : undefined }}>
+      {/* code block — dark theme colors are intentional for code readability */}
+      <div className="relative rounded-lg overflow-hidden" style={{ background: "var(--bp-code-bg, #2B2A27)", flex: expanded ? 1 : undefined }}>
         <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
           <CopyBtn text={sql} />
           <button type="button" onClick={() => setExpanded(!expanded)}
-            className="rounded px-1.5 py-1 text-xs transition-colors hover:bg-white/10" style={{ color: "#E8E6E3" }}>
+            aria-label={expanded ? "Collapse SQL editor" : "Expand SQL editor"}
+            className="rounded px-1.5 py-1 text-xs transition-colors hover:bg-white/10" style={{ color: "var(--bp-code-fg, #E8E6E3)" }}>
             {expanded ? "\u2716" : "\u2922"}
           </button>
         </div>
-        <pre className="overflow-auto p-4 pr-20" style={{ fontFamily: "var(--bp-font-mono)", fontSize: 13, color: "#E8E6E3", lineHeight: 1.6, maxHeight: expanded ? undefined : 480 }}>
+        <pre className="overflow-auto p-4 pr-20" style={{ fontFamily: "var(--bp-font-mono)", fontSize: 13, color: "var(--bp-code-fg, #E8E6E3)", lineHeight: 1.6, maxHeight: expanded ? undefined : 480 }}>
           {lines.map((l, i) => (
             <div key={i} className="flex">
-              <span className="select-none w-8 shrink-0 text-right mr-4" style={{ color: "rgba(232,230,227,0.3)" }}>{i + 1}</span>
+              <span className="select-none w-8 shrink-0 text-right mr-4" aria-hidden="true" style={{ color: "var(--bp-code-line-nr, rgba(232,230,227,0.3))" }}>{i + 1}</span>
               <span>{l}</span>
             </div>
           ))}
@@ -345,12 +374,13 @@ function SqlTab({ sql }: { sql: string }) {
 
 /* --- Columns --- */
 function ColumnsTab({ columns }: { columns: SpecColumn[] }) {
+  if (!columns.length) return <p style={{ ...body(13), color: "var(--bp-ink-muted)" }}>No columns defined for this spec.</p>;
   return (
     <table className="w-full text-left" style={{ ...body(12) }}>
       <thead>
         <tr style={{ color: "var(--bp-ink-muted)", borderBottom: "1px solid var(--bp-border)" }}>
-          {["Column", "Target", "Type", "Key", "Source Expression", ""].map((h) => (
-            <th key={h} className="pb-2 pr-3 font-medium" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+          {["Column", "Target", "Type", "Key", "Source Expression", "Status"].map((h) => (
+            <th key={h} scope="col" className="pb-2 pr-3 font-medium" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
           ))}
         </tr>
       </thead>
@@ -471,7 +501,8 @@ function Field({ label, value, mono: useMono }: { label: string; value: string; 
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button type="button" className="rounded px-1.5 py-1 text-xs transition-colors hover:bg-white/10" style={{ color: "#E8E6E3" }}
+    <button type="button" aria-label={copied ? "Copied to clipboard" : "Copy SQL to clipboard"}
+      className="rounded px-1.5 py-1 text-xs transition-colors hover:bg-white/10" style={{ color: "var(--bp-code-fg, #E8E6E3)" }}
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
       {copied ? "Copied" : "Copy"}
     </button>
