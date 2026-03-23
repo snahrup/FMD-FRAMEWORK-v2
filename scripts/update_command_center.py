@@ -101,6 +101,15 @@ PACKETS = [
      "why": "12 findings: fabricated DEV/PROD entity split using Math.ceil, maintenance button crash on 404, hardcoded hex. 10 fixed, 2 deferred."},
     {"id": "AUDIT-SQLX", "title": "SQL Explorer audit + path traversal fix", "prs": [35], "lane": "truth",
      "why": "15 findings: path traversal vulnerability in lakehouse file endpoints, missing input validation, hardcoded hex. 12 fixed, 3 deferred."},
+    # Audits (wave 2)
+    {"id": "AUDIT-GC", "title": "Gold Canonical audit + stats shape fix", "prs": [38], "lane": "truth",
+     "why": "16 findings: stats strip showed zeros (frontend/backend shape mismatch), silent error swallowing, hardcoded rgba, 8 a11y gaps. 14 fixed, 2 deferred (shared Gold components)."},
+    {"id": "AUDIT-GS", "title": "Gold Specs audit + crash fixes", "prs": [37], "lane": "truth",
+     "why": "28 findings: stats strip zeros (same shape mismatch), Columns/Transforms tabs crashed on missing arrays, dead import, 6 hardcoded hex, 9 a11y gaps. 18 fixed, 3 deferred (backend enhancement needed)."},
+    {"id": "AUDIT-AG", "title": "Admin Gateway audit + input validation", "prs": [36], "lane": "truth",
+     "why": "6 findings: dead import, missing key/value length validation, 4 a11y gaps. All 6 fixed. Prior critical bugs (missing routes) already resolved."},
+    {"id": "AUDIT-PR", "title": "Pipeline Runner audit + entity endpoint rewrite", "prs": [39], "lane": "truth",
+     "why": "14 findings: entity endpoint completely broken (PascalCase, no JOINs), unsanitized GUID params in Fabric API URLs, 50+ hardcoded hex. 10 fixed, 4 deferred (prepare/restore no-ops need own PR)."},
 ]
 
 PAGES = [
@@ -147,10 +156,10 @@ PAGES = [
     # Gold Studio — newly tracked
     {"name": "Gold Ledger", "route": "/gold/ledger", "lane": "Truth", "packets": ["AUDIT-GL"],
      "focus": "Audited — failure handling + a11y fixes, shared Gold issues deferred", "next": "Shared Gold component cleanup"},
-    {"name": "Gold Canonical", "route": "/gold/canonical", "lane": "Audit", "packets": [],
-     "focus": "716-line page, approval + graph viz, unaudited", "next": "AUDIT-GC"},
-    {"name": "Gold Specifications", "route": "/gold/specs", "lane": "Audit", "packets": [],
-     "focus": "480-line page, spec detail + validation, unaudited", "next": "AUDIT-GS"},
+    {"name": "Gold Canonical", "route": "/gold/canonical", "lane": "Truth", "packets": ["AUDIT-GC"],
+     "focus": "Audited — stats shape fix + error handling + a11y", "next": "Shared Gold component cleanup"},
+    {"name": "Gold Specifications", "route": "/gold/specs", "lane": "Truth", "packets": ["AUDIT-GS"],
+     "focus": "Audited — stats shape fix + crash fixes + a11y", "next": "Backend columns/transforms enhancement"},
     # Independent pages — newly tracked
     {"name": "Business Requests", "route": "/requests", "lane": "Truth", "packets": ["AUDIT-BR"],
      "focus": "Audited — backend validation + dead code cleanup", "next": "Frontend/backend max length mismatch (advisory)"},
@@ -170,12 +179,12 @@ PAGES = [
     # Infrastructure / Admin
     {"name": "Control Plane", "route": "/control", "lane": "Hidden/Audited", "packets": ["AUDIT-CP"],
      "focus": "Audited — fake DEV/PROD split removed, maintenance crash fixed", "next": "Done for now"},
-    {"name": "Admin Gateway", "route": "/admin", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — page visibility feature flags", "next": "Audit if re-enabled"},
+    {"name": "Admin Gateway", "route": "/admin", "lane": "Hidden/Audited", "packets": ["AUDIT-AG"],
+     "focus": "Audited — input validation + a11y fixes, prior critical bugs resolved", "next": "Done for now"},
     {"name": "Notebook Config", "route": "/notebook-config", "lane": "Hidden/Audited", "packets": ["AUDIT-NC"],
      "focus": "Audited — unused imports + form validation fixes", "next": "Done for now"},
-    {"name": "Pipeline Runner", "route": "/runner", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — manual pipeline trigger UI", "next": "Audit if re-enabled"},
+    {"name": "Pipeline Runner", "route": "/runner", "lane": "Hidden/Audited", "packets": ["AUDIT-PR"],
+     "focus": "Audited — entity endpoint rewrite + param sanitization + 50 token fixes", "next": "Prepare/Restore no-op fix (separate PR)"},
     {"name": "Notebook Debug", "route": "/notebook-debug", "lane": "Hidden", "packets": [],
      "focus": "Hidden — notebook execution debugger", "next": "Audit if re-enabled"},
     # Monitoring / Progress
