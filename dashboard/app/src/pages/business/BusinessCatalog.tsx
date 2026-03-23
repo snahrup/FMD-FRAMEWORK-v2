@@ -8,7 +8,7 @@
 // ============================================================================
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useSourceConfig, resolveSourceLabel, getSourceColor } from "@/hooks/useSourceConfig";
 import {
   SourceBadge,
@@ -321,7 +321,6 @@ function TableGridSkeleton() {
 // ── Main Component ──
 
 export default function BusinessCatalog() {
-  const navigate = useNavigate();
   const { sources: sourceConfigs } = useSourceConfig();
 
   const [activeTab, setActiveTab] = useState<TabId>("collections");
@@ -347,7 +346,16 @@ export default function BusinessCatalog() {
         return r.json();
       })
       .then((data) => {
-        setDomains(Array.isArray(data) ? data : []);
+        // Backend returns [{name, entityCount}] — normalise to GoldDomain shape
+        const arr: GoldDomain[] = (Array.isArray(data) ? data : []).map(
+          (d: Record<string, unknown>, idx: number) => ({
+            id: d.id ?? idx,
+            name: (d.name as string) ?? "",
+            description: (d.description as string) ?? undefined,
+            model_count: (d.entityCount as number) ?? (d.model_count as number) ?? 0,
+          })
+        );
+        setDomains(arr);
       })
       .catch(() => {
         setDomainsError(true);
@@ -360,12 +368,18 @@ export default function BusinessCatalog() {
   useEffect(() => {
     Promise.all([
       fetch(`${API}/api/overview/entities`).then((r) => r.ok ? r.json() : []).catch(() => []),
-      fetch(`${API}/api/mdm/quality/scores`).then((r) => r.ok ? r.json() : []).catch(() => []),
+      fetch(`${API}/api/mdm/quality/scores?limit=500`).then((r) => r.ok ? r.json() : { items: [] }).catch(() => ({ items: [] })),
       fetch(`${API}/api/glossary/annotations/bulk`).then((r) => r.ok ? r.json() : []).catch(() => []),
     ])
       .then(([entData, qData, annData]) => {
         setLzEntities(Array.isArray(entData) ? entData : []);
-        setQualityScores(Array.isArray(qData) ? qData : []);
+        // Backend returns {items: [{entityId, composite, ...}]} — normalise to QualityScore[]
+        const rawItems = Array.isArray(qData?.items) ? qData.items : (Array.isArray(qData) ? qData : []);
+        const scores: QualityScore[] = rawItems.map((q: Record<string, unknown>) => ({
+          entity_id: (q.entityId ?? q.entity_id) as number,
+          score: (q.composite ?? q.score ?? 0) as number,
+        }));
+        setQualityScores(scores);
         setAnnotations(Array.isArray(annData) ? annData : []);
       })
       .catch(() => {
