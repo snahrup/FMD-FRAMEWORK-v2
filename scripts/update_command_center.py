@@ -90,6 +90,17 @@ PACKETS = [
      "why": "6 hardcoded hex colors, 3 dead code blocks, 6 missing accessibility attributes. Labs toggles lacked proper switch semantics."},
     {"id": "AUDIT-ES", "title": "EnvironmentSetup page audit + ARIA fixes", "prs": [30], "lane": "truth",
      "why": "12 unused imports, hardcoded hex, missing tabpanel/tablist ARIA associations, missing aria-labels on buttons and selects."},
+    # Audits (wave 1)
+    {"id": "AUDIT-BR", "title": "Business Requests audit + backend validation", "prs": [31], "lane": "truth",
+     "why": "18 findings: missing backend input validation, no request length limits, dead code, hardcoded hex colors. 11 fixed, 1 deferred (frontend/backend max length mismatch)."},
+    {"id": "AUDIT-GL", "title": "Gold Ledger audit + failure handling", "prs": [32], "lane": "truth",
+     "why": "33 findings: missing page-level error boundaries, no loading skeletons, hardcoded hex, a11y gaps. 17 fixed, 3 deferred (shared Gold component issues)."},
+    {"id": "AUDIT-NC", "title": "Notebook Config audit + cleanup", "prs": [33], "lane": "truth",
+     "why": "9 findings: unused imports, hardcoded hex, missing form validation. 7 fixed, 2 deferred (advisory/shared-route issues)."},
+    {"id": "AUDIT-CP", "title": "Control Plane audit + fake data removal", "prs": [34], "lane": "truth",
+     "why": "12 findings: fabricated DEV/PROD entity split using Math.ceil, maintenance button crash on 404, hardcoded hex. 10 fixed, 2 deferred."},
+    {"id": "AUDIT-SQLX", "title": "SQL Explorer audit + path traversal fix", "prs": [35], "lane": "truth",
+     "why": "15 findings: path traversal vulnerability in lakehouse file endpoints, missing input validation, hardcoded hex. 12 fixed, 3 deferred."},
 ]
 
 PAGES = [
@@ -134,17 +145,17 @@ PAGES = [
     {"name": "Environment Setup", "route": "/setup", "lane": "Truth", "packets": ["AUDIT-ES"],
      "focus": "Audited — imports + ARIA tablist/tabpanel fixes", "next": "Done for now"},
     # Gold Studio — newly tracked
-    {"name": "Gold Ledger", "route": "/gold/ledger", "lane": "Audit", "packets": [],
-     "focus": "1237-line page, full API, unaudited", "next": "AUDIT-GL"},
+    {"name": "Gold Ledger", "route": "/gold/ledger", "lane": "Truth", "packets": ["AUDIT-GL"],
+     "focus": "Audited — failure handling + a11y fixes, shared Gold issues deferred", "next": "Shared Gold component cleanup"},
     {"name": "Gold Canonical", "route": "/gold/canonical", "lane": "Audit", "packets": [],
      "focus": "716-line page, approval + graph viz, unaudited", "next": "AUDIT-GC"},
     {"name": "Gold Specifications", "route": "/gold/specs", "lane": "Audit", "packets": [],
      "focus": "480-line page, spec detail + validation, unaudited", "next": "AUDIT-GS"},
     # Independent pages — newly tracked
-    {"name": "Business Requests", "route": "/requests", "lane": "Audit", "packets": [],
-     "focus": "597-line page, form + history, unaudited", "next": "AUDIT-BR"},
-    {"name": "SQL Explorer", "route": "/sql-explorer", "lane": "Audit", "packets": [],
-     "focus": "145-line wrapper + 2 sub-components, 20 endpoints, unaudited", "next": "AUDIT-SQLX"},
+    {"name": "Business Requests", "route": "/requests", "lane": "Truth", "packets": ["AUDIT-BR"],
+     "focus": "Audited — backend validation + dead code cleanup", "next": "Frontend/backend max length mismatch (advisory)"},
+    {"name": "SQL Explorer", "route": "/sql-explorer", "lane": "Truth", "packets": ["AUDIT-SQLX"],
+     "focus": "Audited — path traversal fix + input validation", "next": "Done for now"},
     # Stubs — Coming Soon placeholders (no API, no data to audit)
     {"name": "DQ Scorecard", "route": "/labs/dq-scorecard", "lane": "Stub", "packets": [],
      "focus": "51-line Coming Soon placeholder", "next": "Needs backend first"},
@@ -157,12 +168,12 @@ PAGES = [
      "focus": "386-line glossary + guides, no API", "next": "Done"},
     # ── Hidden routes (not in sidebar, routable via URL) ──
     # Infrastructure / Admin
-    {"name": "Control Plane", "route": "/control", "lane": "Hidden", "packets": [],
-     "focus": "Hidden admin page — pipeline metadata viewer", "next": "Audit if re-enabled"},
+    {"name": "Control Plane", "route": "/control", "lane": "Hidden/Audited", "packets": ["AUDIT-CP"],
+     "focus": "Audited — fake DEV/PROD split removed, maintenance crash fixed", "next": "Done for now"},
     {"name": "Admin Gateway", "route": "/admin", "lane": "Hidden", "packets": [],
      "focus": "Hidden — page visibility feature flags", "next": "Audit if re-enabled"},
-    {"name": "Notebook Config", "route": "/notebook-config", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — notebook configuration editor", "next": "Audit if re-enabled"},
+    {"name": "Notebook Config", "route": "/notebook-config", "lane": "Hidden/Audited", "packets": ["AUDIT-NC"],
+     "focus": "Audited — unused imports + form validation fixes", "next": "Done for now"},
     {"name": "Pipeline Runner", "route": "/runner", "lane": "Hidden", "packets": [],
      "focus": "Hidden — manual pipeline trigger UI", "next": "Audit if re-enabled"},
     {"name": "Notebook Debug", "route": "/notebook-debug", "lane": "Hidden", "packets": [],
