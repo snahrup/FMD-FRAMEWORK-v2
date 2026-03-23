@@ -145,6 +145,11 @@ PACKETS = [
      "why": "7 findings: broken /source-manager link, Bronze/Silver progress showed registered-as-loaded, 20+ hardcoded hex. 3 fixed, 4 deferred. Navigation flow map documented for DJ/CE."},
     {"id": "AUDIT-SF", "title": "Sankey Flow audit + blank-page bug fix", "prs": [54], "lane": "truth",
      "why": "6 findings: PRIORITY — render-then-blank bug fixed (broken height chain + ResizeObserver never re-attached after data load), hardcoded hex, dead imports. 4 fixed, 2 deferred."},
+    # Frontend-only wave 3b — connected exploration cluster
+    {"id": "AUDIT-CE", "title": "Column Evolution audit + endpoint verification", "prs": [55], "lane": "truth",
+     "why": "5 findings: /api/journey DOES exist (monitoring.py line 835), prior critical shape mismatches resolved, enhanced error state, a11y fixes. 4 fixed, 1 accepted-as-is."},
+    {"id": "AUDIT-DJ", "title": "Data Journey audit + handoff verification", "prs": [56], "lane": "truth",
+     "why": "8 findings: navigation handoff verified (?entity={id} consumed correctly), fabricated LZ count of 1 removed, 11 hardcoded hex, dead code. 5 fixed, 3 deferred (backend shape)."},
 ]
 
 PAGES = [
@@ -232,10 +237,10 @@ PAGES = [
      "focus": "Audited — broken nav link fixed, layer progress truth fix, navigation flow mapped", "next": "Done for now"},
     {"name": "Record Counts", "route": "/counts", "lane": "Hidden/Audited", "packets": ["AUDIT-RC"],
      "focus": "Audited — false 100% match rate fixed, scan errors now surfaced, all 8 fixed", "next": "Done for now"},
-    {"name": "Data Journey", "route": "/journey", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — entity journey through medallion layers", "next": "Audit if re-enabled"},
-    {"name": "Column Evolution", "route": "/columns", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — column schema drift tracker", "next": "Audit if re-enabled"},
+    {"name": "Data Journey", "route": "/journey", "lane": "Hidden/Audited", "packets": ["AUDIT-DJ"],
+     "focus": "Audited — handoff verified, fabricated LZ count removed, tokens + a11y", "next": "Backend shape alignment (deferred)"},
+    {"name": "Column Evolution", "route": "/columns", "lane": "Hidden/Audited", "packets": ["AUDIT-CE"],
+     "focus": "Audited — /api/journey confirmed working, error state enhanced, a11y fixes", "next": "Done for now"},
     {"name": "Data Microscope", "route": "/microscope", "lane": "Hidden", "packets": [],
      "focus": "Hidden — deep data inspection tool", "next": "Audit if re-enabled"},
     {"name": "Sankey Flow", "route": "/sankey", "lane": "Hidden/Audited", "packets": ["AUDIT-SF"],
