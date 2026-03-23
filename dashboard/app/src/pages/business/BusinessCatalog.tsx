@@ -8,7 +8,7 @@
 // ============================================================================
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useSourceConfig, resolveSourceLabel, getSourceColor } from "@/hooks/useSourceConfig";
 import {
   SourceBadge,
@@ -93,9 +93,8 @@ type TabId = "collections" | "tables";
 
 function DomainCard({ domain }: { domain: GoldDomain }) {
   return (
-    <Link
-      to={`/catalog-portal/domain-${domain.id}`}
-      className="bp-card p-5 flex flex-col no-underline transition-colors"
+    <div
+      className="bp-card p-5 flex flex-col transition-colors"
       style={{ minHeight: "160px" }}
       onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bp-surface-2)")}
       onMouseLeave={(e) => (e.currentTarget.style.background = "var(--bp-surface-1)")}
@@ -127,21 +126,15 @@ function DomainCard({ domain }: { domain: GoldDomain }) {
         {domain.description || "No description"}
       </p>
 
-      <div className="flex items-center justify-between mt-auto">
+      <div className="flex items-center mt-auto">
         <span
           className="bp-mono text-[12px]"
           style={{ color: "var(--bp-ink-muted)" }}
         >
           {domain.model_count ?? 0} dataset{(domain.model_count ?? 0) !== 1 ? "s" : ""}
         </span>
-        <span
-          className="text-[13px] inline-flex items-center gap-1"
-          style={{ color: "var(--bp-copper)", fontFamily: "var(--bp-font-body)" }}
-        >
-          Explore <ChevronRight className="h-3.5 w-3.5" />
-        </span>
       </div>
-    </Link>
+    </div>
   );
 }
 
@@ -321,7 +314,6 @@ function TableGridSkeleton() {
 // ── Main Component ──
 
 export default function BusinessCatalog() {
-  const navigate = useNavigate();
   const { sources: sourceConfigs } = useSourceConfig();
 
   const [activeTab, setActiveTab] = useState<TabId>("collections");
@@ -347,7 +339,16 @@ export default function BusinessCatalog() {
         return r.json();
       })
       .then((data) => {
-        setDomains(Array.isArray(data) ? data : []);
+        // Backend returns [{name, entityCount}] — normalise to GoldDomain shape
+        const arr: GoldDomain[] = (Array.isArray(data) ? data : []).map(
+          (d: Record<string, unknown>) => ({
+            id: (d.id as string | number) ?? null,
+            name: (d.name as string) ?? "",
+            description: (d.description as string) ?? undefined,
+            model_count: (d.entityCount as number) ?? (d.model_count as number) ?? 0,
+          })
+        );
+        setDomains(arr);
       })
       .catch(() => {
         setDomainsError(true);
@@ -360,12 +361,18 @@ export default function BusinessCatalog() {
   useEffect(() => {
     Promise.all([
       fetch(`${API}/api/overview/entities`).then((r) => r.ok ? r.json() : []).catch(() => []),
-      fetch(`${API}/api/mdm/quality/scores`).then((r) => r.ok ? r.json() : []).catch(() => []),
+      fetch(`${API}/api/mdm/quality/scores?limit=500`).then((r) => r.ok ? r.json() : { items: [] }).catch(() => ({ items: [] })),
       fetch(`${API}/api/glossary/annotations/bulk`).then((r) => r.ok ? r.json() : []).catch(() => []),
     ])
       .then(([entData, qData, annData]) => {
         setLzEntities(Array.isArray(entData) ? entData : []);
-        setQualityScores(Array.isArray(qData) ? qData : []);
+        // Backend returns {items: [{entityId, composite, ...}]} — normalise to QualityScore[]
+        const rawItems = Array.isArray(qData?.items) ? qData.items : (Array.isArray(qData) ? qData : []);
+        const scores: QualityScore[] = rawItems.map((q: Record<string, unknown>) => ({
+          entity_id: (q.entityId ?? q.entity_id) as number,
+          score: (q.composite ?? q.score ?? 0) as number,
+        }));
+        setQualityScores(scores);
         setAnnotations(Array.isArray(annData) ? annData : []);
       })
       .catch(() => {
