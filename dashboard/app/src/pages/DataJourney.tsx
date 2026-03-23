@@ -20,7 +20,6 @@ import {
   GitBranch,
   Info,
   ArrowUpDown,
-  CheckCircle,
   XCircle,
   Plus,
   Minus,
@@ -37,11 +36,11 @@ import {
 const API = "/api";
 
 const LAYERS = [
-  { key: "source",  label: "Source",       color: "var(--bp-ink-muted)",     hex: "#A8A29E", icon: Database,  bg: "bg-[var(--bp-surface-inset)]", border: "border-[var(--bp-border)]" },
-  { key: "landing", label: "Landing Zone", color: "var(--bp-ink-muted)",     hex: "#A8A29E", icon: HardDrive, bg: "bg-[var(--bp-surface-inset)]", border: "border-[var(--bp-border)]" },
-  { key: "bronze",  label: "Bronze",       color: "#9A4A1F",                hex: "#9A4A1F", icon: Table2,    bg: "bg-[#EDCFBD]",                 border: "border-[var(--bp-border)]" },
-  { key: "silver",  label: "Silver",       color: "#475569",                hex: "#475569", icon: Sparkles,  bg: "bg-[#E2E8F0]",                 border: "border-[var(--bp-border)]" },
-  { key: "gold",    label: "Gold",         color: "var(--bp-operational)",   hex: "#3D7C4F", icon: Crown,     bg: "bg-[var(--bp-operational-light)]", border: "border-[var(--bp-border)]" },
+  { key: "source",  label: "Source",       color: "var(--bp-ink-muted)",     icon: Database  },
+  { key: "landing", label: "Landing Zone", color: "var(--bp-ink-muted)",     icon: HardDrive },
+  { key: "bronze",  label: "Bronze",       color: "var(--bp-copper-hover)",  icon: Table2    },
+  { key: "silver",  label: "Silver",       color: "var(--bp-silver)",        icon: Sparkles  },
+  { key: "gold",    label: "Gold",         color: "var(--bp-operational)",   icon: Crown     },
 ];
 
 // ============================================================================
@@ -193,20 +192,20 @@ function LayerTimeline({ data }: { data: JourneyData }) {
                     : ""
                 }`}
                 style={{
-                  borderColor: isActive ? layer.hex : "rgba(128,128,128,0.2)",
-                  backgroundColor: isActive ? `${layer.hex}15` : "transparent",
-                  ringColor: isCurrent ? layer.hex : undefined,
-                  ...(isCurrent ? { ringColor: layer.hex, ["--tw-ring-offset-color" as string]: "var(--bp-canvas)" } : {}),
+                  borderColor: isActive ? layer.color : "rgba(128,128,128,0.2)",
+                  backgroundColor: isActive ? `color-mix(in srgb, ${layer.color} 8%, transparent)` : "transparent",
+                  ringColor: isCurrent ? layer.color : undefined,
+                  ...(isCurrent ? { ringColor: layer.color, ["--tw-ring-offset-color" as string]: "var(--bp-canvas)" } : {}),
                 }}
               >
                 <Icon
                   className="w-5 h-5"
-                  style={{ color: isActive ? layer.hex : "rgba(128,128,128,0.3)" }}
+                  style={{ color: isActive ? layer.color : "rgba(128,128,128,0.3)" }}
                 />
               </div>
               <span
                 className="text-[10px] font-semibold uppercase tracking-wider"
-                style={{ color: isActive ? layer.hex : "rgba(128,128,128,0.3)" }}
+                style={{ color: isActive ? layer.color : "rgba(128,128,128,0.3)" }}
               >
                 {layer.label}
               </span>
@@ -233,7 +232,7 @@ function LayerTimeline({ data }: { data: JourneyData }) {
                   style={{
                     background:
                       i < maxIdx + 1
-                        ? `repeating-linear-gradient(90deg, ${layer.hex} 0px, ${layer.hex} 6px, transparent 6px, transparent 10px)`
+                        ? `repeating-linear-gradient(90deg, ${layer.color} 0px, ${layer.color} 6px, transparent 6px, transparent 10px)`
                         : "repeating-linear-gradient(90deg, rgba(128,128,128,0.15) 0px, rgba(128,128,128,0.15) 4px, transparent 4px, transparent 8px)",
                     backgroundSize: i < maxIdx + 1 ? "16px 2px" : "8px 2px",
                     animation: i < maxIdx + 1 ? "flowDash 1s linear infinite" : "none",
@@ -242,7 +241,7 @@ function LayerTimeline({ data }: { data: JourneyData }) {
                 <ArrowRight
                   className="w-3 h-3 -ml-1 flex-shrink-0"
                   style={{
-                    color: i < maxIdx + 1 ? LAYERS[i + 1].hex : "rgba(128,128,128,0.15)",
+                    color: i < maxIdx + 1 ? LAYERS[i + 1].color : "rgba(128,128,128,0.15)",
                   }}
                 />
               </div>
@@ -279,11 +278,11 @@ function TransitionCard({
       }}
     >
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: fromLayer.hex }}>
+        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: fromLayer.color }}>
           {fromLayer.label}
         </span>
         <ArrowRight className="w-3 h-3" style={{ color: "var(--bp-ink-muted)" }} />
-        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: toLayer.hex }}>
+        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: toLayer.color }}>
           {toLayer.label}
         </span>
       </div>
@@ -308,8 +307,8 @@ function DiffBadge({ status }: { status: string }) {
   const styles: Record<string, { label: string; bgColor: string; textColor: string; borderColor: string }> = {
     unchanged:       { label: "Match",         bgColor: "var(--bp-operational-light)", textColor: "var(--bp-operational)", borderColor: "rgba(61,124,79,0.2)" },
     type_changed:    { label: "Type Changed",  bgColor: "var(--bp-caution-light)",     textColor: "var(--bp-caution)",     borderColor: "rgba(194,122,26,0.2)" },
-    added_in_silver: { label: "+ Silver",      bgColor: "#E2E8F0",                    textColor: "#475569",               borderColor: "rgba(71,85,105,0.2)" },
-    bronze_only:     { label: "Bronze Only",   bgColor: "#EDCFBD",                    textColor: "#9A4A1F",               borderColor: "rgba(154,74,31,0.2)" },
+    added_in_silver: { label: "+ Silver",      bgColor: "var(--bp-silver-light)",     textColor: "var(--bp-silver)",      borderColor: "rgba(71,85,105,0.2)" },
+    bronze_only:     { label: "Bronze Only",   bgColor: "var(--bp-bronze-light)",     textColor: "var(--bp-copper-hover)", borderColor: "rgba(154,74,31,0.2)" },
   };
   const s = styles[status] || styles.unchanged;
   return (
@@ -499,6 +498,7 @@ export default function DataJourney() {
           {journey && (
             <button
               onClick={() => loadJourney(journey.entityId)}
+              aria-label="Refresh entity journey data"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors"
               style={{ border: "1px solid var(--bp-border)", color: "var(--bp-ink-secondary)" }}
             >
@@ -509,7 +509,7 @@ export default function DataJourney() {
         </div>
 
         {/* Entity Selector */}
-        <div ref={selectorRef} className="relative max-w-2xl">
+        <div ref={selectorRef} className="relative max-w-2xl" role="combobox" aria-expanded={dropdownOpen} aria-label="Entity selector">
           <div
             className="flex items-center rounded-lg transition-colors cursor-pointer"
             style={{
@@ -553,6 +553,7 @@ export default function DataJourney() {
                   setJourney(null);
                   setSearchQuery("");
                 }}
+                aria-label="Clear entity selection"
                 className="mr-2"
                 style={{ color: "var(--bp-ink-muted)" }}
               >
@@ -653,7 +654,7 @@ export default function DataJourney() {
                       </span>
                     </div>
                     <StrataBar
-                      lz={journey.bronze?.rowCount ?? (journey.landing ? 1 : null)}
+                      lz={journey.bronze?.rowCount ?? null}
                       bronze={journey.bronze?.rowCount ?? null}
                       silver={journey.silver?.rowCount ?? null}
                       mode="count"
@@ -788,15 +789,15 @@ export default function DataJourney() {
                         icon={Columns3}
                         label="Column Delta"
                         value={`${colDelta >= 0 ? "+" : ""}${colDelta} (${journey.bronze?.columnCount} \u2192 ${journey.silver.columnCount})`}
-                        color={colDelta === 0 ? "text-[var(--bp-operational)]" : "text-[#475569]"}
+                        color={colDelta === 0 ? "text-[var(--bp-operational)]" : "text-[var(--bp-silver)]"}
                       />
                     )}
                     {addedInSilver.length > 0 && (
                       <div className="flex items-start gap-2">
-                        <Plus className="w-3.5 h-3.5 mt-0.5" style={{ color: "#475569" }} />
+                        <Plus className="w-3.5 h-3.5 mt-0.5" style={{ color: "var(--bp-silver)" }} />
                         <div>
                           <span className="text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>Added in Silver: </span>
-                          <span className="text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "#475569" }}>
+                          <span className="text-xs" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-silver)" }}>
                             {addedInSilver.map((d) => d.columnName).join(", ")}
                           </span>
                         </div>
@@ -890,11 +891,11 @@ export default function DataJourney() {
                       <thead>
                         <tr style={{ backgroundColor: "var(--bp-surface-inset)", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
                           <th className="text-left px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Column</th>
-                          <th className="text-left px-4 py-2 font-medium" style={{ color: "#9A4A1F" }}>Bronze Type</th>
-                          <th className="text-left px-4 py-2 font-medium" style={{ color: "#475569" }}>Silver Type</th>
+                          <th className="text-left px-4 py-2 font-medium" style={{ color: "var(--bp-copper-hover)" }}>Bronze Type</th>
+                          <th className="text-left px-4 py-2 font-medium" style={{ color: "var(--bp-silver)" }}>Silver Type</th>
                           <th className="text-center px-4 py-2 font-medium" style={{ color: "var(--bp-ink-secondary)" }}>Status</th>
-                          <th className="text-center px-4 py-2 font-medium" style={{ color: "#9A4A1F" }}>Nullable (B)</th>
-                          <th className="text-center px-4 py-2 font-medium" style={{ color: "#475569" }}>Nullable (S)</th>
+                          <th className="text-center px-4 py-2 font-medium" style={{ color: "var(--bp-copper-hover)" }}>Nullable (B)</th>
+                          <th className="text-center px-4 py-2 font-medium" style={{ color: "var(--bp-silver)" }}>Nullable (S)</th>
                         </tr>
                       </thead>
                       <tbody>
