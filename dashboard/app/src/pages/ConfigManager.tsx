@@ -88,7 +88,6 @@ interface ConfigData {
     name: string;
     wsParamDefault: string | null;
     connectionRefs: string[];
-    invokeRefs: { name: string; pipelineId: string; workspaceId: string }[];
     allParams: Record<string, string>;
     error?: string;
   }[];
@@ -908,7 +907,7 @@ export default function ConfigManager() {
             </h2>
           </div>
           <p className="text-sm mt-2" style={{ color: "var(--bp-ink-secondary)" }}>
-            Updating 22 pipelines across DEV + PROD workspaces. This takes about 15–20 seconds.
+            Updating {pipelineConfigs.length} pipelines across DEV + PROD workspaces. This takes about 15–20 seconds.
           </p>
         </div>
       )}
@@ -1184,8 +1183,8 @@ export default function ConfigManager() {
                       )}
                     </TD>
                     <TD>
-                      <span className={`text-sm ${c.IsActive === "True" ? "text-[var(--bp-operational)]" : "text-muted-foreground"}`}>
-                        {c.IsActive === "True" ? "Yes" : "No"}
+                      <span className={`text-sm ${Number(c.IsActive) === 1 ? "text-[var(--bp-operational)]" : "text-muted-foreground"}`}>
+                        {Number(c.IsActive) === 1 ? "Yes" : "No"}
                       </span>
                     </TD>
                   </tr>
@@ -1320,8 +1319,8 @@ export default function ConfigManager() {
                       </div>
                     </TD>
                     <TD>
-                      <span className={`text-sm ${ds.IsActive === "True" ? "text-[var(--bp-operational)]" : "text-muted-foreground"}`}>
-                        {ds.IsActive === "True" ? "Yes" : "No"}
+                      <span className={`text-sm ${Number(ds.IsActive) === 1 ? "text-[var(--bp-operational)]" : "text-muted-foreground"}`}>
+                        {Number(ds.IsActive) === 1 ? "Yes" : "No"}
                       </span>
                     </TD>
                   </tr>
@@ -1468,8 +1467,8 @@ export default function ConfigManager() {
                         </div>
                       </TD>
                       <TD>
-                        <span className={`text-sm ${p.IsActive === "True" ? "text-[var(--bp-operational)]" : "text-muted-foreground"}`}>
-                          {p.IsActive === "True" ? "Yes" : "No"}
+                        <span className={`text-sm ${Number(p.IsActive) === 1 ? "text-[var(--bp-operational)]" : "text-muted-foreground"}`}>
+                          {Number(p.IsActive) === 1 ? "Yes" : "No"}
                         </span>
                       </TD>
                     </tr>
