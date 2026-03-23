@@ -1,5 +1,5 @@
 import { FabricDropdown } from "../components/FabricDropdown";
-import type { FabricSqlDatabase, FabricEntity } from "../types";
+import type { FabricSqlDatabase } from "../types";
 import { Server } from "lucide-react";
 
 interface DatabaseStepProps {

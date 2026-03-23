@@ -1,5 +1,5 @@
 import { FabricDropdown } from "../components/FabricDropdown";
-import type { FabricEntity, LakehouseAssignment, EnvironmentConfig, NAMING_CONVENTIONS } from "../types";
+import type { LakehouseAssignment, EnvironmentConfig } from "../types";
 import { Database } from "lucide-react";
 
 const LAKEHOUSE_FIELDS: {

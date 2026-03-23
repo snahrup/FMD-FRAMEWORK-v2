@@ -1,5 +1,5 @@
 import { FabricDropdown } from "../components/FabricDropdown";
-import type { FabricCapacity, FabricEntity } from "../types";
+import type { FabricCapacity } from "../types";
 import { Cpu } from "lucide-react";
 
 interface CapacityStepProps {

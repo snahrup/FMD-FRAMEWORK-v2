@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Save, ShieldCheck, CheckCircle2, XCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { SaveResults, ValidationResultsView } from "../components/ValidationResults";
 import type { EnvironmentConfig, SaveResult, ValidationCheck } from "../types";
 
@@ -97,9 +96,9 @@ export function ReviewStep({ config }: ReviewStepProps) {
         <table className="w-full">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--bp-border)' }}>
-              <th className="pb-1.5 text-left text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Setting</th>
-              <th className="pb-1.5 text-left text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Value</th>
-              <th className="pb-1.5 w-6"></th>
+              <th scope="col" className="pb-1.5 text-left text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Setting</th>
+              <th scope="col" className="pb-1.5 text-left text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Value</th>
+              <th scope="col" className="pb-1.5 w-6"><span className="sr-only">Status</span></th>
             </tr>
           </thead>
           <tbody>
@@ -124,7 +123,7 @@ export function ReviewStep({ config }: ReviewStepProps) {
       </div>
 
       {saveError && (
-        <div className="rounded-md p-3 text-xs" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)', color: 'var(--bp-fault)' }}>
+        <div role="alert" className="rounded-md p-3 text-xs" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)', color: 'var(--bp-fault)' }}>
           {saveError}
         </div>
       )}

@@ -36,7 +36,7 @@ export function StepIndicator({ steps, currentStep, completedSteps }: StepIndica
                   color: isDone
                     ? 'var(--bp-copper)'
                     : isActive
-                    ? '#FFFFFF'
+                    ? 'var(--bp-surface-1)'
                     : 'var(--bp-ink-muted)',
                   border: isDone
                     ? '1px solid var(--bp-copper)'
