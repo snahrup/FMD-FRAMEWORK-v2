@@ -238,7 +238,15 @@ def post_connection(params: dict) -> dict:
             400,
         )
 
+    # Look up existing row by ConnectionGuid to make this idempotent.
+    # Without this, repeated registrations create duplicate rows because
+    # upsert_connection() keys on ConnectionId (PK), not ConnectionGuid.
+    existing = [c for c in cpdb.get_connections()
+                if (c.get("ConnectionGuid") or "").lower() == guid.lower()]
+    conn_id = existing[0]["ConnectionId"] if existing else None
+
     cpdb.upsert_connection({
+        "ConnectionId": conn_id,
         "ConnectionGuid": guid,
         "Name": name,
         "DisplayName": gw["displayName"],
@@ -248,13 +256,20 @@ def post_connection(params: dict) -> dict:
         "IsActive": 1,
     })
 
-    log.info("Registered connection: %s (GUID: %s, server: %s, db: %s)",
-             name, guid, gw["server"], gw["database"])
+    # Re-read to get the actual ConnectionId (covers both insert and update)
+    if conn_id is None:
+        rows = [c for c in cpdb.get_connections()
+                if (c.get("ConnectionGuid") or "").lower() == guid.lower()]
+        conn_id = rows[0]["ConnectionId"] if rows else None
+
+    log.info("Registered connection: %s (id=%s, GUID: %s, server: %s, db: %s)",
+             name, conn_id, guid, gw["server"], gw["database"])
 
     return {
         "success": True,
         "message": f"Registered {name} ({gw['server']} → {gw['database']})",
         "connection": {
+            "ConnectionId": conn_id,
             "ConnectionGuid": guid,
             "Name": name,
             "DisplayName": gw["displayName"],
