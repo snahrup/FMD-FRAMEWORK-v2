@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import {
   Play, Loader2, AlertCircle, CheckCircle2, ChevronRight,
   Database, Layers, ArrowRight, Shield, RotateCcw, Info,
-  ChevronDown, ChevronUp, Search, X, Zap, AlertTriangle,
+  Search, X, Zap, AlertTriangle,
 } from "lucide-react";
 import { cn, getSourceDisplayName } from "@/lib/utils";
 
@@ -136,16 +136,16 @@ function StepIndicator({ step, currentStep, label }: { step: WizardStep; current
       <div
         className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all"
         style={{
-          backgroundColor: isComplete ? '#3D7C4F' : isCurrent ? '#B45624' : '#EDEAE4',
-          color: isComplete || isCurrent ? '#FEFDFB' : '#A8A29E',
-          ...(isCurrent ? { boxShadow: '0 0 0 3px rgba(180, 86, 36, 0.2)' } : {}),
+          backgroundColor: isComplete ? 'var(--bp-operational)' : isCurrent ? 'var(--bp-copper)' : 'var(--bg-muted)',
+          color: isComplete || isCurrent ? 'var(--bp-surface-1)' : 'var(--bp-ink-muted)',
+          ...(isCurrent ? { boxShadow: '0 0 0 3px var(--bp-copper-soft)' } : {}),
         }}
       >
         {isComplete ? <CheckCircle2 className="w-5 h-5" /> : stepIdx + 1}
       </div>
       <span
         className="text-sm font-medium transition-colors"
-        style={{ color: isCurrent ? '#1C1917' : '#A8A29E' }}
+        style={{ color: isCurrent ? 'var(--bp-ink-primary)' : 'var(--bp-ink-muted)' }}
       >
         {label}
       </span>
@@ -164,11 +164,13 @@ function SourceCard({ source, selected, onToggle }: {
   return (
     <button
       onClick={onToggle}
+      aria-pressed={selected}
+      aria-label={`${selected ? 'Deselect' : 'Select'} ${source.displayName || source.name} data source`}
       className="w-full text-left p-4 rounded-xl border-2 transition-all duration-200"
       style={{
-        borderColor: selected ? '#B45624' : 'rgba(0,0,0,0.08)',
-        backgroundColor: selected ? '#F4E8DF' : '#FEFDFB',
-        boxShadow: selected ? '0 4px 6px -1px rgba(180, 86, 36, 0.1)' : 'none',
+        borderColor: selected ? 'var(--bp-copper)' : 'var(--bp-border)',
+        backgroundColor: selected ? 'var(--bp-copper-light)' : 'var(--bp-surface-1)',
+        boxShadow: selected ? '0 4px 6px -1px var(--bp-copper-soft)' : 'none',
       }}
     >
       <div className="flex items-start justify-between">
@@ -176,40 +178,41 @@ function SourceCard({ source, selected, onToggle }: {
           <div
             className="w-10 h-10 rounded-lg flex items-center justify-center"
             style={{
-              backgroundColor: selected ? '#B45624' : '#EDEAE4',
-              color: selected ? '#FEFDFB' : '#A8A29E',
+              backgroundColor: selected ? 'var(--bp-copper)' : 'var(--bg-muted)',
+              color: selected ? 'var(--bp-surface-1)' : 'var(--bp-ink-muted)',
             }}
           >
             <Database className="w-5 h-5" />
           </div>
           <div>
-            <p className="font-semibold text-sm" style={{ color: '#1C1917' }}>{source.displayName || getSourceDisplayName(source.name)}</p>
-            <p className="text-xs mt-0.5" style={{ color: '#78716C' }}>{source.connectionName}</p>
+            <p className="font-semibold text-sm" style={{ color: 'var(--bp-ink-primary)' }}>{source.displayName || getSourceDisplayName(source.name)}</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--bp-ink-tertiary)' }}>{source.connectionName}</p>
           </div>
         </div>
         <div
           className="w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all"
+          aria-hidden="true"
           style={{
-            borderColor: selected ? '#B45624' : 'rgba(0,0,0,0.14)',
-            backgroundColor: selected ? '#B45624' : 'transparent',
+            borderColor: selected ? 'var(--bp-copper)' : 'var(--bp-border-strong)',
+            backgroundColor: selected ? 'var(--bp-copper)' : 'transparent',
           }}
         >
-          {selected && <CheckCircle2 className="w-4 h-4" style={{ color: '#FEFDFB' }} />}
+          {selected && <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--bp-surface-1)' }} />}
         </div>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2">
         {[
-          { label: 'Landing', count: source.entities.landing.active, color: '#A8A29E' },
-          { label: 'Bronze', count: source.entities.bronze.active, color: '#C27A1A' },
-          { label: 'Silver', count: source.entities.silver.active, color: '#78716C' },
+          { label: 'Landing', count: source.entities.landing.active, color: 'var(--bp-ink-muted)' },
+          { label: 'Bronze', count: source.entities.bronze.active, color: 'var(--bp-caution)' },
+          { label: 'Silver', count: source.entities.silver.active, color: 'var(--bp-ink-tertiary)' },
         ].map(({ label, count, color }) => (
-          <div key={label} className="text-center py-1.5 rounded-md" style={{ backgroundColor: '#F9F7F3' }}>
+          <div key={label} className="text-center py-1.5 rounded-md" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
             <p className="text-lg font-bold tabular-nums" style={{ color, fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>{count}</p>
-            <p className="text-[10px] uppercase tracking-wider" style={{ color: '#A8A29E' }}>{label}</p>
+            <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>{label}</p>
           </div>
         ))}
       </div>
-      <p className="text-xs mt-2" style={{ color: '#A8A29E' }}>
+      <p className="text-xs mt-2" style={{ color: 'var(--bp-ink-muted)' }}>
         {totalEntities} total entities
       </p>
     </button>
@@ -242,6 +245,7 @@ function EntityTable({ entities, selectedIds, onToggle, onToggleAll, searchTerm,
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Filter entities..."
+            aria-label="Filter entities by name or schema"
             className="w-full pl-9 pr-3 py-2 text-sm border rounded-lg bg-background"
           />
         </div>
@@ -249,17 +253,17 @@ function EntityTable({ entities, selectedIds, onToggle, onToggleAll, searchTerm,
           {allSelected ? 'Deselect All' : 'Select All'}
         </Button>
       </div>
-      <div className="max-h-[400px] overflow-y-auto rounded-lg" style={{ border: '1px solid rgba(0,0,0,0.08)' }}>
-        <table className="w-full text-sm">
-          <thead className="sticky top-0" style={{ backgroundColor: '#F9F7F3' }}>
+      <div className="max-h-[400px] overflow-y-auto rounded-lg" style={{ border: '1px solid var(--bp-border)' }}>
+        <table className="w-full text-sm" role="grid" aria-label="Entity selection table">
+          <thead className="sticky top-0" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
             <tr>
-              <th className="w-8 px-3 py-2"></th>
-              <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: '#78716C' }}>Entity</th>
-              <th className="px-3 py-2 text-left text-xs font-semibold" style={{ color: '#78716C' }}>Schema</th>
-              <th className="px-3 py-2 text-center text-xs font-semibold" style={{ color: '#78716C' }}>Incremental</th>
-              <th className="px-3 py-2 text-center text-xs font-semibold" style={{ color: '#78716C' }}>LZ</th>
-              <th className="px-3 py-2 text-center text-xs font-semibold" style={{ color: '#78716C' }}>Bronze</th>
-              <th className="px-3 py-2 text-center text-xs font-semibold" style={{ color: '#78716C' }}>Silver</th>
+              <th className="w-8 px-3 py-2" scope="col"><span className="sr-only">Selected</span></th>
+              <th className="px-3 py-2 text-left text-xs font-semibold" scope="col" style={{ color: 'var(--bp-ink-tertiary)' }}>Entity</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold" scope="col" style={{ color: 'var(--bp-ink-tertiary)' }}>Schema</th>
+              <th className="px-3 py-2 text-center text-xs font-semibold" scope="col" style={{ color: 'var(--bp-ink-tertiary)' }}>Incremental</th>
+              <th className="px-3 py-2 text-center text-xs font-semibold" scope="col" style={{ color: 'var(--bp-ink-tertiary)' }}>LZ</th>
+              <th className="px-3 py-2 text-center text-xs font-semibold" scope="col" style={{ color: 'var(--bp-ink-tertiary)' }}>Bronze</th>
+              <th className="px-3 py-2 text-center text-xs font-semibold" scope="col" style={{ color: 'var(--bp-ink-tertiary)' }}>Silver</th>
             </tr>
           </thead>
           <tbody>
@@ -269,46 +273,51 @@ function EntityTable({ entities, selectedIds, onToggle, onToggleAll, searchTerm,
                 <tr
                   key={e.lzEntityId}
                   onClick={() => onToggle(e.lzEntityId)}
+                  onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onToggle(e.lzEntityId); } }}
+                  tabIndex={0}
+                  role="row"
+                  aria-selected={selected}
                   className="cursor-pointer transition-colors"
                   style={{
-                    borderBottom: '1px solid rgba(0,0,0,0.04)',
-                    backgroundColor: selected ? '#F4E8DF' : undefined,
+                    borderBottom: '1px solid var(--bp-border-subtle)',
+                    backgroundColor: selected ? 'var(--bp-copper-light)' : undefined,
                   }}
-                  onMouseEnter={(ev) => { if (!selected) ev.currentTarget.style.backgroundColor = '#F9F7F3'; }}
+                  onMouseEnter={(ev) => { if (!selected) ev.currentTarget.style.backgroundColor = 'var(--bp-surface-inset)'; }}
                   onMouseLeave={(ev) => { if (!selected) ev.currentTarget.style.backgroundColor = ''; }}
                 >
                   <td className="px-3 py-2 text-center">
                     <div
                       className="w-4 h-4 rounded border-2 flex items-center justify-center"
+                      aria-hidden="true"
                       style={{
-                        borderColor: selected ? '#B45624' : 'rgba(0,0,0,0.14)',
-                        backgroundColor: selected ? '#B45624' : 'transparent',
+                        borderColor: selected ? 'var(--bp-copper)' : 'var(--bp-border-strong)',
+                        backgroundColor: selected ? 'var(--bp-copper)' : 'transparent',
                       }}
                     >
-                      {selected && <CheckCircle2 className="w-3 h-3" style={{ color: '#FEFDFB' }} />}
+                      {selected && <CheckCircle2 className="w-3 h-3" style={{ color: 'var(--bp-surface-1)' }} />}
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-xs" style={{ fontFamily: "var(--font-mono)", color: '#1C1917' }}>{e.sourceName}</td>
-                  <td className="px-3 py-2 text-xs" style={{ color: '#78716C' }}>{e.sourceSchema}</td>
+                  <td className="px-3 py-2 text-xs" style={{ fontFamily: "var(--font-mono)", color: 'var(--bp-ink-primary)' }}>{e.sourceName}</td>
+                  <td className="px-3 py-2 text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>{e.sourceSchema}</td>
                   <td className="px-3 py-2 text-center">
                     {e.isIncremental ? (
-                      <span className="text-xs font-medium" style={{ color: '#3D7C4F' }}>Yes</span>
+                      <span className="text-xs font-medium" style={{ color: 'var(--bp-operational)' }}>Yes</span>
                     ) : (
-                      <span className="text-xs" style={{ color: '#A8A29E' }}>Full</span>
+                      <span className="text-xs" style={{ color: 'var(--bp-ink-muted)' }}>Full</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-center">
-                    {e.lzActive ? <CheckCircle2 className="w-3.5 h-3.5 mx-auto" style={{ color: '#3D7C4F' }} /> : <X className="w-3.5 h-3.5 mx-auto" style={{ color: 'rgba(0,0,0,0.14)' }} />}
+                    {e.lzActive ? <CheckCircle2 className="w-3.5 h-3.5 mx-auto" aria-label="Active" style={{ color: 'var(--bp-operational)' }} /> : <X className="w-3.5 h-3.5 mx-auto" aria-label="Inactive" style={{ color: 'var(--bp-border-strong)' }} />}
                   </td>
                   <td className="px-3 py-2 text-center">
                     {e.bronzeEntityId ? (
-                      e.bronzeActive ? <CheckCircle2 className="w-3.5 h-3.5 mx-auto" style={{ color: '#C27A1A' }} /> : <X className="w-3.5 h-3.5 mx-auto" style={{ color: 'rgba(0,0,0,0.14)' }} />
-                    ) : <span style={{ color: 'rgba(0,0,0,0.14)' }}>—</span>}
+                      e.bronzeActive ? <CheckCircle2 className="w-3.5 h-3.5 mx-auto" aria-label="Active" style={{ color: 'var(--bp-caution)' }} /> : <X className="w-3.5 h-3.5 mx-auto" aria-label="Inactive" style={{ color: 'var(--bp-border-strong)' }} />
+                    ) : <span style={{ color: 'var(--bp-border-strong)' }} aria-label="Not registered">—</span>}
                   </td>
                   <td className="px-3 py-2 text-center">
                     {e.silverEntityId ? (
-                      e.silverActive ? <CheckCircle2 className="w-3.5 h-3.5 mx-auto" style={{ color: '#78716C' }} /> : <X className="w-3.5 h-3.5 mx-auto" style={{ color: 'rgba(0,0,0,0.14)' }} />
-                    ) : <span style={{ color: 'rgba(0,0,0,0.14)' }}>—</span>}
+                      e.silverActive ? <CheckCircle2 className="w-3.5 h-3.5 mx-auto" aria-label="Active" style={{ color: 'var(--bp-ink-tertiary)' }} /> : <X className="w-3.5 h-3.5 mx-auto" aria-label="Inactive" style={{ color: 'var(--bp-border-strong)' }} />
+                    ) : <span style={{ color: 'var(--bp-border-strong)' }} aria-label="Not registered">—</span>}
                   </td>
                 </tr>
               );
@@ -316,7 +325,7 @@ function EntityTable({ entities, selectedIds, onToggle, onToggleAll, searchTerm,
           </tbody>
         </table>
       </div>
-      <p className="text-xs" style={{ color: '#78716C' }}>
+      <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>
         {selectedIds.size} of {entities.length} entities selected
         {searchTerm && ` (showing ${filtered.length} matching "${searchTerm}")`}
       </p>
@@ -500,8 +509,8 @@ export default function PipelineRunner() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#B45624' }} />
-        <span className="ml-3" style={{ color: '#78716C' }}>Loading pipeline runner...</span>
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--bp-copper)' }} />
+        <span className="ml-3" style={{ color: 'var(--bp-ink-tertiary)' }}>Loading pipeline runner...</span>
       </div>
     );
   }
@@ -509,8 +518,8 @@ export default function PipelineRunner() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-96 gap-4">
-        <AlertCircle className="w-12 h-12" style={{ color: '#B93A2A' }} />
-        <p className="font-medium" style={{ color: '#B93A2A' }}>{error}</p>
+        <AlertCircle className="w-12 h-12" style={{ color: 'var(--bp-fault)' }} />
+        <p className="font-medium" style={{ color: 'var(--bp-fault)' }}>{error}</p>
       </div>
     );
   }
@@ -550,9 +559,9 @@ export default function PipelineRunner() {
       {step !== 'running' && (
         <div className="flex items-center gap-6">
           <StepIndicator step="source" currentStep={step} label="Select Sources" />
-          <ChevronRight className="w-4 h-4" style={{ color: '#A8A29E' }} />
+          <ChevronRight className="w-4 h-4" style={{ color: 'var(--bp-ink-muted)' }} />
           <StepIndicator step="layer" currentStep={step} label="Choose Layer" />
-          <ChevronRight className="w-4 h-4" style={{ color: '#A8A29E' }} />
+          <ChevronRight className="w-4 h-4" style={{ color: 'var(--bp-ink-muted)' }} />
           <StepIndicator step="review" currentStep={step} label="Review & Fire" />
         </div>
       )}
@@ -572,16 +581,23 @@ export default function PipelineRunner() {
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {sources.map(source => (
-              <SourceCard
-                key={source.dataSourceId}
-                source={source}
-                selected={selectedSources.has(source.dataSourceId)}
-                onToggle={() => toggleSource(source.dataSourceId)}
-              />
-            ))}
-          </div>
+          {sources.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Database className="w-10 h-10" style={{ color: 'var(--bp-ink-muted)' }} />
+              <p className="text-sm" style={{ color: 'var(--bp-ink-secondary)' }}>No data sources found. Register sources in the metadata database first.</p>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {sources.map(source => (
+                <SourceCard
+                  key={source.dataSourceId}
+                  source={source}
+                  selected={selectedSources.has(source.dataSourceId)}
+                  onToggle={() => toggleSource(source.dataSourceId)}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Entity drill-down (optional) */}
           {selectedSources.size === 1 && (
@@ -676,29 +692,30 @@ export default function PipelineRunner() {
                 onClick={() => setSelectedLayer(key)}
                 className="w-full text-left p-5 rounded-xl border-2 transition-all duration-200"
                 style={{
-                  borderColor: selectedLayer === key ? '#B45624' : 'rgba(0,0,0,0.08)',
-                  backgroundColor: selectedLayer === key ? '#F4E8DF' : '#FEFDFB',
-                  boxShadow: selectedLayer === key ? '0 4px 6px -1px rgba(180, 86, 36, 0.1)' : 'none',
+                  borderColor: selectedLayer === key ? 'var(--bp-copper)' : 'var(--bp-border)',
+                  backgroundColor: selectedLayer === key ? 'var(--bp-copper-light)' : 'var(--bp-surface-1)',
+                  boxShadow: selectedLayer === key ? '0 4px 6px -1px var(--bp-copper-soft)' : 'none',
                 }}
               >
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">{cfg.icon}</span>
                   <div className="flex-1">
                     <p className={cn("font-semibold", cfg.color)}>{cfg.label}</p>
-                    <p className="text-xs mt-0.5" style={{ color: '#78716C' }}>{cfg.description}</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--bp-ink-tertiary)' }}>{cfg.description}</p>
                   </div>
                   <div
                     className="w-6 h-6 rounded-full border-2 flex items-center justify-center"
+                    aria-hidden="true"
                     style={{
-                      borderColor: selectedLayer === key ? '#B45624' : 'rgba(0,0,0,0.14)',
-                      backgroundColor: selectedLayer === key ? '#B45624' : 'transparent',
+                      borderColor: selectedLayer === key ? 'var(--bp-copper)' : 'var(--bp-border-strong)',
+                      backgroundColor: selectedLayer === key ? 'var(--bp-copper)' : 'transparent',
                     }}
                   >
-                    {selectedLayer === key && <CheckCircle2 className="w-4 h-4" style={{ color: '#FEFDFB' }} />}
+                    {selectedLayer === key && <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--bp-surface-1)' }} />}
                   </div>
                 </div>
                 <div className="mt-3 px-1">
-                  <p className="text-[11px] rounded px-2 py-1 inline-block" style={{ fontFamily: "var(--font-mono)", color: '#78716C', backgroundColor: '#F9F7F3' }}>
+                  <p className="text-[11px] rounded px-2 py-1 inline-block" style={{ fontFamily: "var(--font-mono)", color: 'var(--bp-ink-tertiary)', backgroundColor: 'var(--bp-surface-inset)' }}>
                     {cfg.pipeline}
                   </p>
                 </div>
@@ -726,30 +743,30 @@ export default function PipelineRunner() {
           <h2 className="text-lg font-semibold" style={{ fontFamily: 'var(--bp-font-body)', color: 'var(--bp-ink-primary)' }}>Review your run configuration</h2>
 
           {/* Summary card */}
-          <Card style={{ border: '2px solid rgba(180, 86, 36, 0.2)' }}>
+          <Card style={{ border: '2px solid var(--bp-copper-soft)' }}>
             <CardContent className="pt-6 space-y-4">
               {/* What will run */}
               <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#78716C' }}>Pipeline</h3>
-                <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: '#F9F7F3' }}>
+                <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--bp-ink-tertiary)' }}>Pipeline</h3>
+                <div className="flex items-center gap-3 p-3 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
                   <span className="text-xl">{layerConfig[selectedLayer].icon}</span>
                   <div>
-                    <p className="font-semibold text-sm" style={{ color: '#1C1917' }}>{layerConfig[selectedLayer].label}</p>
-                    <p className="text-xs" style={{ fontFamily: "var(--font-mono)", color: '#78716C' }}>{pipelineName}</p>
+                    <p className="font-semibold text-sm" style={{ color: 'var(--bp-ink-primary)' }}>{layerConfig[selectedLayer].label}</p>
+                    <p className="text-xs" style={{ fontFamily: "var(--font-mono)", color: 'var(--bp-ink-tertiary)' }}>{pipelineName}</p>
                   </div>
                 </div>
               </div>
 
               {/* Data sources */}
               <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#78716C' }}>Data Sources ({selectedSourcesList.length})</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--bp-ink-tertiary)' }}>Data Sources ({selectedSourcesList.length})</h3>
                 <div className="space-y-2">
                   {selectedSourcesList.map(s => (
-                    <div key={s.dataSourceId} className="flex items-center justify-between p-3 rounded-lg" style={{ backgroundColor: '#F9F7F3' }}>
+                    <div key={s.dataSourceId} className="flex items-center justify-between p-3 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
                       <div className="flex items-center gap-2">
-                        <Database className="w-4 h-4" style={{ color: '#B45624' }} />
-                        <span className="text-sm font-medium" style={{ color: '#1C1917' }}>{s.displayName || getSourceDisplayName(s.name)}</span>
-                        <span className="text-xs" style={{ color: '#78716C' }}>via {s.connectionName}</span>
+                        <Database className="w-4 h-4" style={{ color: 'var(--bp-copper)' }} />
+                        <span className="text-sm font-medium" style={{ color: 'var(--bp-ink-primary)' }}>{s.displayName || getSourceDisplayName(s.name)}</span>
+                        <span className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>via {s.connectionName}</span>
                       </div>
                       <span className="text-sm font-semibold tabular-nums" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
                         {entityMode === 'custom' && selectedSources.size === 1
@@ -764,7 +781,7 @@ export default function PipelineRunner() {
 
               {/* What will be affected */}
               <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#78716C' }}>Execution Scope</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--bp-ink-tertiary)' }}>Execution Scope</h3>
                 <div className="p-3 rounded-lg" style={{ background: 'var(--bp-copper-light)', border: '1px solid var(--bp-border)' }}>
                   <div className="flex items-start gap-2">
                     <Shield className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--bp-copper)' }} />
@@ -860,29 +877,29 @@ export default function PipelineRunner() {
               {/* Run details */}
               <div className="grid gap-3 sm:grid-cols-2">
                 {runnerState.pipelineTriggered && (
-                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#FEFDFB', border: '1px solid rgba(0,0,0,0.08)' }}>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#78716C' }}>Pipeline</p>
-                    <p className="text-sm font-medium mt-1" style={{ fontFamily: "var(--font-mono)", color: '#1C1917' }}>{runnerState.pipelineTriggered}</p>
+                  <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-ink-tertiary)' }}>Pipeline</p>
+                    <p className="text-sm font-medium mt-1" style={{ fontFamily: "var(--font-mono)", color: 'var(--bp-ink-primary)' }}>{runnerState.pipelineTriggered}</p>
                   </div>
                 )}
                 {runnerState.layer && (
-                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#FEFDFB', border: '1px solid rgba(0,0,0,0.08)' }}>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#78716C' }}>Layer</p>
-                    <p className="text-sm font-medium mt-1 capitalize" style={{ color: '#1C1917' }}>{runnerState.layer === 'full' ? 'Full Pipeline' : runnerState.layer}</p>
+                  <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-ink-tertiary)' }}>Layer</p>
+                    <p className="text-sm font-medium mt-1 capitalize" style={{ color: 'var(--bp-ink-primary)' }}>{runnerState.layer === 'full' ? 'Full Pipeline' : runnerState.layer}</p>
                   </div>
                 )}
                 {runnerState.kept && (
-                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#FEFDFB', border: '1px solid rgba(0,0,0,0.08)' }}>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#78716C' }}>Entities In Scope</p>
-                    <p className="text-sm font-medium mt-1" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#1C1917' }}>
+                  <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-ink-tertiary)' }}>Entities In Scope</p>
+                    <p className="text-sm font-medium mt-1" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: 'var(--bp-ink-primary)' }}>
                       {runnerState.kept.lz} LZ · {runnerState.kept.bronze} Bronze · {runnerState.kept.silver} Silver
                     </p>
                   </div>
                 )}
                 {runnerState.affected && (
-                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#FEFDFB', border: '1px solid rgba(0,0,0,0.08)' }}>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#78716C' }}>Temporarily Deactivated</p>
-                    <p className="text-sm font-medium mt-1" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: '#C27A1A' }}>
+                  <div className="p-3 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-ink-tertiary)' }}>Temporarily Deactivated</p>
+                    <p className="text-sm font-medium mt-1" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: 'var(--bp-caution)' }}>
                       {runnerState.affected.lz} LZ · {runnerState.affected.bronze} Bronze · {runnerState.affected.silver} Silver
                     </p>
                   </div>
@@ -890,7 +907,7 @@ export default function PipelineRunner() {
               </div>
 
               {runnerState.triggeredAt && (
-                <p className="text-xs" style={{ color: '#78716C', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
+                <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
                   Started {new Date(runnerState.triggeredAt * 1000).toLocaleString('en-US', {
                     month: 'numeric', day: 'numeric', year: 'numeric',
                     hour: 'numeric', minute: '2-digit', hour12: true,
@@ -908,10 +925,10 @@ export default function PipelineRunner() {
           </Card>
 
           {/* Restore button */}
-          <div className="flex items-center justify-between p-4 rounded-lg" style={{ backgroundColor: '#F9F7F3', border: '1px solid rgba(0,0,0,0.08)' }}>
+          <div className="flex items-center justify-between p-4 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)', border: '1px solid var(--bp-border)' }}>
             <div>
-              <p className="text-sm font-semibold" style={{ color: '#1C1917' }}>Ready to restore?</p>
-              <p className="text-xs" style={{ color: '#78716C' }}>
+              <p className="text-sm font-semibold" style={{ color: 'var(--bp-ink-primary)' }}>Ready to restore?</p>
+              <p className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>
                 Click restore to reactivate all temporarily deactivated entities. Do this after the pipeline
                 completes or if you need to cancel.
               </p>
@@ -930,7 +947,7 @@ export default function PipelineRunner() {
             </Button>
           </div>
 
-          <p className="text-xs flex items-center gap-1.5" style={{ color: '#78716C' }}>
+          <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--bp-ink-tertiary)' }}>
             <Info className="w-3.5 h-3.5" />
             Check the Monitoring Hub on the Pipeline Monitor page to track this run's progress.
           </p>

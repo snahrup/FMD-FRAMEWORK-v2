@@ -384,8 +384,8 @@ def get_fabric_jobs(params: dict) -> list:
 
 @route("GET", "/api/pipeline-activity-runs")
 def get_pipeline_activity_runs(params: dict) -> list:
-    ws = params.get("workspaceGuid", "")
-    job_id = params.get("jobInstanceId", "")
+    ws = _sanitize(params.get("workspaceGuid", ""))
+    job_id = _sanitize(params.get("jobInstanceId", ""))
     if not ws or not job_id:
         raise HttpError("workspaceGuid and jobInstanceId are required", 400)
     try:
@@ -404,10 +404,10 @@ def get_pipeline_activity_runs(params: dict) -> list:
 
 @route("GET", "/api/pipeline/run-snapshot")
 def get_pipeline_run_snapshot(params: dict) -> dict:
-    ws = params.get("workspaceGuid", "")
-    pg = params.get("pipelineGuid", "")
-    ji = params.get("jobInstanceId", "")
-    pn = params.get("pipelineName", "")
+    ws = _sanitize(params.get("workspaceGuid", ""))
+    pg = _sanitize(params.get("pipelineGuid", ""))
+    ji = _sanitize(params.get("jobInstanceId", ""))
+    pn = _sanitize(params.get("pipelineName", ""))
     if not ws or not pg or not ji:
         raise HttpError("workspaceGuid, pipelineGuid, and jobInstanceId required", 400)
     poller = _get_or_create_run_poller(ws, pg, ji, pn)
@@ -417,9 +417,9 @@ def get_pipeline_run_snapshot(params: dict) -> dict:
 
 @route("GET", "/api/pipeline/failure-trace")
 def get_pipeline_failure_trace(params: dict) -> dict:
-    ws = params.get("workspaceGuid", "")
-    ji = params.get("jobInstanceId", "")
-    pn = params.get("pipelineName", "")
+    ws = _sanitize(params.get("workspaceGuid", ""))
+    ji = _sanitize(params.get("jobInstanceId", ""))
+    pn = _sanitize(params.get("pipelineName", ""))
     if not ws or not ji:
         raise HttpError("workspaceGuid and jobInstanceId required", 400)
     try:
@@ -450,7 +450,7 @@ def get_pipeline_failure_trace(params: dict) -> dict:
 
 @route("POST", "/api/pipeline/trigger")
 def post_pipeline_trigger(params: dict) -> dict:
-    pipeline_name = params.get("pipelineName", "").strip()
+    pipeline_name = _sanitize(params.get("pipelineName", "")).strip()
     if not pipeline_name:
         raise HttpError("pipelineName is required", 400)
     return _trigger_pipeline(pipeline_name)
@@ -470,10 +470,10 @@ def post_deploy_pipelines(params: dict) -> dict:
 
 @sse_route("GET", "/api/pipeline/stream")
 def sse_pipeline_stream(http_handler, params: dict) -> None:
-    ws = params.get("workspaceGuid", "")
-    pg = params.get("pipelineGuid", "")
-    ji = params.get("jobInstanceId", "")
-    pn = params.get("pipelineName", "")
+    ws = _sanitize(params.get("workspaceGuid", ""))
+    pg = _sanitize(params.get("pipelineGuid", ""))
+    ji = _sanitize(params.get("jobInstanceId", ""))
+    pn = _sanitize(params.get("pipelineName", ""))
     if not ws or not pg or not ji:
         http_handler._error_response("workspaceGuid, pipelineGuid, and jobInstanceId required", 400)
         return
@@ -584,18 +584,23 @@ def get_runner_sources(params: dict) -> list:
 def get_runner_entities(params: dict) -> list:
     ds_id_str = params.get("dataSourceId", "")
     if not ds_id_str or not str(ds_id_str).isdigit():
-        raise HttpError("dataSourceId is required", 400)
+        raise HttpError("dataSourceId is required and must be a positive integer", 400)
     ds_id = int(ds_id_str)
 
     lz_entities = db.query(
-        "SELECT le.LandingzoneEntityId AS lzEntityId, le.DataSourceId AS dataSourceId, "
-        "le.SourceSchema AS sourceSchema, le.SourceName AS sourceName, "
-        "le.FileName AS fileName, le.FilePath AS filePath, le.FileType AS fileType, "
-        "le.IsActive AS lzActive, le.IsIncremental AS isIncremental, "
-        "le.IsIncrementalColumn AS isIncrementalColumn, "
-        "be.BronzeLayerEntityId AS bronzeEntityId, be.IsActive AS bronzeActive, "
+        "SELECT le.LandingzoneEntityId AS lzEntityId, "
+        "le.DataSourceId AS dataSourceId, "
+        "le.SourceSchema AS sourceSchema, "
+        "le.SourceName AS sourceName, "
+        "le.FileName AS namespace, "
+        "le.IsActive AS lzActive, "
+        "le.IsIncremental AS isIncremental, "
+        "le.IsIncrementalColumn AS incrementalColumn, "
+        "be.BronzeLayerEntityId AS bronzeEntityId, "
+        "be.IsActive AS bronzeActive, "
         "be.PrimaryKeys AS primaryKeys, "
-        "se.SilverLayerEntityId AS silverEntityId, se.IsActive AS silverActive "
+        "se.SilverLayerEntityId AS silverEntityId, "
+        "se.IsActive AS silverActive "
         "FROM lz_entities le "
         "LEFT JOIN bronze_entities be ON le.LandingzoneEntityId = be.LandingzoneEntityId "
         "LEFT JOIN silver_entities se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId "
@@ -619,8 +624,23 @@ def post_runner_prepare(params: dict) -> dict:
     entity_ids = params.get("entityIds")
     layer = params.get("layer", "full")
 
-    if not ds_ids:
-        raise HttpError("dataSourceIds is required", 400)
+    if not ds_ids or not isinstance(ds_ids, list):
+        raise HttpError("dataSourceIds is required and must be a list", 400)
+    # Validate all IDs are integers
+    try:
+        ds_ids = [int(x) for x in ds_ids]
+    except (ValueError, TypeError):
+        raise HttpError("dataSourceIds must contain integers", 400)
+    if entity_ids is not None:
+        if not isinstance(entity_ids, list):
+            raise HttpError("entityIds must be a list", 400)
+        try:
+            entity_ids = [int(x) for x in entity_ids]
+        except (ValueError, TypeError):
+            raise HttpError("entityIds must contain integers", 400)
+    valid_layers = ("landing", "bronze", "silver", "full")
+    if layer not in valid_layers:
+        raise HttpError(f"layer must be one of: {', '.join(valid_layers)}", 400)
     if _runner_state.get("active"):
         raise HttpError("A scoped run is already active. Restore first.", 409)
 

@@ -1,270 +1,121 @@
-# Audit: PipelineRunner.tsx
+# AUDIT-PR: Pipeline Runner Page Audit
 
-**Audited**: 2026-03-13
-**Page**: `dashboard/app/src/pages/PipelineRunner.tsx`
-**Backend**: `dashboard/app/api/routes/pipeline.py` (runner/* routes)
-**Database**: SQLite at `dashboard/app/api/fmd_control_plane.db`
-
----
-
-## API Calls Traced
-
-The PipelineRunner page makes the following API calls:
-
-| # | Frontend Call | Backend Route | Handler |
-|---|---|---|---|
-| 1 | `GET /api/runner/sources` | `@route("GET", "/api/runner/sources")` | `get_runner_sources()` |
-| 2 | `GET /api/runner/entities?dataSourceId={id}` | `@route("GET", "/api/runner/entities")` | `get_runner_entities()` |
-| 3 | `GET /api/runner/state` | `@route("GET", "/api/runner/state")` | `get_runner_state()` |
-| 4 | `POST /api/runner/prepare` | `@route("POST", "/api/runner/prepare")` | `post_runner_prepare()` |
-| 5 | `POST /api/runner/trigger` | `@route("POST", "/api/runner/trigger")` | `post_runner_trigger()` |
-| 6 | `POST /api/runner/restore` | `@route("POST", "/api/runner/restore")` | `post_runner_restore()` |
-
----
-
-## Data Points Verified
-
-### 1. Source System List with Entity Counts per Layer
-
-**Frontend**: `GET /api/runner/sources` -> `RunnerSource[]` with `entities.landing.{total,active}`, `entities.bronze.{total,active}`, `entities.silver.{total,active}`
-
-**Backend SQL** (`get_runner_sources`):
-
-| Sub-query | SQL | Table(s) | Status |
-|---|---|---|---|
-| Data sources | `SELECT DataSourceId, Name, DisplayName, ConnectionId, IsActive FROM datasources ORDER BY DataSourceId` | `datasources` | **CORRECT** |
-| Connections | `SELECT ConnectionId, Name, DisplayName FROM connections` | `connections` | **CORRECT** |
-| LZ counts | `SELECT DataSourceId, COUNT(*), SUM(CASE WHEN IsActive=1 THEN 1 ELSE 0 END) FROM lz_entities GROUP BY DataSourceId` | `lz_entities` | **CORRECT** |
-| Bronze counts | `SELECT le.DataSourceId, COUNT(*), SUM(CASE WHEN be.IsActive=1 ...) FROM bronze_entities be JOIN lz_entities le ON be.LandingzoneEntityId = le.LandingzoneEntityId GROUP BY le.DataSourceId` | `bronze_entities` JOIN `lz_entities` | **CORRECT** |
-| Silver counts | `SELECT le.DataSourceId, COUNT(*), SUM(CASE WHEN se.IsActive=1 ...) FROM silver_entities se JOIN bronze_entities be ON se.BronzeLayerEntityId = be.BronzeLayerEntityId JOIN lz_entities le ON be.LandingzoneEntityId = le.LandingzoneEntityId GROUP BY le.DataSourceId` | `silver_entities` JOIN `bronze_entities` JOIN `lz_entities` | **CORRECT** |
-
-**Verdict**: **CORRECT** -- All three layer counts use the correct entity tables (`lz_entities`, `bronze_entities`, `silver_entities`) with proper joins. Does NOT use the empty `pipeline_lz_entity` or `pipeline_bronze_entity` tables. The `datasources` and `connections` tables are queried with the correct columns.
-
----
-
-### 2. Entity List with Layer Status (Entity Drill-Down)
-
-**Frontend**: `GET /api/runner/entities?dataSourceId={id}` -> `RunnerEntity[]`
-
-**Expected by frontend (RunnerEntity interface)**:
-- `lzEntityId`, `sourceSchema`, `sourceName`, `namespace`
-- `isIncremental`, `incrementalColumn`
-- `lzActive`
-- `bronzeEntityId`, `bronzeActive`, `primaryKeys`
-- `silverEntityId`, `silverActive`
-
-**Backend SQL** (`get_runner_entities`):
-```sql
-SELECT le.LandingzoneEntityId, le.DataSourceId, le.SourceSchema, le.SourceName,
-       le.FileName, le.FilePath, le.FileType, le.IsActive, le.IsIncremental, le.IsIncrementalColumn
-FROM lz_entities le
-WHERE le.DataSourceId = ?
-ORDER BY le.SourceName
-```
-
-**Verdict**: **WRONG -- Missing bronze/silver entity data**
-
-The backend only queries `lz_entities` and returns raw column names (`LandingzoneEntityId`, `IsActive`, etc.) without any bronze or silver join. The frontend expects:
-
-| Frontend Field | Backend Returns | Problem |
-|---|---|---|
-| `lzEntityId` | `LandingzoneEntityId` | **WRONG** -- Key mismatch. Backend returns `LandingzoneEntityId`, frontend reads `lzEntityId`. Will be `undefined`. |
-| `sourceSchema` | `SourceSchema` | **WRONG** -- Case mismatch. Backend returns `SourceSchema`, frontend reads `sourceSchema`. Will be `undefined`. |
-| `sourceName` | `SourceName` | **WRONG** -- Case mismatch. Will be `undefined`. |
-| `namespace` | Not returned | **WRONG** -- Not in query. Always `undefined`. |
-| `isIncremental` | `IsIncremental` | **WRONG** -- Case mismatch. Will be `undefined`. |
-| `incrementalColumn` | `IsIncrementalColumn` | **WRONG** -- Case mismatch AND name mismatch. Will be `undefined`. |
-| `lzActive` | `IsActive` | **WRONG** -- Case mismatch. Will be `undefined`. |
-| `bronzeEntityId` | Not returned | **WRONG** -- No bronze join at all. Always `undefined`. |
-| `bronzeActive` | Not returned | **WRONG** -- No bronze join. Always `undefined`. |
-| `primaryKeys` | Not returned | **WRONG** -- No bronze join. Always `undefined`. |
-| `silverEntityId` | Not returned | **WRONG** -- No silver join. Always `undefined`. |
-| `silverActive` | Not returned | **WRONG** -- No silver join. Always `undefined`. |
-
-**Impact**: The entity table in "Pick Specific Entities" mode will show:
-- Entity names: **BLANK** (sourceName is undefined due to case mismatch)
-- Schema column: **BLANK**
-- Incremental column: Always shows "Full" (isIncremental is undefined, falsy)
-- LZ status: Always shows X (lzActive is undefined)
-- Bronze status: Always shows dash (bronzeEntityId is null)
-- Silver status: Always shows dash (silverEntityId is null)
-- Entity selection works by `lzEntityId` which is `undefined`, so **toggling/selecting entities is broken**
-
-**Required fix**: The backend must:
-1. JOIN `bronze_entities` and `silver_entities`
-2. Return camelCase keys matching the frontend interface, OR the frontend must use PascalCase keys
-
----
-
-### 3. Source Card Layer Counts Display
-
-**Frontend**: `SourceCard` component renders `source.entities.landing.active`, `source.entities.bronze.active`, `source.entities.silver.active`
-
-**Backend**: These come from the `/runner/sources` endpoint (verified correct in #1 above).
-
-**Verdict**: **CORRECT** -- The backend correctly builds the nested `entities.landing.active` / `entities.bronze.active` / `entities.silver.active` structure with camelCase keys.
-
----
-
-### 4. Runner State (Persisted Scope)
-
-**Frontend**: `GET /api/runner/state` -> `RunnerState`
-
-**Backend**: Reads from `_runner_state` dict (persisted to `.runner_state.json` file). No SQL involved.
-
-**Verdict**: **CORRECT** -- This is purely in-memory/file state, no database dependency.
-
----
-
-### 5. Prepare Scope (POST /api/runner/prepare)
-
-**Frontend sends**: `{ dataSourceIds: number[], layer: string, entityIds?: number[] }`
-
-**Backend behavior**: Sets `_runner_state` with the selections. **Does NOT actually deactivate entities in the database.** The `deactivated` field is always `{"lz": [], "bronze": [], "silver": []}` and `affected` is always `{"lz": 0, "bronze": 0, "silver": 0}`, `kept` is always `{"lz": 0, "bronze": 0, "silver": 0}`.
-
-**Verdict**: **WRONG -- Prepare is a no-op**
-
-The prepare endpoint is supposed to:
-1. Identify which entities to keep active (in-scope) vs deactivate (out-of-scope)
-2. Actually UPDATE `lz_entities.IsActive`, `bronze_entities.IsActive`, `silver_entities.IsActive` in SQLite
-3. Record the deactivated entity IDs so restore can re-activate them
-
-Instead it just saves state metadata with zero counts. The entire "safe scoped execution" promise is hollow -- **all entities remain active**, meaning the pipeline processes everything regardless of what the user selected.
-
----
-
-### 6. Trigger Pipeline (POST /api/runner/trigger)
-
-**Frontend sends**: `{ pipelineName: string }`
-
-**Backend SQL**:
-```sql
-SELECT PipelineGuid, WorkspaceGuid, Name FROM pipelines WHERE Name = ? AND IsActive = 1 ORDER BY PipelineId LIMIT 1
-SELECT WorkspaceGuid, Name FROM workspaces
-```
-
-**Verdict**: **CORRECT** -- Uses `pipelines` and `workspaces` tables with correct columns. Triggers via Fabric REST API.
-
----
-
-### 7. Restore Scope (POST /api/runner/restore)
-
-**Frontend**: Calls `POST /api/runner/restore` which should re-activate deactivated entities.
-
-**Backend behavior**: Simply resets `_runner_state` to `{"active": False}`. **Does NOT run any SQL UPDATE** to restore entity IsActive flags.
-
-**Verdict**: **WRONG -- Restore is a no-op**
-
-This is consistent with prepare being a no-op -- since nothing was deactivated, nothing needs restoring. But the frontend displays:
-- "Entities In Scope: 0 LZ, 0 Bronze, 0 Silver" (always zero)
-- "Temporarily Deactivated: 0 LZ, 0 Bronze, 0 Silver" (always zero)
-
-The user sees zeros where they should see actual entity counts.
-
----
-
-### 8. Review Step Entity Count Display
-
-**Frontend**: On the review step, entity counts shown per source come from `s.entities[selectedLayer].active` (from the sources response).
-
-**Verdict**: **CORRECT** -- This pulls from the `/runner/sources` data which is correctly computed.
-
----
-
-### 9. Pipeline Name Mapping
-
-**Frontend**: Maps layer choice to pipeline name via `layerConfig`:
-- `landing` -> `PL_FMD_LOAD_LANDINGZONE`
-- `bronze` -> `PL_FMD_LOAD_LANDING_BRONZE`
-- `silver` -> `PL_FMD_LOAD_BRONZE_SILVER`
-- `full` -> `PL_FMD_LOAD_ALL`
-
-**Backend**: Looks up by `Name` in `pipelines` table.
-
-**Verdict**: **CORRECT** -- Pipeline names match what's in the `pipelines` table (6 rows).
-
----
-
-### 10. Does It Reference Empty pipeline_*_entity Tables?
-
-**Frontend**: No direct references to `pipeline_lz_entity` or `pipeline_bronze_entity`.
-
-**Backend routes used by PipelineRunner**: The runner/* routes do NOT query `pipeline_lz_entity` or `pipeline_bronze_entity`.
-
-**Note**: Other routes in the same file DO reference them:
-- `get_bronze_view()` queries `pipeline_bronze_entity` (0 rows -- will always return empty)
-- These are NOT called by PipelineRunner.tsx.
-
-**Verdict**: **CORRECT** -- PipelineRunner itself does not use the empty pipeline execution tracking tables.
-
----
-
-## Backend Issues Summary
-
-### BUG-1: Entity List Returns Wrong Column Names (CRITICAL)
-
-**File**: `dashboard/app/api/routes/pipeline.py`, line 553-561
-**Route**: `GET /api/runner/entities`
-
-The backend returns PascalCase column names from SQLite (`LandingzoneEntityId`, `SourceSchema`, `SourceName`, `IsActive`, etc.) but the frontend expects camelCase (`lzEntityId`, `sourceSchema`, `sourceName`, `lzActive`). Additionally, bronze and silver entity data is completely missing -- no JOINs to `bronze_entities` or `silver_entities`.
-
-**Fix needed**: Rewrite the query to JOIN bronze/silver tables and alias columns to camelCase:
-```sql
-SELECT
-    le.LandingzoneEntityId AS lzEntityId,
-    le.SourceSchema AS sourceSchema,
-    le.SourceName AS sourceName,
-    le.FileName AS namespace,
-    le.IsIncremental AS isIncremental,
-    le.IsIncrementalColumn AS incrementalColumn,
-    le.IsActive AS lzActive,
-    be.BronzeLayerEntityId AS bronzeEntityId,
-    be.IsActive AS bronzeActive,
-    be.PrimaryKeys AS primaryKeys,
-    se.SilverLayerEntityId AS silverEntityId,
-    se.IsActive AS silverActive
-FROM lz_entities le
-LEFT JOIN bronze_entities be ON be.LandingzoneEntityId = le.LandingzoneEntityId
-LEFT JOIN silver_entities se ON se.BronzeLayerEntityId = be.BronzeLayerEntityId
-WHERE le.DataSourceId = ?
-ORDER BY le.SourceName
-```
-
-### BUG-2: Prepare Is a No-Op -- No Entity Deactivation (CRITICAL)
-
-**File**: `dashboard/app/api/routes/pipeline.py`, lines 570-596
-**Route**: `POST /api/runner/prepare`
-
-The handler records the scope in memory/file but never runs SQL to deactivate out-of-scope entities. The `kept`, `affected`, and `deactivated` fields are always zero/empty. This means the "scoped run" feature does nothing -- all entities remain active and the pipeline processes everything.
-
-### BUG-3: Restore Is a No-Op -- No Entity Reactivation (MODERATE)
-
-**File**: `dashboard/app/api/routes/pipeline.py`, lines 616-624
-**Route**: `POST /api/runner/restore`
-
-The handler resets in-memory state but never runs SQL to re-activate entities. Consistent with BUG-2 (since nothing was deactivated). Once BUG-2 is fixed, this must also be fixed to restore the deactivated entity IDs.
-
-### BUG-4: Running State Shows All Zeros (MODERATE)
-
-**File**: `dashboard/app/api/routes/pipeline.py`, lines 583-594
-
-On the "Scoped Run Active" screen (step=running), the UI displays:
-- "Entities In Scope: 0 LZ, 0 Bronze, 0 Silver"
-- "Temporarily Deactivated: 0 LZ, 0 Bronze, 0 Silver"
-
-These are always zero because `post_runner_prepare` hardcodes them to 0 instead of computing actual counts.
+**Audited**: 2026-03-23
+**Files**: `dashboard/app/src/pages/PipelineRunner.tsx`, `dashboard/app/api/routes/pipeline.py`
 
 ---
 
 ## Summary
 
-| Category | Count |
-|---|---|
-| Data points checked | 10 |
-| CORRECT | 7 |
-| WRONG | 3 (covering 4 bugs) |
-| Uses empty pipeline_*_entity tables? | No |
+14 findings across both files. 10 fixed in this PR, 4 deferred.
 
-**Critical issues**: The entity drill-down table is completely broken due to column name mismatches and missing JOINs (BUG-1). The entire "scoped execution" feature (prepare/restore) is non-functional -- it's UI-only theater with no actual database mutations (BUG-2, BUG-3, BUG-4).
+The most critical fix was the entity endpoint returning wrong column names (no JOINs to bronze/silver, PascalCase instead of camelCase), which made the entire entity drill-down table non-functional. All hardcoded hex colors (50+) were replaced with `var(--bp-*)` design tokens. Accessibility improvements added (aria-labels, keyboard navigation, table roles). Backend input sanitization added to all Fabric API-facing parameters.
 
-**What works correctly**: Source list with per-layer entity counts, runner state persistence, pipeline triggering, pipeline name mapping, and the review step display all pull from the correct tables with correct columns.
+---
+
+## Findings
+
+### PR-01 | CRITICAL | Entity endpoint column mismatch + missing JOINs | FIXED
+
+**File**: `pipeline.py` `get_runner_entities()`
+**Problem**: Backend returned raw SQLite column names (`LandingzoneEntityId`, `SourceSchema`, `IsActive`) but frontend expects camelCase (`lzEntityId`, `sourceSchema`, `lzActive`). Additionally, no JOINs to `bronze_entities` or `silver_entities` -- bronze/silver columns were always `undefined`.
+**Impact**: Entity table showed blank names, broken selection, all status icons wrong.
+**Fix**: Rewrote query with proper `AS` aliases and `LEFT JOIN` to bronze_entities and silver_entities.
+
+### PR-02 | HIGH | Unsanitized GUIDs in Fabric API URLs | FIXED
+
+**File**: `pipeline.py` multiple routes
+**Problem**: `workspaceGuid`, `pipelineGuid`, `jobInstanceId`, and `pipelineName` parameters were passed directly into Fabric REST API URLs without sanitization in `get_pipeline_activity_runs`, `get_pipeline_run_snapshot`, `get_pipeline_failure_trace`, `sse_pipeline_stream`, and `post_pipeline_trigger`. The `_sanitize()` helper existed but was unused on these routes.
+**Impact**: Potential URL injection via crafted GUID parameters.
+**Fix**: Applied `_sanitize()` to all user-supplied parameters that are interpolated into URLs.
+
+### PR-03 | HIGH | Missing input validation on prepare endpoint | FIXED
+
+**File**: `pipeline.py` `post_runner_prepare()`
+**Problem**: `dataSourceIds` array elements not validated as integers. `entityIds` not validated. `layer` not validated against allowed values.
+**Impact**: Could pass arbitrary types/values into runner state.
+**Fix**: Added type checking, integer coercion, and layer allowlist validation.
+
+### PR-04 | MEDIUM | 50+ hardcoded hex colors | FIXED
+
+**File**: `PipelineRunner.tsx`
+**Problem**: Colors like `#B45624`, `#78716C`, `#F9F7F3`, `#1C1917`, `#A8A29E`, `#3D7C4F`, `#C27A1A`, `#B93A2A`, `#F4E8DF`, `#FEFDFB`, `#EDEAE4`, and multiple `rgba()` values were hardcoded instead of using `var(--bp-*)` design tokens.
+**Fix**: Replaced all with corresponding tokens: `--bp-copper`, `--bp-ink-tertiary`, `--bp-surface-inset`, `--bp-ink-primary`, `--bp-ink-muted`, `--bp-operational`, `--bp-caution`, `--bp-fault`, `--bp-copper-light`, `--bp-surface-1`, `--bg-muted`, `--bp-border`, `--bp-border-subtle`, `--bp-border-strong`, `--bp-copper-soft`.
+
+### PR-05 | MEDIUM | Missing accessibility: aria-labels, keyboard nav, roles | FIXED
+
+**File**: `PipelineRunner.tsx`
+**Problem**: Source card buttons had no `aria-pressed` or `aria-label`. Entity table rows were click-only with no keyboard support. Table lacked `role="grid"` and `aria-label`. Status icons had no `aria-label`. Search input had no `aria-label`. Decorative checkboxes not marked `aria-hidden`.
+**Fix**: Added `aria-pressed`/`aria-label` to source cards, `tabIndex={0}`/`onKeyDown` (Enter/Space) to entity rows, `role="grid"` and `aria-label` on table, `scope="col"` on headers, `aria-label` on status icons and search input, `aria-hidden` on decorative checkbox indicators.
+
+### PR-06 | MEDIUM | Unused imports | FIXED
+
+**File**: `PipelineRunner.tsx`
+**Problem**: `ChevronDown` and `ChevronUp` imported from lucide-react but never used.
+**Fix**: Removed both imports.
+
+### PR-07 | MEDIUM | Missing empty state for sources | FIXED
+
+**File**: `PipelineRunner.tsx`
+**Problem**: When no data sources exist (empty `sources` array), the page shows an empty grid with no explanation.
+**Fix**: Added empty state with Database icon and helpful message.
+
+### PR-08 | MEDIUM | Entity endpoint error message too terse | FIXED
+
+**File**: `pipeline.py` `get_runner_entities()`
+**Problem**: Error message "dataSourceId is required" didn't mention the integer constraint.
+**Fix**: Changed to "dataSourceId is required and must be a positive integer".
+
+### PR-09 | CRITICAL | Prepare endpoint is a no-op -- no entity deactivation | DEFERRED
+
+**File**: `pipeline.py` `post_runner_prepare()`
+**Problem**: The handler records scope in memory but never runs SQL to deactivate out-of-scope entities. `kept`, `affected`, `deactivated` are always zero/empty. The "safe scoped execution" promise is hollow.
+**Reason deferred**: Implementing actual entity deactivation requires careful SQL UPDATEs to `lz_entities`, `bronze_entities`, `silver_entities` with rollback safety. High-risk change that could deactivate production entities if done incorrectly. Needs its own PR with thorough testing.
+
+### PR-10 | CRITICAL | Restore endpoint is a no-op -- no entity reactivation | DEFERRED
+
+**File**: `pipeline.py` `post_runner_restore()`
+**Problem**: Resets in-memory state but never runs SQL to re-activate entities. Paired with PR-09.
+**Reason deferred**: Must be implemented alongside PR-09. Cannot be done safely in isolation.
+
+### PR-11 | MEDIUM | Running state shows all zeros | DEFERRED
+
+**File**: `pipeline.py` `post_runner_prepare()`
+**Problem**: On the "Scoped Run Active" screen, "Entities In Scope" and "Temporarily Deactivated" always show 0/0/0 because prepare never computes actual counts.
+**Reason deferred**: Depends on PR-09 being implemented first. The counts will naturally become correct once prepare actually performs deactivation.
+
+### PR-12 | LOW | RunPoller threads never cleaned up | DEFERRED
+
+**File**: `pipeline.py` `_run_pollers` dict
+**Problem**: Completed `_RunPoller` instances are never removed from `_run_pollers`. Over time, this accumulates stale poller objects in memory.
+**Reason deferred**: Low impact (pollers are daemon threads, small memory footprint). Cleanup logic would add complexity for minimal gain. Would need a TTL-based eviction or explicit cleanup on final event.
+
+### PR-13 | LOW | deploy-pipelines returns 501 stub | INFO
+
+**File**: `pipeline.py` `post_deploy_pipelines()`
+**Observation**: Returns a 501 "not yet migrated" error. This is intentional per the code comment (avoids circular imports with server.py). Not a bug, but noted for completeness. Frontend does not call this endpoint.
+
+### PR-14 | LOW | Entity table `onMouseEnter`/`onMouseLeave` inline style manipulation | INFO
+
+**File**: `PipelineRunner.tsx`
+**Observation**: Entity table rows use inline `onMouseEnter`/`onMouseLeave` handlers to set `backgroundColor` via `ev.currentTarget.style`. This works but is a non-standard pattern vs CSS `:hover`. Not fixing because it's functional and changing it would be a style refactor.
+
+---
+
+## Deferred Items Summary
+
+| ID | Severity | Reason |
+|----|----------|--------|
+| PR-09 | CRITICAL | Entity deactivation is high-risk; needs own PR with testing |
+| PR-10 | CRITICAL | Paired with PR-09; cannot be done independently |
+| PR-11 | MEDIUM | Depends on PR-09 |
+| PR-12 | LOW | Minimal impact, cleanup adds complexity |
+
+---
+
+## Files Modified
+
+| File | Changes |
+|------|---------|
+| `dashboard/app/src/pages/PipelineRunner.tsx` | Replaced 50+ hardcoded hex/rgba colors with design tokens, added aria-labels and keyboard navigation, added empty state, removed unused imports |
+| `dashboard/app/api/routes/pipeline.py` | Fixed entity endpoint query (JOINs + aliases), sanitized all URL-interpolated params, added input validation on prepare endpoint |
