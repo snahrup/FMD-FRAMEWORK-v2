@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
 import {
   Zap, Search, ArrowRight,
   AlertTriangle, GitBranch, Database, Sparkles,
-  Download, HardDrive, Layers,
+  Download, HardDrive, Layers, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { MedallionLayer } from "@/types/governance";
@@ -53,15 +53,15 @@ function ImpactChain({ result }: { result: ImpactResult }) {
   return (
     <div className="space-y-4">
       {/* Visual chain */}
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap" role="list" aria-label="Impact chain layers">
         {result.impactedLayers.map((l, i) => {
           const layerDef = LAYER_MAP[l.layer];
           const Icon = layerDef?.icon ?? Database;
           const isOrigin = l.layer === "source";
           return (
-            <div key={l.layer} className="flex items-center gap-2">
+            <div key={l.layer} className="flex items-center gap-2" role="listitem">
               {i > 0 && (
-                <ArrowRight className="h-4 w-4" style={{ color: l.isActive ? 'var(--bp-caution)' : 'var(--bp-ink-muted)' }} />
+                <ArrowRight className="h-4 w-4" style={{ color: l.isActive ? 'var(--bp-caution)' : 'var(--bp-ink-muted)' }} aria-hidden="true" />
               )}
               <div
                 className={cn(
@@ -73,7 +73,7 @@ function ImpactChain({ result }: { result: ImpactResult }) {
                   ...(isOrigin ? { boxShadow: `0 0 0 2px var(--bp-surface-1), 0 0 0 4px ${layerDef?.color || 'var(--bp-copper)'}` } : {}),
                 }}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4" aria-hidden="true" />
                 <span>{layerDef?.label ?? l.layer}</span>
                 {l.isActive && !isOrigin && (
                   <span className="text-[9px] font-semibold" style={{ color: 'var(--bp-caution)' }}>IMPACTED</span>
@@ -91,9 +91,9 @@ function ImpactChain({ result }: { result: ImpactResult }) {
       </div>
 
       {/* Impact summary */}
-      <div className="p-3 rounded-md" style={{ background: 'var(--bp-caution-light)', border: '1px solid var(--bp-caution)' }}>
+      <div className="p-3 rounded-md" style={{ background: 'var(--bp-caution-light)', border: '1px solid var(--bp-caution)' }} role="alert">
         <div className="flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 mt-0.5" style={{ color: 'var(--bp-caution)' }} />
+          <AlertTriangle className="h-4 w-4 mt-0.5" style={{ color: 'var(--bp-caution)' }} aria-hidden="true" />
           <div>
             <p className="text-sm font-medium">
               {result.totalDownstream} downstream layer{result.totalDownstream !== 1 ? "s" : ""} affected
@@ -119,10 +119,12 @@ function ImpactChain({ result }: { result: ImpactResult }) {
 // ── Main Page ──
 
 export default function ImpactAnalysis() {
-  const { allEntities, loading } = useEntityDigest();
+  const { allEntities, loading, error } = useEntityDigest();
   const [search, setSearch] = useState("");
   const [selectedEntity, setSelectedEntity] = useState<DigestEntity | null>(null);
   const [impactResult, setImpactResult] = useState<ImpactResult | null>(null);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const listboxRef = useRef<HTMLDivElement>(null);
 
   const suggestions = useMemo(() => {
     if (!search || search.length < 2) return [];
@@ -132,11 +134,32 @@ export default function ImpactAnalysis() {
       .slice(0, 10);
   }, [allEntities, search]);
 
+  // Reset highlight when suggestions change
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [suggestions]);
+
   const handleSelect = useCallback((entity: DigestEntity) => {
     setSelectedEntity(entity);
     setImpactResult(computeImpact(entity));
     setSearch("");
   }, []);
+
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (suggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1));
+    } else if (e.key === "Enter" && highlightedIndex >= 0 && highlightedIndex < suggestions.length) {
+      e.preventDefault();
+      handleSelect(suggestions[highlightedIndex]);
+    } else if (e.key === "Escape") {
+      setSearch("");
+    }
+  }, [suggestions, highlightedIndex, handleSelect]);
 
   const exportReport = useCallback(() => {
     if (!impactResult) return;
@@ -144,7 +167,7 @@ export default function ImpactAnalysis() {
     const lines = [
       `# Impact Analysis Report`,
       `## Origin: ${e.sourceSchema}.${e.tableName}`,
-      `- **Source**: ${resolveSourceLabel(e.source)} (${e.connection?.server ?? "—"}/${e.connection?.database ?? "—"})`,
+      `- **Source**: ${resolveSourceLabel(e.source)} (${e.connection?.server ?? "\u2014"}/${e.connection?.database ?? "\u2014"})`,
       `- **Downstream layers affected**: ${impactResult.totalDownstream}`,
       ``,
       `## Layer Impact`,
@@ -195,6 +218,52 @@ export default function ImpactAnalysis() {
       .slice(0, 10);
   }, [allEntities]);
 
+  // ── Loading state ──
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-3" style={{ maxWidth: 1280, margin: '0 auto', padding: 32 }}>
+        <Loader2 className="h-8 w-8 animate-spin" style={{ color: 'var(--bp-copper)' }} />
+        <p className="text-sm" style={{ color: 'var(--bp-ink-muted)' }}>Loading entity digest...</p>
+      </div>
+    );
+  }
+
+  // ── Error state ──
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-3" style={{ maxWidth: 1280, margin: '0 auto', padding: 32 }}>
+        <AlertTriangle className="h-8 w-8" style={{ color: 'var(--bp-fault)' }} />
+        <p className="text-sm font-medium" style={{ color: 'var(--bp-fault)' }}>Failed to load entity digest</p>
+        <p className="text-xs" style={{ color: 'var(--bp-ink-muted)' }}>{error}</p>
+      </div>
+    );
+  }
+
+  // ── Empty state ──
+  if (allEntities.length === 0) {
+    return (
+      <div className="space-y-6" style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
+        <div>
+          <h1 className="flex items-center gap-2" style={{ fontFamily: 'var(--bp-font-display)', fontSize: 32, color: 'var(--bp-ink-primary)', fontWeight: 400, lineHeight: 1.2 }}>
+            <Zap className="h-5 w-5" style={{ color: 'var(--bp-copper)' }} /> Impact Analysis
+          </h1>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--bp-ink-secondary)' }}>
+            Analyze downstream impact when a source entity changes — what breaks if this table is modified?
+          </p>
+        </div>
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center">
+            <Database className="h-8 w-8 mx-auto mb-3" style={{ color: 'var(--bp-ink-muted)', opacity: 0.4 }} />
+            <p className="text-sm font-medium" style={{ color: 'var(--bp-ink-muted)' }}>No entities registered</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-muted)' }}>
+              Register entities via the deployment pipeline to enable impact analysis.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6" style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
       <div>
@@ -220,22 +289,39 @@ export default function ImpactAnalysis() {
         </CardHeader>
         <CardContent>
           <div className="relative max-w-lg">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--bp-ink-muted)]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--bp-ink-muted)]" aria-hidden="true" />
             <Input
               placeholder="Type an entity name..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
               className="pl-9 h-9 text-sm"
+              aria-label="Search entities"
+              aria-autocomplete="list"
+              aria-expanded={suggestions.length > 0}
+              aria-controls={suggestions.length > 0 ? "entity-suggestions" : undefined}
+              aria-activedescendant={highlightedIndex >= 0 ? `suggestion-${highlightedIndex}` : undefined}
+              role="combobox"
             />
             {suggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 rounded-lg z-20 max-h-64 overflow-y-auto" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
-                {suggestions.map((e) => (
+              <div
+                ref={listboxRef}
+                id="entity-suggestions"
+                role="listbox"
+                aria-label="Entity suggestions"
+                className="absolute top-full left-0 right-0 mt-1 rounded-lg z-20 max-h-64 overflow-y-auto"
+                style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}
+              >
+                {suggestions.map((e, idx) => (
                   <button
                     key={e.id}
+                    id={`suggestion-${idx}`}
+                    role="option"
+                    aria-selected={idx === highlightedIndex}
                     className="w-full text-left px-3 py-2 transition-colors flex items-center justify-between"
-                    style={{ background: 'var(--bp-surface-1)' }}
-                    onMouseEnter={(ev) => { (ev.currentTarget as HTMLElement).style.background = 'var(--bp-surface-2)'; }}
-                    onMouseLeave={(ev) => { (ev.currentTarget as HTMLElement).style.background = 'var(--bp-surface-1)'; }}
+                    style={{ background: idx === highlightedIndex ? 'var(--bp-surface-2)' : 'var(--bp-surface-1)' }}
+                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    onMouseLeave={() => setHighlightedIndex(-1)}
                     onClick={() => handleSelect(e)}
                   >
                     <div>
@@ -258,8 +344,8 @@ export default function ImpactAnalysis() {
               <span style={{ color: getSourceColor(resolveSourceLabel(selectedEntity.source)) }}>
                 ({resolveSourceLabel(selectedEntity.source)})
               </span>
-              <Button variant="ghost" size="sm" className="h-5 w-5 p-0 ml-1" onClick={() => { setSelectedEntity(null); setImpactResult(null); }}>
-                <span className="text-[var(--bp-ink-muted)] text-xs">×</span>
+              <Button variant="ghost" size="sm" className="h-5 w-5 p-0 ml-1" onClick={() => { setSelectedEntity(null); setImpactResult(null); }} aria-label="Clear selection">
+                <span className="text-[var(--bp-ink-muted)] text-xs" aria-hidden="true">&times;</span>
               </Button>
             </div>
           )}
@@ -272,8 +358,8 @@ export default function ImpactAnalysis() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm">Impact Trace</CardTitle>
-              <Button variant="outline" size="sm" className="text-xs h-7" onClick={exportReport}>
-                <Download className="h-3 w-3 mr-1" /> Export Report
+              <Button variant="outline" size="sm" className="text-xs h-7" onClick={exportReport} aria-label="Export impact report as markdown">
+                <Download className="h-3 w-3 mr-1" aria-hidden="true" /> Export Report
               </Button>
             </div>
           </CardHeader>
@@ -287,7 +373,7 @@ export default function ImpactAnalysis() {
       {impactResult && (
         <Card className="border-dashed">
           <CardContent className="py-6 text-center">
-            <Sparkles className="h-6 w-6 mx-auto mb-2 text-[var(--bp-ink-muted)]/40" />
+            <Sparkles className="h-6 w-6 mx-auto mb-2" style={{ color: 'var(--bp-ink-muted)', opacity: 0.4 }} />
             <p className="text-sm text-[var(--bp-ink-muted)]">
               Column-level impact analysis coming in Phase 2 — requires <code className="px-1 rounded text-xs" style={{ fontFamily: 'var(--bp-font-mono)', background: 'var(--bp-surface-inset)' }}>ColumnLineage</code> table population.
             </p>
@@ -299,7 +385,7 @@ export default function ImpactAnalysis() {
       )}
 
       {/* Source Impact Overview — always visible */}
-      {!impactResult && !loading && sourceBreakdown.length > 0 && (
+      {!impactResult && sourceBreakdown.length > 0 && (
         <>
           <Card>
             <CardHeader className="pb-3">
@@ -313,17 +399,17 @@ export default function ImpactAnalysis() {
                 Each source system feeds entities through the medallion pipeline. If a source schema changes, every downstream layer is affected.
               </p>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm" aria-label="Source impact overview">
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--bp-border)' }}>
-                      <th className="text-left py-2 px-3 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Source</th>
-                      <th className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Entities</th>
-                      <th className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">LZ</th>
-                      <th className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Bronze</th>
-                      <th className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Silver</th>
-                      <th className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Full Chain</th>
-                      <th className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Errors</th>
-                      <th className="text-right py-2 px-3 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Blast Radius</th>
+                      <th scope="col" className="text-left py-2 px-3 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Source</th>
+                      <th scope="col" className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Entities</th>
+                      <th scope="col" className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">LZ</th>
+                      <th scope="col" className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Bronze</th>
+                      <th scope="col" className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Silver</th>
+                      <th scope="col" className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Full Chain</th>
+                      <th scope="col" className="text-center py-2 px-2 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Errors</th>
+                      <th scope="col" className="text-right py-2 px-3 text-[10px] text-[var(--bp-ink-muted)] uppercase tracking-wider font-medium">Blast Radius</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -354,7 +440,7 @@ export default function ImpactAnalysis() {
                           </td>
                           <td className="py-2 px-3 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bp-surface-inset)' }}>
+                              <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bp-surface-inset)' }} role="progressbar" aria-valuenow={Math.round(blastPct)} aria-valuemin={0} aria-valuemax={100} aria-label={`${resolveSourceLabel(src.source)} blast radius`}>
                                 <div
                                   className="h-full rounded-full"
                                   style={{ backgroundColor: 'var(--bp-caution)', width: `${blastPct}%` }}
@@ -392,6 +478,7 @@ export default function ImpactAnalysis() {
                       className="flex items-center justify-between p-3 rounded-md transition-all text-left"
                       style={{ border: '1px solid var(--bp-border)' }}
                       onClick={() => handleSelect(e)}
+                      aria-label={`Analyze ${e.sourceSchema}.${e.tableName}`}
                     >
                       <div className="min-w-0">
                         <span className="block font-mono text-xs truncate">{e.tableName}</span>
@@ -418,7 +505,7 @@ export default function ImpactAnalysis() {
           {/* How it works */}
           <Card className="border-dashed">
             <CardContent className="py-6 text-center">
-              <Sparkles className="h-6 w-6 mx-auto mb-2 text-[var(--bp-ink-muted)]/40" />
+              <Sparkles className="h-6 w-6 mx-auto mb-2" style={{ color: 'var(--bp-ink-muted)', opacity: 0.4 }} />
               <p className="text-sm text-[var(--bp-ink-muted)]">
                 Select an entity above to trace its full downstream impact through the medallion pipeline.
               </p>
