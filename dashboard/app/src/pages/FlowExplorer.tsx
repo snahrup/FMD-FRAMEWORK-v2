@@ -629,9 +629,14 @@ export default function FlowExplorer() {
 
   // Helper: convert a DigestEntity into an EntityFlow
   function digestToFlow(ent: DigestEntity, ds: DataSource | undefined): EntityFlow {
+    // Gate layer presence on BOTH registration AND load status — registration
+    // alone means "configured" not "data exists". Treat "not_started" as absent.
+    const bronzeLoaded = ent.bronzeId != null && ent.bronzeStatus !== "not_started";
+    const silverLoaded = ent.silverId != null && ent.silverStatus !== "not_started";
+
     let maxLayer: EntityFlow["maxLayer"] = "landing";
-    if (ent.silverId != null) maxLayer = "silver";
-    else if (ent.bronzeId != null) maxLayer = "bronze";
+    if (silverLoaded) maxLayer = "silver";
+    else if (bronzeLoaded) maxLayer = "bronze";
 
     return {
       id: String(ent.id),
@@ -646,15 +651,15 @@ export default function FlowExplorer() {
       lzFilePath: ent.sourceSchema,
       lzFileType: "PARQUET",
       isIncremental: ent.isIncremental,
-      bronzeEntityId: ent.bronzeId != null ? String(ent.bronzeId) : null,
-      bronzeSchema: ent.bronzeId != null ? ent.sourceSchema : null,
-      bronzeName: ent.bronzeId != null ? ent.tableName : null,
-      bronzeFileType: ent.bronzeId != null ? "DELTA" : null,
+      bronzeEntityId: bronzeLoaded ? String(ent.bronzeId) : null,
+      bronzeSchema: bronzeLoaded ? ent.sourceSchema : null,
+      bronzeName: bronzeLoaded ? ent.tableName : null,
+      bronzeFileType: bronzeLoaded ? "DELTA" : null,
       bronzePrimaryKeys: ent.bronzePKs || null,
-      silverEntityId: ent.silverId != null ? String(ent.silverId) : null,
-      silverSchema: ent.silverId != null ? ent.sourceSchema : null,
-      silverName: ent.silverId != null ? ent.tableName : null,
-      silverFileType: ent.silverId != null ? "DELTA" : null,
+      silverEntityId: silverLoaded ? String(ent.silverId) : null,
+      silverSchema: silverLoaded ? ent.sourceSchema : null,
+      silverName: silverLoaded ? ent.tableName : null,
+      silverFileType: silverLoaded ? "DELTA" : null,
       goldEntityId: null,
       goldName: null,
       maxLayer,
@@ -723,8 +728,8 @@ export default function FlowExplorer() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-48px)]">
-        <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#B45624' }} />
-        <span className="ml-3" style={{ color: '#78716C' }}>Loading framework data from Fabric...</span>
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--bp-copper)' }} />
+        <span className="ml-3" style={{ color: 'var(--bp-ink-tertiary)' }}>Loading framework data from Fabric...</span>
       </div>
     );
   }
@@ -732,9 +737,9 @@ export default function FlowExplorer() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-[calc(100vh-48px)] gap-4">
-        <XCircle className="w-12 h-12" style={{ color: '#B93A2A' }} />
-        <p className="font-medium" style={{ color: '#B93A2A' }}>{error}</p>
-        <button onClick={loadData} className="px-4 py-2 rounded-md text-sm" style={{ border: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB', color: '#57534E' }}>
+        <XCircle className="w-12 h-12" style={{ color: 'var(--bp-fault)' }} />
+        <p className="font-medium" style={{ color: 'var(--bp-fault)' }}>{error}</p>
+        <button onClick={loadData} className="px-4 py-2 rounded-md text-sm" style={{ border: '1px solid var(--bp-border)', backgroundColor: 'var(--bp-surface-1)', color: 'var(--bp-ink-secondary)' }}>
           <RefreshCw className="w-4 h-4 inline mr-2" />Retry
         </button>
       </div>
@@ -795,7 +800,7 @@ export default function FlowExplorer() {
       `}</style>
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 flex-shrink-0" style={{ borderBottom: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB' }}>
+      <div className="flex items-center justify-between px-4 py-2 flex-shrink-0" style={{ borderBottom: '1px solid var(--bp-border)', backgroundColor: 'var(--bp-surface-1)' }}>
         <div className="flex items-center gap-4">
           <div>
             <h1 className="text-[32px] font-normal tracking-tight" style={{ fontFamily: 'var(--bp-font-display)', color: 'var(--bp-ink-primary)' }}>Flow Explorer</h1>
@@ -848,8 +853,8 @@ export default function FlowExplorer() {
             <div
               className="relative w-10 h-5 rounded-full cursor-pointer transition-all duration-300"
               style={{
-                backgroundColor: labelMode === "exec" ? 'rgba(180, 86, 36, 0.15)' : '#EDEAE4',
-                border: labelMode === "exec" ? '1px solid rgba(180, 86, 36, 0.3)' : '1px solid rgba(0,0,0,0.08)',
+                backgroundColor: labelMode === "exec" ? 'var(--bp-copper-soft)' : '#EDEAE4',
+                border: labelMode === "exec" ? '1px solid rgba(180, 86, 36, 0.3)' : '1px solid var(--bp-border)',
               }}
               onClick={() => setLabelMode((m) => (m === "tech" ? "exec" : "tech"))}
             >
@@ -857,7 +862,7 @@ export default function FlowExplorer() {
                 className="absolute top-0.5 w-3.5 h-3.5 rounded-full transition-all duration-300"
                 style={{
                   left: labelMode === "exec" ? '22px' : '2px',
-                  backgroundColor: labelMode === "exec" ? '#B45624' : '#A8A29E',
+                  backgroundColor: labelMode === "exec" ? 'var(--bp-copper)' : 'var(--bp-ink-muted)',
                 }}
               />
             </div>
@@ -908,8 +913,8 @@ export default function FlowExplorer() {
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                 <input
                   type="text"
-                  className="w-full pl-8 pr-3 py-1.5 rounded-md text-xs outline-none placeholder:text-[#A8A29E]"
-                    style={{ border: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB', color: '#1C1917' }}
+                  className="w-full pl-8 pr-3 py-1.5 rounded-md text-xs outline-none placeholder:text-[var(--bp-ink-muted)]"
+                    style={{ border: '1px solid var(--bp-border)', backgroundColor: 'var(--bp-surface-1)', color: 'var(--bp-ink-primary)' }}
                   placeholder="Search pipelines, notebooks, connections..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -928,8 +933,8 @@ export default function FlowExplorer() {
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
               <input
                 type="text"
-                className="w-full pl-8 pr-3 py-1.5 rounded-md text-xs outline-none placeholder:text-[#A8A29E]"
-                    style={{ border: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB', color: '#1C1917' }}
+                className="w-full pl-8 pr-3 py-1.5 rounded-md text-xs outline-none placeholder:text-[var(--bp-ink-muted)]"
+                    style={{ border: '1px solid var(--bp-border)', backgroundColor: 'var(--bp-surface-1)', color: 'var(--bp-ink-primary)' }}
                 placeholder="Search tables, sources, schemas..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -1221,7 +1226,7 @@ export default function FlowExplorer() {
                               setVisibleCounts(prev => ({ ...prev, [gsKey]: visCount + PAGE_SIZE }));
                             }}
                           >
-                            <span className="text-[10px] font-medium" style={{ color: '#B45624' }}>
+                            <span className="text-[10px] font-medium" style={{ color: 'var(--bp-copper)' }}>
                               Show {fmt(Math.min(remaining, PAGE_SIZE))} more
                             </span>
                             <span className="text-[10px] text-muted-foreground ml-1">
@@ -1252,7 +1257,7 @@ export default function FlowExplorer() {
         </div>
 
         {/* Right Panel — Detail / Narrative */}
-        <div className="w-[360px] flex flex-col flex-shrink-0" style={{ borderLeft: '1px solid rgba(0,0,0,0.08)', backgroundColor: '#FEFDFB' }}>
+        <div className="w-[360px] flex flex-col flex-shrink-0" style={{ borderLeft: '1px solid var(--bp-border)', backgroundColor: 'var(--bp-surface-1)' }}>
           {selectedFlow ? (
             <div className="narrative-panel flex flex-col h-full">
               {/* Header */}
@@ -1388,13 +1393,13 @@ export default function FlowExplorer() {
                   <Link
                     to={`/journey?entity=${encodeURIComponent(String(selectedFlow.lzEntityId))}`}
                     className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-[11px] font-medium transition-colors"
-                    style={{ border: '1px solid rgba(180, 86, 36, 0.3)', backgroundColor: '#F4E8DF', color: '#B45624' }}
+                    style={{ border: '1px solid rgba(180, 86, 36, 0.3)', backgroundColor: 'var(--bp-copper-light)', color: 'var(--bp-copper)' }}
                   >
                     <Route className="w-3.5 h-3.5" />
                     Deep Dive — Schema &amp; Transformation Details
                   </Link>
                   <Link
-                    to={`/source-manager?source=${encodeURIComponent(selectedFlow.dataSourceName)}`}
+                    to={`/sources?source=${encodeURIComponent(selectedFlow.dataSourceName)}`}
                     className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-medium transition-colors"
                     style={{ border: '1px solid var(--bp-border)', color: 'var(--bp-ink-secondary)' }}
                   >
