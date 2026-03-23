@@ -1,122 +1,90 @@
-# AUDIT: ImpactAnalysis.tsx
+# AUDIT-IA: Impact Analysis Page
 
-**Audited:** 2026-03-13
-**Page:** `dashboard/app/src/pages/ImpactAnalysis.tsx` (~428 lines)
-**Backend:** `dashboard/app/api/routes/entities.py` (entity-digest)
-
----
-
-## Data Flow Trace
-
-### API Calls
-
-| # | Frontend Call | Backend Route | SQL / Data Source | Status |
-|---|-------------|---------------|-------------------|--------|
-| 1 | `GET /api/entity-digest` | `get_entity_digest()` in `entities.py` | `lz_entities` JOIN `datasources` JOIN `connections` + `entity_status` + `bronze_entities` + `silver_entities` | CORRECT |
-
-This page makes a single API call via `useEntityDigest()`. All analysis is performed client-side using the digest data.
+**Audited:** 2026-03-23
+**File:** `dashboard/app/src/pages/ImpactAnalysis.tsx`
+**Lines (before/after):** 434 / ~480
 
 ---
 
-## Metric-by-Metric Trace
+## Summary
 
-### KPI Cards (lines 168-170, 207-211)
-
-| KPI | Frontend Computation | Correct Source | Correct? |
-|-----|---------------------|---------------|----------|
-| Total Entities | `allEntities.length` | Count of all LZ entities from digest | YES |
-| Full Chain | `allEntities.filter(e => e.lzStatus === "loaded" && e.bronzeStatus === "loaded" && e.silverStatus === "loaded").length` | entity_status-derived statuses | YES |
-| Partial Chain | `allEntities.filter(e => e.lzStatus === "loaded" && (e.bronzeStatus !== "loaded" \|\| e.silverStatus !== "loaded")).length` | entity_status-derived statuses | YES |
-| Not Started | `allEntities.filter(e => !e.lzStatus \|\| e.lzStatus === "not_started").length` | entity_status-derived status | YES |
-
-### Impact Chain Computation (lines 36-48)
-
-`computeImpact(entity)` builds an impact trace for a selected entity:
-
-| Layer | Status Source | `isActive` Determination | Correct? |
-|-------|-------------|-------------------------|----------|
-| Source | Hardcoded "origin" | Always true | YES |
-| Landing | `entity.lzStatus` | `lzStatus === "loaded"` | YES -- uses entity_status |
-| Bronze | `entity.bronzeStatus` | `bronzeStatus === "loaded"` | YES -- uses entity_status |
-| Silver | `entity.silverStatus` | `silverStatus === "loaded"` | YES -- uses entity_status |
-| Gold | Hardcoded "not_started" | Always false | YES -- Gold not yet implemented |
-
-The `totalDownstream` count (line 47) correctly counts only layers where `isActive` is true AND layer is not "source".
-
-### Source Impact Overview Table (lines 173-187)
-
-| Column | Frontend Computation | Correct? |
-|--------|---------------------|----------|
-| Entities (total) | Per-source count from `allEntities` | YES |
-| LZ | Count where `e.lzStatus === "loaded"` per source | YES -- entity_status-derived |
-| Bronze | Count where `e.bronzeStatus === "loaded"` per source | YES -- entity_status-derived |
-| Silver | Count where `e.silverStatus === "loaded"` per source | YES -- entity_status-derived |
-| Full Chain | Count where all three statuses are "loaded" per source | YES |
-| Errors | Count where `e.lastError` exists per source | YES -- entity_status.ErrorMessage |
-| Blast Radius | `src.total / allEntities.length * 100` | YES -- proportional metric |
-
-### At-Risk Entities (lines 190-194)
-
-```typescript
-allEntities
-  .filter(e => e.lastError || (e.lzStatus === "loaded" && (e.bronzeStatus !== "loaded" || e.silverStatus !== "loaded")))
-  .slice(0, 10)
-```
-
-| Filter Criterion | Source | Correct? |
-|-----------------|--------|----------|
-| Has error | `e.lastError` (from entity_status.ErrorMessage) | YES |
-| Partial chain (LZ loaded but Bronze/Silver not) | entity_status-derived statuses | YES |
-
-### Entity Search (lines 125-131)
-
-Searches `allEntities` by `tableName` and `sourceSchema` -- client-side filtering of digest data. No additional API calls.
-
-### Export Report (lines 139-165)
-
-Generates a markdown file from the impact result. Uses only client-side data already loaded from the digest. No backend calls.
+The Impact Analysis page was already data-correct (confirmed by prior audit on 2026-03-13). All KPIs, impact chains, source breakdowns, and risk lists derive honestly from the entity digest. This audit focused on operational quality: missing states, accessibility, dead patterns, and UX gaps.
 
 ---
 
-## Bugs Found
+## Findings & Fixes
 
-### No bugs found.
+### F1: Missing loading state (FIXED)
+**Severity:** HIGH
+When `loading` is true the page rendered nothing at all -- blank white screen. Added a centered `Loader2` spinner with "Loading entity digest..." text.
 
-This page is clean. All metrics are derived from the entity digest which correctly uses `entity_status` for load status determination.
+### F2: Error state ignored (FIXED)
+**Severity:** HIGH
+The hook returns `error` but it was destructured as just `{ allEntities, loading }` -- the error string was discarded. If the digest API fails the user sees an empty page with zero feedback. Now destructures `error` and renders a fault-colored error message.
+
+### F3: No empty state (FIXED)
+**Severity:** MEDIUM
+When `allEntities.length === 0` after a successful load (e.g., fresh deployment with no registered entities), the page showed KPIs all at 0 and an empty overview. Added an explicit empty state with guidance to register entities.
+
+### F4: Accessibility -- search dropdown not keyboard-navigable (FIXED)
+**Severity:** MEDIUM
+The suggestion dropdown was mouse-only. Added:
+- `role="combobox"` on the input with `aria-autocomplete`, `aria-expanded`, `aria-controls`, `aria-activedescendant`
+- `role="listbox"` and `role="option"` on the dropdown and its items
+- Arrow Up/Down keyboard navigation with visual highlight tracking
+- Enter to select, Escape to dismiss
+- `aria-selected` on the highlighted option
+
+### F5: Accessibility -- missing aria-labels (FIXED)
+**Severity:** LOW
+- Search input: added `aria-label="Search entities"`
+- Clear selection button: added `aria-label="Clear selection"`
+- Export button: added `aria-label="Export impact report as markdown"`
+- At-risk entity buttons: added `aria-label="Analyze {schema}.{table}"`
+- Impact chain: added `role="list"` / `role="listitem"` with `aria-label`
+- Impact summary box: added `role="alert"`
+- Decorative icons: added `aria-hidden="true"` on Search, ArrowRight, Download, AlertTriangle icons
+- Table: added `aria-label="Source impact overview"` and `scope="col"` on `<th>` elements
+- Blast radius bars: added `role="progressbar"` with `aria-valuenow/min/max`
+
+### F6: Broken Tailwind opacity on Sparkles icon (FIXED)
+**Severity:** LOW
+`text-[var(--bp-ink-muted)]/40` is not valid Tailwind -- the `/40` opacity modifier doesn't work with arbitrary value color classes. Changed to inline `style={{ color: 'var(--bp-ink-muted)', opacity: 0.4 }}` (both instances at line ~290 and ~421).
+
+### F7: Suggestion hover used imperative DOM mutation (FIXED)
+**Severity:** LOW
+`onMouseEnter`/`onMouseLeave` directly mutated `style.background` on the DOM element. Replaced with React state (`highlightedIndex`) that controls the background via the style prop, keeping the component fully declarative and aligned with the keyboard navigation state.
+
+### F8: Redundant `!loading` guard on overview section (FIXED)
+**Severity:** LOW
+Line 302 had `{!impactResult && !loading && sourceBreakdown.length > 0 && (` -- the `!loading` check was redundant because we now return early on loading. Removed for clarity.
 
 ---
 
-## IsActive-as-Loaded Check
+## Not Fixed (Out of Scope)
 
-**PASS.** The page never uses `IsActive` as a proxy for loaded status. Every status check uses `lzStatus`, `bronzeStatus`, or `silverStatus` which are derived from the `entity_status` table in the backend.
+### N1: LAYER_MAP colors are hardcoded hex in `layers.ts`
+The impact chain uses `layerDef?.color` which comes from `LAYER_MAP` in `lib/layers.ts`. Those are hex strings (`#64748b`, `#3b82f6`, etc.), not design tokens. However, `layers.ts` is a shared module used across many pages -- changing it is outside this audit's scope.
 
-The `isActive` field from the digest is not referenced anywhere in this page's code.
+### N2: `getSourceColor()` returns hardcoded hex from `layers.ts`
+Same as N1 -- the `SOURCE_COLORS` map is in the shared module. Page-contained fix not possible.
 
----
-
-## Empty Table Check
-
-| Table | Rows | Used By This Page? | Impact |
-|-------|------|-------------------|--------|
-| `pipeline_lz_entity` | 0 | No | NONE |
-| `pipeline_bronze_entity` | 0 | No | NONE |
-| `entity_status` | 4,998 | Yes, via entity-digest | CORRECT |
-| `lz_entities` | 1,666 | Yes, via entity-digest | CORRECT |
-| `bronze_entities` | 1,666 | Yes, via entity-digest | CORRECT |
-| `silver_entities` | 1,666 | Yes, via entity-digest | CORRECT |
+### N3: No cross-page link to ImpactPulse
+ImpactPulse exists as a sibling page but there is no navigation between the two. Adding a link would be reasonable but was not flagged as a requirement. Noted for future UX improvement.
 
 ---
 
-## Design Notes
+## Data Integrity (Carried Forward from Prior Audit)
 
-- The impact trace is deterministic because LZ-to-Bronze-to-Silver is 1:1:1 in FMD. The page correctly models this as a linear chain.
-- Column-level impact analysis is stubbed out with a "coming in Phase 2" placeholder (lines 282-294). This is honest and appropriate.
-- The "Gold" layer is always shown as inactive ("not_started"), which is correct since Gold/MLV layers are not yet implemented.
+All metrics confirmed correct:
+- **KPIs**: Derived from `entity_status` via digest, not `IsActive` flags
+- **Impact chain**: Deterministic 1:1:1 LZ-Bronze-Silver trace, Gold correctly shown as inactive
+- **Source breakdown**: Honest counts from digest, blast radius is proportional (not fabricated)
+- **At-risk list**: Filters on real errors and partial chains
+- **No Math.ceil/random tricks, no hardcoded counts, no fabricated data**
 
 ---
 
 ## Verdict
 
-**Page Status: FULLY FUNCTIONAL -- all data sources correct**
-
-ImpactAnalysis is a well-designed page that uses the entity digest as its sole data source. All KPIs, the impact chain, the source breakdown table, and the at-risk entity list correctly use `entity_status`-derived statuses rather than `IsActive` flags. No queries against empty tables. No missing endpoints.
+**PASS** -- 8 findings, 8 fixed in-page. Data was already correct; this audit improved loading/error/empty states, accessibility, and keyboard navigation.
