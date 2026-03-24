@@ -69,6 +69,7 @@ import ImpactAnalysis from '@/pages/ImpactAnalysis'
 import DatabaseExplorer from '@/pages/DatabaseExplorer'
 import DataManager from '@/pages/DataManager'
 import LoadCenter from '@/pages/LoadCenter'
+import LoadMissionControl from '@/pages/LoadMissionControl'
 
 /** Redirect "/" to the Overview page — same landing for both personas */
 function HomeLanding() {
@@ -136,6 +137,7 @@ function App() {
         <Route path="/db-explorer" element={<DatabaseExplorer />} />
         <Route path="/data-manager" element={<DataManager />} />
         <Route path="/load-center" element={<LoadCenter />} />
+        <Route path="/load-mission-control" element={<LoadMissionControl />} />
         {/* Labs pages — always routed, nav visibility controlled by feature flags */}
         <Route path="/labs/cleansing" element={<CleansingRuleEditor />} />
         <Route path="/labs/scd-audit" element={<ScdAudit />} />

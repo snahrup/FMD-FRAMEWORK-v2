@@ -25,6 +25,26 @@ import {
   Gem,
   FileCode,
   ShieldCheck,
+  Eye,
+  EyeOff,
+  Gauge,
+  Radio,
+  CheckSquare,
+  Bug,
+  Workflow,
+  BarChart3,
+  Route,
+  ArrowDownUp,
+  Columns3,
+  GitCompare,
+  Zap,
+  TestTube,
+  Users,
+  Tag,
+  AlertTriangle,
+  FolderOpen,
+  BookOpen,
+  Radar,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -61,6 +81,7 @@ const CORE_GROUPS: NavGroup[] = [
     label: "Load",
     items: [
       { icon: Play, label: "Load Center", href: "/load-center" },
+      { icon: Radar, label: "Mission Control", href: "/load-mission-control" },
       { icon: Cable, label: "Source Manager", href: "/sources" },
     ],
   },
@@ -111,6 +132,46 @@ const CORE_GROUPS: NavGroup[] = [
   },
 ];
 
+// ── Extended groups: pages that only appear when "Show All" is on ──
+// Keyed by group label — items get merged into existing groups.
+// Groups not in CORE_GROUPS are appended as new sections.
+const EXTENDED_ITEMS: Record<string, NavItem[]> = {
+  Monitor: [
+    { icon: Gauge, label: "Engine Control", href: "/engine" },
+    { icon: Cog, label: "Control Plane", href: "/control" },
+    { icon: Radio, label: "Live Monitor", href: "/live" },
+    { icon: CheckSquare, label: "Validation", href: "/validation" },
+    { icon: Play, label: "Pipeline Runner", href: "/runner" },
+    { icon: Bug, label: "Pipeline Testing", href: "/notebook-debug" },
+  ],
+  Explore: [
+    { icon: Workflow, label: "Flow Explorer", href: "/flow" },
+    { icon: BarChart3, label: "Record Counts", href: "/counts" },
+    { icon: Route, label: "Data Journey", href: "/journey" },
+    { icon: ArrowDownUp, label: "Load Progress", href: "/load-progress" },
+    { icon: Columns3, label: "Column Evolution", href: "/columns" },
+    { icon: Microscope, label: "Data Microscope", href: "/microscope" },
+    { icon: GitCompare, label: "Sankey Flow", href: "/sankey" },
+    { icon: History, label: "Transformation Replay", href: "/replay" },
+    { icon: Zap, label: "Impact Pulse", href: "/pulse" },
+  ],
+  Quality: [
+    { icon: TestTube, label: "Test Audit", href: "/test-audit" },
+    { icon: Users, label: "Test Swarm", href: "/test-swarm" },
+    { icon: Activity, label: "MRI", href: "/mri" },
+    { icon: Crown, label: "Gold MLV Manager", href: "/labs/gold-mlv" },
+  ],
+  Governance: [
+    { icon: Tag, label: "Data Classification", href: "/classification" },
+    { icon: AlertTriangle, label: "Impact Analysis", href: "/impact" },
+    { icon: FolderOpen, label: "Data Manager", href: "/data-manager" },
+  ],
+  Admin: [
+    { icon: ShieldCheck, label: "Admin Gateway", href: "/admin" },
+    { icon: BookOpen, label: "Notebook Config", href: "/notebook-config" },
+  ],
+};
+
 // Business Portal navigation — focused set for non-technical users
 const BUSINESS_GROUPS: NavGroup[] = [
   {
@@ -131,6 +192,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const { isBusiness, togglePersona } = usePersona();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [hiddenPages, setHiddenPages] = useState<string[]>([]);
+  const [showAll, setShowAll] = useState(() => localStorage.getItem("fmd-show-all") === "1");
 
   // Listen for page visibility changes from the Admin gateway
   const onVisibilityChanged = useCallback((e: Event) => {
@@ -150,16 +212,52 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     getHiddenPages().then(setHiddenPages);
   }, []);
 
-  // Build sidebar groups filtered by persona + hiddenPages.
-  // Business mode shows the focused Business Portal nav.
-  // Engineering mode shows the full CORE_GROUPS with hidden-page filtering.
+  // Simple toggle for Show All — persists in localStorage
+  const handleShowAllToggle = useCallback(() => {
+    const next = !showAll;
+    setShowAll(next);
+    if (next) {
+      localStorage.setItem("fmd-show-all", "1");
+    } else {
+      localStorage.removeItem("fmd-show-all");
+    }
+  }, [showAll]);
+
+  // Build sidebar groups filtered by persona + hiddenPages + showAll.
+  // When showAll is on, merge EXTENDED_ITEMS into the core groups.
   const sidebarGroups = useMemo(() => {
     const groups = isBusiness ? BUSINESS_GROUPS : CORE_GROUPS;
-    return groups.map((g) => ({
+
+    // If showAll, merge extended items into matching groups + add new groups
+    let merged: NavGroup[];
+    if (!isBusiness && showAll) {
+      const groupMap = new Map<string, NavItem[]>();
+      // Start with core items
+      for (const g of groups) {
+        groupMap.set(g.label, [...g.items]);
+      }
+      // Merge extended items
+      for (const [label, items] of Object.entries(EXTENDED_ITEMS)) {
+        const existing = groupMap.get(label) || [];
+        const existingHrefs = new Set(existing.map((i) => i.href));
+        const newItems = items.filter((i) => !existingHrefs.has(i.href));
+        groupMap.set(label, [...existing, ...newItems]);
+      }
+      // Preserve core group order, then append new groups
+      const coreLabels = groups.map((g) => g.label);
+      const allLabels = [...coreLabels, ...Object.keys(EXTENDED_ITEMS).filter((l) => !coreLabels.includes(l))];
+      merged = allLabels
+        .filter((label) => groupMap.has(label))
+        .map((label) => ({ label, items: groupMap.get(label)! }));
+    } else {
+      merged = groups.map((g) => ({ ...g, items: [...g.items] }));
+    }
+
+    return merged.map((g) => ({
       ...g,
       items: g.items.filter((item) => !hiddenPages.includes(item.href)),
     })).filter((g) => g.items.length > 0);
-  }, [hiddenPages, isBusiness]);
+  }, [hiddenPages, isBusiness, showAll]);
 
   const sidebarWidth = "w-64";
   const mainMargin = "md:ml-64";
@@ -374,8 +472,32 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         ))}
       </nav>
 
+      {/* Show All Pages toggle (admin-protected) */}
+      <div style={{ padding: "8px 24px 0", borderTop: "1px solid var(--bp-border)" }}>
+        <button
+          onClick={handleShowAllToggle}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            width: "100%",
+            padding: "6px 0",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontSize: 11,
+            fontWeight: 500,
+            color: showAll ? "var(--bp-copper)" : "var(--bp-ink-muted)",
+            transition: "color 0.15s",
+          }}
+        >
+          {showAll ? <Eye style={{ width: 14, height: 14 }} /> : <EyeOff style={{ width: 14, height: 14 }} />}
+          {showAll ? "All Pages" : "Show All Pages"}
+        </button>
+      </div>
+
       {/* Footer: Engineering/Business segmented toggle */}
-      <div style={{ padding: "16px 24px", borderTop: "1px solid var(--bp-border)" }}>
+      <div style={{ padding: "8px 24px 16px" }}>
         <div
           style={{
             display: "flex",
