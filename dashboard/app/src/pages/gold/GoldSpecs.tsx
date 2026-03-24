@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Search } from "lucide-react";
 import { GoldStudioLayout, useDomainContext } from "@/components/gold/GoldStudioLayout";
-import { StatsStrip } from "@/components/gold/StatsStrip";
+
 import { SlideOver } from "@/components/gold/SlideOver";
 import { ProvenanceThread } from "@/components/gold/ProvenanceThread";
 import { GoldLoading, GoldNoResults } from "@/components/gold";
@@ -181,13 +181,31 @@ export default function GoldSpecs() {
   /* ---------- render ---------- */
   return (
     <GoldStudioLayout activeTab="specs">
-      <StatsStrip items={[
-        { label: "Gold Specs", value: stats.total },
-        { label: "Ready to Deploy", value: stats.ready, highlight: true },
-        { label: "Pending Validation", value: stats.pending },
-        { label: "Needs Revalidation", value: stats.needs_reval },
-        { label: "Deprecated", value: stats.deprecated },
-      ]} />
+      <div style={{ borderBottom: "1px solid var(--bp-border)", padding: "12px 6px 14px" }}>
+        <div className="flex items-end gap-8 mb-2">
+          {[
+            { label: "Ready to Deploy", value: stats.ready, color: "var(--bp-operational-green)", i: 0 },
+            { label: "Total Specs", value: stats.total, color: "var(--bp-ink-primary)", i: 1 },
+            { label: "Pending", value: stats.pending, color: stats.pending > 0 ? "var(--bp-caution-amber)" : "var(--bp-ink-primary)", i: 2 },
+          ].map((m) => (
+            <div key={m.label} className="gs-hero-enter" style={{ "--i": m.i } as React.CSSProperties}>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
+              <div style={{ fontFamily: "var(--bp-font-display)", fontSize: 36, letterSpacing: "-0.02em", lineHeight: 1, color: m.color }}>{m.value}</div>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-5">
+          {[
+            { label: "Needs Reval.", value: stats.needs_reval },
+            { label: "Deprecated", value: stats.deprecated },
+          ].map((m, i) => (
+            <div key={m.label} className="gs-stagger-row flex items-center gap-1.5" style={{ "--i": i } as React.CSSProperties}>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
+              <span style={{ fontFamily: "var(--bp-font-display)", fontSize: 18, color: "var(--bp-ink-primary)" }}>{m.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Filter bar */}
       <div className="flex items-center gap-2.5 px-6 py-2.5" style={{ borderBottom: "1px solid var(--bp-border)" }}>
@@ -219,13 +237,13 @@ export default function GoldSpecs() {
 
       {/* Spec table */}
       <div className="space-y-1" style={{ paddingBottom: 20 }}>
-        {filtered.map((s) => {
+        {filtered.map((s, i) => {
           const badge = VALIDATION_BADGE[s.validation_status] ?? VALIDATION_BADGE.pending;
           return (
             <button key={s.id} type="button" onClick={() => openDetail(s.id)}
               aria-label={`Open spec: ${s.name}`}
-              className="w-full text-left flex items-center rounded-lg transition-colors hover:bg-black/[0.03] bp-row-interactive relative overflow-hidden"
-              style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" }}>
+              className="w-full text-left flex items-center rounded-lg transition-colors hover:bg-black/[0.03] bp-row-interactive relative overflow-hidden gs-stagger-row gs-row-hover"
+              style={{ background: i % 2 === 1 ? "var(--bp-surface-inset)" : "var(--bp-surface-1)", border: "1px solid var(--bp-border)", "--i": Math.min(i, 15) } as React.CSSProperties}>
               {/* status rail */}
               <span className="absolute left-0 top-0 bottom-0 rounded-l-lg" aria-hidden="true" style={{ width: 3, background: STATUS_RAIL[s.status] ?? "var(--bp-ink-muted)" }} />
 
@@ -361,7 +379,7 @@ function SqlTab({ sql }: { sql: string }) {
         </div>
         <pre className="overflow-auto p-4 pr-20" style={{ fontFamily: "var(--bp-font-mono)", fontSize: 13, color: "var(--bp-code-fg, #E8E6E3)", lineHeight: 1.6, maxHeight: expanded ? undefined : 480 }}>
           {lines.map((l, i) => (
-            <div key={i} className="flex">
+            <div key={i} className="flex transition-colors hover:bg-white/[0.04]" style={{ borderRadius: 2 }}>
               <span className="select-none w-8 shrink-0 text-right mr-4" aria-hidden="true" style={{ color: "var(--bp-code-line-nr, rgba(232,230,227,0.3))" }}>{i + 1}</span>
               <span>{l}</span>
             </div>
@@ -385,8 +403,8 @@ function ColumnsTab({ columns }: { columns: SpecColumn[] }) {
         </tr>
       </thead>
       <tbody>
-        {columns.map((c) => (
-          <tr key={c.name} className={c.included ? "" : "opacity-50"} style={{ borderBottom: "1px solid var(--bp-border)" }}>
+        {columns.map((c, i) => (
+          <tr key={c.name} className={c.included ? "" : "opacity-50"} style={{ borderBottom: "1px solid var(--bp-border)", background: i % 2 === 1 ? "var(--bp-surface-inset)" : undefined }}>
             <td className="py-1.5 pr-3" style={{ ...mono, textDecoration: c.included ? "none" : "line-through" }} title={c.exclude_reason}>{c.name}</td>
             <td className="py-1.5 pr-3" style={mono}>{c.target_name}</td>
             <td className="py-1.5 pr-3" style={mono}>{c.data_type}</td>

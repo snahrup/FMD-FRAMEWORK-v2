@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Search } from "lucide-react";
-import { GoldStudioLayout, StatsStrip, SlideOver, useGoldToast, GoldLoading, GoldEmpty, GoldNoResults } from "@/components/gold";
+import { GoldStudioLayout, SlideOver, useGoldToast, GoldLoading, GoldEmpty, GoldNoResults } from "@/components/gold";
 import { ClusterCard } from "@/components/gold/ClusterCard";
 import type { ClusterData, ClusterMember } from "@/components/gold/ClusterCard";
 import { ColumnReconciliation } from "@/components/gold/ColumnReconciliation";
@@ -345,27 +345,45 @@ export default function GoldClusters() {
 
   return (
     <GoldStudioLayout activeTab="clusters">
-      {/* Stats strip */}
+      {/* Tiered KPIs */}
       {stats && (
-        <StatsStrip
-          items={[
-            { label: "Total Clusters", value: stats.total_clusters },
-            { label: "Unresolved", value: stats.unresolved, highlight: true },
-            { label: "Resolved", value: stats.resolved },
-            { label: "Avg Confidence (name-only)", value: `${stats.avg_confidence}%` },
-            {
-              label: "Not Clustered",
-              value: stats.not_clustered,
-              onClick: () => setActiveTab("unclustered"),
-            },
-          ]}
-        />
+        <div style={{ borderBottom: "1px solid var(--bp-border)", padding: "12px 0 14px" }}>
+          {/* Tier 1: Hero metrics */}
+          <div className="flex items-end gap-8 mb-2">
+            {[
+              { label: "Unresolved", value: stats.unresolved, color: stats.unresolved > 0 ? "var(--bp-fault-red)" : "var(--bp-ink-primary)", i: 0 },
+              { label: "Total Clusters", value: stats.total_clusters, color: "var(--bp-ink-primary)", i: 1 },
+              { label: "Avg Confidence", value: `${stats.avg_confidence}%`, color: "var(--bp-copper)", i: 2 },
+            ].map((m) => (
+              <div key={m.label} className="gs-hero-enter" style={{ "--i": m.i } as React.CSSProperties}>
+                <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
+                <div style={{ fontFamily: "var(--bp-font-display)", fontSize: 36, letterSpacing: "-0.02em", lineHeight: 1, color: m.color }}>{m.value}</div>
+              </div>
+            ))}
+          </div>
+          {/* Tier 2: Supporting */}
+          <div className="flex items-center gap-5">
+            {[
+              { label: "Resolved", value: stats.resolved },
+              { label: "Not Clustered", value: stats.not_clustered, onClick: () => setActiveTab("unclustered") },
+            ].map((m, i) => (
+              <span key={m.label} className="gs-stagger-row flex items-center gap-1.5" style={{ "--i": i, cursor: m.onClick ? "pointer" : undefined } as React.CSSProperties}
+                {...(m.onClick ? { onClick: m.onClick, role: "button", tabIndex: 0 } : {})}>
+                <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
+                <span style={{ fontFamily: "var(--bp-font-display)", fontSize: 18, color: "var(--bp-ink-primary)" }}>{m.value}</span>
+              </span>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Maturity notice — clustering uses exact name matching, not fuzzy/ML */}
-      <p style={{ fontFamily: "var(--bp-font-body)", fontSize: 11, color: "var(--bp-ink-muted)", margin: "6px 0 0", letterSpacing: "0.01em" }}>
-        Clustering uses exact name matching within each division. Confidence is fixed at 80%. Fuzzy and schema-aware matching are planned.
-      </p>
+      <div className="flex items-center gap-2 rounded-md px-3 py-2 mt-2" style={{ background: "var(--bp-caution-light)", border: "1px solid color-mix(in srgb, var(--bp-caution-amber) 20%, transparent)" }}>
+        <span style={{ color: "var(--bp-caution-amber)", fontSize: 14 }}>{"\u26A0"}</span>
+        <span style={{ fontFamily: "var(--bp-font-body)", fontSize: 11, color: "var(--bp-ink-secondary)", letterSpacing: "0.01em" }}>
+          Clustering uses exact name matching within each division. Confidence is fixed at 80%. Fuzzy and schema-aware matching are planned.
+        </span>
+      </div>
 
       <div style={{ paddingBottom: 20 }}>
         {/* Filter bar */}
@@ -492,8 +510,8 @@ export default function GoldClusters() {
               className="pb-2 px-3 text-center transition-colors relative"
               style={{
                 fontFamily: "var(--bp-font-body)",
-                fontWeight: 500,
-                fontSize: 13,
+                fontWeight: activeTab === tab.id ? 700 : 500,
+                fontSize: 14,
                 color:
                   activeTab === tab.id ? "var(--bp-copper)" : "var(--bp-ink-muted)",
               }}
@@ -503,9 +521,9 @@ export default function GoldClusters() {
                 <span
                   className="absolute bottom-0 left-0 right-0"
                   style={{
-                    height: 2,
+                    height: 2.5,
                     background: "var(--bp-copper)",
-                    borderRadius: "1px 1px 0 0",
+                    borderRadius: "1.5px 1.5px 0 0",
                   }}
                 />
               )}
@@ -525,16 +543,17 @@ export default function GoldClusters() {
             {!loading && clusters.length === 0 && (
               <GoldEmpty noun="clusters" />
             )}
-            {filtered.map((c) => (
-              <ClusterCard
-                key={c.cluster.id}
-                cluster={c.cluster}
-                members={c.members}
-                onResolve={(action, payload) => handleResolve(c.cluster.id, action, payload)}
-                onConfirmGrouping={() => openReconciliation(c.cluster.id)}
-                onLabelChange={handleLabelChange}
-                onDismiss={handleDismissRequest}
-              />
+            {filtered.map((c, i) => (
+              <div key={c.cluster.id} className="gs-stagger-card" style={{ "--i": Math.min(i, 15) } as React.CSSProperties}>
+                <ClusterCard
+                  cluster={c.cluster}
+                  members={c.members}
+                  onResolve={(action, payload) => handleResolve(c.cluster.id, action, payload)}
+                  onConfirmGrouping={() => openReconciliation(c.cluster.id)}
+                  onLabelChange={handleLabelChange}
+                  onDismiss={handleDismissRequest}
+                />
+              </div>
             ))}
           </div>
         )}
@@ -561,14 +580,17 @@ export default function GoldClusters() {
                 </tr>
               </thead>
               <tbody>
-                {filteredUnclustered.map((e) => (
+                {filteredUnclustered.map((e, i) => (
                   <tr
                     key={e.id}
+                    className="gs-stagger-row"
                     style={{
+                      "--i": Math.min(i, 15),
                       fontFamily: "var(--bp-font-body)",
                       color: "var(--bp-ink-primary)",
                       borderTop: "1px solid var(--bp-border)",
-                    }}
+                      background: i % 2 === 1 ? "var(--bp-surface-inset)" : undefined,
+                    } as React.CSSProperties}
                   >
                     <td className="py-2 pr-4">{e.entity_name}</td>
                     <td
@@ -631,13 +653,13 @@ export default function GoldClusters() {
       {/* Dismiss notes modal — spec requires notes for dismiss action */}
       {dismissTarget !== null && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.35)" }}
+          className="fixed inset-0 z-50 flex items-center justify-center gs-modal-backdrop"
+          style={{ background: "rgba(0,0,0,0.3)" }}
           onClick={() => setDismissTarget(null)}
         >
           <div
-            className="rounded-lg p-5 w-full max-w-md"
-            style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" }}
+            className="rounded-lg p-5 w-full max-w-md gs-modal-enter"
+            style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border-strong, var(--bp-border))" }}
             onClick={(e) => e.stopPropagation()}
           >
             <h3

@@ -1,7 +1,7 @@
 // Gold Validation & Catalog — Validation status, catalog registry, and report recreation coverage.
 // Spec: docs/superpowers/specs/2026-03-18-gold-studio-design.md § 9, 9.5
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
-import { GoldStudioLayout, StatsStrip, SlideOver, useDomainContext, useGoldToast, GoldLoading, GoldEmpty } from "@/components/gold";
+import { GoldStudioLayout, SlideOver, useDomainContext, useGoldToast, GoldLoading, GoldEmpty } from "@/components/gold";
 
 /* ---------- types ---------- */
 
@@ -152,8 +152,8 @@ function Badge({ label, color, bg }: { label: string; color: string; bg: string 
 function Modal({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.35)" }} onClick={onClose}>
-      <div className="rounded-lg w-full max-w-lg p-6 max-h-[80vh] overflow-y-auto" style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" }} onClick={(e) => e.stopPropagation()}>{children}</div>
+    <div className="gs-modal-backdrop fixed inset-0 z-[60] flex items-center justify-center" role="presentation" style={{ background: "rgba(0,0,0,0.3)" }} onClick={onClose} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+      <div className="gs-modal-enter rounded-lg w-full max-w-lg p-6 max-h-[80vh] overflow-y-auto" role="dialog" style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border-strong, var(--bp-border))" }} onClick={(e) => e.stopPropagation()}>{children}</div>
     </div>
   );
 }
@@ -381,15 +381,8 @@ export default function GoldValidation() {
     return r.sort((a, b) => (COVERAGE_STATUS_CFG[a.coverage_status]?.order ?? 9) - (COVERAGE_STATUS_CFG[b.coverage_status]?.order ?? 9));
   }, [reports, covFilter]);
 
-  /* Stats strip — map backend field names */
+  /* Stats — map backend field names */
   const pendingCount = (stats?.gold_specs ?? 0) - (stats?.specs_validated ?? 0);
-  const strip = [
-    { label: "Validated", value: stats?.specs_validated ?? 0 },
-    { label: "Cataloged", value: stats?.catalog_published ?? 0 },
-    { label: "Pending", value: pendingCount > 0 ? pendingCount : 0, highlight: pendingCount > 0 },
-    { label: "Certified", value: stats?.catalog_certified ?? 0 },
-    { label: "Total Specs", value: stats?.gold_specs ?? 0 },
-  ];
 
   const ruleBadge = (t: string) => {
     const tl = t.toLowerCase();
@@ -405,13 +398,37 @@ export default function GoldValidation() {
 
   return (
     <GoldStudioLayout activeTab="validation">
-      <StatsStrip items={strip} />
+      <div style={{ borderBottom: "1px solid var(--bp-border)", padding: "12px 0 14px" }}>
+        <div className="flex items-end gap-8 mb-2">
+          {[
+            { label: "Validated", value: stats?.specs_validated ?? 0, color: "var(--bp-operational-green)", i: 0 },
+            { label: "Pending", value: pendingCount > 0 ? pendingCount : 0, color: pendingCount > 0 ? "var(--bp-caution-amber)" : "var(--bp-ink-primary)", i: 1 },
+            { label: "Certified", value: stats?.catalog_certified ?? 0, color: "var(--bp-copper)", i: 2 },
+          ].map((m) => (
+            <div key={m.label} className="gs-hero-enter" style={{ "--i": m.i } as React.CSSProperties}>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
+              <div style={{ fontFamily: "var(--bp-font-display)", fontSize: 36, letterSpacing: "-0.02em", lineHeight: 1, color: m.color }}>{m.value}</div>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-5">
+          {[
+            { label: "Cataloged", value: stats?.catalog_published ?? 0 },
+            { label: "Total Specs", value: stats?.gold_specs ?? 0 },
+          ].map((m, i) => (
+            <div key={m.label} className="gs-stagger-row flex items-center gap-1.5" style={{ "--i": i } as React.CSSProperties}>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
+              <span style={{ fontFamily: "var(--bp-font-display)", fontSize: 18, color: "var(--bp-ink-primary)" }}>{m.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
       {/* Sub-tabs */}
       <div className="flex gap-1 pt-3" style={{ borderBottom: "1px solid var(--bp-border)" }}>
         {(["validation", "catalog", "recreation"] as const).map(t => (
-          <button key={t} type="button" onClick={() => setActiveTab(t)} className="pb-2.5 px-3 text-center transition-colors relative" style={{ ...bf, fontWeight: 500, fontSize: 13, color: activeTab === t ? "var(--bp-copper)" : "var(--bp-ink-muted)" }}>
+          <button key={t} type="button" onClick={() => setActiveTab(t)} className="pb-2.5 px-3 text-center transition-colors relative" style={{ ...bf, fontWeight: activeTab === t ? 700 : 500, fontSize: 14, color: activeTab === t ? "var(--bp-copper)" : "var(--bp-ink-muted)" }}>
             {t === "validation" ? "Validation Status" : t === "catalog" ? "Catalog Registry" : "Report Recreation"}
-            {activeTab === t && <span className="absolute bottom-0 left-0 right-0" style={{ height: 2, background: "var(--bp-copper)", borderRadius: "1px 1px 0 0" }} />}
+            {activeTab === t && <span className="absolute bottom-0 left-0 right-0" style={{ height: 2.5, background: "var(--bp-copper)", borderRadius: "1.5px 1.5px 0 0" }} />}
           </button>
         ))}
       </div>
@@ -424,10 +441,10 @@ export default function GoldValidation() {
               <thead><tr><th style={th}>Spec Name</th><th style={th}>Status</th><th style={th}>Version</th><th style={th}>Domain</th></tr></thead>
               <tbody>
                 {specs.length === 0 && <tr><td colSpan={4} style={{ ...td, textAlign: "center", color: "var(--bp-ink-muted)" }}>No specs available</td></tr>}
-                {specs.map(s => {
+                {specs.map((s, i) => {
                   const c = SPEC_STATUS_CFG[s.status] ?? SPEC_STATUS_CFG.draft;
                   return (
-                    <tr key={s.id} className="cursor-pointer hover:bg-black/[0.02] transition-colors bp-row-interactive" onClick={() => openSpec(s)}>
+                    <tr key={s.id} className="gs-stagger-row cursor-pointer hover:bg-black/[0.02] transition-colors bp-row-interactive" style={{ "--i": Math.min(i, 15), background: i % 2 === 1 ? "var(--bp-surface-inset)" : undefined } as React.CSSProperties} onClick={() => openSpec(s)}>
                       <td style={{ ...td, fontWeight: 500 }}>{s.name ?? s.target_name}</td>
                       <td style={td}><Badge label={`${c.icon} ${c.label}`} color={c.color} bg={c.bg} /></td>
                       <td style={{ ...td, fontFamily: "monospace", fontSize: 12 }}>v{s.version}</td>
@@ -450,11 +467,11 @@ export default function GoldValidation() {
               <thead><tr><th style={th}>Display Name</th><th style={th}>Technical Name</th><th style={th}>Domain</th><th style={th}>Owner</th><th style={th}>Sensitivity</th><th style={th}>Endorsement</th><th style={th}>Published</th></tr></thead>
               <tbody>
                 {catalog.length === 0 && <tr><td colSpan={7} style={{ ...td, textAlign: "center", color: "var(--bp-ink-muted)" }}>No catalog entries</td></tr>}
-                {catalog.map(c => {
+                {catalog.map((c, i) => {
                   const sens = SENS_CFG[c.sensitivity_label] ?? SENS_CFG.internal;
                   const ec = ENDORSE_CFG[c.endorsement] ?? null;
                   return (
-                    <tr key={c.id} className="cursor-pointer hover:bg-black/[0.02] transition-colors bp-row-interactive" onClick={() => openCat(c)}>
+                    <tr key={c.id} className="gs-stagger-row cursor-pointer hover:bg-black/[0.02] transition-colors bp-row-interactive" style={{ "--i": Math.min(i, 15), background: i % 2 === 1 ? "var(--bp-surface-inset)" : undefined } as React.CSSProperties} onClick={() => openCat(c)}>
                       <td style={{ ...td, fontWeight: 500 }}>
                         {c.display_name}
                         {c.status === "source_updated" && <span className="ml-1.5" title="Source spec has been updated — catalog may need re-publishing" style={{ color: "var(--bp-caution-amber)", fontSize: 11 }}>{"\u21BB"}</span>}
@@ -500,8 +517,8 @@ export default function GoldValidation() {
                   <span style={{ ...bf, fontSize: 13, color: "var(--bp-ink-secondary)" }}>{covered}/{total} reports covered ({pctCovered}%)</span>
                 </div>
                 <div className="flex rounded-full overflow-hidden h-2" style={{ background: "var(--bp-surface-inset)" }}>
-                  <div style={{ width: `${pctCovered}%`, background: "var(--bp-operational-green)", transition: "width 0.3s" }} />
-                  <div style={{ width: `${pctPartial}%`, background: "var(--bp-caution-amber)", transition: "width 0.3s" }} />
+                  <div style={{ width: `${pctCovered}%`, background: "var(--bp-operational-green)", transition: "width 600ms var(--ease-claude)" }} />
+                  <div style={{ width: `${pctPartial}%`, background: "var(--bp-caution-amber)", transition: "width 600ms var(--ease-claude) 200ms" }} />
                 </div>
               </div>
             );
@@ -513,10 +530,10 @@ export default function GoldValidation() {
               <thead><tr><th style={th}>Report</th><th style={th}>Domain</th><th style={th}>Type</th><th style={th}>Coverage Status</th><th style={th}>Assessed</th></tr></thead>
               <tbody>
                 {filteredReports.length === 0 && <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: "var(--bp-ink-muted)" }}>No reports registered{covFilter !== "All" ? ` with status "${COVERAGE_STATUS_CFG[covFilter]?.label ?? covFilter}"` : ""}</td></tr>}
-                {filteredReports.map(r => {
+                {filteredReports.map((r, i) => {
                   const sc = COVERAGE_STATUS_CFG[r.coverage_status] ?? COVERAGE_STATUS_CFG.not_analyzed;
                   return (
-                    <tr key={r.id} className="cursor-pointer hover:bg-black/[0.02] transition-colors bp-row-interactive" onClick={() => openReport(r)}>
+                    <tr key={r.id} className="gs-stagger-row cursor-pointer hover:bg-black/[0.02] transition-colors bp-row-interactive" style={{ "--i": Math.min(i, 15), background: i % 2 === 1 ? "var(--bp-surface-inset)" : undefined } as React.CSSProperties} onClick={() => openReport(r)}>
                       <td style={{ ...td, fontWeight: 500 }}>
                         {r.report_name}
                         {r.report_description && <span className="block mt-0.5" style={{ fontSize: 11, color: "var(--bp-ink-muted)", fontWeight: 400 }}>{r.report_description.slice(0, 80)}{r.report_description.length > 80 ? "..." : ""}</span>}

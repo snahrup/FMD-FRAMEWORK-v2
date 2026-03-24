@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { ReactFlow, Background, Controls, type Node, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { GoldStudioLayout, useGoldToast, useDomainContext } from "@/components/gold/GoldStudioLayout";
-import { StatsStrip } from "@/components/gold/StatsStrip";
+
 import { SlideOver } from "@/components/gold/SlideOver";
 import { ProvenanceThread } from "@/components/gold/ProvenanceThread";
 import { GoldLoading, GoldEmpty, GoldNoResults } from "@/components/gold/GoldStates";
@@ -472,13 +472,13 @@ function DomainGrid({ entities, domains, onSelect }: { entities: CanonicalEntity
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((e) => {
+                  {items.map((e, i) => {
                     const sc = STATUS_CFG[e.status];
                     return (
                       <tr
                         key={e.id}
-                        className="cursor-pointer transition-colors hover:bg-black/[0.02] bp-row-interactive"
-                        style={{ borderBottom: "1px solid var(--bp-border)" }}
+                        className="gs-stagger-row cursor-pointer transition-colors hover:bg-black/[0.02] bp-row-interactive"
+                        style={{ borderBottom: "1px solid var(--bp-border)", background: i % 2 === 1 ? "var(--bp-surface-inset)" : undefined, "--i": Math.min(i, 15) } as React.CSSProperties}
                         onClick={() => onSelect(e.id)}
                       >
                         <td className="px-4 py-2" style={font("body", 13, "var(--bp-ink-primary)", { fontWeight: 500, textDecoration: sc.strike ? "line-through" : undefined })}>{e.name}</td>
@@ -621,17 +621,6 @@ export default function GoldCanonical() {
     return entities.filter((e) => e.name.toLowerCase().includes(q) || e.domain.toLowerCase().includes(q) || e.grain.toLowerCase().includes(q));
   }, [entities, search]);
 
-  const statsItems = stats
-    ? [
-        { label: "Canonical Entities", value: stats.canonical_total },
-        { label: "Approved", value: stats.canonical_approved, highlight: true },
-        { label: "Gold Specs", value: stats.gold_specs },
-        { label: "Specs Validated", value: stats.specs_validated },
-        { label: "Catalog Published", value: stats.catalog_published },
-        { label: "Certified", value: stats.catalog_certified, highlight: true },
-      ]
-    : [];
-
   // Prefer domainNames from context; fall back to locally fetched domains
   const domainOptions = domainNames.length > 0 ? domainNames : domains;
 
@@ -645,7 +634,34 @@ export default function GoldCanonical() {
 
   return (
     <GoldStudioLayout activeTab="canonical">
-      {stats && <StatsStrip items={statsItems} />}
+      {stats && (
+        <div style={{ borderBottom: "1px solid var(--bp-border)", padding: "12px 0 14px" }}>
+          <div className="flex items-end gap-8 mb-2">
+            {[
+              { label: "Canonical Approved", value: stats.canonical_approved, color: "var(--bp-operational-green)", i: 0 },
+              { label: "Total Entities", value: stats.canonical_total, color: "var(--bp-ink-primary)", i: 1 },
+              { label: "Domains", value: domains.length, color: "var(--bp-copper)", i: 2 },
+            ].map((m) => (
+              <div key={m.label} className="gs-hero-enter" style={{ "--i": m.i } as React.CSSProperties}>
+                <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
+                <div style={{ fontFamily: "var(--bp-font-display)", fontSize: 36, letterSpacing: "-0.02em", lineHeight: 1, color: m.color }}>{m.value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-5">
+            {[
+              { label: "Specimens", value: stats.specimens },
+              { label: "Clusters", value: stats.clusters_total },
+              { label: "Gold Specs", value: stats.gold_specs },
+            ].map((m, i) => (
+              <div key={m.label} className="gs-stagger-row flex items-center gap-1.5" style={{ "--i": i } as React.CSSProperties}>
+                <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
+                <span style={{ fontFamily: "var(--bp-font-display)", fontSize: 18, color: "var(--bp-ink-primary)" }}>{m.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {fetchError && (
         <div role="alert" className="flex items-center justify-between rounded-lg px-4 py-3 mb-3" style={{ background: "var(--bp-copper-soft)", border: "1px solid var(--bp-copper)" }}>
@@ -733,11 +749,10 @@ export default function GoldCanonical() {
       {entities.length > 0 && !filtered.length && (
         <GoldNoResults query={search || undefined} />
       )}
-      {filtered.length > 0 && view === "grid" && (
-        <DomainGrid entities={filtered} domains={domains} onSelect={setSelectedId} />
-      )}
-      {filtered.length > 0 && view === "map" && (
-        <RelationshipMap entities={filtered} onSelect={setSelectedId} />
+      {filtered.length > 0 && (
+        <div style={{ animation: "gsFadeIn 200ms var(--ease-claude) both" }} key={view}>
+          {view === "grid" ? <DomainGrid entities={filtered} domains={domains} onSelect={setSelectedId} /> : <RelationshipMap entities={filtered} onSelect={setSelectedId} />}
+        </div>
       )}
 
       {/* Detail slide-over */}

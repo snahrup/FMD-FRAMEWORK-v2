@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef, type ChangeEvent } from "react";
 import { Upload, Code2, FolderUp, ChevronDown, Search, X, FileSpreadsheet, StickyNote } from "lucide-react";
-import { GoldStudioLayout, StatsStrip, GoldLoading, GoldEmpty, GoldNoResults } from "@/components/gold";
+import { GoldStudioLayout, GoldLoading, GoldEmpty, GoldNoResults } from "@/components/gold";
 import { SpecimenCard } from "@/components/gold/SpecimenCard";
 
 const API = import.meta.env.VITE_API_URL || "";
@@ -566,7 +566,7 @@ function ModalShell({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-50"
+        className="fixed inset-0 z-50 gs-modal-backdrop"
         style={{ background: "rgba(0,0,0,0.3)" }}
         aria-hidden="true"
         onClick={onClose}
@@ -576,7 +576,7 @@ function ModalShell({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="fixed z-50 rounded-lg overflow-hidden"
+        className="fixed z-50 rounded-lg overflow-hidden gs-modal-enter"
         style={{
           top: "50%",
           left: "50%",
@@ -586,7 +586,7 @@ function ModalShell({
           maxHeight: "85vh",
           overflowY: "auto",
           background: "var(--bp-surface-1)",
-          border: "1px solid var(--bp-border)",
+          border: "1px solid var(--bp-border-strong, var(--bp-border))",
         }}
       >
         {/* Header */}
@@ -1121,28 +1121,6 @@ export default function GoldLedger() {
     );
   }, [entities, search]);
 
-  // ── Stats strip items ──
-
-  const statsItems = stats
-    ? [
-        { label: "Specimens", value: stats.specimens },
-        { label: "Tables Extracted", value: stats.tables_extracted },
-        { label: "Columns Cataloged", value: stats.columns_cataloged.toLocaleString() },
-        { label: "Unresolved Clusters", value: stats.unresolved_clusters, highlight: stats.unresolved_clusters > 0 },
-        { label: "Canonical Approved", value: stats.canonical_approved },
-        { label: "Gold Specs", value: stats.gold_specs },
-        { label: "Certification Rate", value: `${stats.certification_rate}%` },
-      ]
-    : [
-        { label: "Specimens", value: "—" },
-        { label: "Tables Extracted", value: "—" },
-        { label: "Columns Cataloged", value: "—" },
-        { label: "Unresolved Clusters", value: "—" },
-        { label: "Canonical Approved", value: "—" },
-        { label: "Gold Specs", value: "—" },
-        { label: "Certification Rate", value: "—" },
-      ];
-
   // ── Import callback ──
 
   const handleImportDone = () => {
@@ -1156,8 +1134,34 @@ export default function GoldLedger() {
       activeTab="ledger"
       actions={<ImportDropdown onSelect={setModal} />}
     >
-      {/* Stats */}
-      <StatsStrip items={statsItems} />
+      {/* Stats — Tiered KPIs */}
+      <div style={{ borderBottom: "1px solid var(--bp-border)", padding: "12px 0 14px" }}>
+        <div className="flex items-end gap-8 mb-2">
+          {[
+            { label: "Specimens", value: stats?.specimens ?? "—", color: "var(--bp-copper)", i: 0 },
+            { label: "Tables Extracted", value: stats?.tables_extracted ?? "—", color: "var(--bp-ink-primary)", i: 1 },
+            { label: "Columns Cataloged", value: stats?.columns_cataloged?.toLocaleString() ?? "—", color: "var(--bp-ink-primary)", i: 2 },
+          ].map((m) => (
+            <div key={m.label} className="gs-hero-enter" style={{ "--i": m.i } as React.CSSProperties}>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
+              <div style={{ fontFamily: "var(--bp-font-display)", fontSize: 36, letterSpacing: "-0.02em", lineHeight: 1, color: m.color }}>{m.value}</div>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-5">
+          {[
+            { label: "Unresolved Clusters", value: stats?.unresolved_clusters ?? "—" },
+            { label: "Canonical", value: stats?.canonical_approved ?? "—" },
+            { label: "Gold Specs", value: stats?.gold_specs ?? "—" },
+            { label: "Certification", value: stats ? `${stats.certification_rate}%` : "—" },
+          ].map((m, i) => (
+            <div key={m.label} className="gs-stagger-row flex items-center gap-1.5" style={{ "--i": i } as React.CSSProperties}>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
+              <span style={{ fontFamily: "var(--bp-font-display)", fontSize: 18, color: "var(--bp-ink-primary)" }}>{m.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Error banner */}
       {fetchError && (
@@ -1238,17 +1242,18 @@ export default function GoldLedger() {
               : <GoldNoResults query={search || undefined} />
           ) : (
             <div className="flex flex-col gap-2.5">
-              {filtered.map((sp) => {
+              {filtered.map((sp, index) => {
                 const detail = detailsCache[sp.id];
                 return (
-                  <SpecimenCard
-                    key={sp.id}
-                    specimen={sp}
-                    expanded={expandedId === sp.id}
-                    onToggle={() => handleToggle(sp.id)}
-                    entities={detail?.entities}
-                    queries={detail?.queries}
-                  />
+                  <div key={sp.id} className="gs-stagger-card" style={{ "--i": Math.min(index, 15) } as React.CSSProperties}>
+                    <SpecimenCard
+                      specimen={sp}
+                      expanded={expandedId === sp.id}
+                      onToggle={() => handleToggle(sp.id)}
+                      entities={detail?.entities}
+                      queries={detail?.queries}
+                    />
+                  </div>
                 );
               })}
 

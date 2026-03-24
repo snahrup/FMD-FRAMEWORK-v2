@@ -1,7 +1,7 @@
 // Gold MLV Manager — browse and manage Gold layer objects (MLVs, views, tables).
 // Route: /labs/gold-mlv
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Layers3, Search, Database, Table2, Eye, ChevronDown, ChevronRight,
   Loader2, AlertTriangle, BarChart3, Box, Grid3X3,
@@ -71,11 +71,54 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   deprecated:         { bg: "var(--bp-surface-inset)", color: "var(--bp-ink-muted)" },
 };
 
+/** Maps status to left-rail color */
+const STATUS_RAIL_COLORS: Record<string, string> = {
+  draft:              "var(--bp-copper)",
+  validated:          "var(--bp-operational-green)",
+  approved:           "var(--bp-gold)",
+  published:          "var(--bp-info-blue, #2563eb)",
+  needs_revalidation: "var(--bp-caution-amber)",
+  deprecated:         "var(--bp-ink-muted)",
+};
+
 const TYPE_ICONS: Record<string, typeof Database> = {
   mlv: Layers3,
   view: Eye,
   table: Table2,
 };
+
+const TYPE_BG: Record<string, { bg: string; color: string }> = {
+  mlv:   { bg: "var(--bp-gold-light)", color: "var(--bp-gold)" },
+  view:  { bg: "var(--bp-info-light, #dbeafe)", color: "var(--bp-info-blue, #2563eb)" },
+  table: { bg: "var(--bp-surface-inset)", color: "var(--bp-ink-secondary)" },
+};
+
+/* ---------- keyframes (injected once) ---------- */
+const STYLE_ID = "gold-mlv-animations";
+if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = `
+    @keyframes goldFadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes goldFadeInRow {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    .gold-fade-in {
+      animation: goldFadeIn var(--duration-smooth, 300ms) var(--ease-claude, cubic-bezier(0.4,0,0.2,1)) both;
+    }
+    .gold-stagger-card {
+      animation: goldFadeIn var(--duration-smooth, 300ms) var(--ease-claude, cubic-bezier(0.4,0,0.2,1)) both;
+    }
+    .gold-stagger-row {
+      animation: goldFadeInRow var(--duration-fast, 150ms) var(--ease-claude, cubic-bezier(0.4,0,0.2,1)) both;
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 /* ---------- sub-components ---------- */
 
@@ -90,60 +133,78 @@ function Badge({ label, bg, color }: { label: string; bg: string; color: string 
   );
 }
 
-function KpiCard({ label, value, accent }: { label: string; value: number | string; accent?: string }) {
+/** Tiny stacked ratio bar showing fact/dimension proportion */
+function RatioBar({ facts, dimensions }: { facts: number; dimensions: number }) {
+  const total = facts + dimensions;
+  if (total === 0) return null;
+  const factPct = Math.round((facts / total) * 100);
   return (
     <div
-      className="flex flex-col items-center justify-center rounded-lg px-5 py-3 min-w-[110px]"
-      style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" }}
+      className="w-full h-[3px] rounded-full overflow-hidden mt-2.5"
+      style={{ background: "var(--bp-border)" }}
+      aria-label={`${facts} facts, ${dimensions} dimensions`}
     >
-      <span style={{ ...display(22), color: accent ?? "var(--bp-gold)" }} className="font-bold leading-none">
-        {value}
-      </span>
-      <span style={{ ...body(11), color: "var(--bp-ink-secondary)" }} className="mt-1 text-center whitespace-nowrap">
-        {label}
-      </span>
+      <div
+        className="h-full rounded-full"
+        style={{
+          width: `${factPct}%`,
+          background: "var(--bp-copper)",
+          transition: `width var(--duration-smooth, 300ms) var(--ease-claude)`,
+        }}
+      />
     </div>
   );
 }
 
 function DomainCard({
-  domain, onClick, active,
-}: { domain: DomainSummary; onClick: () => void; active: boolean }) {
+  domain, onClick, active, index,
+}: { domain: DomainSummary; onClick: () => void; active: boolean; index: number }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={cn(
-        "rounded-lg px-4 py-3 text-left transition-all",
-        active && "ring-2"
-      )}
+      className="gold-stagger-card gs-row-hover rounded-lg text-left transition-all relative overflow-hidden"
       style={{
+        animationDelay: `${index * 30}ms`,
         background: active ? "var(--bp-gold-light)" : "var(--bp-surface-1)",
         border: `1px solid ${active ? "var(--bp-gold)" : "var(--bp-border)"}`,
-        ...(active ? { ringColor: "var(--bp-gold)" } : {}),
+        padding: "0",
       }}
       aria-pressed={active}
       aria-label={`Filter by domain: ${domain.domain}`}
     >
-      <div className="flex items-center justify-between gap-3">
-        <span style={{ ...body(13), color: "var(--bp-ink-primary)" }} className="font-medium truncate">
-          {domain.domain}
-        </span>
-        <span style={{ ...display(16), color: "var(--bp-gold)" }} className="font-bold">
-          {domain.count}
-        </span>
-      </div>
-      <div className="flex items-center gap-3 mt-1.5">
-        {domain.facts > 0 && (
-          <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--bp-ink-secondary)" }}>
-            <BarChart3 size={10} aria-hidden="true" /> {domain.facts} fact{domain.facts !== 1 ? "s" : ""}
-          </span>
-        )}
-        {domain.dimensions > 0 && (
-          <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--bp-ink-secondary)" }}>
-            <Box size={10} aria-hidden="true" /> {domain.dimensions} dim{domain.dimensions !== 1 ? "s" : ""}
-          </span>
-        )}
+      {/* Status rail */}
+      <div className="flex h-full">
+        <div
+          className="w-[3px] shrink-0 self-stretch rounded-l"
+          style={{
+            background: active ? "var(--bp-gold)" : "var(--bp-gold-light)",
+            transition: `background var(--duration-fast, 150ms) var(--ease-claude)`,
+          }}
+        />
+        <div className="flex-1 px-3.5 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <span style={{ ...body(13), color: "var(--bp-ink-primary)" }} className="font-medium truncate">
+              {domain.domain}
+            </span>
+            <span style={{ ...display(16), color: "var(--bp-gold)" }} className="font-bold">
+              {domain.count}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mt-1.5">
+            {domain.facts > 0 && (
+              <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--bp-ink-secondary)" }}>
+                <BarChart3 size={10} aria-hidden="true" /> {domain.facts} fact{domain.facts !== 1 ? "s" : ""}
+              </span>
+            )}
+            {domain.dimensions > 0 && (
+              <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--bp-ink-secondary)" }}>
+                <Box size={10} aria-hidden="true" /> {domain.dimensions} dim{domain.dimensions !== 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+          <RatioBar facts={domain.facts} dimensions={domain.dimensions} />
+        </div>
       </div>
     </button>
   );
@@ -158,7 +219,7 @@ function SelectFilter({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-md px-2 py-1 outline-none cursor-pointer"
+        className="rounded-md px-2 py-1.5 outline-none cursor-pointer"
         style={{ ...body(12), background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }}
         aria-label={label}
       >
@@ -194,6 +255,16 @@ export default function GoldMlvManager() {
   // Derived filter options
   const statusOptions = ["All", ...Object.keys(summary?.by_status ?? {}).sort()];
   const typeOptions = ["All", ...Object.keys(summary?.by_type ?? {}).sort()];
+
+  // Hero stats: inline breakdown
+  const typeBreakdown = useMemo(() => {
+    if (!summary) return [];
+    return [
+      { label: "MLVs", value: summary.by_type.mlv ?? 0, accent: "var(--bp-copper)" },
+      { label: "Views", value: summary.by_type.view ?? 0, accent: "var(--bp-info-blue, #2563eb)" },
+      { label: "Tables", value: summary.by_type.table ?? 0, accent: "var(--bp-ink-secondary)" },
+    ];
+  }, [summary]);
 
   /* --- load summary --- */
   const loadSummary = useCallback(() => {
@@ -247,68 +318,101 @@ export default function GoldMlvManager() {
   }, []);
 
   const totalPages = Math.ceil(total / pageSize);
+  const showFrom = page * pageSize + 1;
+  const showTo = Math.min((page + 1) * pageSize, total);
 
   /* ========== render ========== */
   return (
-    <div className="space-y-6 px-8 py-8 max-w-[1400px] mx-auto">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2">
-          <Layers3 className="w-5 h-5" style={{ color: "var(--bp-gold)" }} aria-hidden="true" />
-          <h1 style={{ ...display(32), color: "var(--bp-ink-primary)" }} className="font-semibold tracking-tight">
-            Gold Layer / MLV Manager
-          </h1>
-          <span
-            className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5"
-            style={{ background: "var(--bp-copper-light)", color: "var(--bp-copper)", border: "1px solid rgba(180,86,36,0.15)" }}
-          >
-            Labs
-          </span>
+    <div className="gold-fade-in space-y-6 px-8 py-8 max-w-[1400px] mx-auto">
+
+      {/* ── Header: Hero Number ── */}
+      <div className="flex items-end justify-between gap-6">
+        <div className="flex items-end gap-6">
+          {/* Hero number */}
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Layers3 className="w-5 h-5" style={{ color: "var(--bp-gold)" }} aria-hidden="true" />
+              <span
+                className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5"
+                style={{ background: "var(--bp-copper-light)", color: "var(--bp-copper)", border: "1px solid rgba(180,86,36,0.15)" }}
+              >
+                Labs
+              </span>
+            </div>
+            <span
+              className="block font-bold leading-none"
+              style={{ ...display(48), color: "var(--bp-gold)" }}
+              aria-label={`${summary?.total ?? 0} Gold layer objects`}
+            >
+              {summary?.total ?? "\u2014"}
+            </span>
+            <span
+              className="block mt-1"
+              style={{ ...body(13), color: "var(--bp-ink-secondary)" }}
+            >
+              Gold Layer Objects
+            </span>
+          </div>
+
+          {/* Type breakdown inline stats */}
+          {summary && (
+            <div
+              className="flex items-center gap-5 pl-6 self-end mb-1"
+              style={{ borderLeft: "1px solid var(--bp-border)" }}
+              role="region"
+              aria-label="Gold object type breakdown"
+            >
+              {typeBreakdown.map((t) => (
+                <div key={t.label} className="flex items-center gap-1.5">
+                  <span style={{ ...display(18), color: t.accent }} className="font-bold leading-none">
+                    {t.value}
+                  </span>
+                  <span style={{ ...body(11), color: "var(--bp-ink-muted)" }}>
+                    {t.label}
+                  </span>
+                </div>
+              ))}
+              <div className="w-px h-5" style={{ background: "var(--bp-border)" }} aria-hidden="true" />
+              <div className="flex items-center gap-1.5">
+                <span style={{ ...display(18), color: "var(--bp-gold)" }} className="font-bold leading-none">
+                  {summary.by_domain.length}
+                </span>
+                <span style={{ ...body(11), color: "var(--bp-ink-muted)" }}>
+                  Domains
+                </span>
+              </div>
+            </div>
+          )}
         </div>
-        <p className="text-sm mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
-          Browse and manage Materialized Lakehouse Views, custom views, and Gold layer tables
-        </p>
       </div>
 
-      {/* KPI Strip */}
-      {summary && (
-        <div className="flex flex-wrap gap-3" role="region" aria-label="Gold layer statistics">
-          <KpiCard label="Total Gold Objects" value={summary.total} />
-          <KpiCard label="MLVs" value={summary.by_type.mlv ?? 0} accent="var(--bp-copper)" />
-          <KpiCard label="Views" value={summary.by_type.view ?? 0} accent="var(--bp-info-blue, #2563eb)" />
-          <KpiCard label="Tables" value={summary.by_type.table ?? 0} accent="var(--bp-ink-secondary)" />
-          <div className="w-px self-stretch mx-1" style={{ background: "var(--bp-border)" }} aria-hidden="true" />
-          {Object.entries(summary.by_status).map(([s, cnt]) => (
-            <KpiCard key={s} label={s.replace(/_/g, " ")} value={cnt} accent={STATUS_COLORS[s]?.color ?? "var(--bp-ink-secondary)"} />
-          ))}
-          <div className="w-px self-stretch mx-1" style={{ background: "var(--bp-border)" }} aria-hidden="true" />
-          <KpiCard label="Domains" value={summary.by_domain.length} accent="var(--bp-gold)" />
-        </div>
-      )}
-
-      {/* Domain Cards */}
+      {/* ── Domain Cards ── */}
       {summary && summary.by_domain.length > 0 && (
         <div role="region" aria-label="Business domains">
           <h2 style={{ ...body(13), color: "var(--bp-ink-secondary)" }} className="font-medium mb-2 flex items-center gap-1.5">
             <Grid3X3 size={14} aria-hidden="true" /> Business Domains
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5">
-            {summary.by_domain.map((d) => (
+            {summary.by_domain.map((d, i) => (
               <DomainCard
                 key={d.domain}
                 domain={d}
                 active={domainFilter === d.domain}
                 onClick={() => handleDomainClick(d.domain)}
+                index={i}
               />
             ))}
           </div>
         </div>
       )}
 
-      {/* Filter Bar */}
+      {/* ── Filter Bar — single cohesive toolbar ── */}
       <div
-        className="flex flex-wrap items-center gap-3 rounded-lg px-4 py-3"
-        style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" }}
+        className="flex flex-wrap items-center gap-3 px-4 py-2.5"
+        style={{
+          borderTop: "1px solid var(--bp-border)",
+          borderBottom: "1px solid var(--bp-border)",
+        }}
       >
         <SelectFilter label="Status" value={statusFilter} options={statusOptions} onChange={(v) => { setStatusFilter(v); setPage(0); }} />
         <SelectFilter label="Type" value={typeFilter} options={typeOptions} onChange={(v) => { setTypeFilter(v); setPage(0); }} />
@@ -337,12 +441,12 @@ export default function GoldMlvManager() {
             style={{ ...body(13), background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }}
           />
         </div>
-        <span style={{ ...body(11), color: "var(--bp-ink-muted)" }}>
+        <span style={{ ...body(11), color: "var(--bp-ink-muted)" }} className="whitespace-nowrap">
           {total} result{total !== 1 ? "s" : ""}
         </span>
       </div>
 
-      {/* Error Banner */}
+      {/* ── Error Banner ── */}
       {error && (
         <div
           className="rounded-lg px-4 py-3 flex items-center gap-3"
@@ -362,18 +466,18 @@ export default function GoldMlvManager() {
         </div>
       )}
 
-      {/* Loading */}
+      {/* ── Loading ── */}
       {loading && items.length === 0 && (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-6 h-6 animate-spin" style={{ color: "var(--bp-gold)" }} aria-label="Loading" />
         </div>
       )}
 
-      {/* Empty State */}
+      {/* ── Empty State ── */}
       {!loading && !error && items.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
+            className="gs-float w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
             style={{ background: "var(--bp-gold-light)" }}
           >
             <Database className="w-7 h-7" style={{ color: "var(--bp-gold)" }} aria-hidden="true" />
@@ -388,7 +492,7 @@ export default function GoldMlvManager() {
         </div>
       )}
 
-      {/* MLV Table */}
+      {/* ── MLV Table with integrated pagination ── */}
       {items.length > 0 && (
         <div
           className="rounded-lg overflow-hidden"
@@ -399,6 +503,7 @@ export default function GoldMlvManager() {
           <table className="w-full" style={{ ...body(13) }}>
             <thead>
               <tr style={{ background: "var(--bp-surface-1)", borderBottom: "1px solid var(--bp-border)" }}>
+                <th style={{ width: 3, padding: 0 }} />
                 <Th style={{ width: 32 }}>{""}</Th>
                 <Th>Target Name</Th>
                 <Th style={{ width: 80 }}>Type</Th>
@@ -410,7 +515,7 @@ export default function GoldMlvManager() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => {
+              {items.map((item, idx) => {
                 const expanded = expandedId === item.id;
                 const TypeIcon = TYPE_ICONS[item.object_type] ?? Layers3;
                 const sc = STATUS_COLORS[item.status] ?? STATUS_COLORS.draft;
@@ -424,42 +529,54 @@ export default function GoldMlvManager() {
                     onToggle={() => toggleExpand(item.id)}
                     TypeIcon={TypeIcon}
                     statusColors={sc}
+                    index={idx}
+                    isOddRow={idx % 2 === 1}
                   />
                 );
               })}
             </tbody>
+            {/* Integrated pagination footer */}
+            {totalPages > 1 && (
+              <tfoot>
+                <tr style={{ background: "var(--bp-surface-1)", borderTop: "1px solid var(--bp-border)" }}>
+                  <td colSpan={9} className="px-4 py-2.5">
+                    <div className="flex items-center justify-between">
+                      <span style={{ ...body(12), color: "var(--bp-ink-muted)" }}>
+                        Showing {showFrom}\u2013{showTo} of {total}
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <span style={{ ...body(12), color: "var(--bp-ink-muted)" }}>
+                          Page {page + 1} of {totalPages}
+                        </span>
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            disabled={page === 0}
+                            onClick={() => setPage((p) => Math.max(0, p - 1))}
+                            className="rounded-md px-3 py-1 text-sm disabled:opacity-40 transition-colors"
+                            style={{ background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }}
+                            aria-label="Previous page"
+                          >
+                            Previous
+                          </button>
+                          <button
+                            type="button"
+                            disabled={page >= totalPages - 1}
+                            onClick={() => setPage((p) => p + 1)}
+                            className="rounded-md px-3 py-1 text-sm disabled:opacity-40 transition-colors"
+                            style={{ background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }}
+                            aria-label="Next page"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </tfoot>
+            )}
           </table>
-        </div>
-      )}
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <span style={{ ...body(12), color: "var(--bp-ink-muted)" }}>
-            Page {page + 1} of {totalPages}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={page === 0}
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              className="rounded-md px-3 py-1.5 text-sm disabled:opacity-40"
-              style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }}
-              aria-label="Previous page"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={page >= totalPages - 1}
-              onClick={() => setPage((p) => p + 1)}
-              className="rounded-md px-3 py-1.5 text-sm disabled:opacity-40"
-              style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)" }}
-              aria-label="Next page"
-            >
-              Next
-            </button>
-          </div>
         </div>
       )}
     </div>
@@ -481,7 +598,7 @@ function Th({ children, style }: { children?: React.ReactNode; style?: React.CSS
 }
 
 function MlvRow({
-  item, expanded, detail, detailLoading, onToggle, TypeIcon, statusColors,
+  item, expanded, detail, detailLoading, onToggle, TypeIcon, statusColors, index, isOddRow,
 }: {
   item: MlvItem;
   expanded: boolean;
@@ -490,17 +607,22 @@ function MlvRow({
   onToggle: () => void;
   TypeIcon: typeof Database;
   statusColors: { bg: string; color: string };
+  index: number;
+  isOddRow: boolean;
 }) {
   const Chevron = expanded ? ChevronDown : ChevronRight;
+  const typeMeta = TYPE_BG[item.object_type] ?? TYPE_BG.mlv;
 
   return (
     <>
       <tr
-        className="cursor-pointer transition-colors"
+        className="gold-stagger-row gs-stagger-row cursor-pointer transition-colors"
         style={{
-          background: expanded ? "var(--bp-gold-light)" : "transparent",
-          borderBottom: expanded ? "none" : "1px solid var(--bp-border)",
-        }}
+          "--i": Math.min(index, 15),
+          animationDelay: `${index * 20}ms`,
+          background: expanded ? "var(--bp-gold-light)" : isOddRow ? "var(--bp-surface-inset)" : "transparent",
+          borderBottom: expanded ? "none" : "1px solid var(--bp-border-subtle, rgba(0,0,0,0.04))",
+        } as React.CSSProperties}
         onClick={onToggle}
         role="button"
         tabIndex={0}
@@ -508,16 +630,24 @@ function MlvRow({
         aria-label={`${item.target_name} — click to ${expanded ? "collapse" : "expand"}`}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } }}
       >
-        <td className="px-3 py-2.5">
-          <Chevron size={14} style={{ color: "var(--bp-ink-muted)" }} aria-hidden="true" />
+        {/* Status rail cell */}
+        <td style={{ width: 3, padding: 0, background: STATUS_RAIL_COLORS[item.status] ?? "var(--bp-ink-muted)" }} />
+        {/* Chevron */}
+        <td className="py-2.5 relative" style={{ paddingLeft: 0, paddingRight: 0 }}>
+          <div className="flex items-center justify-center pl-2 pr-1">
+            <Chevron size={14} style={{ color: "var(--bp-ink-muted)" }} aria-hidden="true" />
+          </div>
         </td>
         <td className="px-3 py-2.5 font-medium" style={{ color: "var(--bp-ink-primary)", ...body(13) }}>
           {item.target_name}
         </td>
         <td className="px-3 py-2.5">
-          <span className="inline-flex items-center gap-1">
-            <TypeIcon size={12} style={{ color: "var(--bp-ink-muted)" }} aria-hidden="true" />
-            <span className="text-[11px] uppercase" style={{ color: "var(--bp-ink-secondary)" }}>
+          <span
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1"
+            style={{ background: typeMeta.bg }}
+          >
+            <TypeIcon size={12} style={{ color: typeMeta.color }} aria-hidden="true" />
+            <span className="text-[11px] uppercase font-medium" style={{ color: typeMeta.color }}>
               {item.object_type ?? "mlv"}
             </span>
           </span>
@@ -549,9 +679,9 @@ function MlvRow({
 
       {/* Expanded detail panel */}
       {expanded && (
-        <tr>
-          <td colSpan={8} style={{ background: "var(--bp-surface-1)", borderBottom: "1px solid var(--bp-border)" }}>
-            <div className="px-6 py-4 space-y-4">
+        <tr className="gs-stagger-row" style={{ "--i": 0 } as React.CSSProperties}>
+          <td colSpan={9} style={{ background: "var(--bp-surface-1)", borderBottom: "1px solid var(--bp-border)" }}>
+            <div className="px-6 py-4 space-y-5">
               {detailLoading && (
                 <div className="flex items-center gap-2 py-4">
                   <Loader2 className="w-4 h-4 animate-spin" style={{ color: "var(--bp-gold)" }} aria-label="Loading detail" />
@@ -562,7 +692,10 @@ function MlvRow({
               {detail && (
                 <>
                   {/* Canonical entity info */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div
+                    className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-4"
+                    style={{ borderBottom: "1px solid var(--bp-border-subtle, rgba(0,0,0,0.04))" }}
+                  >
                     <DetailField label="Canonical Name" value={detail.canonical_name} />
                     <DetailField label="Domain" value={detail.domain} />
                     <DetailField label="Entity Type" value={detail.entity_type} />
@@ -572,7 +705,7 @@ function MlvRow({
                     <DetailField label="Updated" value={detail.updated_at ? new Date(detail.updated_at).toLocaleString() : undefined} />
                   </div>
 
-                  {/* Source SQL */}
+                  {/* Source SQL — dark code block */}
                   {detail.source_sql && (
                     <div>
                       <h4
@@ -581,18 +714,53 @@ function MlvRow({
                       >
                         Source SQL
                       </h4>
-                      <pre
-                        className="rounded-md px-4 py-3 overflow-x-auto max-h-[300px] overflow-y-auto"
-                        style={{ ...mono, background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)", color: "var(--bp-ink-primary)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                      <div
+                        className="rounded-md overflow-hidden"
+                        style={{ border: "1px solid var(--bp-border)" }}
                       >
-                        {detail.source_sql}
-                      </pre>
+                        <pre
+                          className="overflow-x-auto max-h-[300px] overflow-y-auto"
+                          style={{
+                            fontFamily: "var(--bp-font-mono)",
+                            fontSize: 12,
+                            lineHeight: 1.7,
+                            background: "var(--bp-code-block, #2B2A27)",
+                            color: "var(--bp-code-text, #E8E4DB)",
+                            margin: 0,
+                            padding: 0,
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          <code className="block">
+                            {detail.source_sql.split("\n").map((line, i) => (
+                              <div key={i} className="flex">
+                                <span
+                                  className="shrink-0 text-right select-none pr-3 pl-3"
+                                  style={{
+                                    color: "rgba(255,255,255,0.2)",
+                                    width: 48,
+                                    background: "rgba(0,0,0,0.15)",
+                                    userSelect: "none",
+                                  }}
+                                >
+                                  {i + 1}
+                                </span>
+                                <span className="px-3 flex-1">{line || "\u00A0"}</span>
+                              </div>
+                            ))}
+                          </code>
+                        </pre>
+                      </div>
                     </div>
                   )}
 
                   {/* Validation runs */}
                   {detail.validation_runs && detail.validation_runs.length > 0 && (
-                    <div>
+                    <div
+                      className="pt-4"
+                      style={{ borderTop: "1px solid var(--bp-border-subtle, rgba(0,0,0,0.04))" }}
+                    >
                       <h4
                         className="text-[11px] font-semibold uppercase tracking-wider mb-1.5"
                         style={{ color: "var(--bp-ink-muted)" }}
