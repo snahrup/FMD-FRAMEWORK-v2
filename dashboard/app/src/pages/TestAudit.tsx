@@ -9,12 +9,12 @@ import {
   Play, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Clock, RotateCcw, FileVideo, Image, FileSearch,
   ChevronDown, ChevronUp, Activity, Download,
-  BarChart3, History, Monitor, ChevronLeft, Maximize2, X,
+  History, Monitor, Maximize2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  Cell, PieChart, Pie, AreaChart, Area, CartesianGrid, Legend,
+  Cell, PieChart, Pie, AreaChart, Area, CartesianGrid,
 } from "recharts";
 
 const API = import.meta.env.VITE_API_URL || "";
@@ -428,11 +428,15 @@ function ScoreBar({ run }: { run: RunSummary }) {
   );
 }
 
+// Recharts SVG fill/stroke requires raw hex — CSS vars don't resolve in SVG attributes.
+// These mirror the BP design tokens; update here if index.css tokens change.
 const CHART_COLORS = {
-  passed: "#3D7C4F",  // bp-operational
-  failed: "#B93A2A",  // bp-fault
-  skipped: "#C27A1A", // bp-caution
+  passed: "#3D7C4F",  // --bp-operational
+  failed: "#B93A2A",  // --bp-fault
+  skipped: "#C27A1A", // --bp-caution
 };
+const CHART_AXIS_COLOR = "#78716C";    // --bp-ink-tertiary
+const CHART_GRID_COLOR = "rgba(0,0,0,0.04)"; // --bp-border-subtle
 
 function TrendChart({ history }: { history: RunSummary[] }) {
   // Show last 10 runs, oldest first
@@ -462,9 +466,9 @@ function TrendChart({ history }: { history: RunSummary[] }) {
                 <stop offset="100%" stopColor={CHART_COLORS.failed} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" />
-            <XAxis dataKey="run" tick={{ fontSize: 9, fill: "#78716C" }} tickLine={false} axisLine={false} />
-            <YAxis tick={{ fontSize: 9, fill: "#78716C" }} tickLine={false} axisLine={false} width={25} />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} />
+            <XAxis dataKey="run" tick={{ fontSize: 9, fill: CHART_AXIS_COLOR }} tickLine={false} axisLine={false} />
+            <YAxis tick={{ fontSize: 9, fill: CHART_AXIS_COLOR }} tickLine={false} axisLine={false} width={25} />
             <Tooltip
               contentStyle={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)", borderRadius: 8, fontSize: 11, color: "var(--bp-ink-primary)" }}
               labelStyle={{ color: "var(--bp-ink-tertiary)", fontSize: 10 }}
@@ -544,11 +548,11 @@ function TestDurationChart({ run }: { run: RunSummary }) {
       <CardContent className="px-2 pb-2">
         <ResponsiveContainer width="100%" height={160}>
           <BarChart data={data} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" horizontal={false} />
-            <XAxis type="number" tick={{ fontSize: 9, fill: "#78716C" }} tickLine={false} axisLine={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_COLOR} horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 9, fill: CHART_AXIS_COLOR }} tickLine={false} axisLine={false} />
             <YAxis
               type="category" dataKey="name" width={120}
-              tick={{ fontSize: 9, fill: "#78716C" }} tickLine={false} axisLine={false}
+              tick={{ fontSize: 9, fill: CHART_AXIS_COLOR }} tickLine={false} axisLine={false}
             />
             <Tooltip
               contentStyle={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)", borderRadius: 8, fontSize: 11, color: "var(--bp-ink-primary)" }}
@@ -556,7 +560,7 @@ function TestDurationChart({ run }: { run: RunSummary }) {
             />
             <Bar dataKey="duration" radius={[0, 4, 4, 0]}>
               {data.map((d, i) => (
-                <Cell key={i} fill={CHART_COLORS[d.status as keyof typeof CHART_COLORS] || "#666"} fillOpacity={0.7} />
+                <Cell key={i} fill={CHART_COLORS[d.status as keyof typeof CHART_COLORS] || CHART_AXIS_COLOR} fillOpacity={0.7} />
               ))}
             </Bar>
           </BarChart>
@@ -607,8 +611,13 @@ function TraceModal({ open, onClose, traceUrl, testName }: {
           {/* Play overlay — click anywhere to activate */}
           {!activated && (
             <div
-              className="absolute inset-0 z-10 flex flex-col items-center justify-center cursor-pointer bg-[#0a0a1a] transition-opacity"
+              className="absolute inset-0 z-10 flex flex-col items-center justify-center cursor-pointer transition-opacity"
+              role="button"
+              tabIndex={0}
+              aria-label="Click to load Playwright trace viewer"
+              style={{ background: 'var(--bp-code-block)' }}
               onClick={() => setActivated(true)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActivated(true); } }}
             >
               <div className="relative group">
                 <div className="w-24 h-24 rounded-full bg-[var(--bp-caution-light)] flex items-center justify-center backdrop-blur-sm border border-[var(--bp-caution)] group-hover:bg-[var(--bp-caution-light)] group-hover:scale-110 transition-all duration-300">
@@ -656,7 +665,12 @@ function TestCard({ test, runId }: { test: TestResult; runId: string }) {
       {/* Header row */}
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-label={`${test.name} — ${test.status}`}
         onClick={() => setExpanded(!expanded)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded(!expanded); } }}
       >
         {test.status === "passed" ? (
           <CheckCircle2 className="w-5 h-5 shrink-0" style={{ color: 'var(--bp-operational)' }} />
@@ -691,7 +705,7 @@ function TestCard({ test, runId }: { test: TestResult; runId: string }) {
 
       {/* Expanded: 50/50 split — description left, video right */}
       {expanded && hasArtifacts && (
-        <div style={{ borderTop: '1px solid var(--bp-border-subtle)', background: 'var(--bp-surface-2)' }}>
+        <div style={{ borderTop: '1px solid var(--bp-border-subtle)', background: 'var(--bp-surface-inset)' }}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
             {/* LEFT: Plain English description */}
             <div className="p-5 overflow-y-auto max-h-[420px] space-y-4" style={{ borderRight: '1px solid var(--bp-border-subtle)' }}>
@@ -860,11 +874,16 @@ function RunHistoryRow({ run, isLatest, isSelected, onSelect }: {
   return (
     <div
       className="flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer transition-all duration-150"
+      role="button"
+      tabIndex={0}
+      aria-current={isSelected ? "true" : undefined}
+      aria-label={`Run ${run.runId} — ${run.passed} passed, ${run.failed} failed`}
       style={{
         background: isSelected ? 'var(--bp-copper-light)' : 'transparent',
         border: isSelected ? '1px solid var(--bp-copper)' : '1px solid transparent',
       }}
       onClick={onSelect}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } }}
     >
       <div
         className="w-2 h-2 rounded-full shrink-0"
@@ -908,7 +927,7 @@ export default function TestAudit() {
       if (!Array.isArray(data)) return;
       setHistory(data);
       if (!selectedRunRef.current && data.length > 0) setSelectedRun(data[0]);
-    } catch { /* no history */ }
+    } catch (err) { console.warn("[TestAudit] Failed to load history:", err); }
     if (!hasLoadedOnce.current) {
       hasLoadedOnce.current = true;
       setLoading(false);
@@ -921,7 +940,7 @@ export default function TestAudit() {
       const wasRunning = auditStatusRef.current.status === "running";
       setAuditStatus(status);
       if (status.status === "idle" && wasRunning) loadHistory();
-    } catch { /* ignore */ }
+    } catch (err) { console.warn("[TestAudit] Failed to check status:", err); }
   }, [loadHistory]);
 
   useEffect(() => {
