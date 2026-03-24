@@ -178,12 +178,12 @@ export function useMRI(options: UseMRIOptions = {}): UseMRIReturn {
   const [flakeResults, setFlakeResults] = useState<FlakeResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
-  const [scanStartedAt, setScanStartedAt] = useState(0);
   const [scanElapsed, setScanElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const scanTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const scanPollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   // Fetch top-level data (runs list + status)
   const fetchTopLevel = useCallback(async () => {
@@ -276,13 +276,25 @@ export function useMRI(options: UseMRIOptions = {}): UseMRIReturn {
   }, [fetchTopLevel, fetchBaselines, fetchRunDetail, selectedRunId]);
 
   const acceptBaseline = useCallback(async (testName: string) => {
-    await fetch(`${API}/api/mri/baselines/${encodeURIComponent(testName)}`, { method: "POST" });
+    try {
+      const res = await fetch(`${API}/api/mri/baselines/${encodeURIComponent(testName)}`, { method: "POST" });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to accept baseline");
+    }
     fetchBaselines();
     if (selectedRunId) fetchRunDetail(selectedRunId);
   }, [fetchBaselines, fetchRunDetail, selectedRunId]);
 
   const acceptAllBaselines = useCallback(async () => {
-    await fetch(`${API}/api/mri/baselines/accept-all`, { method: "POST" });
+    try {
+      const res = await fetch(`${API}/api/mri/baselines/accept-all`, { method: "POST" });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to accept all baselines");
+    }
     fetchBaselines();
     if (selectedRunId) fetchRunDetail(selectedRunId);
   }, [fetchBaselines, fetchRunDetail, selectedRunId]);
@@ -291,7 +303,6 @@ export function useMRI(options: UseMRIOptions = {}): UseMRIReturn {
   const startScanTimer = useCallback(() => {
     setScanning(true);
     const start = Date.now();
-    setScanStartedAt(start);
     setScanElapsed(0);
     if (scanTimerRef.current) clearInterval(scanTimerRef.current);
     scanTimerRef.current = setInterval(() => {
@@ -302,7 +313,6 @@ export function useMRI(options: UseMRIOptions = {}): UseMRIReturn {
   const stopScanTimer = useCallback(() => {
     setScanning(false);
     setScanElapsed(0);
-    setScanStartedAt(0);
     if (scanTimerRef.current) {
       clearInterval(scanTimerRef.current);
       scanTimerRef.current = undefined;
@@ -340,19 +350,29 @@ export function useMRI(options: UseMRIOptions = {}): UseMRIReturn {
       }
       setError(null);
       startScanTimer();
+      // Clear any existing scan poll
+      if (scanPollRef.current) clearInterval(scanPollRef.current);
       // Poll for completion
-      const poll = setInterval(async () => {
+      scanPollRef.current = setInterval(async () => {
         try {
           const s = await fetchJSON<MRIStatus>(`/api/mri/status`);
           setStatus(s);
           if (!s?.active) {
-            clearInterval(poll);
+            if (scanPollRef.current) clearInterval(scanPollRef.current);
+            scanPollRef.current = undefined;
             stopScanTimer();
             fetchTopLevel();
           }
         } catch { /* ignore */ }
       }, 3000);
-      setTimeout(() => { clearInterval(poll); stopScanTimer(); }, 300_000);
+      // Safety timeout: stop polling after 5 minutes
+      setTimeout(() => {
+        if (scanPollRef.current) {
+          clearInterval(scanPollRef.current);
+          scanPollRef.current = undefined;
+        }
+        stopScanTimer();
+      }, 300_000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to trigger MRI scan");
       stopScanTimer();

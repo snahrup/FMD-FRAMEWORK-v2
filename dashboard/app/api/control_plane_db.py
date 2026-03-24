@@ -886,6 +886,28 @@ def init_db():
                 ON gs_catalog_entries(root_id) WHERE is_current = 1;
             CREATE INDEX IF NOT EXISTS idx_audit_log_lookup
                 ON gs_audit_log(object_type, object_id, performed_at);
+
+            -- Cleansing Rules -------------------------------------------------
+
+            CREATE TABLE IF NOT EXISTS cleansing_rules (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id       INTEGER NOT NULL,
+                column_name     TEXT NOT NULL,
+                rule_type       TEXT NOT NULL CHECK(rule_type IN (
+                    'normalize_text', 'fill_nulls', 'parse_datetime', 'trim',
+                    'replace', 'regex', 'cast_type', 'map_values', 'clamp_range', 'deduplicate'
+                )),
+                parameters      TEXT DEFAULT '{}',
+                priority        INTEGER DEFAULT 0,
+                is_active       INTEGER DEFAULT 1,
+                created_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cleansing_rules_entity
+                ON cleansing_rules(entity_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_cleansing_rules_dedup
+                ON cleansing_rules(entity_id, column_name, rule_type);
         """)
         conn.commit()
 
