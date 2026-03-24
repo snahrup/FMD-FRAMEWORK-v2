@@ -233,6 +233,18 @@
    - Presidio scan runs on-demand (POST /api/classification/scan) or scheduled
    - Don't run Presidio on every load — it's slow (NLP model per column per sample)
 
+**Database Changes:**
+
+1. **New table: `classification_type_mappings`**
+   - Maps internal classification types → Microsoft Purview classification IDs
+   - Columns: `internal_type` (e.g., "PERSON"), `purview_type` (e.g., "MICROSOFT.PERSONAL.NAME"), `sensitivity_label` (e.g., "Confidential"), `description`, `is_active`
+   - Pre-seeded with all Presidio entity type → Purview mappings
+   - Extensible: add custom mappings for domain-specific classifications
+
+2. **New table: `purview_sync_log`**
+   - Tracks sync history: `sync_id`, `direction` ("push"|"pull"), `status`, `entities_synced`, `classifications_synced`, `started_at`, `completed_at`, `error`
+   - Enables "last synced" display and audit trail
+
 **Dashboard Changes:**
 
 1. **Enhance `DataClassification.tsx`:**
@@ -242,29 +254,135 @@
    - Add column-level drilldown: click entity → see columns with PII types + confidence scores
    - Add sensitivity badge to columns (🔴 PII, 🟡 Confidential, 🟢 Public)
 
-2. **Enhance existing API routes** (`dashboard/app/api/routes/classification.py`):
+2. **Purview Integration Panel (hero feature for exec demos):**
+   - **Prominent "Microsoft Purview" section** at top of DataClassification page
+   - Purview logo + connection status indicator (Connected / Ready to Connect / Not Configured)
+   - **"Sync to Purview" button** — one-click push of all classifications to Purview catalog
+   - **"Import from Purview" button** — pull Purview's classifications into our system
+   - **Sync status card:** Last synced timestamp, entities synced count, classifications pushed count
+   - **Mapping coverage indicator:** "47/52 classification types mapped to Purview" with progress ring
+   - **Sync history table:** Recent sync operations with direction, status, counts
+   - When Purview is NOT configured: Panel shows "Ready for Purview" state with setup instructions + a visual showing the mapping is already built — demonstrates forethought
+   - **Key demo moment:** Exec sees "1,247 columns classified → Sync to Purview" button → instantly understand the pipeline feeds into enterprise governance
+
+3. **Enhance existing API routes** (`dashboard/app/api/routes/classification.py`):
    - All 4 endpoints already work ✅
    - Add: `GET /api/classification/entity/{entity_id}/columns` — column-level detail with PII types
    - Add: `POST /api/classification/entity/{entity_id}/override` — manual sensitivity override
+   - Add: `GET /api/classification/purview/status` — Purview connection state + mapping coverage
+   - Add: `POST /api/classification/purview/sync` — trigger Purview sync (push)
+   - Add: `POST /api/classification/purview/import` — trigger Purview import (pull)
+   - Add: `GET /api/classification/purview/history` — sync history log
+   - Add: `GET /api/classification/purview/mappings` — type mapping table (editable)
 
-3. **Cross-page integration:**
+4. **Cross-page integration:**
    - Add PII badge to DataProfiler column cards
    - Add "Sensitive" indicator to DataMicroscope column lineage view
    - Add classification status to entity digest (useEntityDigest hook)
+   - Add "Purview Synced" badge on classified entities (shows governance compliance)
+
+**Purview API Integration (future Packet E, but UI scaffolded now):**
+- Purview REST API: `POST /catalog/api/atlas/v2/entity/bulk` for pushing classifications
+- Purview REST API: `GET /catalog/api/atlas/v2/glossary` for pulling terms
+- Auth: Same SP token flow (add `https://purview.azure.net/.default` scope)
+- The sync script is a lightweight future addition — the UI, mapping table, and data model are built NOW
 
 ---
 
 ## 3. BUILD ORDER
 
 ```
-Packet C (delta-rs default) → Packet A (ConnectorX) → Packet B (Pandera) → Packet D (Presidio)
+Packet C (delta-rs default) → Packet A (ConnectorX) → Packet B (Pandera) → Packet D (Presidio + Purview) → Packet E (Data Estate)
 ```
 
 **Rationale:**
 1. **Packet C first** — smallest change, biggest risk reduction (eliminates notebook dependency). Makes all subsequent testing faster.
 2. **Packet A second** — extraction speed. Every test run after this is 5-13x faster.
 3. **Packet B third** — schema validation. Now that extraction is fast, validation overhead is proportionally smaller.
-4. **Packet D last** — classification is governance, not speed/reliability. Depends on column_metadata being populated (which requires loads to run).
+4. **Packet D fourth** — classification is governance, not speed/reliability. Depends on column_metadata being populated (which requires loads to run).
+5. **Packet E last** — Data Estate visualization. Requires all other packets to be working so it has real data to display. This is the crown jewel demo page.
+
+---
+
+### Packet E: Data Estate Visualization (Crown Jewel)
+
+**Purpose:** A premium, animated, executive-grade visualization of the entire data pipeline — sources through governance. The page that makes execs say "they've thought about everything." If this can't be made genuinely next-level, it doesn't ship.
+
+**Scope:**
+- New page: `DataEstate.tsx`
+- New API route aggregating cross-system metrics
+- Full `/interface-design` treatment — premium motion, animation, transitions
+
+**Design Requirements (non-negotiable):**
+
+1. **Living Pipeline Flow** — NOT a static diagram
+   - Animated data particles flowing: Source Systems → Landing Zone → Bronze → Silver → Gold
+   - Each node is interactive — hover shows live stats, click drills into detail page
+   - Flow speed reflects actual throughput (faster flow = higher rows/sec)
+   - Particle color reflects data quality (green = healthy, amber = warnings, red = failures)
+   - Seamless spring-based transitions when data updates (Framer Motion)
+
+2. **Source System Constellation**
+   - Left side: Source systems (MES, ETQ, M3 ERP, M3 Cloud, OPTIVA, etc.) as nodes
+   - Each source shows: entity count, last extraction time, health status
+   - Connection lines animate during active loads
+   - Sources scale to N (dynamic — never hardcoded)
+
+3. **Lakehouse Layer Progression**
+   - Center: Medallion layers as elevated cards or zones
+   - Per-layer metrics: entity coverage %, physical row counts, last load time
+   - Layer-to-layer arrows show transformation status
+   - Schema validation health badge per layer (from Packet B)
+
+4. **Classification & Governance Overlay**
+   - Right side or overlay: Classification coverage heatmap
+   - PII detection count with sensitivity breakdown
+   - Purview sync status badge (prominent — "Synced" / "Ready" / "Pending")
+   - "Governance Score" composite metric — combines classification coverage + schema validation + freshness
+
+5. **Premium Motion & Animation (MANDATORY)**
+   - Page entrance: Staggered fade-in of zones (left → center → right), 300-500ms per zone
+   - Data particles: Continuous subtle flow animation (CSS/canvas, not JS-heavy)
+   - Hover states: Cards lift with spring physics (Framer Motion `whileHover`)
+   - Transitions: Layout changes use `AnimatePresence` + `layout` prop
+   - Number changes: Animated counters (already have `AnimatedCounter.tsx` component)
+   - Status changes: Smooth color transitions (not instant swaps)
+   - Drill-through: Click node → page transition with shared-element animation (node expands into detail page)
+   - Idle state: Subtle ambient motion — particles drift, nodes breathe slightly
+   - Performance: 60fps on mid-range hardware. Use `will-change`, GPU-composited layers, `requestAnimationFrame` for canvas elements
+
+6. **Responsive Layout**
+   - Full-width hero section (no sidebar compression)
+   - Adapts from horizontal flow (wide screens) to vertical flow (narrow)
+   - Touch-friendly on tablet for exec demos
+
+7. **Data Sources:**
+   - Source systems: `GET /api/overview/sources`
+   - Layer stats: `GET /api/lmc/progress` + `GET /api/entity-digest`
+   - Classification: `GET /api/classification/summary`
+   - Schema validation: `GET /api/schema-validation/summary` (from Packet B)
+   - Purview: `GET /api/classification/purview/status` (from Packet D)
+   - Freshness: `GET /api/overview/activity`
+
+**New Files:**
+- `dashboard/app/src/pages/DataEstate.tsx` — main page
+- `dashboard/app/src/components/estate/` — component directory:
+  - `PipelineFlow.tsx` — animated source → layer flow (canvas or SVG)
+  - `SourceNode.tsx` — individual source system card
+  - `LayerZone.tsx` — medallion layer card with metrics
+  - `GovernancePanel.tsx` — classification + Purview overlay
+  - `DataParticle.tsx` — animated particle system
+  - `GovernanceScore.tsx` — composite governance metric ring
+- `dashboard/app/api/routes/data_estate.py` — aggregation endpoint
+
+**New API Routes:**
+- `GET /api/estate/overview` — single aggregated response combining source stats, layer stats, classification coverage, schema health, Purview status, and freshness — avoids frontend making 6+ separate calls
+
+**Navigation:** Add "Data Estate" as the FIRST item in sidebar, above all other groups. This is the landing page for demos.
+
+**Quality Gate:** This page goes through `/interface-design` with maximum premium treatment. If the design doesn't hit "exec-demo-ready" quality, it gets revised until it does. No shipping a mediocre version.
+
+---
 
 ## 4. DEPENDENCIES & RISKS
 
@@ -276,6 +394,8 @@ Packet C (delta-rs default) → Packet A (ConnectorX) → Packet B (Pandera) →
 | Schema validation false positives | B | Start in `warn` mode. Don't block loads until schemas stabilize. |
 | OneLake write failures without notebook fallback | C | Keep notebook code paths intact. Config toggle for rollback. |
 | Pandera Polars compatibility | B | Pandera has native Polars support since v0.18. Pin version. |
+| Data Estate animation performance | E | Canvas for particles, CSS for transitions. Profile on target hardware. Degrade gracefully. |
+| Data Estate looking mediocre | E | Full /interface-design pass. Revise until premium. Do not ship if it doesn't hit the bar. |
 
 ## 5. NEW FILES CREATED
 
@@ -284,7 +404,8 @@ Packet C (delta-rs default) → Packet A (ConnectorX) → Packet B (Pandera) →
 | A | None (modifies existing `extractor.py`, `connections.py`, `models.py`) |
 | B | `engine/schemas/__init__.py`, `engine/schemas/base.py`, `engine/schemas/m3_schemas.py`, `engine/schemas/mes_schemas.py`, `engine/schemas/etq_schemas.py`, `engine/schema_validator.py`, `dashboard/app/api/routes/schema_validation.py`, `dashboard/app/src/pages/SchemaValidation.tsx` |
 | C | None (modifies existing `orchestrator.py`, `onelake_io.py`, `bronze_processor.py`, `silver_processor.py`) |
-| D | None (modifies existing files, installs package) |
+| D | `dashboard/app/api/routes/purview.py` (Purview sync routes, separated from classification) |
+| E | `dashboard/app/src/pages/DataEstate.tsx`, `dashboard/app/src/components/estate/PipelineFlow.tsx`, `dashboard/app/src/components/estate/SourceNode.tsx`, `dashboard/app/src/components/estate/LayerZone.tsx`, `dashboard/app/src/components/estate/GovernancePanel.tsx`, `dashboard/app/src/components/estate/DataParticle.tsx`, `dashboard/app/src/components/estate/GovernanceScore.tsx`, `dashboard/app/api/routes/data_estate.py` |
 
 ## 6. PER-PACKET INTERFACE DESIGN NEEDS
 
@@ -293,6 +414,7 @@ Packet C (delta-rs default) → Packet A (ConnectorX) → Packet B (Pandera) →
 | A | LoadMissionControl.tsx | Minor — add extraction engine badge to run detail. No new page. |
 | B | **SchemaValidation.tsx (NEW)** | Full /interface-design pass needed |
 | C | LoadMissionControl.tsx | Minor — add processing mode indicator. No new page. |
-| D | DataClassification.tsx (ENHANCE) | Full /interface-design pass needed — PII drilldown, sensitivity badges, scan controls |
+| D | **DataClassification.tsx (MAJOR ENHANCE)** | Full /interface-design pass — PII drilldown, sensitivity badges, Purview integration panel, sync controls, mapping coverage |
+| E | **DataEstate.tsx (NEW — CROWN JEWEL)** | Maximum /interface-design treatment. Premium motion, animation, exec-demo quality. Multiple design iterations expected. |
 
-**Two pages need /interface-design:** SchemaValidation (new) and DataClassification (enhance).
+**Three pages need /interface-design:** SchemaValidation (new), DataClassification (major enhance with Purview), DataEstate (new — premium).
