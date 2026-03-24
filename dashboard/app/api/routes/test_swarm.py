@@ -26,7 +26,9 @@ _RUNS_DIR = _APP_DIR / ".test-swarm-runs"
 
 
 def _safe_component(value: str) -> str:
-    """Validate a path component — no traversal, no slashes."""
+    """Validate a path component — no traversal, no slashes, no empty."""
+    if not value or not value.strip():
+        raise HttpError("Path component must not be empty", 400)
     if ".." in value or "/" in value or "\\" in value:
         raise HttpError("Invalid path component", 400)
     return value
@@ -123,8 +125,8 @@ def get_iteration(params: dict) -> dict:
     except (ValueError, TypeError):
         raise HttpError("Iteration number must be an integer", 400)
 
-    if n < 0:
-        raise HttpError("Iteration number must be non-negative", 400)
+    if n < 0 or n > 10_000:
+        raise HttpError("Iteration number must be between 0 and 10000", 400)
 
     run_dir = _RUNS_DIR / run_id
 

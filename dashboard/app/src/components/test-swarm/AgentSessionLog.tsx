@@ -95,11 +95,11 @@ export default function AgentSessionLog({ log, className }: AgentSessionLogProps
   }, [entries, filter, search]);
 
   const TYPE_STYLES: Record<string, { icon: typeof Terminal; color: string }> = {
-    tool_call: { icon: Terminal, color: "text-[var(--cl-info)]" },
+    tool_call: { icon: Terminal, color: "text-[var(--bp-info)]" },
     tool_result: { icon: MessageSquare, color: "text-muted-foreground" },
     text: { icon: MessageSquare, color: "text-foreground" },
-    error: { icon: AlertTriangle, color: "text-[var(--cl-error)]" },
-    edit: { icon: FileCode, color: "text-[var(--cl-warning)]" },
+    error: { icon: AlertTriangle, color: "text-[var(--bp-fault)]" },
+    edit: { icon: FileCode, color: "text-[var(--bp-caution)]" },
   };
 
   return (
@@ -146,7 +146,7 @@ export default function AgentSessionLog({ log, className }: AgentSessionLogProps
               <div key={idx} className="flex items-start gap-2 px-3 py-1.5 border-b border-border/10 hover:bg-muted/50">
                 <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", style.color)} />
                 <span className={cn("break-all leading-relaxed", style.color)}>
-                  {entry.file && <span className="text-[var(--cl-warning)] mr-1">[{entry.file}]</span>}
+                  {entry.file && <span className="text-[var(--bp-caution)] mr-1">[{entry.file}]</span>}
                   {entry.content}
                 </span>
               </div>

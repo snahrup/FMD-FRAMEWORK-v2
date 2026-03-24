@@ -39,8 +39,8 @@ export default function SwarmSkeleton() {
         </div>
       </div>
 
-      {/* Timeline + Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      {/* Timeline + Chart + Gauge row (matches real layout: 6-col grid: 3+2+1) */}
+      <div className="grid grid-cols-1 lg:grid-cols-6 gap-4">
         {/* Timeline */}
         <div className="lg:col-span-3 rounded-[var(--radius-lg)] border border-border/30 bg-card backdrop-blur-sm p-6 space-y-4">
           <Bone className="h-3 w-24" />
@@ -59,25 +59,10 @@ export default function SwarmSkeleton() {
           <Bone className="h-3 w-20" />
           <Bone className="h-[180px] w-full rounded-[var(--radius)]" />
         </div>
-      </div>
 
-      {/* Gauge + Heatmap row */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <div className="rounded-[var(--radius-lg)] border border-border/30 bg-card backdrop-blur-sm p-6 flex items-center justify-center">
-          <Bone className="w-[140px] h-[140px] rounded-full" />
-        </div>
-        <div className="lg:col-span-3 rounded-[var(--radius-lg)] border border-border/30 bg-card backdrop-blur-sm p-6 space-y-3">
-          <Bone className="h-3 w-24" />
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Bone className="h-4 w-40" />
-              <div className="flex gap-1">
-                {Array.from({ length: 5 }).map((_, j) => (
-                  <Bone key={j} className="w-7 h-5 rounded-[3px]" />
-                ))}
-              </div>
-            </div>
-          ))}
+        {/* Gauge */}
+        <div className="lg:col-span-1 rounded-[var(--radius-lg)] border border-border/30 bg-card backdrop-blur-sm p-6 flex items-center justify-center">
+          <Bone className="w-[120px] h-[120px] rounded-full" />
         </div>
       </div>
 
