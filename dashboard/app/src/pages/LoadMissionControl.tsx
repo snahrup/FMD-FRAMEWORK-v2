@@ -623,10 +623,11 @@ function CommandBand({
       position: "sticky", top: 0, zIndex: 40,
       background: "var(--bp-surface-1)",
       borderBottom: "1px solid var(--bp-border)",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
       ...S.sans,
     }}>
       {/* Main command row */}
-      <div style={{ padding: "8px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ padding: "10px 32px", display: "flex", alignItems: "center", gap: 14 }}>
         {/* Run selector */}
         <div style={{ position: "relative" }}>
           <button
@@ -761,16 +762,20 @@ function CommandBand({
           onClick={() => setLaunchOpen(false)}
           style={{
             position: "fixed", inset: 0, zIndex: 100,
-            background: "rgba(0,0,0,0.4)",
+            background: "rgba(0,0,0,0.5)",
+            backdropFilter: "blur(6px)",
             display: "flex", alignItems: "center", justifyContent: "center",
+            animation: "slideInUp 0.3s ease-out",
           }}
         >
           <div
             onClick={e => e.stopPropagation()}
             style={{
               ...S.card, background: "var(--bp-surface-1)",
-              width: 520, maxWidth: "90vw",
+              width: 560, maxWidth: "90vw",
               padding: 0, overflow: "hidden",
+              boxShadow: "0 24px 48px rgba(0,0,0,0.15), 0 8px 16px rgba(0,0,0,0.1)",
+              animation: "slideInUp 0.4s ease-out",
             }}
           >
             {/* Modal header */}
@@ -1235,7 +1240,7 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
                     onClick={() => dispatch({ type: "CLICK_MATRIX_CELL", source: cell.source, layer: cell.layer })}
                     style={{
                       ...S.cell,
-                      padding: "12px 10px 14px",
+                      padding: "14px 12px 16px",
                       background: selected
                         ? layerLightColor(cell.layer)
                         : cell.inProgress
@@ -1247,30 +1252,39 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
                       borderWidth: selected ? 2 : 1,
                       position: "relative",
                       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                      minHeight: 64,
+                      minHeight: 72, gap: 6,
                       animation: cell.inProgress ? "pulse 2s ease-in-out infinite" : "none",
+                      transition: "all 0.2s ease",
                     }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = layerColor(cell.layer); (e.currentTarget as HTMLDivElement).style.transform = "translateY(-1px)"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = selected ? layerColor(cell.layer) : "var(--bp-border-subtle)"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)"; }}
                   >
                     {/* Count */}
-                    <div style={{ ...S.data, fontSize: 15, fontWeight: 700, color: "var(--bp-ink-primary)", lineHeight: 1.2 }}>
-                      {formatNumber(cell.succeeded)}<span style={{ color: "var(--bp-ink-muted)", fontWeight: 400 }}> / {formatNumber(cell.total)}</span>
+                    <div style={{ ...S.data, fontSize: 16, fontWeight: 700, color: "var(--bp-ink-primary)", lineHeight: 1.2 }}>
+                      {formatNumber(cell.succeeded)}<span style={{ color: "var(--bp-ink-muted)", fontWeight: 400, fontSize: 13 }}> / {formatNumber(cell.total)}</span>
                     </div>
+                    {/* Percentage label */}
+                    {cell.total > 0 && (
+                      <div style={{ ...S.data, fontSize: 10, fontWeight: 600, color: pct === 100 ? "var(--bp-operational)" : "var(--bp-ink-muted)" }}>
+                        {pct}%
+                      </div>
+                    )}
                     {/* Percent bar */}
                     <div style={{
-                      width: "100%", height: 3, borderRadius: 2,
-                      background: "var(--bp-border)", marginTop: 4,
+                      width: "100%", height: 4, borderRadius: 3,
+                      background: "var(--bp-border)", marginTop: 2,
                       overflow: "hidden",
                     }}>
                       <div style={{
-                        height: "100%", borderRadius: 2,
+                        height: "100%", borderRadius: 3,
                         width: `${pct}%`,
-                        background: pct === 100 ? "var(--bp-operational)" : layerColor(cell.layer),
-                        transition: "width 0.3s ease",
+                        background: pct === 100 ? "var(--bp-operational)" : cell.failed > 0 ? "var(--bp-fault)" : layerColor(cell.layer),
+                        transition: "width 0.5s ease",
                       }} />
                     </div>
                     {/* Trust indicator */}
-                    <TrustIcon size={10} style={{
-                      position: "absolute", top: 4, right: 4,
+                    <TrustIcon size={11} style={{
+                      position: "absolute", top: 5, right: 5,
                       color: trust.color,
                     }} />
                   </div>
@@ -1422,12 +1436,14 @@ function LiveTailTab({ events, onClear }: LiveTailTabProps) {
         {events.length === 0 ? (
           <div style={{
             display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            height: "100%", color: "var(--bp-ink-muted)", gap: 8,
+            height: "100%", color: "var(--bp-ink-muted)", gap: 12, padding: "40px 20px",
           }}>
-            <Activity size={24} style={{ opacity: 0.4 }} />
-            <span style={{ ...S.sans, fontSize: 13 }}>No live activity</span>
-            <span style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-muted)" }}>
-              {scope.isRunActive ? "Waiting for events..." : "Start a run to see live events"}
+            <Activity size={28} style={{ opacity: 0.3, animation: scope.isRunActive ? "pulse 2s ease-in-out infinite" : "none" }} />
+            <span style={{ ...S.sans, fontSize: 14, fontWeight: 600, color: "var(--bp-ink-secondary)" }}>
+              {scope.isRunActive ? "Waiting for events..." : "No live activity"}
+            </span>
+            <span style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-muted)", textAlign: "center", maxWidth: 280 }}>
+              {scope.isRunActive ? "Events will appear here as tables are processed" : "Start a pipeline run to see real-time events"}
             </span>
           </div>
         ) : (
@@ -1572,12 +1588,19 @@ function HistoryTab({ entities, total, loading }: HistoryTabProps) {
       {/* Header */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "10px 14px",
+        padding: "14px 18px",
         borderBottom: "1px solid var(--bp-border-subtle)",
+        background: "var(--bp-surface-inset)",
       }}>
-        <span style={{ ...S.sans, fontSize: 13, fontWeight: 600, color: "var(--bp-ink-secondary)" }}>
-          History — {formatNumber(total)} events
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Timer size={14} style={{ color: "var(--bp-ink-muted)" }} />
+          <span style={{ ...S.sans, fontSize: 14, fontWeight: 700, color: "var(--bp-ink-primary)" }}>
+            History
+          </span>
+          <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
+            {formatNumber(total)} events
+          </span>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{
             display: "flex", alignItems: "center", gap: 6,
@@ -1765,11 +1788,18 @@ function EntitiesTab({ entities, total, loading, onRetryEntity }: EntitiesTabPro
       {/* Header bar */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "10px 14px", borderBottom: "1px solid var(--bp-border-subtle)",
+        padding: "14px 18px", borderBottom: "1px solid var(--bp-border-subtle)",
+        background: "var(--bp-surface-inset)",
       }}>
-        <span style={{ ...S.sans, fontSize: 13, fontWeight: 600, color: "var(--bp-ink-secondary)" }}>
-          Entities — {formatNumber(total)} total
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Database size={14} style={{ color: "var(--bp-ink-muted)" }} />
+          <span style={{ ...S.sans, fontSize: 14, fontWeight: 700, color: "var(--bp-ink-primary)" }}>
+            Entities
+          </span>
+          <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
+            {formatNumber(total)} total
+          </span>
+        </div>
         <div style={{
           display: "flex", alignItems: "center", gap: 6,
           padding: "4px 10px", borderRadius: 4,
@@ -2722,18 +2752,18 @@ function LoadMissionControlInner() {
           </div>
           <div style={{ textAlign: "center", maxWidth: 480 }}>
             <div style={{ ...S.display, fontSize: 32, fontWeight: 700, color: "var(--bp-ink-primary)", marginBottom: 12, lineHeight: 1.2 }}>
-              Pipeline Ready
+              Ready to Go
             </div>
             <div style={{ ...S.sans, fontSize: 15, color: "var(--bp-ink-secondary)", lineHeight: 1.6, marginBottom: 20 }}>
-              Start a new pipeline run to begin loading data across the Landing Zone, Bronze, and Silver layers. Monitor progress in real-time with live metrics and detailed per-entity tracking.
+              Hit "Run Pipeline" to start loading your data. You'll see each table move through three stages — Landing, Bronze, and Silver — with live updates the whole way.
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
               <div style={{ ...S.cardInset, padding: "12px 16px", textAlign: "left" }}>
                 <div style={{ ...S.sans, fontSize: 11, fontWeight: 600, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 4 }}>
-                  Quick Start
+                  How to Start
                 </div>
                 <div style={{ ...S.sans, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
-                  Click "Run Pipeline" above to configure
+                  Click "Run Pipeline" at the top, pick your layers, and go
                 </div>
               </div>
             </div>
@@ -2744,9 +2774,11 @@ function LoadMissionControlInner() {
         {progressLoading && (
           <div style={{
             position: "absolute", inset: 0, zIndex: 10,
-            background: "rgba(244,242,237,0.75)",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            ...S.sans, fontSize: 13, color: "var(--bp-ink-secondary)",
+            background: "rgba(244,242,237,0.85)",
+            backdropFilter: "blur(4px)",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+            ...S.sans, fontSize: 14, color: "var(--bp-ink-secondary)",
+            transition: "opacity 0.3s ease",
           }}>
             <Loader2 size={16} style={{ animation: "spin 1s linear infinite", color: "var(--bp-copper)" }} />
             {progress ? "Refreshing…" : "Loading pipeline data…"}
