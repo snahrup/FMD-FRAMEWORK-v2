@@ -6,6 +6,11 @@
 import { cn } from "@/lib/utils";
 import { motion, useReducedMotion } from "framer-motion";
 
+// BP token hex values for SVG attributes (CSS var() not supported in SVG attrs)
+const BP_OPERATIONAL = "#3D7C4F";
+const BP_CAUTION = "#C27A1A";
+const BP_FAULT = "#B93A2A";
+
 interface ConvergenceGaugeProps {
   passed: number;
   total: number;
@@ -27,26 +32,26 @@ export default function ConvergenceGauge({ passed, total, label, size = 160, cla
   let arcColor: string;
   let glowColor: string;
   if (pct >= 80) {
-    arcColor = "oklch(0.68 0.16 145)"; // --cl-success
-    glowColor = "oklch(0.68 0.16 145 / 0.3)";
+    arcColor = BP_OPERATIONAL;
+    glowColor = `${BP_OPERATIONAL}4D`; // 30% opacity
   } else if (pct >= 50) {
-    arcColor = "oklch(0.75 0.15 70)";  // --cl-warning
-    glowColor = "oklch(0.75 0.15 70 / 0.25)";
+    arcColor = BP_CAUTION;
+    glowColor = `${BP_CAUTION}40`; // 25% opacity
   } else {
-    arcColor = "oklch(0.58 0.2 25)";   // --cl-error
-    glowColor = "oklch(0.58 0.2 25 / 0.25)";
+    arcColor = BP_FAULT;
+    glowColor = `${BP_FAULT}40`; // 25% opacity
   }
 
   return (
     <div className={cn("flex flex-col items-center gap-2", className)}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="drop-shadow-sm">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="drop-shadow-sm" role="img" aria-label={`${Math.round(pct)}% pass rate: ${passed} of ${total} tests passing`}>
         {/* Background track */}
         <circle
           cx={center}
           cy={center}
           r={radius}
           fill="none"
-          stroke="oklch(0.5 0 0 / 0.08)"
+          stroke="rgba(168,162,158,0.15)"
           strokeWidth={10}
           strokeLinecap="round"
         />
@@ -111,7 +116,7 @@ export default function ConvergenceGauge({ passed, total, label, size = 160, cla
             y1={center - radius + 14}
             x2={center}
             y2={center - radius + 4}
-            stroke="oklch(0.68 0.16 145 / 0.4)"
+            stroke={`${BP_OPERATIONAL}66`}
             strokeWidth={2}
             strokeLinecap="round"
             transform={`rotate(0 ${center} ${center})`}

@@ -23,10 +23,10 @@ interface TestHeatmapProps {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  passed: "bg-[oklch(0.68_0.16_145)]",          // green — uses the CDS success hue
-  failed: "bg-[oklch(0.58_0.2_25)]",             // red — uses the CDS error hue
-  error: "bg-[oklch(0.58_0.2_25)]",
-  skipped: "bg-[oklch(0.7_0.02_250)]",           // muted blue-grey
+  passed: "bg-[var(--bp-operational)]",
+  failed: "bg-[var(--bp-fault)]",
+  error: "bg-[var(--bp-fault)]",
+  skipped: "bg-[var(--bp-dismissed)]",
   none: "bg-muted",
 };
 
@@ -79,9 +79,9 @@ export default function TestHeatmap({ iterations, iterationCount, className }: T
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/20">
         <h4 className="text-sm font-medium text-foreground">Test Heatmap</h4>
         <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[oklch(0.68_0.16_145)]" /> Pass</span>
-          <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[oklch(0.58_0.2_25)]" /> Fail</span>
-          <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[oklch(0.7_0.02_250)]" /> Skip</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[var(--bp-operational)]" /> Pass</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[var(--bp-fault)]" /> Fail</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[var(--bp-dismissed)]" /> Skip</span>
         </div>
       </div>
 
@@ -113,6 +113,8 @@ export default function TestHeatmap({ iterations, iterationCount, className }: T
                   return (
                     <td key={n} className="px-1.5 py-1.5 text-center">
                       <motion.div
+                        role="gridcell"
+                        aria-label={`${testName} iteration ${n}: ${STATUS_LABELS[status]}`}
                         className={cn(
                           "w-7 h-5 rounded-[3px] mx-auto cursor-default transition-all",
                           STATUS_COLORS[status],

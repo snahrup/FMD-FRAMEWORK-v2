@@ -18,15 +18,15 @@ interface RunTimelineProps {
 }
 
 function getNodeColor(node: TimelineNode): string {
-  if (node.failed === 0) return "bg-[var(--cl-success)]";
-  if (node.delta > 0) return "bg-[var(--cl-warning)]";
-  if (node.delta < 0) return "bg-[var(--cl-error)]";
+  if (node.failed === 0) return "bg-[var(--bp-operational)]";
+  if (node.delta > 0) return "bg-[var(--bp-caution)]";
+  if (node.delta < 0) return "bg-[var(--bp-fault)]";
   return "bg-muted-foreground/60";
 }
 
 function getLineColor(from: TimelineNode, to: TimelineNode): string {
-  if (to.delta > 0) return "bg-[var(--cl-success)]/60";
-  if (to.delta < 0) return "bg-[var(--cl-error)]/60";
+  if (to.delta > 0) return "bg-[var(--bp-operational)]/60";
+  if (to.delta < 0) return "bg-[var(--bp-fault)]/60";
   return "bg-border";
 }
 
@@ -63,6 +63,7 @@ export default function RunTimeline({ nodes, selectedIteration, onSelect }: RunT
             {/* Node */}
             <button
               onClick={() => onSelect(node.iteration)}
+              aria-label={`Iteration ${node.iteration}: ${node.passed} of ${node.total} passing`}
               className="flex flex-col items-center gap-1.5 group cursor-pointer"
             >
               <motion.div
@@ -82,7 +83,7 @@ export default function RunTimeline({ nodes, selectedIteration, onSelect }: RunT
                 {/* Active indicator */}
                 {node.active && !shouldReduceMotion && (
                   <motion.div
-                    className="absolute -inset-1 rounded-full border-2 border-[var(--cl-info)]"
+                    className="absolute -inset-1 rounded-full border-2 border-[var(--bp-info)]"
                     animate={{ opacity: [0.5, 1, 0.5] }}
                     transition={{ duration: 1.5, repeat: Infinity }}
                   />
@@ -93,14 +94,14 @@ export default function RunTimeline({ nodes, selectedIteration, onSelect }: RunT
               <div className="text-center">
                 <span className={cn(
                   "text-xs font-semibold",
-                  node.failed === 0 ? "text-[var(--cl-success)]" : "text-foreground"
+                  node.failed === 0 ? "text-[var(--bp-operational)]" : "text-foreground"
                 )}>
                   {node.passed}/{node.total}
                 </span>
                 {node.iteration > 0 && node.delta !== 0 && (
                   <span className={cn(
                     "text-[10px] ml-1",
-                    node.delta > 0 ? "text-[var(--cl-success)]" : "text-[var(--cl-error)]"
+                    node.delta > 0 ? "text-[var(--bp-operational)]" : "text-[var(--bp-fault)]"
                   )}>
                     {node.delta > 0 ? `+${node.delta}` : node.delta}
                   </span>

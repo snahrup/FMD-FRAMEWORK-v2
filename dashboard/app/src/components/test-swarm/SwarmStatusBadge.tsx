@@ -4,11 +4,11 @@ import { CheckCircle2, XCircle, Zap, Loader2, Clock } from "lucide-react";
 type SwarmStatus = "converged" | "max_iterations" | "circuit_breaker" | "in_progress" | "error" | "idle";
 
 const STATUS_CONFIG: Record<SwarmStatus, { label: string; color: string; icon: typeof CheckCircle2 }> = {
-  converged: { label: "Converged", color: "bg-[var(--cl-success)] text-white", icon: CheckCircle2 },
-  in_progress: { label: "In Progress", color: "bg-[var(--cl-info)] text-white", icon: Loader2 },
-  max_iterations: { label: "Max Iterations", color: "bg-[var(--cl-warning)] text-white", icon: Clock },
-  circuit_breaker: { label: "Circuit Breaker", color: "bg-[var(--cl-error)] text-white", icon: Zap },
-  error: { label: "Error", color: "bg-[var(--cl-error)] text-white", icon: XCircle },
+  converged: { label: "Converged", color: "bg-[var(--bp-operational)] text-white", icon: CheckCircle2 },
+  in_progress: { label: "In Progress", color: "bg-[var(--bp-info)] text-white", icon: Loader2 },
+  max_iterations: { label: "Max Iterations", color: "bg-[var(--bp-caution)] text-white", icon: Clock },
+  circuit_breaker: { label: "Circuit Breaker", color: "bg-[var(--bp-fault)] text-white", icon: Zap },
+  error: { label: "Error", color: "bg-[var(--bp-fault)] text-white", icon: XCircle },
   idle: { label: "Idle", color: "bg-muted text-muted-foreground", icon: Clock },
 };
 

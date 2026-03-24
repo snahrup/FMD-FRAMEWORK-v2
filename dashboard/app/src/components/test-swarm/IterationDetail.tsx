@@ -32,7 +32,8 @@ interface IterationDetailProps {
 }
 
 function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
+  if (!Number.isFinite(ms) || ms < 0) return "0ms";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
   const secs = Math.floor(ms / 1000);
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
@@ -43,12 +44,12 @@ function formatDuration(ms: number): string {
 function DeltaBadge({ before, after }: { before: number; after: number }) {
   const delta = after - before;
   if (delta > 0) return (
-    <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--cl-success)]">
+    <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--bp-operational)]">
       <TrendingUp className="h-3 w-3" /> +{delta}
     </span>
   );
   if (delta < 0) return (
-    <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--cl-error)]">
+    <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--bp-fault)]">
       <TrendingDown className="h-3 w-3" /> {delta}
     </span>
   );
@@ -69,12 +70,14 @@ export default function IterationDetail({ iteration, isOpen, onToggle }: Iterati
       {/* Header */}
       <button
         onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-label={`Iteration ${iteration.iteration} details`}
         className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted/50 transition-colors"
       >
         <div className="flex items-center gap-4">
           <div className={cn(
             "rounded-full w-8 h-8 flex items-center justify-center text-white text-xs font-bold",
-            delta > 0 ? "bg-[var(--cl-success)]" : delta < 0 ? "bg-[var(--cl-error)]" : "bg-muted-foreground"
+            delta > 0 ? "bg-[var(--bp-operational)]" : delta < 0 ? "bg-[var(--bp-fault)]" : "bg-muted-foreground"
           )}>
             #{iteration.iteration}
           </div>
@@ -117,9 +120,9 @@ export default function IterationDetail({ iteration, isOpen, onToggle }: Iterati
             <div className="px-5 pb-5 space-y-4 border-t border-border/20 pt-4">
               {/* Persistent failures warning */}
               {iteration.persistentFailures && iteration.persistentFailures.length > 0 && (
-                <div className="rounded-[var(--radius)] bg-[var(--cl-error)]/5 border border-[var(--cl-error)]/20 p-3">
-                  <p className="text-xs font-medium text-[var(--cl-error)] mb-1">Persistent Failures</p>
-                  <ul className="text-xs text-[var(--cl-error)]/80 space-y-0.5">
+                <div className="rounded-[var(--radius)] bg-[var(--bp-fault)]/5 border border-[var(--bp-fault)]/20 p-3">
+                  <p className="text-xs font-medium text-[var(--bp-fault)] mb-1">Persistent Failures</p>
+                  <ul className="text-xs text-[var(--bp-fault)]/80 space-y-0.5">
                     {iteration.persistentFailures.map((f, i) => (
                       <li key={i} className="font-mono">{f}</li>
                     ))}
