@@ -945,34 +945,99 @@ function KpiStrip({ progress }: { progress: ProgressResponse | null }) {
   const verified = (progress.verification?.lz_verified ?? 0) + (progress.verification?.brz_verified ?? 0) + (progress.verification?.slv_verified ?? 0);
   const totalActive = progress.verification?.total_active ?? progress.totalActiveEntities;
 
-  const kpis: Array<{ label: string; value: string; color: string; sub?: string }> = [
-    { label: "Loaded", value: formatNumber(succeeded), color: "var(--bp-operational)", sub: `of ${formatNumber(progress.totalActiveEntities)}` },
-    { label: "Failed", value: formatNumber(failed), color: failed > 0 ? "var(--bp-fault)" : "var(--bp-ink-muted)" },
-    { label: "Pending", value: formatNumber(pending > 0 ? pending : 0), color: pending > 0 ? "var(--bp-caution)" : "var(--bp-ink-muted)" },
-    { label: "Rows", value: formatNumber(totalRows), color: "var(--bp-ink-primary)" },
-    { label: "Elapsed", value: formatDuration(totalDuration), color: "var(--bp-ink-primary)" },
-    { label: "Throughput", value: progress.throughput ? `${formatNumber(Math.round(progress.throughput.rows_per_sec))}/s` : "—", color: "var(--bp-ink-secondary)" },
-    { label: "Verified", value: `${formatNumber(verified)}/${formatNumber(totalActive)}`, color: verified > 0 ? "var(--bp-operational)" : "var(--bp-ink-muted)" },
-  ];
-
   return (
     <div style={{
-      display: "grid", gridTemplateColumns: `repeat(${kpis.length}, 1fr)`, gap: 10,
-      padding: "16px 16px 12px",
+      padding: "24px 32px", display: "flex", flexDirection: "column", gap: 24,
     }}>
-      {kpis.map(k => (
-        <div key={k.label} style={{ ...S.card, padding: "14px 14px 16px" }}>
-          <div style={{ fontSize: 11, color: "var(--bp-ink-tertiary)", marginBottom: 6, ...S.sans, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            {k.label}
+      {/* Tier 1: Dominant Status Capsule */}
+      <div style={{
+        display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16,
+      }}>
+        {/* Loaded (primary metric) */}
+        <div style={{
+          ...S.cardInset, padding: "20px 24px",
+          borderLeft: `4px solid var(--bp-operational)`,
+          animation: "slideInUp 0.5s ease-out 0s",
+        }}>
+          <div style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10 }}>
+            Entities Loaded
           </div>
-          <div style={{ ...S.data, fontSize: 22, fontWeight: 600, color: k.color, lineHeight: 1.3 }}>
-            {k.value}
+          <div style={{ ...S.data, fontSize: 32, fontWeight: 700, color: "var(--bp-operational)", lineHeight: 1, marginBottom: 6 }} className="metric-value">
+            {formatNumber(succeeded)}
           </div>
-          {k.sub && (
-            <div style={{ ...S.data, fontSize: 11, color: "var(--bp-ink-muted)", marginTop: 4 }}>{k.sub}</div>
-          )}
+          <div style={{ ...S.data, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
+            of {formatNumber(progress.totalActiveEntities)} total
+          </div>
         </div>
-      ))}
+
+        {/* Failed (alert metric) */}
+        <div style={{
+          ...S.cardInset, padding: "20px 24px",
+          borderLeft: `4px solid ${failed > 0 ? "var(--bp-fault)" : "var(--bp-ink-muted)"}`,
+          animation: "slideInUp 0.5s ease-out 0.08s backwards",
+        }}>
+          <div style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10 }}>
+            Failed Entities
+          </div>
+          <div style={{ ...S.data, fontSize: 32, fontWeight: 700, color: failed > 0 ? "var(--bp-fault)" : "var(--bp-ink-tertiary)", lineHeight: 1, marginBottom: 6 }} className="metric-value">
+            {formatNumber(failed)}
+          </div>
+          <div style={{ ...S.data, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
+            {failed > 0 ? "Requires attention" : "None"}
+          </div>
+        </div>
+
+        {/* Pending */}
+        <div style={{
+          ...S.cardInset, padding: "20px 24px",
+          borderLeft: `4px solid ${pending > 0 ? "var(--bp-caution)" : "var(--bp-ink-muted)"}`,
+          animation: "slideInUp 0.5s ease-out 0.16s backwards",
+        }}>
+          <div style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10 }}>
+            In Progress
+          </div>
+          <div style={{ ...S.data, fontSize: 32, fontWeight: 700, color: pending > 0 ? "var(--bp-caution)" : "var(--bp-ink-tertiary)", lineHeight: 1, marginBottom: 6 }} className="metric-value">
+            {formatNumber(pending > 0 ? pending : 0)}
+          </div>
+          <div style={{ ...S.data, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
+            {pending > 0 ? "Currently running" : "All processed"}
+          </div>
+        </div>
+      </div>
+
+      {/* Tier 2: Supporting Metrics — Compact horizontal layout */}
+      <div style={{
+        display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12,
+      }}>
+        {/* Rows */}
+        <div style={{ ...S.card, padding: "12px 16px" }}>
+          <div style={{ ...S.sans, fontSize: 10, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>Rows</div>
+          <div style={{ ...S.data, fontSize: 18, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
+            {formatNumber(totalRows)}
+          </div>
+        </div>
+        {/* Elapsed */}
+        <div style={{ ...S.card, padding: "12px 16px" }}>
+          <div style={{ ...S.sans, fontSize: 10, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>Elapsed</div>
+          <div style={{ ...S.data, fontSize: 18, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
+            {formatDuration(totalDuration)}
+          </div>
+        </div>
+        {/* Throughput */}
+        <div style={{ ...S.card, padding: "12px 16px" }}>
+          <div style={{ ...S.sans, fontSize: 10, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>Throughput</div>
+          <div style={{ ...S.data, fontSize: 18, fontWeight: 600, color: "var(--bp-ink-secondary)" }}>
+            {progress.throughput ? `${formatNumber(Math.round(progress.throughput.rows_per_sec))}/s` : "—"}
+          </div>
+        </div>
+        {/* Verified */}
+        <div style={{ ...S.card, padding: "12px 16px", borderLeft: `3px solid var(--bp-operational)` }}>
+          <div style={{ ...S.sans, fontSize: 10, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>Verified</div>
+          <div style={{ ...S.data, fontSize: 18, fontWeight: 600, color: verified > 0 ? "var(--bp-operational)" : "var(--bp-ink-muted)" }}>
+            {formatNumber(verified)}/{formatNumber(totalActive)}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -987,7 +1052,14 @@ function PhaseRail({ progress, engine }: { progress: ProgressResponse | null; en
   const currentLayer = engineRunning ? (engine?.last_run?.current_layer?.toLowerCase() ?? null) : null;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 0, padding: "12px 16px 16px" }}>
+    <div style={{
+      display: "flex", alignItems: "center", gap: 12,
+      padding: "20px 32px 24px",
+      background: "var(--bp-surface-inset)",
+      margin: "0 32px",
+      borderRadius: 8,
+      border: "1px solid var(--bp-border-subtle)",
+    }}>
       {LAYER_ORDER.map((layer, i) => {
         const stats = progress?.layers?.[layer] ?? progress?.layers?.[layer.charAt(0).toUpperCase() + layer.slice(1)] ?? null;
         const isActive = engineRunning && currentLayer != null && currentLayer.toLowerCase().includes(layer);
@@ -995,28 +1067,33 @@ function PhaseRail({ progress, engine }: { progress: ProgressResponse | null; en
         const hasFailed = (stats?.failed ?? 0) > 0;
 
         return (
-          <div key={layer} style={{ display: "flex", alignItems: "center" }}>
+          <div key={layer} style={{ display: "flex", alignItems: "center", animation: `slideInUp 0.5s ease-out ${i * 0.1}s backwards` }}>
             {i > 0 && (
-              <ArrowRight size={16} style={{ color: "var(--bp-ink-muted)", margin: "0 4px", flexShrink: 0 }} />
+              <ArrowRight size={18} style={{ color: "var(--bp-ink-muted)", margin: "0 8px", flexShrink: 0, opacity: 0.4 }} />
             )}
             <div style={{
-              display: "flex", alignItems: "center", gap: 8,
-              padding: "6px 14px",
-              borderRadius: 4,
-              border: isActive ? `2px solid ${layerColor(layer)}` : `1px solid var(--bp-border)`,
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "8px 16px",
+              borderRadius: 6,
+              border: isActive ? `2px solid ${layerColor(layer)}` : `1.5px solid var(--bp-border)`,
               background: isActive ? layerLightColor(layer) : "var(--bp-surface-1)",
+              transition: "all 0.3s ease",
+              boxShadow: isActive ? `0 0 0 3px ${layerColor(layer)}20` : "none",
             }}>
-              {isActive && <Loader2 size={14} style={{ color: layerColor(layer), animation: "spin 1s linear infinite" }} />}
-              {isDone && <CheckCircle2 size={14} style={{ color: "var(--bp-operational)" }} />}
-              {hasFailed && !isActive && <AlertTriangle size={14} style={{ color: "var(--bp-fault)" }} />}
-              <span style={{ ...S.sans, fontSize: 13, fontWeight: 600, color: isActive ? layerColor(layer) : "var(--bp-ink-primary)" }}>
-                {LAYER_LABELS[layer]}
-              </span>
-              {stats && (
-                <span style={{ ...S.data, fontSize: 11, color: "var(--bp-ink-muted)" }}>
-                  {formatNumber(stats.succeeded)}/{formatNumber(stats.unique_entities)}
-                </span>
-              )}
+              {isActive && <Loader2 size={16} style={{ color: layerColor(layer), animation: "spin 1s linear infinite", flexShrink: 0 }} />}
+              {isDone && <CheckCircle2 size={16} style={{ color: "var(--bp-operational)", flexShrink: 0 }} />}
+              {hasFailed && !isActive && <AlertTriangle size={16} style={{ color: "var(--bp-fault)", flexShrink: 0 }} />}
+              {!isActive && !isDone && !hasFailed && <Circle size={6} fill="var(--bp-ink-muted)" stroke="none" style={{ flexShrink: 0 }} />}
+              <div>
+                <div style={{ ...S.sans, fontSize: 13, fontWeight: 700, color: isActive ? layerColor(layer) : "var(--bp-ink-primary)" }}>
+                  {LAYER_LABELS[layer]}
+                </div>
+                {stats && (
+                  <div style={{ ...S.data, fontSize: 11, color: "var(--bp-ink-muted)", marginTop: 2 }}>
+                    {formatNumber(stats.succeeded)}/{formatNumber(stats.unique_entities)} entities
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         );
@@ -1100,11 +1177,11 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
     scope.selectedSources.includes(source) && scope.selectedLayers.includes(layer);
 
   return (
-    <div style={{ padding: "0 16px 16px" }}>
+    <div style={{ padding: "24px 32px 0" }}>
       <div style={{
         display: "grid",
         gridTemplateColumns: `140px repeat(${layerKeys.length}, 1fr) 80px`,
-        gap: 6,
+        gap: 8,
       }}>
         {/* Header row */}
         <div style={{ padding: "4px 8px" }} /> {/* empty corner */}
@@ -1382,70 +1459,73 @@ function LiveTailTab({ events, onClear }: LiveTailTabProps) {
                   }
                 }}
                 style={{
-                  display: "flex", alignItems: "center", gap: 8,
-                  padding: "3px 12px",
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "8px 14px 10px",
                   cursor: parsed.entityId ? "pointer" : "default",
-                  borderLeft: isFailed ? "3px solid var(--bp-fault)" : "3px solid transparent",
+                  borderLeft: `3px solid ${isFailed ? "var(--bp-fault)" : isSucceeded ? "var(--bp-operational)" : "var(--bp-border-subtle)"}`,
                   background: i % 2 === 0 ? "transparent" : "rgba(0,0,0,0.015)",
-                  transition: "background 0.1s",
+                  transition: "all 0.2s ease",
+                  animation: `slideInUp 0.4s ease-out ${i * 0.03}s backwards`,
                 }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "var(--bp-copper-soft)"; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = i % 2 === 0 ? "transparent" : "rgba(0,0,0,0.015)"; }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "var(--bp-copper-soft)"; (e.currentTarget as HTMLDivElement).style.borderLeftColor = "var(--bp-copper)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = i % 2 === 0 ? "transparent" : "rgba(0,0,0,0.015)"; (e.currentTarget as HTMLDivElement).style.borderLeftColor = isFailed ? "var(--bp-fault)" : isSucceeded ? "var(--bp-operational)" : "var(--bp-border-subtle)"; }}
               >
+                {/* Status icon (leftmost) */}
+                <div style={{ flexShrink: 0, width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {isSucceeded && <Check size={14} style={{ color: "var(--bp-operational)" }} />}
+                  {isFailed && <XCircle size={14} style={{ color: "var(--bp-fault)" }} />}
+                  {isRunning && <Loader2 size={14} style={{ animation: "spin 1s linear infinite", color: "var(--bp-caution)" }} />}
+                  {!isSucceeded && !isFailed && !isRunning && <Circle size={6} fill="var(--bp-ink-muted)" stroke="none" />}
+                </div>
+
                 {/* Timestamp */}
-                <span style={{ ...S.mono, fontSize: 11, color: "var(--bp-ink-muted)", flexShrink: 0, width: 64 }}>
+                <span style={{ ...S.mono, fontSize: 11, color: "var(--bp-ink-muted)", flexShrink: 0, width: 60 }}>
                   {parsed.time}
                 </span>
-                {/* Source.Table badge */}
+
+                {/* Source.Table (primary detail) */}
                 {parsed.table && (
                   <span style={{
-                    ...S.mono, fontSize: 11, color: "var(--bp-ink-primary)",
-                    maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    ...S.mono, fontSize: 12, color: "var(--bp-ink-primary)", fontWeight: 500,
+                    maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
                   }}>
                     {parsed.source ? `${parsed.source}.` : ""}{parsed.table}
                   </span>
                 )}
-                {/* Layer badge */}
+
+                {/* Layer badge (color-coded) */}
                 {parsed.layer && (
                   <span style={{
-                    ...S.badge, fontSize: 10, padding: "1px 6px",
+                    ...S.badge, fontSize: 10, padding: "2px 7px", fontWeight: 600,
                     background: layerLightColor(parsed.layer), color: layerColor(parsed.layer),
+                    flexShrink: 0,
                   }}>
-                    {parsed.layer}
+                    {parsed.layer.slice(0, 3).toUpperCase()}
                   </span>
                 )}
-                {/* Status badge */}
-                <span style={{
-                  ...S.badge, fontSize: 10, padding: "1px 6px",
-                  background: statusColor(parsed.status) + "18",
-                  color: statusColor(parsed.status),
-                }}>
-                  {isSucceeded && <Check size={9} />}
-                  {isFailed && <XCircle size={9} />}
-                  {isRunning && <Loader2 size={9} style={{ animation: "spin 1s linear infinite" }} />}
-                  {parsed.status}
-                </span>
-                {/* Rows */}
+
+                {/* Rows metric */}
                 {parsed.rows > 0 && (
-                  <span style={{ ...S.mono, fontSize: 11, color: "var(--bp-ink-secondary)" }}>
+                  <span style={{ ...S.mono, fontSize: 11, color: "var(--bp-ink-secondary)", whiteSpace: "nowrap", flexShrink: 0 }}>
                     {formatNumber(parsed.rows)} rows
                   </span>
                 )}
+
                 {/* Duration */}
                 {parsed.duration > 0 && (
-                  <span style={{ ...S.mono, fontSize: 11, color: "var(--bp-ink-muted)" }}>
+                  <span style={{ ...S.mono, fontSize: 11, color: "var(--bp-ink-muted)", whiteSpace: "nowrap", flexShrink: 0 }}>
                     {formatDuration(parsed.duration)}
                   </span>
                 )}
-                {/* Spacer */}
-                <div style={{ flex: 1 }} />
-                {/* Error snippet */}
+
+                {/* Error snippet — show first on errors */}
                 {parsed.error && (
                   <span style={{
                     ...S.mono, fontSize: 10, color: "var(--bp-fault)",
-                    maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    flexShrink: 0, marginLeft: "auto",
                   }}>
-                    {parsed.error.slice(0, 80)}
+                    {parsed.error.slice(0, 60)}
                   </span>
                 )}
               </div>
@@ -1784,8 +1864,8 @@ function EntitiesTab({ entities, total, loading, onRetryEntity }: EntitiesTabPro
                     <td style={{ padding: "6px 10px", color: "var(--bp-ink-muted)", fontSize: 11, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {e.WatermarkColumn ? `${e.WatermarkColumn}` : "—"}
                     </td>
-                    <td style={{ padding: "6px 10px" }}>
-                      <TbIcon size={14} style={{ color: tb.color }} title={tb.label} />
+                    <td style={{ padding: "6px 10px" }} title={tb.label}>
+                      <TbIcon size={14} style={{ color: tb.color }} />
                     </td>
                     <td style={{ padding: "6px 10px", color: "var(--bp-ink-muted)", whiteSpace: "nowrap" }}>
                       {e.created_at ? new Date(e.created_at).toLocaleTimeString("en-US", { hour12: false }) : "—"}
@@ -2604,6 +2684,12 @@ function LoadMissionControlInner() {
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-12px); } }
+        @keyframes slideInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideInDown { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes highlight { 0%, 100% { background-color: transparent; } 50% { background-color: var(--bp-copper-soft); } }
+        .metric-value { transition: color 0.3s ease, font-size 0.2s ease; }
+        .metric-value:hover { color: var(--bp-copper); }
       `}</style>
 
       {/* §6 Command Band */}
@@ -2620,15 +2706,37 @@ function LoadMissionControlInner() {
       {/* §7 KPI Strip + Matrix — only when a run is selected */}
       {!scope.selectedRunId ? (
         <div style={{
-          padding: "32px 16px", display: "flex", flexDirection: "column",
-          alignItems: "center", gap: 12, color: "var(--bp-ink-muted)",
+          padding: "48px 32px", display: "flex", flexDirection: "column",
+          alignItems: "center", gap: 20, color: "var(--bp-ink-muted)",
+          background: "linear-gradient(135deg, var(--bp-surface-inset) 0%, var(--bp-canvas) 100%)",
+          minHeight: "600px", justifyContent: "center",
         }}>
-          <Play size={32} style={{ opacity: 0.3 }} />
-          <div style={{ ...S.sans, fontSize: 15, fontWeight: 600, color: "var(--bp-ink-secondary)" }}>
-            Ready to run
+          <div style={{
+            width: 64, height: 64, borderRadius: 12,
+            background: "var(--bp-operational)" + "12",
+            border: "2px solid var(--bp-operational)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            animation: "float 3s ease-in-out infinite",
+          }}>
+            <Play size={32} style={{ color: "var(--bp-operational)" }} />
           </div>
-          <div style={{ ...S.sans, fontSize: 13 }}>
-            Click "Run Pipeline" to configure and start a new pipeline run, or select a previous run from the dropdown.
+          <div style={{ textAlign: "center", maxWidth: 480 }}>
+            <div style={{ ...S.display, fontSize: 32, fontWeight: 700, color: "var(--bp-ink-primary)", marginBottom: 12, lineHeight: 1.2 }}>
+              Pipeline Ready
+            </div>
+            <div style={{ ...S.sans, fontSize: 15, color: "var(--bp-ink-secondary)", lineHeight: 1.6, marginBottom: 20 }}>
+              Start a new pipeline run to begin loading data across the Landing Zone, Bronze, and Silver layers. Monitor progress in real-time with live metrics and detailed per-entity tracking.
+            </div>
+            <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+              <div style={{ ...S.cardInset, padding: "12px 16px", textAlign: "left" }}>
+                <div style={{ ...S.sans, fontSize: 11, fontWeight: 600, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 4 }}>
+                  Quick Start
+                </div>
+                <div style={{ ...S.sans, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
+                  Click "Run Pipeline" above to configure
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       ) : (
@@ -2651,44 +2759,56 @@ function LoadMissionControlInner() {
       )}
 
       {/* Section divider */}
-      <div style={{ height: 1, background: "var(--bp-border)", margin: "4px 16px 0" }} />
+      <div style={{ height: 1, background: "linear-gradient(90deg, transparent, var(--bp-border), transparent)", margin: "20px 0 0" }} />
 
-      {/* Tab bar placeholder (Phase 3) */}
+      {/* Tab bar — Redesigned with premium appearance and motion */}
       <div style={{
-        display: "flex", gap: 0, padding: "0 16px",
+        display: "flex", gap: 0, padding: "24px 32px 0",
         borderBottom: "1px solid var(--bp-border)",
       }}>
-        {(["live", "history", "entities", "triage", "inventory"] as const).map(tab => (
-          <button
-            key={tab}
-            onClick={() => dispatch({ type: "SET_TAB", tab })}
-            style={{
-              padding: "10px 20px",
-              ...S.sans, fontSize: 13, fontWeight: 600,
-              color: scope.activeTab === tab ? "var(--bp-copper)" : "var(--bp-ink-tertiary)",
-              borderBottom: scope.activeTab === tab ? "2px solid var(--bp-copper)" : "2px solid transparent",
-              background: "none", border: "none", borderBottomStyle: "solid",
-              cursor: "pointer",
-              textTransform: "capitalize",
-              transition: "color 0.15s, border-color 0.15s",
-            }}
-          >
-            {tab === "live" && <Activity size={14} style={{ marginRight: 6, verticalAlign: "text-bottom" }} />}
-            {tab}
-          </button>
+        {(["live", "history", "entities", "triage", "inventory"] as const).map((tab, idx) => (
+          <div key={tab} style={{ position: "relative" }}>
+            <button
+              onClick={() => dispatch({ type: "SET_TAB", tab })}
+              style={{
+                padding: "12px 20px 16px",
+                ...S.sans, fontSize: 14, fontWeight: scope.activeTab === tab ? 700 : 500,
+                color: scope.activeTab === tab ? "var(--bp-ink-primary)" : "var(--bp-ink-tertiary)",
+                background: "none", border: "none",
+                cursor: "pointer",
+                textTransform: "capitalize",
+                transition: "color 0.2s ease",
+                display: "flex", alignItems: "center", gap: 8,
+              }}
+            >
+              {tab === "live" && <Activity size={16} style={{ opacity: 0.7 }} />}
+              {tab}
+            </button>
+            {scope.activeTab === tab && (
+              <div style={{
+                position: "absolute", bottom: -1, left: 0, right: 0,
+                height: 2, background: "var(--bp-copper)",
+                animation: "slideInUp 0.3s ease-out",
+              }} />
+            )}
+          </div>
         ))}
       </div>
 
       {/* Tab content + Context panel */}
-      <div style={{ display: "flex", padding: "16px 16px 32px", gap: 16, minHeight: 480 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", padding: "24px 32px 40px", gap: 20, minHeight: 520 }}>
+        <div style={{ flex: 1, minWidth: 0, animation: "slideInUp 0.5s ease-out 0.1s backwards" }}>
           {scope.activeTab === "live" && <LiveTailTab events={sseEvents} onClear={clearSse} />}
           {scope.activeTab === "history" && <HistoryTab entities={entities} total={entityTotal} loading={entitiesLoading} />}
           {scope.activeTab === "entities" && <EntitiesTab entities={entities} total={entityTotal} loading={entitiesLoading} onRetryEntity={handleRetryEntity} />}
           {scope.activeTab === "triage" && <TriageTab progress={progress} onRetryErrorType={handleRetryErrorType} />}
           {scope.activeTab === "inventory" && <InventoryTab progress={progress} />}
         </div>
-        {scope.contextOpen && <ContextPanel entity={selectedEntity} />}
+        {scope.contextOpen && (
+          <div style={{ animation: "slideInDown 0.4s ease-out" }}>
+            <ContextPanel entity={selectedEntity} />
+          </div>
+        )}
       </div>
     </div>
   );
