@@ -153,6 +153,10 @@ def init_db():
                 ErrorSummary            TEXT,
                 StartedAt              TEXT,
                 EndedAt                TEXT,
+                HeartbeatAt            TEXT,
+                WorkerPid              INTEGER,
+                CurrentLayer           TEXT,
+                CompletedUnits         INTEGER DEFAULT 0,
                 updated_at              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );
 
@@ -436,6 +440,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_tasklog_run       ON engine_task_log(RunId);
             CREATE INDEX IF NOT EXISTS idx_tasklog_entity    ON engine_task_log(EntityId);
             CREATE INDEX IF NOT EXISTS idx_tasklog_entity_layer_ts ON engine_task_log(EntityId, Layer, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_etl_run_layer_status ON engine_task_log(RunId, Layer, Status);
             CREATE INDEX IF NOT EXISTS idx_plz_entity        ON pipeline_lz_entity(LandingzoneEntityId);
             CREATE INDEX IF NOT EXISTS idx_pbronze_entity    ON pipeline_bronze_entity(BronzeLayerEntityId);
             CREATE INDEX IF NOT EXISTS idx_estatus_layer     ON entity_status(Layer);
@@ -1102,6 +1107,18 @@ def init_db():
             conn.commit()
             log.info("Migration: gs_audit_log recreated with correct CHECK constraints")
 
+        # Migration: add durable worker columns to engine_runs (Phase 1)
+        for col, coldef in [
+            ("HeartbeatAt", "TEXT"),
+            ("WorkerPid", "INTEGER"),
+            ("CurrentLayer", "TEXT"),
+            ("CompletedUnits", "INTEGER DEFAULT 0"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE engine_runs ADD COLUMN {col} {coldef}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
     finally:
         conn.close()
     log.info(f'Control-plane DB initialized at {DB_PATH}')
@@ -1287,8 +1304,8 @@ def upsert_engine_run(row: dict) -> None:
                 "TotalRowsWritten  = CASE WHEN excluded.TotalRowsWritten > 0 THEN excluded.TotalRowsWritten ELSE TotalRowsWritten END, "
                 "TotalBytesTransferred = CASE WHEN excluded.TotalBytesTransferred > 0 THEN excluded.TotalBytesTransferred ELSE TotalBytesTransferred END, "
                 "TotalDurationSeconds  = CASE WHEN excluded.TotalDurationSeconds > 0 THEN excluded.TotalDurationSeconds ELSE TotalDurationSeconds END, "
-                "Layers            = COALESCE(excluded.Layers, Layers), "
-                "EntityFilter      = COALESCE(excluded.EntityFilter, EntityFilter), "
+                "Layers            = CASE WHEN LENGTH(excluded.Layers) > 0 THEN excluded.Layers ELSE Layers END, "
+                "EntityFilter      = CASE WHEN LENGTH(excluded.EntityFilter) > 0 THEN excluded.EntityFilter ELSE EntityFilter END, "
                 "TriggeredBy       = COALESCE(excluded.TriggeredBy, TriggeredBy), "
                 "ErrorSummary      = COALESCE(excluded.ErrorSummary, ErrorSummary), "
                 "StartedAt         = COALESCE(excluded.StartedAt, StartedAt), "

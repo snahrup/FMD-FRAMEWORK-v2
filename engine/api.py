@@ -29,11 +29,15 @@ Endpoints:
 
 import json
 import logging
+import os
+import subprocess
 import sys
 import threading
 import time
 import urllib.parse
+import uuid
 from dataclasses import asdict
+from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger("fmd.engine.api")
@@ -266,34 +270,70 @@ def _write_pipeline_audit_terminal(run_id: str, status: str, reason: str) -> Non
 # ---------------------------------------------------------------------------
 
 def _cleanup_orphaned_runs() -> None:
-    """Mark any InProgress runs as Aborted on engine startup.
+    """Mark orphaned InProgress runs as Interrupted (resumable) on startup.
 
-    When the process crashes or reboots, log_run_end() never fires,
-    leaving runs stuck as InProgress forever.  This cleans them up
-    in BOTH engine_runs and pipeline_audit so the Live Monitor
-    doesn't show phantom "Running..." entries.
+    A run is orphaned if:
+    - Status is InProgress AND
+    - WorkerPid is set AND the process is no longer alive, OR
+    - WorkerPid is NULL (legacy daemon-thread run that died with the server)
+
+    Grace window: runs started within the last 120 seconds are skipped — the
+    worker may still be spinning up and hasn't sent its first heartbeat yet.
     """
     try:
-        # Find orphaned run IDs before updating
         orphaned = _db_query(
-            "SELECT RunId FROM engine_runs WHERE Status IN ('InProgress', 'running')"
+            "SELECT RunId, WorkerPid, StartedAt FROM engine_runs "
+            "WHERE Status IN ('InProgress', 'running')"
         )
         if not orphaned:
             return
 
-        _db_execute(
-            "UPDATE engine_runs "
-            "SET Status = 'Aborted', "
-            "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
-            "    ErrorSummary = 'Aborted: engine process restarted before completion' "
-            "WHERE Status IN ('InProgress', 'running')"
-        )
+        import datetime
+        now = datetime.datetime.utcnow()
+        grace_seconds = 120
+        cleaned = 0
 
-        # Write terminal pipeline_audit rows so Live Monitor stops showing "Running..."
-        for row in orphaned:
-            _write_pipeline_audit_terminal(row["RunId"], "Aborted", "Engine restarted before completion")
+        for run in orphaned:
+            # Grace window: skip recently started runs
+            started_at = run.get("StartedAt")
+            if started_at:
+                try:
+                    started = datetime.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                    started_naive = started.replace(tzinfo=None)
+                    if (now - started_naive).total_seconds() < grace_seconds:
+                        log.debug("Skipping run %s — within %ds grace window",
+                                  run["RunId"][:8], grace_seconds)
+                        continue
+                except (ValueError, TypeError):
+                    pass  # Bad timestamp — proceed with cleanup
 
-        log.info("Cleaned up %d orphaned InProgress runs on startup", len(orphaned))
+            # PID liveness check
+            pid = run.get("WorkerPid")
+            if pid:
+                try:
+                    os.kill(int(pid), 0)  # existence check, doesn't kill
+                    log.debug("Run %s worker PID %d still alive — not orphaned",
+                              run["RunId"][:8], pid)
+                    continue  # Process alive — not an orphan
+                except (OSError, ProcessLookupError, TypeError, ValueError):
+                    pass  # Process dead — orphan
+
+            # Mark as Interrupted (resumable) instead of Aborted (terminal)
+            _db_execute(
+                "UPDATE engine_runs "
+                "SET Status = 'Interrupted', "
+                "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+                "    ErrorSummary = 'Interrupted: worker process died or server restarted' "
+                "WHERE RunId = ?",
+                (run["RunId"],),
+            )
+            _write_pipeline_audit_terminal(
+                run["RunId"], "Interrupted", "Worker process died or server restarted"
+            )
+            cleaned += 1
+
+        if cleaned:
+            log.info("Marked %d orphaned runs as Interrupted (resumable) on startup", cleaned)
     except Exception as exc:
         log.warning("Failed to clean up orphaned runs: %s", exc)
 
@@ -363,6 +403,8 @@ def handle_engine_request(handler, method: str, path: str, config: dict) -> None
                 _handle_retry(handler, config, body)
             elif sub_path == "/abort-run":
                 _handle_abort_run(handler, body)
+            elif sub_path == "/resume":
+                _handle_resume(handler, config, body)
             elif sub_path == "/settings":
                 _handle_settings_post(handler, config, body)
             elif sub_path.startswith("/entity/") and sub_path.endswith("/reset"):
@@ -414,7 +456,7 @@ def _handle_status(handler, config: dict) -> None:
 
     if rows:
         row = rows[0]
-        response["last_run"] = {
+        run_info = {
             "run_id": str(row.get("RunId", "")),
             "status": str(row.get("Status", "")),
             "mode": str(row.get("Mode", "")),
@@ -431,6 +473,24 @@ def _handle_status(handler, config: dict) -> None:
             "elapsed_seconds": _to_int(row.get("TotalDurationSeconds")),
         }
 
+        # Worker liveness check
+        worker_pid = row.get("WorkerPid")
+        worker_alive = False
+        if worker_pid and row.get("Status") in ("InProgress", "running"):
+            try:
+                os.kill(int(worker_pid), 0)
+                worker_alive = True
+            except (OSError, ProcessLookupError, TypeError, ValueError):
+                pass
+        run_info["worker_pid"] = worker_pid
+        run_info["worker_alive"] = worker_alive
+        run_info["heartbeat_at"] = row.get("HeartbeatAt")
+        run_info["current_layer"] = row.get("CurrentLayer")
+        run_info["completed_units"] = _to_int(row.get("CompletedUnits"))
+        run_info["resumable"] = row.get("Status") in ("Interrupted", "Aborted", "Failed")
+
+        response["last_run"] = run_info
+
     handler._json_response(response)
 
 
@@ -438,103 +498,216 @@ def _handle_status(handler, config: dict) -> None:
 # POST /api/engine/start
 # ---------------------------------------------------------------------------
 
+def _spawn_worker(run_id: str, args: list[str]) -> int:
+    """Spawn engine/worker.py as a detached subprocess. Returns worker PID.
+
+    The worker survives dashboard server restarts on Windows via
+    CREATE_NEW_PROCESS_GROUP + DETACHED_PROCESS flags.
+
+    Logging: API redirects worker stdout/stderr to a per-run log file.
+    Worker logs to console only (StreamHandler) — one owner for the file.
+    """
+    project_root = str(Path(__file__).resolve().parent.parent)
+    log_dir = Path(project_root) / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"engine-worker-{run_id[:12]}.log"
+
+    worker_log = open(str(log_file), "w", encoding="utf-8")
+
+    worker_cmd = [sys.executable, "-m", "engine.worker"] + args
+
+    # Windows: fully detach from parent process
+    creation_flags = 0
+    if sys.platform == "win32":
+        creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+
+    proc = subprocess.Popen(
+        worker_cmd,
+        cwd=project_root,
+        creationflags=creation_flags,
+        stdout=worker_log,
+        stderr=subprocess.STDOUT,
+    )
+
+    # Parent releases the file handle — child owns it now
+    worker_log.close()
+
+    log.info("Worker spawned: PID=%d, run_id=%s, log=%s", proc.pid, run_id[:8], log_file)
+    return proc.pid
+
+
+def _start_sse_poller(run_id: str) -> None:
+    """Poll engine_task_log for new rows and publish as SSE events.
+
+    Runs in a daemon thread inside the dashboard process. NOT durable across
+    dashboard restarts — Phase 1 provides durable execution via SQLite,
+    with best-effort SSE while the dashboard is up.
+    """
+    def _poll():
+        last_id = 0
+        while True:
+            try:
+                rows = _db_query(
+                    "SELECT id, RunId, EntityId, SourceTable, Layer, Status, "
+                    "RowsRead, RowsWritten, DurationSeconds, ErrorMessage "
+                    "FROM engine_task_log WHERE RunId = ? AND id > ? ORDER BY id LIMIT 50",
+                    (run_id, last_id),
+                )
+                for row in rows:
+                    _publish_entity_result(
+                        run_id=row.get("RunId", run_id),
+                        entity_id=row.get("EntityId", 0),
+                        entity_name=row.get("SourceTable", ""),
+                        layer=row.get("Layer", ""),
+                        status=row.get("Status", ""),
+                        rows_read=row.get("RowsRead", 0),
+                        rows_written=row.get("RowsWritten", 0),
+                        duration_seconds=row.get("DurationSeconds", 0),
+                        error=row.get("ErrorMessage"),
+                    )
+                    last_id = row.get("id", last_id)
+
+                # Check if run completed
+                run_rows = _db_query(
+                    "SELECT Status FROM engine_runs WHERE RunId = ?", (run_id,)
+                )
+                if run_rows and run_rows[0].get("Status") not in ("InProgress", "running"):
+                    status = run_rows[0].get("Status", "Unknown")
+                    _publish_log("info", f"Run {run_id[:8]} finished: {status}")
+                    _SSEHook.publish("run_complete", {"status": status, "run_id": run_id})
+                    break
+            except Exception as exc:
+                log.debug("SSE poller error (non-fatal): %s", exc)
+            time.sleep(2)
+
+    threading.Thread(target=_poll, daemon=True, name=f"sse-poll-{run_id[:8]}").start()
+
+
 def _handle_start(handler, config: dict, body: dict) -> None:
-    """Start the engine in a background thread."""
-    global _run_thread
+    """Start the engine as a detached worker subprocess.
 
-    engine = _get_or_create_engine(config)
-
-    if engine.status == "running":
-        handler._json_response({
-            "error": "Engine is already running",
-            "current_run_id": engine.current_run_id,
-        }, status=409)
-        return
+    Pre-generates run_id, pre-creates engine_runs row, spawns worker,
+    returns immediately. No race conditions — run_id is known before spawn.
+    """
+    # Check for already-running worker via heartbeat
+    active = _db_query(
+        "SELECT RunId, WorkerPid, HeartbeatAt FROM engine_runs "
+        "WHERE Status IN ('InProgress', 'running') LIMIT 1"
+    )
+    if active:
+        run = active[0]
+        pid = run.get("WorkerPid")
+        if pid:
+            try:
+                os.kill(pid, 0)  # existence check
+                handler._json_response({
+                    "error": "Engine is already running",
+                    "current_run_id": run.get("RunId"),
+                }, status=409)
+                return
+            except (OSError, ProcessLookupError):
+                pass  # Dead PID — allow new start
 
     mode = body.get("mode", "run")
     layers = body.get("layers")       # list or None
     entity_ids = body.get("entity_ids")  # list or None
     triggered_by = body.get("triggered_by", "dashboard")
-    load_method = body.get("load_method")         # "local" | "pipeline" | None
-    pipeline_fallback = body.get("pipeline_fallback")  # bool | None
+
+    # Plan mode still runs in-process (read-only, fast)
+    if mode == "plan":
+        engine = _get_or_create_engine(config)
+        try:
+            results = engine.run(mode="plan", entity_ids=entity_ids, layers=layers)
+            handler._json_response({
+                "plan": results.to_dict() if hasattr(results, 'to_dict') else {},
+            })
+        except Exception as exc:
+            handler._error_response(f"Plan failed: {exc}", 500)
+        return
 
     # Clear SSE events from previous run
     _SSEHook.clear()
 
-    effective_method = load_method or engine.config.load_method
-    _publish_log("info", f"Engine starting: mode={mode}, layers={layers}, "
+    run_id = str(uuid.uuid4())
+    layer_str = ",".join(layers) if layers else "landing,bronze,silver"
+
+    # Persist entity filter so resume can recover the original scope
+    entity_filter_str = ",".join(str(i) for i in entity_ids) if entity_ids else ""
+
+    # Pre-create engine_runs row — API owns this, worker will upsert into it
+    _db_execute(
+        "INSERT INTO engine_runs (RunId, Status, Layers, TriggeredBy, EntityFilter, StartedAt) "
+        "VALUES (?, 'InProgress', ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
+        (run_id, layer_str, triggered_by, entity_filter_str),
+    )
+
+    _publish_log("info", f"Engine starting: run_id={run_id[:8]}, layers={layer_str}, "
                  f"entity_ids={'all' if not entity_ids else len(entity_ids)}, "
-                 f"load_method={effective_method}, "
                  f"triggered_by={triggered_by}")
 
-    # Wire up live entity result callback BEFORE starting the run
-    def _on_entity_result(run_id_str: str, result, entity=None) -> None:
-        """Called by orchestrator after each entity finishes — publishes to SSE in real-time."""
-        entity_name = None
-        if entity:
-            schema = entity.namespace or entity.source_schema
-            entity_name = f"{schema}.{entity.source_name}"
-        _publish_entity_result(
-            run_id=run_id_str,
-            entity_id=result.entity_id,
-            entity_name=entity_name,
-            layer=result.layer,
-            status=result.status,
-            rows_read=result.rows_read,
-            rows_written=result.rows_written,
-            duration_seconds=result.duration_seconds,
-            error=result.error,
-        )
+    # Build worker args
+    worker_args = ["--run-id", run_id, "--triggered-by", triggered_by]
+    if layers:
+        worker_args += ["--layers"] + layers
+    if entity_ids:
+        worker_args += ["--entity-ids"] + [str(i) for i in entity_ids]
 
-    engine.on_entity_result = _on_entity_result
+    # Spawn detached worker
+    worker_pid = _spawn_worker(run_id, worker_args)
 
-    def _run_wrapper():
-        """Runs in a background thread. Catches all exceptions so the
-        engine status always gets updated properly."""
-        try:
-            results = engine.run(
-                mode=mode,
-                entity_ids=entity_ids,
-                layers=layers,
-                triggered_by=triggered_by,
-                load_method=load_method,
-                pipeline_fallback=pipeline_fallback,
-            )
+    # Record PID
+    _db_execute("UPDATE engine_runs SET WorkerPid = ? WHERE RunId = ?", (worker_pid, run_id))
 
-            # Publish summary
-            if isinstance(results, list):
-                succeeded = sum(1 for r in results if r.status == "succeeded")
-                failed = sum(1 for r in results if r.status == "failed")
-                skipped = sum(1 for r in results if r.status == "skipped")
-                total_rows = sum(r.rows_read for r in results)
+    # Start SSE poller for this run (best-effort, not durable across restarts)
+    _start_sse_poller(run_id)
 
-                _publish_log("info", f"Run completed: {succeeded} succeeded, "
-                             f"{failed} failed, {skipped} skipped, "
-                             f"{total_rows} rows total")
-                _SSEHook.publish("run_complete", {
-                    "succeeded": succeeded,
-                    "failed": failed,
-                    "skipped": skipped,
-                    "total_rows": total_rows,
-                })
-            else:
-                # Plan mode returns a LoadPlan
-                _publish_log("info", "Plan completed")
-                _SSEHook.publish("plan_complete", results.to_dict() if hasattr(results, 'to_dict') else {})
-
-        except Exception as exc:
-            log.exception("Engine run failed")
-            _publish_log("error", f"Run failed: {exc}")
-            _SSEHook.publish("run_error", {"error": str(exc)})
-
-    _run_thread = threading.Thread(target=_run_wrapper, name="fmd-engine-run", daemon=True)
-    _run_thread.start()
-
-    # Return immediately — the run proceeds in background
     handler._json_response({
-        "run_id": engine.current_run_id,
+        "run_id": run_id,
         "status": "started",
         "mode": mode,
+        "worker_pid": worker_pid,
+    })
+
+
+def _handle_resume(handler, config: dict, body: dict) -> None:
+    """Resume an interrupted run as a detached worker subprocess.
+
+    Recovers original layers from engine_runs. Spawns worker with --resume.
+    """
+    run_id = body.get("run_id")
+    if not run_id:
+        handler._error_response("run_id required", 400)
+        return
+
+    # Verify run exists and is resumable
+    rows = _db_query("SELECT Status, Layers FROM engine_runs WHERE RunId = ?", (run_id,))
+    if not rows:
+        handler._error_response(f"Run {run_id} not found", 404)
+        return
+    run = rows[0]
+    if run.get("Status") not in ("Interrupted", "Aborted", "Failed"):
+        handler._error_response(
+            f"Run {run_id} status is {run.get('Status')}, not resumable", 409
+        )
+        return
+
+    _SSEHook.clear()
+    _publish_log("info", f"Resuming run {run_id[:8]}")
+
+    # Build worker args with original layers
+    worker_args = ["--resume", run_id]
+    original_layers = run.get("Layers", "")
+    if original_layers:
+        worker_args += ["--layers"] + [l.strip() for l in original_layers.split(",") if l.strip()]
+
+    worker_pid = _spawn_worker(run_id, worker_args)
+    _db_execute("UPDATE engine_runs SET WorkerPid = ? WHERE RunId = ?", (worker_pid, run_id))
+    _start_sse_poller(run_id)
+
+    handler._json_response({
+        "run_id": run_id,
+        "status": "resuming",
+        "worker_pid": worker_pid,
     })
 
 

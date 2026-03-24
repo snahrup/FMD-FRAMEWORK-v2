@@ -204,6 +204,11 @@ def post_engine_abort_run(params: dict) -> dict:
     return _delegate("POST", "/api/engine/abort-run", params)
 
 
+@route("POST", "/api/engine/resume")
+def post_engine_resume(params: dict) -> dict:
+    return _delegate("POST", "/api/engine/resume", params)
+
+
 @route("POST", "/api/engine/settings")
 def post_engine_settings(params: dict) -> dict:
     return _delegate("POST", "/api/engine/settings", params)
