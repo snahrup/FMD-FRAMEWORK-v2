@@ -156,6 +156,22 @@ PACKETS = [
     # Microscope cluster — wave 4b (follower)
     {"id": "AUDIT-TR", "title": "Transformation Replay audit + a11y + microscope link", "prs": [58], "lane": "truth",
      "why": "9 findings: 10 hardcoded hex in LAYER_COLORS/IMPACT_STYLES → tokens, 20+ aria attributes added (was zero), cross-page Microscope link with entity+pk passthrough. 7 fixed, 2 deferred."},
+    # Dev pages — wave 5
+    {"id": "AUDIT-TA", "title": "TestAudit audit + path traversal fix + tokens", "prs": [59], "lane": "truth",
+     "why": "12 findings: HIGH path traversal in artifact serving (multi-segment testDir bypass), undefined --bp-surface-2 token, 4 unused imports, 3 a11y fixes, log.exception misuse. 9 fixed, 3 deferred."},
+    {"id": "AUDIT-TS", "title": "TestSwarm audit + BP tokens + a11y + backend validation", "prs": [61], "lane": "truth",
+     "why": "23 findings across 13 files: all --cl-* tokens migrated to --bp-*, 20+ raw OKLCH SVG values replaced, 6 components got ARIA attrs, unsafe formatDuration fixed, skeleton layout mismatch fixed, backend empty-runId guard. 20 fixed, 3 deferred."},
+    {"id": "AUDIT-MRI", "title": "MRI audit + fabricated coverage fix + tab a11y", "prs": [64], "lane": "truth",
+     "why": "14 findings: CRITICAL fabricated hasE2E coverage in CoverageHeatmap, polling interval leak in useMRI, unhandled baseline accept errors, WAI-ARIA tab pattern added, dead state/imports removed. 11 fixed, 3 deferred."},
+    # BUILD track — stub → real pages
+    {"id": "BUILD-DQ", "title": "DQ Scorecard — full page build", "prs": [60], "lane": "build",
+     "why": "51-line stub replaced with 721-line functional page: KPI score rings, tier distribution bar, paginated sortable entity table with expand-to-detail, 7-day trend chart, refresh button. Wired to existing quality_scores API."},
+    {"id": "BUILD-SCD", "title": "SCD Audit View — full page + backend", "prs": [62], "lane": "build",
+     "why": "51-line stub replaced with ~500-line page + new scd_audit.py backend (3 endpoints). KPI strip, sortable entity table with color-coded deltas, click-to-expand run history, source filter. Reads real engine_task_log Silver data."},
+    {"id": "BUILD-GOLD", "title": "Gold MLV Manager — full page + backend", "prs": [63], "lane": "build",
+     "why": "51-line stub replaced with ~430-line page + new gold.py backend (3 endpoints). Domain cards with fact/dim breakdown, filter bar, paginated table with expandable source SQL and canonical metadata. Reads existing gs_gold_specs data."},
+    {"id": "BUILD-CRE", "title": "Cleansing Rule Editor — full CRUD page + backend + schema", "prs": [65], "lane": "build",
+     "why": "51-line stub replaced with ~600-line page + new cleansing.py backend (6 endpoints) + new cleansing_rules table. Entity selector, rule cards with CRUD, dynamic parameter forms, JSON preview with copy. 10 rule types supported."},
 ]
 
 PAGES = [
@@ -212,12 +228,12 @@ PAGES = [
     {"name": "SQL Explorer", "route": "/sql-explorer", "lane": "Truth", "packets": ["AUDIT-SQLX"],
      "focus": "Audited — path traversal fix + input validation", "next": "Done for now"},
     # Stubs — Coming Soon placeholders (no API, no data to audit)
-    {"name": "DQ Scorecard", "route": "/labs/dq-scorecard", "lane": "Stub", "packets": [],
-     "focus": "51-line Coming Soon placeholder", "next": "Needs backend first"},
-    {"name": "Cleansing Rules", "route": "/labs/cleansing", "lane": "Stub", "packets": [],
-     "focus": "51-line Coming Soon placeholder", "next": "Needs backend first"},
-    {"name": "SCD Audit", "route": "/labs/scd-audit", "lane": "Stub", "packets": [],
-     "focus": "51-line Coming Soon placeholder", "next": "Needs backend first"},
+    {"name": "DQ Scorecard", "route": "/labs/dq-scorecard", "lane": "Built", "packets": ["BUILD-DQ"],
+     "focus": "Built — KPI score rings, tier distribution, paginated entity table, 7-day trend, refresh", "next": "Done"},
+    {"name": "Cleansing Rules", "route": "/labs/cleansing", "lane": "Built", "packets": ["BUILD-CRE"],
+     "focus": "Built — full CRUD editor with entity selector, rule cards, dynamic forms, JSON preview", "next": "Done"},
+    {"name": "SCD Audit", "route": "/labs/scd-audit", "lane": "Built", "packets": ["BUILD-SCD"],
+     "focus": "Built — Silver layer run analysis with KPIs, sortable table, run history, source filter", "next": "Done"},
     # Static utility — complete as-is
     {"name": "Help", "route": "/help", "lane": "Complete", "packets": [],
      "focus": "386-line glossary + guides, no API", "next": "Done"},
@@ -264,15 +280,15 @@ PAGES = [
     {"name": "Validation Checklist", "route": "/validation", "lane": "Hidden/Audited", "packets": ["AUDIT-VC"],
      "focus": "Audited — failed-as-pending mislabel fix, backend verified correct", "next": "Done for now"},
     # Test / dev pages
-    {"name": "Test Audit", "route": "/test-audit", "lane": "Hidden/Dev", "packets": [],
-     "focus": "Hidden — dev/test audit page", "next": "Audit if re-enabled"},
-    {"name": "Test Swarm", "route": "/test-swarm", "lane": "Hidden/Dev", "packets": [],
-     "focus": "Hidden — dev/test swarm page", "next": "Audit if re-enabled"},
-    {"name": "MRI", "route": "/mri", "lane": "Hidden/Dev", "packets": [],
-     "focus": "Hidden — dev/test MRI page", "next": "Audit if re-enabled"},
-    # Labs — hidden Gold
-    {"name": "Gold MLV Manager", "route": "/labs/gold-mlv", "lane": "Hidden", "packets": [],
-     "focus": "Hidden — Gold materialized logical view manager", "next": "Audit if re-enabled"},
+    {"name": "Test Audit", "route": "/test-audit", "lane": "Hidden/Audited", "packets": ["AUDIT-TA"],
+     "focus": "Audited — HIGH path traversal fix, undefined token fix, 4 unused imports, 3 a11y fixes", "next": "Done for now"},
+    {"name": "Test Swarm", "route": "/test-swarm", "lane": "Hidden/Audited", "packets": ["AUDIT-TS"],
+     "focus": "Audited — full --cl-* to --bp-* migration across 13 files, ARIA attrs, backend validation", "next": "Done for now"},
+    {"name": "MRI", "route": "/mri", "lane": "Hidden/Audited", "packets": ["AUDIT-MRI"],
+     "focus": "Audited — CRITICAL fabricated E2E coverage removed, polling leak fixed, tab a11y added", "next": "Done for now"},
+    # Labs — Gold (built)
+    {"name": "Gold MLV Manager", "route": "/labs/gold-mlv", "lane": "Built", "packets": ["BUILD-GOLD"],
+     "focus": "Built — domain cards, filter bar, paginated table with source SQL, reads gs_gold_specs", "next": "Done"},
     # Sub-route (not standalone page)
     {"name": "Dataset Detail", "route": "/catalog-portal/:id", "lane": "Sub-route", "packets": ["AUDIT-PC"],
      "focus": "Portal Catalog detail view — covered by AUDIT-PC", "next": "Done"},
