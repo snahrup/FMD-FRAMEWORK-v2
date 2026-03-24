@@ -3,7 +3,7 @@
  */
 import { cn } from "@/lib/utils";
 import {
-  CheckCircle2, XCircle, AlertTriangle, Clock, Zap, Globe,
+  CheckCircle2, XCircle, AlertTriangle, Globe,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -106,12 +106,12 @@ export default function BackendTestPanel({ results }: Props) {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/30">
-              <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Status</th>
-              <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Test</th>
-              <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Endpoint</th>
-              <th className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Status Code</th>
-              <th className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Response</th>
-              <th className="text-center px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Payload</th>
+              <th scope="col" className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Status</th>
+              <th scope="col" className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Test</th>
+              <th scope="col" className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Endpoint</th>
+              <th scope="col" className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Status Code</th>
+              <th scope="col" className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Response</th>
+              <th scope="col" className="text-center px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Payload</th>
             </tr>
           </thead>
           <tbody>

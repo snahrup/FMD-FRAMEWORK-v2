@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  CheckCircle2, XCircle, Image, CheckCheck, Clock, AlertTriangle,
+  CheckCircle2, Image, CheckCheck, Clock, AlertTriangle,
 } from "lucide-react";
 import type { VisualDiff, BaselineEntry } from "@/hooks/useMRI";
 
@@ -101,9 +101,9 @@ export default function BaselineManager({ diffs, baselines, onAccept, onAcceptAl
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-muted/30">
-                  <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Test</th>
-                  <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Viewport</th>
-                  <th className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Last Updated</th>
+                  <th scope="col" className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Test</th>
+                  <th scope="col" className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Viewport</th>
+                  <th scope="col" className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Last Updated</th>
                 </tr>
               </thead>
               <tbody>

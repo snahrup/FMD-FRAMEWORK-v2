@@ -1,10 +1,8 @@
 /**
  * ScreenshotGallery — Grid of test screenshots with status badges and click-to-expand.
  */
-import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Eye, AlertTriangle, Plus, CheckCircle2, Maximize2 } from "lucide-react";
 import type { VisualDiff, AIAnalysis } from "@/hooks/useMRI";
 
@@ -31,8 +29,6 @@ const statusConfig = {
 };
 
 export default function ScreenshotGallery({ diffs, aiAnalyses, runId, onSelect, filter = "all" }: Props) {
-  const [previewDiff, setPreviewDiff] = useState<VisualDiff | null>(null);
-
   const filtered = filter === "all" ? diffs : diffs.filter(d => d.status === filter);
 
   const getAnalysis = (testName: string) => aiAnalyses.find(a => a.testName === testName);
@@ -47,6 +43,7 @@ export default function ScreenshotGallery({ diffs, aiAnalyses, runId, onSelect, 
             <button
               key={diff.testName}
               onClick={() => onSelect(diff)}
+              aria-label={`View ${diff.testName} — ${cfg.label}`}
               className={cn(
                 "group rounded-[var(--radius-lg)] border border-border bg-card overflow-hidden",
                 "transition-all duration-[var(--duration-fast)] hover:shadow-[var(--shadow-md)] hover:border-primary/30 cursor-pointer",
@@ -113,21 +110,6 @@ export default function ScreenshotGallery({ diffs, aiAnalyses, runId, onSelect, 
         </div>
       )}
 
-      {/* Quick preview dialog */}
-      <Dialog open={!!previewDiff} onOpenChange={() => setPreviewDiff(null)}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>{previewDiff?.testName}</DialogTitle>
-          </DialogHeader>
-          {previewDiff && (
-            <img
-              src={screenshotUrl(runId, previewDiff.actualPath)}
-              alt={previewDiff.testName}
-              className="w-full rounded-[var(--radius-md)] border border-border"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

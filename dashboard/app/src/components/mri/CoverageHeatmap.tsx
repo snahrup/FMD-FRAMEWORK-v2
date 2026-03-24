@@ -2,7 +2,6 @@
  * CoverageHeatmap — Which pages/components are tested, by layer (visual, API, E2E).
  */
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Grid3X3 } from "lucide-react";
 import type { VisualDiff, BackendTestResult } from "@/hooks/useMRI";
 
@@ -27,7 +26,7 @@ export default function CoverageHeatmap({ visualDiffs, backendResults, totalTest
   // Extract page names from visual diffs (test names often contain the page)
   for (const diff of visualDiffs) {
     const name = extractPageName(diff.testName);
-    const existing = coverageMap.get(name) || { name, hasE2E: true, hasVisual: false, hasAPI: false, layers: 1 };
+    const existing = coverageMap.get(name) || { name, hasE2E: false, hasVisual: false, hasAPI: false, layers: 0 };
     existing.hasVisual = true;
     existing.layers = [existing.hasE2E, existing.hasVisual, existing.hasAPI].filter(Boolean).length;
     coverageMap.set(name, existing);
