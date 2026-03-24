@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { KpiCard, KpiRow } from "@/components/ui/kpi-card";
+// KpiCard/KpiRow removed — replaced with inline tiered KPI layout
 import { StatusBadge } from "@/components/ui/status-badge";
 import { LayerBadge } from "@/components/ui/layer-badge";
 import { formatRowCount, formatTimestamp, formatPercent } from "@/lib/formatters";
@@ -36,7 +36,7 @@ function EntityDetailModal({ entity, open, onClose }: { entity: DigestEntity | n
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden" style={{ backgroundColor: "var(--bp-surface-1)" }}>
+      <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden gs-modal-enter" style={{ backgroundColor: "var(--bp-surface-1)" }}>
         {/* Fixed header */}
         <div className="px-6 pt-6 pb-0">
           <DialogHeader>
@@ -67,12 +67,17 @@ function EntityDetailModal({ entity, open, onClose }: { entity: DigestEntity | n
                 key={t}
                 onClick={() => setTab(t)}
                 className={cn(
-                  "px-3 py-2 text-xs font-medium border-b-2 transition-colors capitalize",
+                  "px-3 py-2 transition-colors capitalize",
                   tab === t
                     ? "text-[var(--bp-ink-primary)]"
                     : "border-transparent hover:text-[var(--bp-ink-primary)]"
                 )}
-                style={tab === t ? { borderColor: "var(--bp-copper)", color: "var(--bp-ink-primary)" } : { color: "var(--bp-ink-secondary)" }}
+                style={{
+                  fontSize: "14px",
+                  fontWeight: tab === t ? 700 : 500,
+                  borderBottom: tab === t ? "2.5px solid var(--bp-copper)" : "2.5px solid transparent",
+                  color: tab === t ? "var(--bp-ink-primary)" : "var(--bp-ink-secondary)",
+                }}
               >
                 {t}
               </button>
@@ -252,7 +257,7 @@ export default function DataCatalog() {
   const loadedPct = allEntities.length > 0 ? (allEntities.filter((e) => e.lzStatus === "loaded").length / allEntities.length) * 100 : 0;
 
   return (
-    <div className="space-y-6" style={{ padding: "32px", maxWidth: "1280px" }}>
+    <div className="space-y-6 gs-page-enter" style={{ padding: "32px", maxWidth: "1280px" }}>
       <div>
         <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }} className="flex items-center gap-2">
           <BookOpen className="h-7 w-7" style={{ color: "var(--bp-copper)" }} /> Data Catalog
@@ -262,11 +267,37 @@ export default function DataCatalog() {
         </p>
       </div>
 
-      <KpiRow>
-        <KpiCard label="Registered Entities" value={formatRowCount(allEntities.length)} icon={Database} iconColor="text-[var(--bp-ink-muted)]" />
-        <KpiCard label="Data Sources" value={sources.length.toString()} icon={HardDrive} iconColor="text-[var(--bp-copper)]" />
-        <KpiCard label="Loaded" value={formatPercent(loadedPct, 0)} icon={Sparkles} iconColor="text-[var(--bp-operational)]" />
-      </KpiRow>
+      {/* Hero KPIs */}
+      <div className="grid grid-cols-2 gap-4">
+        {[
+          { label: "Registered Entities", value: formatRowCount(allEntities.length), icon: Database },
+          { label: "Loaded", value: formatPercent(loadedPct, 0), icon: Sparkles, sub: "across all layers" },
+        ].map((kpi, i) => (
+          <div
+            key={kpi.label}
+            className="gs-hero-enter rounded-lg p-4"
+            style={{ '--i': i, backgroundColor: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" } as React.CSSProperties}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <kpi.icon className="h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />
+              <span className="text-[11px] uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>{kpi.label}</span>
+            </div>
+            <div style={{ fontFamily: "var(--bp-font-display)", fontSize: "36px", color: "var(--bp-ink-primary)", lineHeight: 1.1 }}>{kpi.value}</div>
+            {kpi.sub && <div className="text-[11px] mt-1" style={{ color: "var(--bp-ink-secondary)" }}>{kpi.sub}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Supporting KPI */}
+      <div className="grid grid-cols-1 gap-3 max-w-md">
+        <div
+          className="gs-stagger-row rounded-lg px-4 py-2.5 flex items-center justify-between"
+          style={{ '--i': 0, backgroundColor: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" } as React.CSSProperties}
+        >
+          <span className="text-[11px] uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>Data Sources</span>
+          <span style={{ fontFamily: "var(--bp-font-body)", fontSize: "14px", color: "var(--bp-ink-primary)", fontWeight: 600 }}>{sources.length}</span>
+        </div>
+      </div>
 
       {/* Filters */}
       <div className="flex gap-3 items-center flex-wrap">
@@ -320,13 +351,16 @@ export default function DataCatalog() {
             </Card>
           ))
         ) : filtered.length === 0 ? (
-          <div className="col-span-3 text-center py-12" style={{ color: "var(--bp-ink-muted)" }}>No entities match your search.</div>
+          <div className="col-span-3 text-center py-12" style={{ color: "var(--bp-ink-muted)" }}>
+            <Search className="h-8 w-8 mx-auto mb-3 gs-float" style={{ color: "var(--bp-ink-muted)", opacity: 0.3 }} />
+            No entities match your search.
+          </div>
         ) : (
-          filtered.slice(0, 150).map((e) => (
+          filtered.slice(0, 150).map((e, index) => (
             <Card
               key={e.id}
-              className="cursor-pointer transition-all group"
-              style={{ backgroundColor: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" }}
+              className="cursor-pointer transition-all group gs-stagger-card"
+              style={{ '--i': index <= 15 ? index : undefined, backgroundColor: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" } as React.CSSProperties}
               onClick={() => setSelectedEntity(e)}
             >
               <CardContent className="p-4">

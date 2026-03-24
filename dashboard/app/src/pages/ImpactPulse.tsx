@@ -315,10 +315,11 @@ function LayerDrawer({
         </div>
         <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
           <div
-            className="h-full rounded-full transition-all duration-500"
+            className="h-full rounded-full"
             style={{
               width: `${progressPct}%`,
               backgroundColor: nodeColor,
+              transition: 'width 600ms var(--ease-claude, cubic-bezier(0.4, 0, 0.2, 1))',
             }}
           />
         </div>
@@ -356,7 +357,7 @@ function LayerDrawer({
             const time = (evt as { LogDateTime?: string }).LogDateTime || "";
             const runGuid = (evt as { PipelineRunGuid?: string }).PipelineRunGuid || "";
             return (
-              <div key={`${runGuid}-${logType}-${time}-${i}`} className="flex items-center justify-between py-1">
+              <div key={`${runGuid}-${logType}-${time}-${i}`} className="gs-stagger-row flex items-center justify-between py-1" style={{ '--i': i } as React.CSSProperties}>
                 <div className="flex items-center gap-2 min-w-0">
                   <Activity className="w-3 h-3 text-muted-foreground/40 flex-shrink-0" />
                   <span className="text-[10px] text-foreground truncate">{name}</span>
@@ -385,10 +386,11 @@ function LayerDrawer({
             Entities ({sortedEntities.length})
           </p>
         </div>
-        {sortedEntities.map((entity) => (
+        {sortedEntities.map((entity, i) => (
           <div
             key={entity.id}
-            className="flex items-center justify-between px-5 py-2 border-b border-border/10 hover:bg-muted/50 transition-colors"
+            className={`gs-stagger-row flex items-center justify-between px-5 py-2 border-b border-border/10 hover:bg-muted/50 transition-colors ${i % 2 === 1 ? 'bg-muted/20' : ''}`}
+            style={{ '--i': Math.min(i, 15) } as React.CSSProperties}
           >
             <div className="min-w-0 flex-1">
               <span className="text-xs font-mono text-foreground truncate block">
@@ -705,7 +707,7 @@ export default function ImpactPulse() {
   if (error) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
-        <AlertCircle className="w-8 h-8 text-[var(--bp-fault)]" />
+        <AlertCircle className="w-8 h-8 text-[var(--bp-fault)] gs-float" />
         <p className="text-sm text-[var(--bp-fault)]">{error}</p>
         <button
           onClick={refresh}
@@ -723,7 +725,7 @@ export default function ImpactPulse() {
   if (!data || sourceList.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3 text-muted-foreground/40">
-        <AlertCircle className="w-10 h-10" />
+        <AlertCircle className="w-10 h-10 gs-float" />
         <p className="text-sm">No entity data available</p>
       </div>
     );
@@ -732,7 +734,7 @@ export default function ImpactPulse() {
   return (
     <div className="h-full w-full relative" style={{ backgroundColor: 'var(--bp-canvas)' }}>
       {/* ── Floating header (glassmorphic, overlaid on canvas) ── */}
-      <div className="absolute top-4 left-4 right-4 z-50 pointer-events-none">
+      <div className="absolute top-4 left-4 right-4 z-50 pointer-events-none gs-page-enter">
         <div className="pointer-events-auto inline-flex items-center gap-4 rounded-lg px-5 py-3" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
           {/* Title */}
           <div className="flex items-center gap-2.5">

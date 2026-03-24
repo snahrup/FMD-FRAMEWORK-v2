@@ -181,9 +181,10 @@ function LayerTimeline({ data }: { data: JourneyData }) {
           <div key={layer.key} className="flex items-center flex-1 min-w-0">
             {/* Node */}
             <div
-              className={`flex flex-col items-center gap-1.5 min-w-[120px] max-w-[180px] mx-auto transition-all duration-300 ${
+              className={`gs-stagger-card flex flex-col items-center gap-1.5 min-w-[120px] max-w-[180px] mx-auto transition-all duration-300 ${
                 isActive ? "opacity-100" : "opacity-30"
               }`}
+              style={{'--i': i} as React.CSSProperties}
             >
               <div
                 className={`w-10 h-10 rounded-xl flex items-center justify-center border-2 transition-all duration-300 ${
@@ -482,7 +483,7 @@ export default function DataJourney() {
   const selectedEntity = entities.find((e) => String(e.id) === entityIdParam);
 
   return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: "var(--bp-canvas)" }}>
+    <div className="h-full flex flex-col gs-page-enter" style={{ backgroundColor: "var(--bp-canvas)" }}>
       {/* Header */}
       <div className="flex-shrink-0 px-6 py-4" style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", zIndex: 100, position: "relative" }}>
         <div className="flex items-center justify-between mb-3">
@@ -629,14 +630,14 @@ export default function DataJourney() {
 
         {!loading && !error && !journey && (
           <div className="flex flex-col items-center justify-center h-64 gap-3" style={{ color: "var(--bp-ink-muted)" }}>
-            <GitBranch className="w-10 h-10" />
+            <GitBranch className="w-10 h-10 gs-float" />
             <p className="text-sm">Select an entity above to trace its data journey</p>
             <p className="text-xs">See how your data transforms through Source &rarr; Landing &rarr; Bronze &rarr; Silver &rarr; Gold</p>
           </div>
         )}
 
         {journey && !loading && (
-          <div className="p-6 space-y-6 max-w-6xl mx-auto">
+          <div className="p-6 space-y-6 max-w-6xl mx-auto gs-page-enter">
             {/* Layer Timeline */}
             <div className="rounded-xl p-4" style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
               <LayerTimeline data={journey} />
@@ -871,11 +872,11 @@ export default function DataJourney() {
                     <button
                       key={tab.key}
                       onClick={() => setDiffTab(tab.key)}
-                      className="px-4 py-2.5 text-xs font-medium transition-colors border-b-2"
+                      className="px-4 py-2.5 transition-colors"
                       style={
                         diffTab === tab.key
-                          ? { color: "var(--bp-ink-primary)", borderColor: "var(--bp-copper)" }
-                          : { color: "var(--bp-ink-secondary)", borderColor: "transparent" }
+                          ? { fontSize: 14, fontWeight: 700, color: "var(--bp-ink-primary)", borderBottom: "2.5px solid var(--bp-copper)" }
+                          : { fontSize: 14, fontWeight: 500, color: "var(--bp-ink-secondary)", borderBottom: "2.5px solid transparent" }
                       }
                     >
                       {tab.label}
@@ -899,8 +900,8 @@ export default function DataJourney() {
                         </tr>
                       </thead>
                       <tbody>
-                        {journey.schemaDiff.map((d) => (
-                          <tr key={d.columnName} className="hover:bg-[var(--bp-surface-inset)] transition-colors" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                        {journey.schemaDiff.map((d, _sdIdx) => (
+                          <tr key={d.columnName} className="gs-stagger-row gs-row-hover hover:bg-[var(--bp-surface-inset)] transition-colors" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)", '--i': Math.min(_sdIdx, 15), backgroundColor: _sdIdx % 2 === 1 ? 'var(--bp-surface-inset)' : undefined } as React.CSSProperties}>
                             <td className="px-4 py-2" style={{ color: "var(--bp-ink-primary)" }}>{d.columnName}</td>
                             <td className="px-4 py-2" style={{ color: "var(--bp-ink-secondary)" }}>{d.bronzeType || "\u2014"}</td>
                             <td className="px-4 py-2" style={{ color: "var(--bp-ink-secondary)" }}>{d.silverType || "\u2014"}</td>
@@ -945,8 +946,8 @@ export default function DataJourney() {
                         </tr>
                       </thead>
                       <tbody>
-                        {journey.bronze.columns.map((c) => (
-                          <tr key={c.COLUMN_NAME} className="hover:bg-[var(--bp-surface-inset)] transition-colors" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                        {journey.bronze.columns.map((c, _bcIdx) => (
+                          <tr key={c.COLUMN_NAME} className="gs-stagger-row gs-row-hover hover:bg-[var(--bp-surface-inset)] transition-colors" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)", '--i': Math.min(_bcIdx, 15), backgroundColor: _bcIdx % 2 === 1 ? 'var(--bp-surface-inset)' : undefined } as React.CSSProperties}>
                             <td className="px-4 py-2" style={{ color: "var(--bp-ink-muted)" }}>{c.ORDINAL_POSITION}</td>
                             <td className="px-4 py-2" style={{ color: "var(--bp-ink-primary)" }}>{c.COLUMN_NAME}</td>
                             <td className="px-4 py-2" style={{ color: "var(--bp-ink-secondary)" }}>{c.DATA_TYPE}</td>
@@ -983,8 +984,8 @@ export default function DataJourney() {
                         </tr>
                       </thead>
                       <tbody>
-                        {journey.silver.columns.map((c) => (
-                          <tr key={c.COLUMN_NAME} className="hover:bg-[var(--bp-surface-inset)] transition-colors" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                        {journey.silver.columns.map((c, _scIdx) => (
+                          <tr key={c.COLUMN_NAME} className="gs-stagger-row gs-row-hover hover:bg-[var(--bp-surface-inset)] transition-colors" style={{ borderBottom: "1px solid rgba(0,0,0,0.04)", '--i': Math.min(_scIdx, 15), backgroundColor: _scIdx % 2 === 1 ? 'var(--bp-surface-inset)' : undefined } as React.CSSProperties}>
                             <td className="px-4 py-2" style={{ color: "var(--bp-ink-muted)" }}>{c.ORDINAL_POSITION}</td>
                             <td className="px-4 py-2" style={{ color: "var(--bp-ink-primary)" }}>{c.COLUMN_NAME}</td>
                             <td className="px-4 py-2" style={{ color: "var(--bp-ink-secondary)" }}>{c.DATA_TYPE}</td>

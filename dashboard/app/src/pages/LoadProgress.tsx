@@ -315,7 +315,7 @@ export default function LoadProgress() {
     : data?.recentActivity ?? [];
 
   return (
-    <div className="space-y-6" style={{ padding: '32px', maxWidth: '1280px', margin: '0 auto' }}>
+    <div className="space-y-6 gs-page-enter" style={{ padding: '32px', maxWidth: '1280px', margin: '0 auto' }}>
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
@@ -419,38 +419,38 @@ export default function LoadProgress() {
 
             {/* KPI cards */}
             <div className="flex gap-4">
-              <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
+              <div className="gs-hero-enter text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)', '--i': 0 } as React.CSSProperties}>
                 <div className={cn(
-                  "text-2xl font-bold tabular-nums",
+                  "text-[36px] font-bold tabular-nums",
                   overall.PctComplete >= 100 ? "text-[var(--bp-operational)]" : overall.PctComplete > 0 ? "text-[var(--bp-copper)]" : "text-[var(--bp-ink-muted)]"
-                )} style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
+                )} style={{ fontFamily: "var(--bp-font-display)", fontFeatureSettings: '"tnum"' }}>
                   {overall.PctComplete}%
                 </div>
                 <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Complete</p>
               </div>
-              <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
-                <div className="text-2xl font-bold tabular-nums text-[var(--bp-caution)]" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
+              <div className="gs-hero-enter text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)', '--i': 1 } as React.CSSProperties}>
+                <div className="text-[36px] font-bold tabular-nums text-[var(--bp-caution)]" style={{ fontFamily: "var(--bp-font-display)", fontFeatureSettings: '"tnum"' }}>
                   {overall.PendingEntities.toLocaleString()}
                 </div>
                 <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Pending</p>
               </div>
               {totalRowsLoaded > 0 && (
-                <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
-                  <div className="text-2xl font-bold tabular-nums text-[var(--bp-operational)]" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
+                <div className="gs-hero-enter text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)', '--i': 2 } as React.CSSProperties}>
+                  <div className="text-[36px] font-bold tabular-nums text-[var(--bp-operational)]" style={{ fontFamily: "var(--bp-font-display)", fontFeatureSettings: '"tnum"' }}>
                     {totalRowsLoaded.toLocaleString()}
                   </div>
                   <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Rows Loaded</p>
                 </div>
               )}
-              <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
-                <div className="text-2xl font-bold tabular-nums" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"', color: 'var(--bp-ink-muted)' }}>
+              <div className="gs-hero-enter text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)', '--i': 3 } as React.CSSProperties}>
+                <div className="text-[36px] font-bold tabular-nums" style={{ fontFamily: "var(--bp-font-display)", fontFeatureSettings: '"tnum"', color: 'var(--bp-ink-muted)' }}>
                   {formatDuration(overall.ElapsedSeconds)}
                 </div>
                 <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Elapsed</p>
               </div>
               {overall.LastActivity && (
-                <div className="text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)' }}>
-                  <div className="text-2xl font-bold tabular-nums text-[var(--bp-ink-tertiary)]" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
+                <div className="gs-hero-enter text-center px-4 py-2 rounded-lg" style={{ backgroundColor: 'var(--bp-surface-inset)', '--i': 4 } as React.CSSProperties}>
+                  <div className="text-[36px] font-bold tabular-nums text-[var(--bp-ink-tertiary)]" style={{ fontFamily: "var(--bp-font-display)", fontFeatureSettings: '"tnum"' }}>
                     {timeAgo(overall.LastActivity)}
                   </div>
                   <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--bp-ink-muted)' }}>Last Load</p>
@@ -505,7 +505,7 @@ export default function LoadProgress() {
       {/* ── Source Progress Cards ── */}
       {data?.bySource && data.bySource.length > 0 && (
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
-          {data.bySource.map((s) => {
+          {data.bySource.map((s, _spIdx) => {
             const c = getColor(s.Source);
             const isFiltered = sourceFilter === s.Source;
             return (
@@ -513,11 +513,12 @@ export default function LoadProgress() {
                 key={s.Source}
                 onClick={() => setSourceFilter(isFiltered ? null : s.Source)}
                 className={cn(
-                  "rounded-xl border p-4 text-left transition-all hover:scale-[1.02]",
+                  "gs-stagger-card rounded-xl border p-4 text-left transition-all hover:scale-[1.02]",
                   isFiltered
                     ? `${c.bg} border-2 ${c.ring.replace("ring-", "border-")}`
                     : "bg-[var(--bp-surface-1)] hover:border-[var(--bp-ink-muted)]/30"
                 )}
+                style={{'--i': _spIdx} as React.CSSProperties}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
@@ -688,17 +689,13 @@ export default function LoadProgress() {
       })()}
 
       {/* ── Tab bar ── */}
-      <div className="flex gap-1 p-1 rounded-lg bg-muted w-fit" role="tablist" aria-label="Load progress views">
+      <div className="flex gap-4" role="tablist" aria-label="Load progress views" style={{ borderBottom: '1px solid var(--bp-border)' }}>
         <button
           role="tab"
           aria-selected={activeTab === "activity"}
           onClick={() => setActiveTab("activity")}
-          className={cn(
-            "flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-all",
-            activeTab === "activity"
-              ? "bg-background text-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          )}
+          className="flex items-center gap-1.5 px-4 py-2 transition-all"
+          style={activeTab === "activity" ? { fontSize: 14, fontWeight: 700, color: 'var(--bp-ink-primary)', borderBottom: '2.5px solid var(--bp-copper)' } : { fontSize: 14, fontWeight: 500, color: 'var(--bp-ink-secondary)', borderBottom: '2.5px solid transparent' }}
         >
           <Activity className="h-3.5 w-3.5" />
           Live Activity
@@ -712,12 +709,8 @@ export default function LoadProgress() {
           role="tab"
           aria-selected={activeTab === "loaded"}
           onClick={() => setActiveTab("loaded")}
-          className={cn(
-            "flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-all",
-            activeTab === "loaded"
-              ? "bg-background text-foreground"
-              : "text-muted-foreground hover:text-foreground"
-          )}
+          className="flex items-center gap-1.5 px-4 py-2 transition-all"
+          style={activeTab === "loaded" ? { fontSize: 14, fontWeight: 700, color: 'var(--bp-ink-primary)', borderBottom: '2.5px solid var(--bp-copper)' } : { fontSize: 14, fontWeight: 500, color: 'var(--bp-ink-secondary)', borderBottom: '2.5px solid transparent' }}
         >
           <CheckCircle2 className="h-3.5 w-3.5" />
           All Entities
@@ -747,7 +740,7 @@ export default function LoadProgress() {
           <div className="max-h-[500px] overflow-y-auto">
             {filteredActivity.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-                <Clock className="h-8 w-8 mb-3 opacity-40" />
+                <Clock className="h-8 w-8 mb-3 opacity-40 gs-float" />
                 <p className="text-sm">No activity yet</p>
                 <p className="text-xs mt-1 opacity-60">
                   Activity will appear here when a load is running
@@ -773,9 +766,9 @@ export default function LoadProgress() {
                     const c = getColor(a.Source);
                     return (
                       <tr key={i} className={cn(
-                        "hover:bg-muted/50 transition-colors",
+                        "gs-stagger-row hover:bg-muted/50 transition-colors",
                         isFail && "bg-[var(--bp-fault-light)]"
-                      )}>
+                      )} style={{'--i': Math.min(i, 15)} as React.CSSProperties}>
                         <td className="px-4 py-2 text-muted-foreground whitespace-nowrap text-xs tabular-nums">
                           {timeAgo(a.LogTime)}
                         </td>
@@ -834,7 +827,7 @@ export default function LoadProgress() {
           <div className="max-h-[500px] overflow-y-auto">
             {filteredLoaded.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-                <Database className="h-8 w-8 mb-3 opacity-40" />
+                <Database className="h-8 w-8 mb-3 opacity-40 gs-float" />
                 <p className="text-sm">No entities found</p>
               </div>
             ) : (
@@ -852,16 +845,17 @@ export default function LoadProgress() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {filteredLoaded.map((e) => {
+                  {filteredLoaded.map((e, _leIdx) => {
                     const c = getColor(e.Source);
                     const isNew = recentlyLoaded.has(e.EntityId);
                     return (
                       <tr
                         key={e.EntityId}
                         className={cn(
-                          "hover:bg-muted/50 transition-all",
+                          "gs-stagger-row gs-row-hover hover:bg-muted/50 transition-all",
                           isNew && "bg-[var(--bp-operational-light)] animate-pulse"
                         )}
+                        style={{'--i': Math.min(_leIdx, 15), ...(!isNew && _leIdx % 2 === 1 ? {backgroundColor: 'var(--bp-surface-inset)'} : {})} as React.CSSProperties}
                       >
                         <td className="px-4 py-2 text-center">
                           {e.Status === "Loaded" ? (

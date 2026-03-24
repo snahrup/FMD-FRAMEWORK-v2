@@ -175,7 +175,7 @@ function SourceCards({
 
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-      {sourceGroups.map(([source, srcRows]) => {
+      {sourceGroups.map(([source, srcRows], cardIndex) => {
         const matched = srcRows.filter(r => r.status === "match").length;
         const errors = srcRows.filter(r => r.status === "mismatch").length;
         const isActive = activeSource === source;
@@ -187,8 +187,9 @@ function SourceCards({
             onClick={() => onSourceClick(isActive ? null : source)}
             aria-label={`Filter by source: ${resolveLabel(source)}`}
             aria-pressed={isActive}
-            className="bp-card"
+            className="bp-card gs-stagger-card"
             style={{
+              '--i': cardIndex,
               padding: "12px 16px",
               minWidth: Math.max(120, (srcRows.length / maxCount) * 200),
               flex: `${srcRows.length} 0 120px`,
@@ -199,7 +200,7 @@ function SourceCards({
               textAlign: "left",
               position: "relative",
               overflow: "hidden",
-            }}
+            } as React.CSSProperties}
           >
             {/* Top color strip */}
             <div style={{
@@ -502,11 +503,21 @@ export default function RecordCounts() {
   }, [displayed, groupBySource]);
 
   // ── Table row renderer (shared between flat and grouped views)
-  const renderRow = (row: CountRow) => (
+  const renderRow = (row: CountRow, index: number) => {
+    const railColor = row.status === "match" ? "var(--bp-operational-green, var(--bp-operational))"
+      : row.status === "mismatch" ? "var(--bp-fault-red, var(--bp-fault))"
+      : "var(--bp-ink-muted, #A8A29E)";
+
+    return (
     <tr
       key={row.id}
-      className="border-b transition-colors hover:bg-[var(--bp-surface-2)]"
-      style={{ borderColor: "var(--bp-border-subtle)" }}
+      className="gs-stagger-row gs-row-hover border-b transition-colors"
+      style={{
+        '--i': Math.min(index, 15),
+        borderColor: "var(--bp-border-subtle)",
+        borderLeft: `3px solid ${railColor}`,
+        background: index % 2 === 1 ? "var(--bp-surface-2)" : undefined,
+      } as React.CSSProperties}
     >
       <td style={{ padding: "8px 12px", maxWidth: 220 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -622,7 +633,7 @@ export default function RecordCounts() {
         </Link>
       </td>
     </tr>
-  );
+  ); };
 
   // ── Table header
   const tableHeaders = (
@@ -671,7 +682,7 @@ export default function RecordCounts() {
   );
 
   return (
-    <div style={{ padding: 32, maxWidth: 1400 }}>
+    <div className="gs-page-enter" style={{ padding: 32, maxWidth: 1400 }}>
       {/* ── Header ── */}
       <div style={{ marginBottom: 24 }}>
         <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
@@ -727,7 +738,7 @@ export default function RecordCounts() {
       {/* ── Empty State ── */}
       {!counts && !countsLoading && !countsError && (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 0", textAlign: "center" }}>
-          <Layers style={{ width: 56, height: 56, color: "var(--bp-ink-muted)", opacity: 0.15, marginBottom: 16 }} />
+          <Layers className="gs-float" style={{ width: 56, height: 56, color: "var(--bp-ink-muted)", opacity: 0.15, marginBottom: 16 }} />
           <h2 style={{ fontSize: 18, fontWeight: 600, color: "var(--bp-ink-secondary)", marginBottom: 8 }}>No counts loaded</h2>
           <p style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", maxWidth: 360 }}>
             Click <strong>Scan Files</strong> to read row counts from OneLake parquet files across all three layers.
@@ -749,7 +760,7 @@ export default function RecordCounts() {
           {/* Hero row: Match Rate Ring + Source Cards */}
           <div style={{ display: "flex", gap: 24, alignItems: "flex-start", marginBottom: 24 }}>
             {/* Match Rate Ring */}
-            <div className="bp-card" style={{ padding: "20px 24px", flexShrink: 0 }}>
+            <div className="bp-card gs-hero-enter" style={{ '--i': 0, padding: "20px 24px", flexShrink: 0 } as React.CSSProperties}>
               <MatchRateRing rate={stats.matchRate} total={stats.matchableTotal} matched={stats.matched} />
             </div>
 

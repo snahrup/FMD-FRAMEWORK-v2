@@ -861,13 +861,13 @@ export default function ColumnEvolution() {
   const isGold = activeLayer === 4;
 
   return (
-    <div className="h-full flex flex-col" style={{ background: 'var(--bp-canvas)' }}>
+    <div className="h-full flex flex-col gs-page-enter" style={{ background: 'var(--bp-canvas)' }}>
       {/* ── Header ── */}
       <div className="flex-shrink-0 px-6 py-4" style={{ zIndex: 100, position: "relative", borderBottom: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
             <Columns3 className="w-5 h-5" style={{ color: 'var(--bp-copper)' }} />
-            <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: 32, color: 'var(--bp-ink-primary)', fontWeight: 400 }}>Column Evolution</h1>
+            <h1 className="gs-hero-enter" style={{ '--i': 0, fontFamily: 'var(--bp-font-display)', fontSize: 36, color: 'var(--bp-ink-primary)', fontWeight: 400 } as React.CSSProperties}>Column Evolution</h1>
             {journey && (
               <span className="text-sm" style={{ color: 'var(--bp-ink-secondary)' }}>
                 — {journey.source.namespace || journey.source.dataSourceName}: {journey.source.name}
@@ -927,7 +927,7 @@ export default function ColumnEvolution() {
         {/* No entity selected */}
         {!loading && !error && !journey && (
           <div className="flex flex-col items-center justify-center h-64 gap-3" style={{ color: 'var(--bp-ink-muted)' }}>
-            <Columns3 className="w-10 h-10" />
+            <Columns3 className="w-10 h-10 gs-float" />
             <p className="text-sm">Select an entity to explore its column evolution</p>
             <p className="text-xs">Watch columns animate as they transform through Source, Bronze, Silver, and Gold</p>
           </div>
@@ -975,7 +975,7 @@ export default function ColumnEvolution() {
             {/* No column data at all */}
             {isSourceOrLanding && !hasColumnData && (
               <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: 'var(--bp-ink-muted)' }}>
-                <Database className="w-10 h-10" />
+                <Database className="w-10 h-10 gs-float" />
                 <p className="text-sm">No column schema available yet</p>
                 <p className="text-xs text-center max-w-md">
                   Column schemas are discovered when the entity is loaded to the Bronze layer.
@@ -987,7 +987,7 @@ export default function ColumnEvolution() {
             {/* Gold placeholder */}
             {isGold && (
               <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: 'var(--bp-ink-muted)' }}>
-                <Crown className="w-10 h-10" />
+                <Crown className="w-10 h-10 gs-float" />
                 <p className="text-sm">Gold layer coming soon</p>
                 <p className="text-xs">Materialized Lakehouse Views will appear here once configured</p>
               </div>
@@ -1021,8 +1021,10 @@ export default function ColumnEvolution() {
             {!isGold && currentColumns.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 <AnimatePresence mode="popLayout">
-                  {currentColumns.map((col) => (
-                    <ColumnCard key={col.name} col={col} />
+                  {currentColumns.map((col, i) => (
+                    <div key={col.name} className="gs-stagger-card" style={{ '--i': Math.min(i, 15) } as React.CSSProperties}>
+                      <ColumnCard col={col} />
+                    </div>
                   ))}
                 </AnimatePresence>
               </div>

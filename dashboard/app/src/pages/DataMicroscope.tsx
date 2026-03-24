@@ -424,9 +424,9 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
     }
   };
 
-  const renderRow = (colName: string, isSystem: boolean) => {
+  const renderRow = (colName: string, isSystem: boolean, rowIndex: number = 0) => {
     return (
-      <tr key={colName} className={cn(isSystem && "bg-[var(--bp-silver-light)]/20")}>
+      <tr key={colName} className={cn("gs-stagger-row gs-row-hover", isSystem && "bg-[var(--bp-silver-light)]/20", !isSystem && rowIndex % 2 === 1 && "bg-[var(--bp-surface-inset)]/40")} style={{ '--i': Math.min(rowIndex, 15) } as React.CSSProperties}>
         <td
           className={cn(
             "px-3 py-2 text-sm font-mono sticky left-0 z-10 min-w-[200px]"
@@ -576,7 +576,7 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
                 </td>
               </tr>
             )}
-            {originalCols.map((c) => renderRow(c, false))}
+            {originalCols.map((c, i) => renderRow(c, false, i))}
 
             {/* System columns */}
             {systemCols.length > 0 && (
@@ -590,7 +590,7 @@ function DiffGrid({ data }: { data: MicroscopeData }) {
                 </td>
               </tr>
             )}
-            {systemCols.map((c) => renderRow(c, true))}
+            {systemCols.map((c, i) => renderRow(c, true, originalCols.length + i))}
           </tbody>
         </table>
       </div>
@@ -648,11 +648,11 @@ function TransformationCards({
         Transformation Pipeline ({steps.length} steps)
       </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {steps.map((step) => (
+        {steps.map((step, i) => (
           <div
             key={step.step}
-            className="rounded-lg p-3 transition-colors"
-            style={{ border: "1px solid var(--bp-border-subtle)", backgroundColor: "var(--bp-surface-1)" }}
+            className="rounded-lg p-3 transition-colors gs-stagger-card"
+            style={{ '--i': Math.min(i, 15), border: "1px solid var(--bp-border-subtle)", backgroundColor: "var(--bp-surface-1)" } as React.CSSProperties}
           >
             <div className="flex items-center gap-2 mb-2">
               <span className="text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center" style={{ color: "rgba(168,162,158,0.5)", backgroundColor: "var(--bg-muted)" }}>
@@ -883,14 +883,14 @@ export default function DataMicroscope() {
   // ── No entity selected state ──
   if (!entityId) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 gs-page-enter">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: "var(--bp-copper-light)" }}>
               <ScanSearch className="h-5 w-5" style={{ color: "var(--bp-copper)" }} />
             </div>
             <div>
-              <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>
+              <h1 className="gs-hero-enter" style={{ '--i': 0, fontFamily: "var(--bp-font-display)", fontSize: "36px", color: "var(--bp-ink-primary)", lineHeight: "1.1" } as React.CSSProperties}>
                 Data Microscope
               </h1>
               <p className="text-sm" style={{ color: "var(--bp-ink-secondary)" }}>
@@ -911,7 +911,7 @@ export default function DataMicroscope() {
 
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <div className="h-20 w-20 rounded-2xl flex items-center justify-center mb-6" style={{ backgroundColor: "var(--bp-surface-inset)" }}>
-            <ScanSearch className="h-10 w-10" style={{ color: "var(--bp-ink-muted)" }} />
+            <ScanSearch className="h-10 w-10 gs-float" style={{ color: "var(--bp-ink-muted)" }} />
           </div>
           <h2 className="text-lg font-semibold mb-2" style={{ color: "var(--bp-ink-primary)" }}>
             Select an entity and primary key
@@ -930,7 +930,7 @@ export default function DataMicroscope() {
   const showPkPrompt = entityId && !pkParam;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 gs-page-enter">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -1014,7 +1014,7 @@ export default function DataMicroscope() {
       {showPkPrompt && !microscopeLoading && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="h-16 w-16 rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: "var(--bp-surface-inset)" }}>
-            <Search className="h-8 w-8" style={{ color: "var(--bp-ink-muted)" }} />
+            <Search className="h-8 w-8 gs-float" style={{ color: "var(--bp-ink-muted)" }} />
           </div>
           <h2 className="text-base font-semibold mb-1" style={{ color: "var(--bp-ink-primary)" }}>
             Enter a primary key value
@@ -1050,7 +1050,7 @@ export default function DataMicroscope() {
           {/* Layer summary badges */}
           <div className="flex flex-wrap gap-3">
             {(["source", "landing", "bronze", "silver"] as LayerKey[]).map(
-              (layer) => {
+              (layer, layerIdx) => {
                 const meta = LAYER_META[layer];
                 const Icon = meta.icon;
                 let available = false;
@@ -1076,11 +1076,11 @@ export default function DataMicroscope() {
                   <div
                     key={layer}
                     className={cn(
-                      "flex items-center gap-2 px-3 py-2 rounded-lg text-xs",
+                      "flex items-center gap-2 px-3 py-2 rounded-lg text-xs gs-stagger-card",
                       available ? meta.bg : "",
                       available ? meta.border : ""
                     )}
-                    style={!available ? { backgroundColor: "var(--bg-muted)", border: "1px solid var(--bp-border-subtle)" } : { border: "1px solid var(--bp-border-subtle)" }}
+                    style={{ '--i': layerIdx, ...(!available ? { backgroundColor: "var(--bg-muted)", border: "1px solid var(--bp-border-subtle)" } : { border: "1px solid var(--bp-border-subtle)" }) } as React.CSSProperties}
                   >
                     <Icon
                       className={cn(

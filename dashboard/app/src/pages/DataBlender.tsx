@@ -89,11 +89,11 @@ export default function DataBlender() {
   ];
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)]" style={{ backgroundColor: "var(--bp-canvas)" }}>
+    <div className="gs-page-enter flex flex-col h-[calc(100vh-3rem)]" style={{ backgroundColor: "var(--bp-canvas)" }}>
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-2" style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
         <div className="flex items-center gap-3">
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Data Blender</h1>
+          <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "36px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Data Blender</h1>
           <span className="text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>Exploration sandbox — browse, profile, preview blends</span>
         </div>
         <div className="flex items-center gap-3">
@@ -146,21 +146,24 @@ export default function DataBlender() {
                     key={tab.id}
                     onClick={() => !tab.disabled && setActiveTab(tab.id)}
                     disabled={tab.disabled}
-                    className={cn(
-                      "px-4 py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px cursor-pointer",
-                      activeTab === tab.id
-                        ? "border-[var(--bp-copper)] text-[var(--bp-ink-primary)]"
-                        : tab.disabled
-                          ? "border-transparent cursor-not-allowed"
-                          : "border-transparent hover:text-[var(--bp-ink-primary)]"
-                    )}
+                    className="px-4 py-2.5 transition-colors border-b-[2.5px] -mb-px cursor-pointer"
                     style={
                       activeTab === tab.id
-                        ? { borderBottomColor: "var(--bp-copper)", color: "var(--bp-ink-primary)" }
+                        ? { fontSize: 14, fontWeight: 700, borderBottomColor: "var(--bp-copper)", borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderTopLeftRadius: 2, borderTopRightRadius: 2, color: "var(--bp-ink-primary)" }
                         : tab.disabled
-                          ? { color: "var(--bp-ink-muted)", opacity: 0.4 }
-                          : { color: "var(--bp-ink-secondary)" }
+                          ? { fontSize: 14, fontWeight: 500, borderBottomColor: "transparent", color: "var(--bp-ink-muted)", opacity: 0.4, cursor: "not-allowed" }
+                          : { fontSize: 14, fontWeight: 500, borderBottomColor: "transparent", color: "var(--bp-ink-muted)" }
                     }
+                    onMouseEnter={(e) => {
+                      if (activeTab !== tab.id && !tab.disabled) {
+                        (e.currentTarget as HTMLButtonElement).style.color = "var(--bp-ink-secondary)";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (activeTab !== tab.id && !tab.disabled) {
+                        (e.currentTarget as HTMLButtonElement).style.color = "var(--bp-ink-muted)";
+                      }
+                    }}
                   >
                     {tab.label}
                   </button>
@@ -191,9 +194,9 @@ export default function DataBlender() {
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center space-y-3">
                 <div className="text-4xl">
-                  <img src="/icons/lakehouse.svg" alt="" className="h-12 w-12 mx-auto opacity-30" />
+                  <img src="/icons/lakehouse.svg" alt="" className="gs-float h-12 w-12 mx-auto opacity-30" />
                 </div>
-                <h2 className="text-sm font-semibold" style={{ fontFamily: "var(--bp-font-display)", color: "var(--bp-ink-secondary)" }}>Select a table to explore</h2>
+                <h2 className="text-base font-semibold" style={{ fontFamily: "var(--bp-font-display)", color: "var(--bp-ink-secondary)" }}>Select a table to explore</h2>
                 <p className="text-xs max-w-sm" style={{ color: "var(--bp-ink-muted)" }}>
                   Browse the table tree on the left to view column profiles, find blend opportunities, and preview join results.
                 </p>

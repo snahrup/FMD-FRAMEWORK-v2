@@ -66,7 +66,7 @@ export default function SqlExplorer() {
   }, []);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)]" style={{ backgroundColor: "var(--bp-canvas)" }}>
+    <div className="gs-page-enter flex flex-col h-[calc(100vh-3rem)]" style={{ backgroundColor: "var(--bp-canvas)" }}>
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <div
@@ -105,9 +105,9 @@ export default function SqlExplorer() {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center h-full select-none" style={{ backgroundColor: "var(--bp-canvas)", color: "var(--bp-ink-secondary)" }}>
+    <div className="gs-page-enter flex flex-col items-center justify-center h-full select-none" style={{ backgroundColor: "var(--bp-canvas)", color: "var(--bp-ink-secondary)" }}>
       {/* Icon */}
-      <div className="relative mb-6">
+      <div className="gs-float relative mb-6">
         <div className="flex items-center justify-center h-16 w-16 rounded-xl" style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
           <Database className="h-7 w-7" style={{ color: "var(--bp-ink-muted)" }} />
         </div>

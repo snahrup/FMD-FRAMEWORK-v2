@@ -284,7 +284,7 @@ function StepCard({
   const beforeAfter = microscopeData || step.beforeAfter;
 
   return (
-    <article className="replay-step-card flex gap-4 md:gap-6" aria-label={`Step ${step.id}: ${step.title}`}>
+    <article className="replay-step-card gs-stagger-card flex gap-4 md:gap-6" style={{ '--i': step.id - 1 } as React.CSSProperties} aria-label={`Step ${step.id}: ${step.title}`}>
       {/* Left: timeline connector */}
       <div className="flex flex-col items-center flex-shrink-0 w-10">
         {/* Step number circle */}
@@ -396,8 +396,8 @@ function StepCard({
             {beforeAfter.slice(0, 5).map((row, i) => (
               <div
                 key={i}
-                className="grid grid-cols-3 px-3 py-1.5"
-                style={{ borderBottom: '1px solid var(--bp-border-subtle)' }}
+                className="gs-stagger-row gs-row-hover grid grid-cols-3 px-3 py-1.5"
+                style={{ '--i': i, borderBottom: '1px solid var(--bp-border-subtle)', background: i % 2 === 1 ? 'var(--bp-surface-inset)' : 'transparent' } as React.CSSProperties}
                 role="row"
               >
                 <span className="text-xs truncate" style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }} role="cell">{row.column}</span>
@@ -617,7 +617,7 @@ export default function TransformationReplay() {
   }, []);
 
   return (
-    <div className="space-y-6 pb-12" style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }} role="main" aria-label="Transformation Replay">
+    <div className="gs-page-enter space-y-6 pb-12" style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }} role="main" aria-label="Transformation Replay">
       {/* ── Progress bar (fixed at top of content) ── */}
       <div
         ref={progressBarRef}
@@ -641,7 +641,7 @@ export default function TransformationReplay() {
           <div className="flex items-center gap-3">
             <Clapperboard className="w-5 h-5" style={{ color: 'var(--bp-copper)' }} />
             <div>
-              <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: 32, color: 'var(--bp-ink-primary)', fontWeight: 400, lineHeight: 1.2 }}>
+              <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: 36, color: 'var(--bp-ink-primary)', fontWeight: 400, lineHeight: 1.2 }}>
                 Transformation Replay
               </h1>
               <p className="text-xs mt-0.5" style={{ color: 'var(--bp-ink-tertiary)' }}>
@@ -760,7 +760,7 @@ export default function TransformationReplay() {
                   )}
                   {/* Layer transition divider */}
                   {!isLast && nextStep && nextStep.layer !== step.layer && (
-                    <div className="flex items-center gap-3 py-4 ml-[15px]">
+                    <div className="gs-stagger-card flex items-center gap-3 py-4 ml-[15px]" style={{ '--i': idx } as React.CSSProperties}>
                       <div className="flex flex-col items-center">
                         <div
                           className="w-3 h-3 rounded-full border-2"

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { KpiCard, KpiRow } from "@/components/ui/kpi-card";
+// KpiCard/KpiRow removed — replaced with inline tiered KPI layout
 import { formatTimestamp, formatRowCount } from "@/lib/formatters";
 import { LAYER_MAP, getSourceColor } from "@/lib/layers";
 import { resolveSourceLabel } from "@/hooks/useSourceConfig";
@@ -273,7 +273,7 @@ export default function DataLineage() {
   const fullChain = allEntities.filter((e) => e.lzStatus === "loaded" && e.bronzeStatus === "loaded" && e.silverStatus === "loaded").length;
 
   return (
-    <div className="space-y-6" style={{ padding: "32px", maxWidth: "1280px" }}>
+    <div className="space-y-6 gs-page-enter" style={{ padding: "32px", maxWidth: "1280px" }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -286,14 +286,47 @@ export default function DataLineage() {
         </div>
       </div>
 
-      {/* KPIs */}
-      <KpiRow>
-        <KpiCard label="Total Entities" value={formatRowCount(totalEntities)} icon={Database} iconColor="text-[var(--bp-ink-muted)]" />
-        <KpiCard label="Landing Zone" value={formatRowCount(withLz)} icon={HardDrive} iconColor="text-[var(--bp-ink-muted)]" subtitle={`${totalEntities ? ((withLz / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
-        <KpiCard label="Bronze" value={formatRowCount(withBronze)} icon={Table2} iconColor="text-[var(--bp-copper-hover)]" subtitle={`${totalEntities ? ((withBronze / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
-        <KpiCard label="Silver" value={formatRowCount(withSilver)} icon={Sparkles} iconColor="text-[var(--bp-silver)]" subtitle={`${totalEntities ? ((withSilver / totalEntities) * 100).toFixed(0) : 0}% coverage`} />
-        <KpiCard label="Full Chain" value={formatRowCount(fullChain)} icon={Crown} iconColor="text-[var(--bp-operational)]" subtitle="Source \u2192 Silver complete" />
-      </KpiRow>
+      {/* Hero KPIs */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: "Total Entities", value: formatRowCount(totalEntities), icon: Database },
+          { label: "Full Chain", value: formatRowCount(fullChain), icon: Crown, sub: "Source \u2192 Silver complete" },
+          { label: "Bronze", value: formatRowCount(withBronze), icon: Table2, sub: `${totalEntities ? ((withBronze / totalEntities) * 100).toFixed(0) : 0}% coverage` },
+        ].map((kpi, i) => (
+          <div
+            key={kpi.label}
+            className="gs-hero-enter rounded-lg p-4"
+            style={{ '--i': i, backgroundColor: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" } as React.CSSProperties}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <kpi.icon className="h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />
+              <span className="text-[11px] uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>{kpi.label}</span>
+            </div>
+            <div style={{ fontFamily: "var(--bp-font-display)", fontSize: "36px", color: "var(--bp-ink-primary)", lineHeight: 1.1 }}>{kpi.value}</div>
+            {kpi.sub && <div className="text-[11px] mt-1" style={{ color: "var(--bp-ink-secondary)" }}>{kpi.sub}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Supporting KPIs */}
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          { label: "Landing Zone", value: formatRowCount(withLz), sub: `${totalEntities ? ((withLz / totalEntities) * 100).toFixed(0) : 0}% coverage` },
+          { label: "Silver", value: formatRowCount(withSilver), sub: `${totalEntities ? ((withSilver / totalEntities) * 100).toFixed(0) : 0}% coverage` },
+        ].map((kpi, i) => (
+          <div
+            key={kpi.label}
+            className="gs-stagger-row rounded-lg px-4 py-2.5 flex items-center justify-between"
+            style={{ '--i': i, backgroundColor: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" } as React.CSSProperties}
+          >
+            <span className="text-[11px] uppercase tracking-wider" style={{ color: "var(--bp-ink-tertiary)" }}>{kpi.label}</span>
+            <div className="flex items-baseline gap-2">
+              <span style={{ fontFamily: "var(--bp-font-body)", fontSize: "14px", color: "var(--bp-ink-primary)", fontWeight: 600 }}>{kpi.value}</span>
+              <span className="text-[11px]" style={{ color: "var(--bp-ink-secondary)" }}>{kpi.sub}</span>
+            </div>
+          </div>
+        ))}
+      </div>
 
       {/* Filters */}
       <div className="flex gap-3 items-center">
@@ -355,19 +388,25 @@ export default function DataLineage() {
                   ) : filtered.length === 0 ? (
                     <tr><td colSpan={7} className="text-center py-8" style={{ color: "var(--bp-ink-secondary)" }}>No entities found</td></tr>
                   ) : (
-                    filtered.map((e) => {
+                    filtered.map((e, index) => {
                       const isSelected = selectedEntity?.id === e.id;
+                      const isFullChain = e.lzStatus === "loaded" && e.bronzeStatus === "loaded" && e.silverStatus === "loaded";
+                      const isPartial = !isFullChain && (e.lzStatus === "loaded" || e.bronzeStatus === "loaded" || e.silverStatus === "loaded");
+                      const railColor = isFullChain ? "var(--bp-operational-green, var(--bp-operational))" : isPartial ? "var(--bp-caution-amber, var(--bp-caution))" : "var(--bp-ink-muted)";
                       return (
                         <tr
                           key={e.id}
-                          className="cursor-pointer transition-colors"
+                          className={cn("cursor-pointer transition-colors gs-stagger-row gs-row-hover")}
                           role="button"
                           tabIndex={0}
                           aria-label={`${e.sourceSchema}.${e.tableName}`}
                           style={{
+                            '--i': index <= 15 ? index : undefined,
                             borderBottom: "1px solid var(--bp-border-subtle)",
-                            ...(isSelected ? { backgroundColor: "var(--bp-surface-inset)", borderLeft: "2px solid var(--bp-copper)" } : {}),
-                          }}
+                            borderLeft: `3px solid ${railColor}`,
+                            ...(index % 2 === 1 ? { background: "var(--bp-surface-inset)" } : {}),
+                            ...(isSelected ? { backgroundColor: "var(--bp-surface-inset)", borderLeft: `3px solid var(--bp-copper)` } : {}),
+                          } as React.CSSProperties}
                           onClick={() => setSelectedEntity(isSelected ? null : e)}
                           onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setSelectedEntity(isSelected ? null : e); } }}
                         >

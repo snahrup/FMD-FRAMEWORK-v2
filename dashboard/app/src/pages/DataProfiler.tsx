@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, Fragment } from "react";
+import React, { useState, useEffect, useMemo, useCallback, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
 import {
@@ -172,7 +172,7 @@ function AlertBadges({ columns, rowCount }: { columns: ProfileColumn[]; rowCount
   return (
     <div className="flex flex-wrap gap-2">
       {allNull.length > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-border)] bg-[var(--bp-fault-light)]">
+        <div className="gs-stagger-row flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-border)] bg-[var(--bp-fault-light)]" style={{ '--i': 0 } as React.CSSProperties}>
           <XCircle className="w-3.5 h-3.5 text-[var(--bp-fault)]" />
           <span className="text-[11px] text-[var(--bp-fault)] font-medium">
             {allNull.length} column{allNull.length > 1 ? "s" : ""} 100% null
@@ -180,7 +180,7 @@ function AlertBadges({ columns, rowCount }: { columns: ProfileColumn[]; rowCount
         </div>
       )}
       {highNulls.length > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-border)] bg-[var(--bp-caution-light)]">
+        <div className="gs-stagger-row flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-border)] bg-[var(--bp-caution-light)]" style={{ '--i': 1 } as React.CSSProperties}>
           <AlertTriangle className="w-3.5 h-3.5 text-[var(--bp-caution)]" />
           <span className="text-[11px] text-[var(--bp-caution)] font-medium">
             {highNulls.length} column{highNulls.length > 1 ? "s" : ""} &gt;50% nulls
@@ -188,7 +188,7 @@ function AlertBadges({ columns, rowCount }: { columns: ProfileColumn[]; rowCount
         </div>
       )}
       {potentialKeys.length > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-border)] bg-[var(--bp-copper-light)]">
+        <div className="gs-stagger-row flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-border)] bg-[var(--bp-copper-light)]" style={{ '--i': 2 } as React.CSSProperties}>
           <Key className="w-3.5 h-3.5 text-[var(--bp-copper)]" />
           <span className="text-[11px] text-[var(--bp-copper)] font-medium">
             {potentialKeys.length} potential key{potentialKeys.length > 1 ? "s" : ""}
@@ -196,7 +196,7 @@ function AlertBadges({ columns, rowCount }: { columns: ProfileColumn[]; rowCount
         </div>
       )}
       {lowCardinality.length > 0 && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-silver)]/30 bg-[var(--bp-silver-light)]/30">
+        <div className="gs-stagger-row flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[var(--bp-silver)]/30 bg-[var(--bp-silver-light)]/30" style={{ '--i': 3 } as React.CSSProperties}>
           <Layers3 className="w-3.5 h-3.5 text-[var(--bp-silver)]" />
           <span className="text-[11px] text-[var(--bp-silver)] font-medium">
             {lowCardinality.length} low-cardinality column{lowCardinality.length > 1 ? "s" : ""}
@@ -497,10 +497,10 @@ function EntityPicker({
   };
 
   return (
-    <div className="p-6 md:p-10 max-w-3xl mx-auto space-y-6">
+    <div className="gs-page-enter p-6 md:p-10 max-w-3xl mx-auto space-y-6">
       <div className="text-center">
         <Microscope className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--bp-ink-muted)" }} />
-        <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Data Profiler</h1>
+        <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "36px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Data Profiler</h1>
         <p className="text-sm mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
           Select a source, entity, and layer to profile
         </p>
@@ -791,7 +791,7 @@ export default function DataProfiler() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-4 max-w-[1600px] mx-auto">
+    <div className="gs-page-enter p-4 md:p-6 space-y-4 max-w-[1600px] mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -807,7 +807,7 @@ export default function DataProfiler() {
           <div>
             <div className="flex items-center gap-2">
               <Table2 className="w-5 h-5" style={{ color: layerColor }} />
-              <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>
+              <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "36px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>
                 {paramSchema}.{paramTable}
               </h1>
               <span
@@ -953,7 +953,7 @@ export default function DataProfiler() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredColumns.map((col) => {
+                      {filteredColumns.map((col, index) => {
                         const typeInfo = getTypeInfo(col.dataType);
                         const isExpanded = expandedCol === col.name;
                         const TypeIcon = typeInfo.icon;
@@ -961,8 +961,8 @@ export default function DataProfiler() {
                         return (
                           <Fragment key={col.name}>
                             <tr
-                              className="cursor-pointer transition-colors"
-                              style={{ borderBottom: "1px solid var(--bp-border-subtle)", backgroundColor: nullBg(col.nullPercentage) }}
+                              className="gs-stagger-row gs-row-hover cursor-pointer transition-colors"
+                              style={{ '--i': Math.min(index, 15), borderBottom: "1px solid var(--bp-border-subtle)", backgroundColor: index % 2 === 1 ? "var(--bp-surface-inset)" : nullBg(col.nullPercentage) } as React.CSSProperties}
                               onClick={() => setExpandedCol(isExpanded ? null : col.name)}
                               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpandedCol(isExpanded ? null : col.name); } }}
                               tabIndex={0}

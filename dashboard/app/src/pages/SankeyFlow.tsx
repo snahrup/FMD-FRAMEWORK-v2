@@ -190,24 +190,27 @@ function SourcePanel({
 
       {/* Summary bar */}
       <div className="flex items-center gap-4 px-5 py-3 border-b border-border/20 flex-shrink-0">
-        {(["complete", "partial", "pending", "error", "not_started"] as const).map((status) => {
+        {(["complete", "partial", "pending", "error", "not_started"] as const).reduce<{ el: React.ReactNode[]; idx: number }>((acc, status) => {
           const count = source.summary[status];
-          if (!count) return null;
+          if (!count) return acc;
           const s = STATUS_STYLES[status];
-          return (
-            <span key={status} className={`text-[10px] font-medium ${s.color}`}>
+          acc.el.push(
+            <span key={status} className={`gs-stagger-row text-[10px] font-medium ${s.color}`} style={{ '--i': acc.idx } as React.CSSProperties}>
               {count} {s.label.toLowerCase()}
             </span>
           );
-        })}
+          acc.idx++;
+          return acc;
+        }, { el: [], idx: 0 }).el}
       </div>
 
       {/* Entity list */}
       <div className="flex-1 overflow-y-auto">
-        {grouped.map((entity) => (
+        {grouped.map((entity, i) => (
           <div
             key={entity.id}
-            className="flex items-center justify-between px-5 py-2.5 border-b border-border/10 hover:bg-muted/50 transition-colors"
+            className={`gs-stagger-row flex items-center justify-between px-5 py-2.5 border-b border-border/10 hover:bg-muted/50 transition-colors ${i % 2 === 1 ? 'bg-muted/20' : ''}`}
+            style={{ '--i': Math.min(i, 15) } as React.CSSProperties}
           >
             <div className="min-w-0 flex-1">
               <span className="text-xs font-mono text-foreground truncate block">
@@ -473,7 +476,7 @@ export default function SankeyFlow() {
   if (error && !data) {
     return (
       <div className="flex flex-col items-center justify-center gap-3" style={{ height: 'calc(100vh - 3rem)' }}>
-        <AlertCircle className="w-8 h-8 text-[var(--bp-fault)]" />
+        <AlertCircle className="w-8 h-8 text-[var(--bp-fault)] gs-float" />
         <p className="text-sm text-[var(--bp-fault)]">{error}</p>
         <button
           onClick={refresh}
@@ -490,7 +493,7 @@ export default function SankeyFlow() {
   if (!data || sourceList.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground/40" style={{ height: 'calc(100vh - 3rem)' }}>
-        <AlertCircle className="w-10 h-10" />
+        <AlertCircle className="w-10 h-10 gs-float" />
         <p className="text-sm">No entity data available</p>
       </div>
     );
@@ -499,7 +502,7 @@ export default function SankeyFlow() {
   const hasHoverState = hoveredNode !== null || hoveredLink !== null;
 
   return (
-    <div className="flex flex-col relative" style={{ backgroundColor: 'var(--bp-canvas, #F4F2ED)', height: 'calc(100vh - 3rem)' }}>
+    <div className="flex flex-col relative gs-page-enter" style={{ backgroundColor: 'var(--bp-canvas, #F4F2ED)', height: 'calc(100vh - 3rem)' }}>
       {/* Title bar */}
       <div className="flex-shrink-0 px-6 py-4 flex items-center justify-between z-10" style={{ borderBottom: '1px solid var(--bp-border-subtle)', background: 'var(--bp-surface-1)' }}>
         <div>
@@ -787,6 +790,12 @@ export default function SankeyFlow() {
           </g>
         </svg>
       </div>
+
+      {/* Slide-out source panel */}
+      {/* Backdrop overlay for slide-out panel */}
+      {selectedSource && (
+        <div className="gs-modal-backdrop fixed inset-0 z-[299]" />
+      )}
 
       {/* Slide-out source panel */}
       {selectedSource && (

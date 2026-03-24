@@ -749,7 +749,7 @@ export default function FlowExplorer() {
   const narrative = selectedFlow ? buildNarrative(selectedFlow) : [];
 
   return (
-    <div className="flex flex-col h-[calc(100vh-48px)]">
+    <div className="flex flex-col h-[calc(100vh-48px)] gs-page-enter">
       {/* CSS Animations */}
       <style>{`
         @keyframes flowRight {
@@ -970,7 +970,7 @@ export default function FlowExplorer() {
           {/* Source Groups */}
           {filteredGroups.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-              <Layers className="w-12 h-12 opacity-20 mb-3" />
+              <Layers className="w-12 h-12 opacity-20 mb-3 gs-float" />
               <p className="text-sm">
                 {searchQuery ? "No tables match your search." : "No data sources registered yet."}
               </p>
@@ -980,15 +980,16 @@ export default function FlowExplorer() {
             </div>
           ) : (
             <div className="space-y-1">
-              {filteredGroups.map((group) => {
+              {filteredGroups.map((group, groupIndex) => {
                 const isExpanded = expandedSources.has(group.dataSourceName);
                 const isSelected = selectedFlow?.dataSourceName === group.dataSourceName;
                 const isDimmed = selectedFlow && !isSelected;
 
                 return (
-                  <div key={group.dataSourceName} className={`lane-row rounded-lg border transition-all duration-300 ${
+                  <div key={group.dataSourceName} className={`gs-stagger-card lane-row rounded-lg border transition-all duration-300 ${
                     isDimmed ? "opacity-[0.12] border-border/20" : "border-border/50"
-                  } ${isSelected && !selectedFlow ? "border-primary/30 bg-primary/[0.02]" : ""}`}>
+                  } ${isSelected && !selectedFlow ? "border-primary/30 bg-primary/[0.02]" : ""}`}
+                    style={{ '--i': groupIndex } as React.CSSProperties}>
                     {/* Source Header Row */}
                     <div
                       className="flex items-center gap-0 px-2 py-2.5 cursor-pointer hover:bg-muted/50 rounded-t-lg"
@@ -1105,20 +1106,28 @@ export default function FlowExplorer() {
                           </div>
                         )}
 
-                        {visibleFlows.map((flow) => {
+                        {visibleFlows.map((flow, flowIndex) => {
                           const isFlowSelected = selectedFlow?.id === flow.id;
                           const isFlowDimmed = selectedFlow && !isFlowSelected;
+                          const statusRailColor = flow.maxLayer === "gold" ? "var(--bp-operational-green, var(--bp-operational))"
+                            : flow.maxLayer === "silver" ? "var(--bp-silver, #78716C)"
+                            : flow.maxLayer === "bronze" ? "var(--bp-copper, #B45624)"
+                            : "var(--bp-ink-muted, #A8A29E)";
 
                           return (
                             <div
                               key={flow.id}
-                              className={`lane-row flex items-center gap-0 px-2 py-1.5 cursor-pointer border-b border-border/10 last:border-b-0 transition-all duration-300 ${
+                              className={`gs-stagger-row gs-row-hover lane-row flex items-center gap-0 px-2 py-1.5 cursor-pointer border-b border-border/10 last:border-b-0 transition-all duration-300 ${
                                 isFlowSelected
                                   ? "bg-primary/[0.04]"
                                   : isFlowDimmed
                                     ? "opacity-[0.12]"
-                                    : "hover:bg-muted/40"
+                                    : flowIndex % 2 === 1 ? "bg-muted/[0.03]" : ""
                               }`}
+                              style={{
+                                '--i': Math.min(flowIndex, 15),
+                                borderLeft: `3px solid ${statusRailColor}`,
+                              } as React.CSSProperties}
                               onClick={() => isFlowSelected ? clearSelection() : selectEntity(flow)}
                             >
                               {/* Indent spacer */}
