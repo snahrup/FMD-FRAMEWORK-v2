@@ -37,7 +37,8 @@ interface KPIRowProps {
 }
 
 function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
+  if (!Number.isFinite(ms) || ms < 0) return "0ms";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
   const secs = Math.floor(ms / 1000);
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
@@ -47,7 +48,7 @@ function formatDuration(ms: number): string {
 
 export default function KPIRow({ testsPassing, testsTotal, iterations, maxIterations, duration, filesChanged, linesChanged, status }: KPIRowProps) {
   const allPassing = testsPassing === testsTotal && testsTotal > 0;
-  const passColor = allPassing ? "bg-[var(--cl-success)]" : testsPassing > 0 ? "bg-[var(--cl-warning)]" : "bg-[var(--cl-error)]";
+  const passColor = allPassing ? "bg-[var(--bp-operational)]" : testsPassing > 0 ? "bg-[var(--bp-caution)]" : "bg-[var(--bp-fault)]";
 
   return (
     <div className="space-y-3">
@@ -67,7 +68,7 @@ export default function KPIRow({ testsPassing, testsTotal, iterations, maxIterat
           icon={RefreshCw}
           label="Iterations"
           value={`${iterations}/${maxIterations}`}
-          color="bg-[var(--cl-info)]"
+          color="bg-[var(--bp-info)]"
         />
         <KPICard
           icon={Clock}
@@ -79,7 +80,7 @@ export default function KPIRow({ testsPassing, testsTotal, iterations, maxIterat
           icon={FileCode}
           label="Files Changed"
           value={filesChanged}
-          color="bg-[var(--cl-warning)]"
+          color="bg-[var(--bp-caution)]"
         />
         <KPICard
           icon={GitBranch}

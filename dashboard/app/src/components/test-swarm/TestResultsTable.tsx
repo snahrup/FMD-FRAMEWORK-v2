@@ -16,9 +16,9 @@ interface TestResultsTableProps {
 }
 
 const STATUS_ICON = {
-  passed: { icon: CheckCircle2, color: "text-[var(--cl-success)]" },
-  failed: { icon: XCircle, color: "text-[var(--cl-error)]" },
-  error: { icon: XCircle, color: "text-[var(--cl-error)]" },
+  passed: { icon: CheckCircle2, color: "text-[var(--bp-operational)]" },
+  failed: { icon: XCircle, color: "text-[var(--bp-fault)]" },
+  error: { icon: XCircle, color: "text-[var(--bp-fault)]" },
   skipped: { icon: MinusCircle, color: "text-muted-foreground" },
 };
 
@@ -30,6 +30,7 @@ function TestRow({ test }: { test: TestResult }) {
     <div className="border-b border-border/20 last:border-0">
       <button
         onClick={() => test.error && setExpanded(!expanded)}
+        aria-expanded={test.error ? expanded : undefined}
         className={cn(
           "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
           test.error ? "cursor-pointer hover:bg-muted/50" : "cursor-default"
@@ -50,7 +51,7 @@ function TestRow({ test }: { test: TestResult }) {
 
       {expanded && test.error && (
         <div className="px-3 pb-3 pl-10">
-          <pre className="text-xs text-[var(--cl-error)] bg-[var(--cl-error)]/5 rounded-[var(--radius)] p-3 overflow-x-auto font-mono whitespace-pre-wrap max-h-[200px] overflow-y-auto">
+          <pre className="text-xs text-[var(--bp-fault)] bg-[var(--bp-fault)]/5 rounded-[var(--radius)] p-3 overflow-x-auto font-mono whitespace-pre-wrap max-h-[200px] overflow-y-auto">
             {test.error}
           </pre>
         </div>

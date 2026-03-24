@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { cn } from "@/lib/utils";
 import { RefreshCw, History } from "lucide-react";
 import KPIRow from "@/components/test-swarm/KPIRow";
 import RunTimeline, { type TimelineNode } from "@/components/test-swarm/RunTimeline";
@@ -205,6 +204,7 @@ export default function TestSwarm() {
             <button
               key={run.runId}
               onClick={() => setSelectedRunId(run.runId)}
+              aria-pressed={selectedRunId === run.runId}
               className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap"
               style={selectedRunId === run.runId
                 ? { background: 'var(--bp-copper-light)', color: 'var(--bp-copper)', border: '1px solid var(--bp-copper)' }
