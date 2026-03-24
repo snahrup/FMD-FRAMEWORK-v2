@@ -601,6 +601,61 @@
   100% { background-position: 200% 0; }
 }
 
+/* ── Gold Studio Modernization Animations ── */
+@keyframes gsSlideInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes gsSlideInDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes gsFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes gsScaleIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes gsFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.gs-page-enter {
+  animation: gsSlideInUp 400ms var(--ease-claude) both;
+}
+.gs-stagger-card {
+  animation: gsSlideInUp 300ms var(--ease-claude) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+.gs-stagger-row {
+  animation: gsFadeIn 200ms var(--ease-claude) both;
+  animation-delay: calc(var(--i, 0) * 20ms);
+}
+.gs-hero-enter {
+  animation: gsSlideInDown 300ms var(--ease-claude) both;
+  animation-delay: calc(var(--i, 0) * 80ms);
+}
+.gs-modal-enter {
+  animation: gsScaleIn 250ms var(--ease-claude) both;
+}
+.gs-float {
+  animation: gsFloat 3s ease-in-out infinite;
+}
+.gs-modal-backdrop {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.gs-row-hover {
+  transition: transform 150ms var(--ease-claude), border-color 150ms var(--ease-claude);
+}
+.gs-row-hover:hover {
+  transform: translateY(-1px);
+  border-color: var(--bp-border-strong) !important;
+}
+
 /* BP Card */
 .bp-card {
   background: var(--bp-surface-1);

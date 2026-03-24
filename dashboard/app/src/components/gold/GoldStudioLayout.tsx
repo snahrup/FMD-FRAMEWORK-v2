@@ -126,18 +126,18 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
           {/* Domain summary strip (when domain selected) */}
           {showPanel && domainDetail && <DomainSummaryStrip domain={domainDetail} onClose={() => setShowPanel(false)} />}
 
-          {/* Tab strip */}
+          {/* Tab strip — premium treatment */}
           <nav className="flex px-6 gap-1" style={{ borderBottom: "1px solid var(--bp-border)" }}>
             {TABS.map((tab) => {
               const isActive = tab.id === activeTab || location.pathname === tab.path;
               return (
                 <Link
                   key={tab.id} to={tab.path}
-                  className={cn("pb-2 px-2.5 text-center transition-colors relative", isActive ? "text-[var(--bp-copper)]" : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-secondary)]")}
-                  style={{ ...bf, fontWeight: 500, fontSize: 13 }}
+                  className={cn("pb-2.5 px-3 text-center transition-all relative", isActive ? "text-[var(--bp-copper)]" : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-secondary)]")}
+                  style={{ ...bf, fontWeight: isActive ? 700 : 500, fontSize: 14 }}
                 >
                   {tab.label}
-                  {isActive && <span className="absolute bottom-0 left-0 right-0" style={{ height: 2, background: "var(--bp-copper)", borderRadius: "1px 1px 0 0" }} />}
+                  {isActive && <span className="absolute bottom-0 left-0 right-0" style={{ height: 2.5, background: "var(--bp-copper)", borderRadius: "1.5px 1.5px 0 0", transition: "all 200ms var(--ease-claude)" }} />}
                 </Link>
               );
             })}
@@ -145,7 +145,7 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
         </div>
 
         {/* Page content */}
-        <div className="px-6 pt-4">{children}</div>
+        <div className="gs-page-enter px-6 pt-4">{children}</div>
 
         {/* Toast */}
         {toast && <GoldToast message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />}
