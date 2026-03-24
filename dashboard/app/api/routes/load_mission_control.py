@@ -56,6 +56,29 @@ def _int(v) -> int:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/lmc/sources — Fast source list for launch panel
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/lmc/sources")
+def get_lmc_sources(params: dict) -> dict:
+    """Return active sources with entity counts and display names. Fast (~3ms)."""
+    rows = _safe_query(
+        "SELECT ds.Name AS source, ds.DisplayName AS display_name, COUNT(*) AS entity_count "
+        "FROM lz_entities le "
+        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
+        "WHERE le.IsActive = 1 "
+        "GROUP BY ds.Name, ds.DisplayName ORDER BY ds.DisplayName, ds.Name"
+    )
+    return {
+        "sources": [{
+            "name": r["source"],
+            "displayName": r["display_name"] or r["source"],
+            "entityCount": _int(r["entity_count"]),
+        } for r in rows],
+    }
+
+
+# ---------------------------------------------------------------------------
 # GET /api/lmc/progress — Enhanced overall progress
 # ---------------------------------------------------------------------------
 

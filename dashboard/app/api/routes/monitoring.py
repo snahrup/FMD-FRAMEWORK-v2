@@ -94,9 +94,9 @@ def get_live_monitor(params: dict) -> dict:
 
     # Processing counts from entity tables
     try:
-        lz_total = db.query("SELECT COUNT(*) AS cnt FROM lz_entities")
-        brz_total = db.query("SELECT COUNT(*) AS cnt FROM bronze_entities")
-        slv_total = db.query("SELECT COUNT(*) AS cnt FROM silver_entities")
+        lz_total = db.query("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive = 1")
+        brz_total = db.query("SELECT COUNT(*) AS cnt FROM bronze_entities WHERE IsActive = 1")
+        slv_total = db.query("SELECT COUNT(*) AS cnt FROM silver_entities WHERE IsActive = 1")
 
         # Processed counts from engine_task_log (the ONLY trustworthy source)
         status_rows = _safe_query(

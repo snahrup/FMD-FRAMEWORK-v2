@@ -68,10 +68,10 @@
   --color-claude-green: oklch(0.58 0.1 145);
 
   /* --- Typography (Phase 3/4) --- */
-  --font-sans: 'Outfit', system-ui, sans-serif;
-  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-sans: 'Manrope', system-ui, sans-serif;
+  --font-display: 'Manrope', system-ui, sans-serif;
   --font-serif: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-mono: 'Manrope', system-ui, sans-serif;
 
   /* --- Animation (Phase 7) --- */
   --ease-claude: cubic-bezier(0.25, 0.1, 0.25, 1);
@@ -535,9 +535,9 @@
   --bp-code-block: #2B2A27;
 
   /* BP Typography */
-  --bp-font-display: 'Instrument Serif', Georgia, serif;
-  --bp-font-body: 'Outfit', system-ui, sans-serif;
-  --bp-font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --bp-font-display: 'Manrope', system-ui, sans-serif;
+  --bp-font-body: 'Manrope', system-ui, sans-serif;
+  --bp-font-mono: 'Manrope', system-ui, sans-serif;
 
   /* BP Spacing scale — 4px base */
   --bp-space-1: 4px;
