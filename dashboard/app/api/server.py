@@ -229,11 +229,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # Audit artifacts need raw binary serving (not JSON dispatch)
             if path.startswith("/api/audit/artifacts/"):
                 parts = path.split("/")
-                # /api/audit/artifacts/{runId}/{testDir}/{fn} => 6 parts
-                if len(parts) >= 6:
+                # /api/audit/artifacts/{runId}/{testDir}/{fn} => exactly 7 parts
+                # ["", "api", "audit", "artifacts", runId, testDir, fn]
+                if len(parts) == 7:
                     from dashboard.app.api.routes.test_audit import serve_audit_artifact
                     run_id = parts[4]
-                    test_dir = "/".join(parts[5:-1])  # testDir could have slashes
+                    test_dir = parts[5]
                     fn = parts[-1]
                     if serve_audit_artifact(self, run_id, test_dir, fn):
                         return

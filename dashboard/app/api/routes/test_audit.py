@@ -171,9 +171,12 @@ def serve_audit_artifact(handler, run_id: str, test_dir: str, filename: str) -> 
     Called from server.py do_GET for paths matching /api/audit/artifacts/*.
     Returns True if the file was served, False otherwise.
     """
-    # Validate path components — no path traversal
+    # Validate path components — no path traversal or encoded traversal
     for component in (run_id, test_dir, filename):
-        if ".." in component or "/" in component or "\\" in component:
+        if not component or ".." in component or "/" in component or "\\" in component:
+            return False
+        # Reject null bytes and control characters
+        if any(ord(c) < 32 for c in component):
             return False
 
     file_path = _HISTORY_DIR / run_id / test_dir / filename
@@ -182,7 +185,7 @@ def serve_audit_artifact(handler, run_id: str, test_dir: str, filename: str) -> 
     try:
         file_path.resolve().relative_to(_HISTORY_DIR.resolve())
     except ValueError:
-        log.exception("Artifact path escapes history directory: %s", file_path)
+        log.warning("Artifact path escapes history directory: %s", file_path)
         return False
 
     if not file_path.is_file():
