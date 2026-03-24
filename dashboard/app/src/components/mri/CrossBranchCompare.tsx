@@ -89,11 +89,11 @@ export default function CrossBranchCompare({ runs, selectedRunId, onSelectRun }:
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/30">
-              <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Run</th>
-              <th className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Status</th>
-              <th className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Tests</th>
-              <th className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Visual</th>
-              <th className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Duration</th>
+              <th scope="col" className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Run</th>
+              <th scope="col" className="text-left px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Status</th>
+              <th scope="col" className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Tests</th>
+              <th scope="col" className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Visual</th>
+              <th scope="col" className="text-right px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">Duration</th>
             </tr>
           </thead>
           <tbody>

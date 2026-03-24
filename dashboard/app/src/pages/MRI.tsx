@@ -107,7 +107,7 @@ export default function MRI() {
                   </div>
                   <div className="flex items-center gap-3 mt-0.5">
                     {/* Progress dots */}
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1" role="progressbar" aria-label="Scan progress" aria-valuenow={SCAN_PHASES.filter(p => mri.scanElapsed >= p.after).length} aria-valuemin={0} aria-valuemax={SCAN_PHASES.length}>
                       {SCAN_PHASES.map((p, i) => (
                         <div
                           key={i}
@@ -160,13 +160,13 @@ export default function MRI() {
               Machine Regression Intelligence
             </Badge>
             {mri.scanning && (
-              <Badge className="gap-1.5 animate-pulse" style={{ background: 'var(--bp-copper)', color: '#fff' }}>
+              <Badge className="gap-1.5 animate-pulse" style={{ background: 'var(--bp-copper)', color: 'var(--bp-surface-1)' }}>
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Scanning · {formatElapsed(mri.scanElapsed)}
               </Badge>
             )}
             {!mri.scanning && mri.status?.active && (
-              <Badge className="gap-1 animate-pulse" style={{ background: 'var(--bp-operational)', color: '#fff' }}>
+              <Badge className="gap-1 animate-pulse" style={{ background: 'var(--bp-operational)', color: 'var(--bp-surface-1)' }}>
                 <Activity className="h-3 w-3" />
                 Running
               </Badge>
@@ -203,10 +203,14 @@ export default function MRI() {
       </div>
 
       {/* Tab bar — BP chip/toggle pattern */}
-      <div className="flex items-center gap-2 pb-1" style={{ borderBottom: '1px solid var(--bp-border)' }}>
+      <div className="flex items-center gap-2 pb-1" role="tablist" aria-label="MRI dashboard sections" style={{ borderBottom: '1px solid var(--bp-border)' }}>
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
+            role="tab"
+            aria-selected={activeTab === id}
+            aria-controls={`mri-tabpanel-${id}`}
+            id={`mri-tab-${id}`}
             onClick={() => setActiveTab(id)}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors cursor-pointer rounded-md"
             style={activeTab === id
@@ -230,7 +234,7 @@ export default function MRI() {
 
       {/* Tab content */}
       {activeTab === "overview" && (
-        <div className="space-y-6">
+        <div className="space-y-6" role="tabpanel" id="mri-tabpanel-overview" aria-labelledby="mri-tab-overview">
           <UnifiedKPIRow
             summary={latestSummary}
             visualDiffs={mri.visualDiffs}
@@ -274,7 +278,7 @@ export default function MRI() {
       )}
 
       {activeTab === "visual" && (
-        <div className="space-y-6">
+        <div className="space-y-6" role="tabpanel" id="mri-tabpanel-visual" aria-labelledby="mri-tab-visual">
           {/* Filter row */}
           <div className="flex items-center gap-2">
             {(["all", "mismatch", "new", "match"] as const).map((f) => (
@@ -341,7 +345,7 @@ export default function MRI() {
       )}
 
       {activeTab === "backend" && (
-        <div className="space-y-6">
+        <div className="space-y-6" role="tabpanel" id="mri-tabpanel-backend" aria-labelledby="mri-tab-backend">
           <div className="flex items-center justify-between">
             <h3 style={{ fontFamily: 'var(--bp-font-body)', fontWeight: 600, fontSize: 18, color: 'var(--bp-ink-primary)' }}>API Test Results</h3>
             <Button variant="outline" size="sm" onClick={mri.triggerApiTests} className="gap-1.5">

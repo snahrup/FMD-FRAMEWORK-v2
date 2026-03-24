@@ -110,11 +110,11 @@ export default function VisualDiffViewer({ diff, analysis, runId }: Props) {
 
           {/* Zoom */}
           <div className="ml-2 flex items-center gap-1 border-l border-border pl-2">
-            <button onClick={() => setZoom(z => Math.max(0.25, z - 0.25))} className="p-1 rounded hover:bg-accent cursor-pointer">
+            <button onClick={() => setZoom(z => Math.max(0.25, z - 0.25))} aria-label="Zoom out" className="p-1 rounded hover:bg-accent cursor-pointer">
               <ZoomOut className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
             <span className="text-xs text-muted-foreground w-10 text-center">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom(z => Math.min(4, z + 0.25))} className="p-1 rounded hover:bg-accent cursor-pointer">
+            <button onClick={() => setZoom(z => Math.min(4, z + 0.25))} aria-label="Zoom in" className="p-1 rounded hover:bg-accent cursor-pointer">
               <ZoomIn className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
           </div>
@@ -173,6 +173,7 @@ export default function VisualDiffViewer({ diff, analysis, runId }: Props) {
           <div>
             <div
               ref={sliderRef}
+              aria-label="Drag to compare baseline and actual screenshots"
               className="relative rounded-[var(--radius-md)] border border-border overflow-hidden cursor-col-resize select-none"
               onMouseDown={() => { isDragging.current = true; }}
               onMouseUp={() => { isDragging.current = false; }}
@@ -246,6 +247,7 @@ export default function VisualDiffViewer({ diff, analysis, runId }: Props) {
                 max={100}
                 value={opacity}
                 onChange={(e) => setOpacity(Number(e.target.value))}
+                aria-label="Onion skin opacity"
                 className="flex-1 accent-primary"
               />
               <span className="text-xs text-muted-foreground">Actual</span>
