@@ -338,3 +338,78 @@ def get_classification_data(params: dict) -> dict:
         "pages": max(1, (total + size - 1) // size),
         "items": items,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/classification/entity/{entity_id}/columns
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/classification/entity/{entity_id}/columns")
+def get_entity_columns(params, body, headers):
+    """Column-level classification detail for a specific entity."""
+    entity_id = params.get("entity_id")
+    if not entity_id:
+        raise HttpError(400, "entity_id is required")
+
+    conn = cpdb.get_connection()
+    rows = conn.execute("""
+        SELECT cm.column_name, cm.data_type, cm.ordinal_position, cm.is_nullable,
+               cc.sensitivity_level, cc.classified_by, cc.confidence, cc.pii_entities,
+               cc.classified_at
+        FROM column_metadata cm
+        LEFT JOIN column_classifications cc
+            ON cm.entity_id = cc.entity_id
+           AND cm.layer = cc.layer
+           AND cm.column_name = cc.column_name
+        WHERE cm.entity_id = ? AND cm.layer = 'landing'
+        ORDER BY cm.ordinal_position
+    """, (entity_id,)).fetchall()
+
+    return {
+        "entity_id": int(entity_id),
+        "columns": [
+            {
+                "column_name": r[0],
+                "data_type": r[1],
+                "ordinal_position": r[2],
+                "is_nullable": bool(r[3]),
+                "sensitivity_level": r[4] or "public",
+                "classified_by": r[5],
+                "confidence": r[6],
+                "pii_entities": r[7],
+                "classified_at": r[8],
+            }
+            for r in rows
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /api/classification/entity/{entity_id}/override
+# ---------------------------------------------------------------------------
+
+@route("POST", "/api/classification/entity/{entity_id}/override")
+def override_classification(params, body, headers):
+    """Manual sensitivity override for a column."""
+    entity_id = params.get("entity_id")
+    column_name = body.get("column_name")
+    new_level = body.get("sensitivity_level")
+
+    if not entity_id or not column_name or not new_level:
+        raise HttpError(400, "entity_id, column_name, and sensitivity_level are required")
+
+    _VALID_LEVELS = {"public", "internal", "confidential", "restricted", "pii"}
+    if new_level not in _VALID_LEVELS:
+        raise HttpError(400, f"Invalid sensitivity level: {new_level}")
+
+    conn = cpdb.get_connection()
+    conn.execute("""
+        INSERT INTO column_classifications (entity_id, layer, column_name, sensitivity_level, classified_by, confidence)
+        VALUES (?, 'landing', ?, ?, 'manual', 1.0)
+        ON CONFLICT(entity_id, layer, column_name)
+        DO UPDATE SET sensitivity_level = ?, classified_by = 'manual', confidence = 1.0,
+                      classified_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
+    """, (entity_id, column_name, new_level, new_level))
+    conn.commit()
+
+    return {"status": "ok", "entity_id": int(entity_id), "column_name": column_name, "sensitivity_level": new_level}

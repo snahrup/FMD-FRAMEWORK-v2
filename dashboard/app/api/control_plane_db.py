@@ -471,6 +471,50 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_sv_run ON schema_validations(run_id);
             CREATE INDEX IF NOT EXISTS idx_sv_entity ON schema_validations(entity_id);
 
+            -- Classification → Purview mapping (Packet D) --------------------
+
+            CREATE TABLE IF NOT EXISTS classification_type_mappings (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                internal_type   TEXT NOT NULL UNIQUE,
+                purview_type    TEXT NOT NULL,
+                sensitivity_label TEXT NOT NULL DEFAULT 'General',
+                description     TEXT,
+                is_active       INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS purview_sync_log (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                sync_id                 TEXT NOT NULL,
+                direction               TEXT NOT NULL DEFAULT 'push',
+                status                  TEXT NOT NULL DEFAULT 'pending',
+                entities_synced         INTEGER DEFAULT 0,
+                classifications_synced  INTEGER DEFAULT 0,
+                started_at              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                completed_at            TEXT,
+                error                   TEXT
+            );
+
+            -- Seed Presidio → Purview mappings if table is empty
+            INSERT OR IGNORE INTO classification_type_mappings (internal_type, purview_type, sensitivity_label, description) VALUES
+                ('PERSON',          'MICROSOFT.PERSONAL.NAME',          'Confidential', 'Person name (first, last, full)'),
+                ('EMAIL_ADDRESS',   'MICROSOFT.PERSONAL.EMAIL',         'Confidential', 'Email address'),
+                ('PHONE_NUMBER',    'MICROSOFT.PERSONAL.PHONE_NUMBER',  'Confidential', 'Phone number'),
+                ('US_SSN',          'MICROSOFT.PERSONAL.US.SSN',        'Highly Confidential', 'US Social Security Number'),
+                ('CREDIT_CARD',     'MICROSOFT.FINANCIAL.CREDIT_CARD_NUMBER', 'Highly Confidential', 'Credit card number'),
+                ('US_DRIVER_LICENSE','MICROSOFT.PERSONAL.US.DRIVER_LICENSE_NUMBER', 'Highly Confidential', 'US driver license'),
+                ('DATE_TIME',       'MICROSOFT.PERSONAL.DATE_OF_BIRTH', 'Confidential', 'Date/time (may be DOB)'),
+                ('LOCATION',        'MICROSOFT.PERSONAL.ADDRESS',       'Confidential', 'Physical address or location'),
+                ('IP_ADDRESS',      'MICROSOFT.PERSONAL.IP_ADDRESS',    'General',  'IP address'),
+                ('US_BANK_NUMBER',  'MICROSOFT.FINANCIAL.US.BANK_ACCOUNT_NUMBER', 'Highly Confidential', 'US bank account number'),
+                ('IBAN_CODE',       'MICROSOFT.FINANCIAL.IBAN',         'Highly Confidential', 'International Bank Account Number'),
+                ('NRP',             'MICROSOFT.PERSONAL.NAME',          'Confidential', 'Nationality/religious/political group'),
+                ('MEDICAL_LICENSE', 'MICROSOFT.PERSONAL.US.MEDICAL_LICENSE_NUMBER', 'Highly Confidential', 'Medical license number'),
+                ('US_PASSPORT',     'MICROSOFT.PERSONAL.US.PASSPORT_NUMBER', 'Highly Confidential', 'US passport number'),
+                ('pii',             'MICROSOFT.PERSONAL.NAME',          'Confidential', 'Generic PII (pattern match)'),
+                ('restricted',      'MICROSOFT.PERSONAL.ALL',           'Highly Confidential', 'Restricted data'),
+                ('confidential',    'MICROSOFT.FINANCIAL.ALL',          'Confidential', 'Confidential business data'),
+                ('internal',        'MICROSOFT.GENERAL',                'General', 'Internal business data');
+
             -- =================================================================
             -- Gold Studio tables (19 tables, gs_ prefix)
             -- =================================================================
