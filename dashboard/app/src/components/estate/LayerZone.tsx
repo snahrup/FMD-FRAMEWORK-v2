@@ -41,7 +41,7 @@ export function LayerZone({
   const hasData = loaded > 0;
 
   // Coverage ring (SVG)
-  const radius = 18;
+  const radius = 16;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (coveragePct / 100) * circumference;
 
@@ -50,104 +50,117 @@ export function LayerZone({
       onClick={() => navigate(NAV_MAP[layerKey] || "/load-center")}
       className="estate-layer-zone group relative rounded-xl border text-left transition-all w-full"
       style={{
-        animationDelay: `${300 + index * 80}ms`,
+        "--i": index,
+        animation: `fadeIn 400ms calc(300ms + var(--i) * 80ms) var(--ease-claude) both`,
         background: isGhost ? "transparent" : "var(--bp-surface-1)",
         borderColor: isGhost ? "var(--bp-border)" : "var(--bp-border-strong)",
         borderStyle: isGhost ? "dashed" : "solid",
         opacity: isGhost ? 0.4 : 1,
-      }}
+      } as React.CSSProperties}
     >
       {/* Status rail */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl"
+        className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl transition-colors"
         style={{
           background: failed > 0 ? "var(--bp-fault)" : hasData ? colors.accent : "var(--bp-border)",
         }}
       />
 
-      <div className="pl-4 pr-3 py-3">
-        {/* Header: badge + name */}
-        <div className="flex items-center gap-2.5 mb-2">
-          {/* Layer badge */}
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold tracking-wider"
-            style={{
-              background: isGhost ? "var(--bp-border)" : colors.bg,
-              color: isGhost ? "var(--bp-ink-muted)" : colors.accent,
-            }}
-          >
-            {colors.label}
-          </div>
-          <div>
+      {/* Hover state */}
+      <style>{`
+        .estate-layer-zone:not([style*="dashed"]):hover {
+          background: var(--bp-surface-inset) !important;
+          border-color: ${colors.accent} !important;
+        }
+      `}</style>
+
+      <div className="pl-4 pr-3 py-2.5 flex items-center gap-3">
+        {/* Left: badge + name + stats */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2.5 mb-1">
+            {/* Layer badge */}
             <div
-              className="text-xs font-semibold"
-              style={{ color: isGhost ? "var(--bp-ink-muted)" : "var(--bp-ink-primary)" }}
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-bold tracking-wider flex-shrink-0"
+              style={{
+                background: isGhost ? "var(--bp-border)" : colors.bg,
+                color: isGhost ? "var(--bp-ink-muted)" : colors.accent,
+              }}
             >
-              {name}
+              {colors.label}
             </div>
-            <div className="text-[10px]" style={{ color: "var(--bp-ink-tertiary)" }}>
-              {registered} registered
+            <div className="min-w-0">
+              <div
+                className="text-xs font-semibold truncate"
+                style={{
+                  color: isGhost ? "var(--bp-ink-muted)" : "var(--bp-ink-primary)",
+                  fontFamily: "var(--bp-font-display)",
+                }}
+              >
+                {name}
+              </div>
+              <div className="text-[10px] tabular-nums" style={{ color: "var(--bp-ink-tertiary)" }}>
+                {registered.toLocaleString()} registered
+              </div>
             </div>
           </div>
 
-          {/* Coverage ring */}
-          {!isGhost && (
-            <div className="ml-auto flex-shrink-0">
-              <svg width="44" height="44" viewBox="0 0 44 44">
-                <circle
-                  cx="22" cy="22" r={radius}
-                  fill="none"
-                  stroke="var(--bp-border)"
-                  strokeWidth="3"
-                />
-                <circle
-                  cx="22" cy="22" r={radius}
-                  fill="none"
-                  stroke={colors.accent}
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={offset}
-                  transform="rotate(-90 22 22)"
-                  style={{ transition: "stroke-dashoffset 0.8s var(--ease-claude)" }}
-                />
-                <text
-                  x="22" y="23" textAnchor="middle" dominantBaseline="central"
-                  fill="var(--bp-ink-secondary)"
-                  fontSize="9" fontWeight="600"
-                  fontFamily="var(--bp-font-body)"
-                >
-                  {Math.round(coveragePct)}%
-                </text>
-              </svg>
+          {/* Stats row */}
+          {hasData && (
+            <div className="flex items-center gap-3 text-[10px] pl-[38px]" style={{ color: "var(--bp-ink-tertiary)" }}>
+              <span className="tabular-nums">
+                <strong style={{ color: "var(--bp-operational)" }}>{loaded.toLocaleString()}</strong> loaded
+              </span>
+              {failed > 0 && (
+                <span className="tabular-nums">
+                  <strong style={{ color: "var(--bp-fault)" }}>{failed}</strong> failed
+                </span>
+              )}
+              {lastLoad && (
+                <span className="tabular-nums" style={{ color: "var(--bp-ink-muted)" }}>
+                  {new Date(lastLoad).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                </span>
+              )}
+            </div>
+          )}
+
+          {isGhost && (
+            <div className="text-[10px] mt-0.5 pl-[38px] italic" style={{ color: "var(--bp-ink-muted)" }}>
+              Awaiting first load
             </div>
           )}
         </div>
 
-        {/* Stats */}
-        {hasData && (
-          <div className="flex items-center gap-3 text-[10px]" style={{ color: "var(--bp-ink-tertiary)" }}>
-            <span className="tabular-nums">
-              <strong style={{ color: "var(--bp-operational)" }}>{loaded}</strong> loaded
-            </span>
-            {failed > 0 && (
-              <span className="tabular-nums">
-                <strong style={{ color: "var(--bp-fault)" }}>{failed}</strong> failed
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Last load */}
-        {lastLoad && (
-          <div className="text-[9px] mt-1 tabular-nums" style={{ color: "var(--bp-ink-muted)" }}>
-            {new Date(lastLoad).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-          </div>
-        )}
-
-        {isGhost && (
-          <div className="text-[10px] mt-1" style={{ color: "var(--bp-ink-muted)" }}>
-            Awaiting first load
+        {/* Right: coverage ring */}
+        {!isGhost && (
+          <div className="flex-shrink-0">
+            <svg width="40" height="40" viewBox="0 0 40 40">
+              <circle
+                cx="20" cy="20" r={radius}
+                fill="none"
+                stroke="var(--bp-border)"
+                strokeWidth="2.5"
+              />
+              <circle
+                cx="20" cy="20" r={radius}
+                fill="none"
+                stroke={colors.accent}
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeDasharray={circumference}
+                strokeDashoffset={offset}
+                transform="rotate(-90 20 20)"
+                style={{ transition: "stroke-dashoffset 0.8s var(--ease-claude)" }}
+              />
+              <text
+                x="20" y="21" textAnchor="middle" dominantBaseline="central"
+                fill="var(--bp-ink-secondary)"
+                fontSize="9" fontWeight="600"
+                fontFamily="var(--bp-font-body)"
+                className="tabular-nums"
+              >
+                {Math.round(coveragePct)}%
+              </text>
+            </svg>
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { Server } from "lucide-react";
 
 interface SourceNodeProps {
   name: string;
@@ -6,6 +7,7 @@ interface SourceNodeProps {
   status: "operational" | "degraded" | "offline";
   entityCount: number;
   loadedCount: number;
+  errorCount: number;
   lastRefreshed: string | null;
   index: number;
   isGhost?: boolean;
@@ -23,24 +25,27 @@ export function SourceNode({
   status,
   entityCount,
   loadedCount,
+  errorCount,
   lastRefreshed,
   index,
   isGhost,
 }: SourceNodeProps) {
   const navigate = useNavigate();
   const isLive = !isGhost && status !== "offline";
+  const loadPct = entityCount > 0 ? Math.round((loadedCount / entityCount) * 100) : 0;
 
   return (
     <button
       onClick={() => navigate("/sources")}
       className="estate-source-node group relative w-full text-left rounded-xl border transition-all"
       style={{
-        animationDelay: `${index * 60}ms`,
+        "--i": index,
+        animation: `fadeIn 400ms calc(var(--i) * 60ms) var(--ease-claude) both`,
         background: isGhost ? "transparent" : "var(--bp-surface-1)",
         borderColor: isGhost ? "var(--bp-border)" : "var(--bp-border-strong)",
         borderStyle: isGhost ? "dashed" : "solid",
         opacity: isGhost ? 0.45 : 1,
-      }}
+      } as React.CSSProperties}
     >
       {/* Status rail */}
       <div
@@ -48,38 +53,79 @@ export function SourceNode({
         style={{ background: isLive ? STATUS_COLORS[status] : "var(--bp-border)" }}
       />
 
-      <div className="pl-4 pr-3 py-3">
-        {/* Source name */}
-        <div className="flex items-center gap-2 mb-1">
+      {/* Hover lift */}
+      <style>{`
+        .estate-source-node:hover:not([style*="dashed"]) {
+          background: var(--bp-surface-inset) !important;
+          border-color: var(--bp-copper) !important;
+        }
+      `}</style>
+
+      <div className="pl-4 pr-3 py-2.5">
+        {/* Header row: icon + name + pulse */}
+        <div className="flex items-center gap-2 mb-1.5">
+          <div
+            className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0"
+            style={{
+              background: isGhost ? "var(--bp-border)" : "var(--bp-copper-soft)",
+              color: isGhost ? "var(--bp-ink-muted)" : "var(--bp-copper)",
+            }}
+          >
+            <Server size={12} />
+          </div>
+          <span
+            className="text-[11px] font-semibold tracking-wide uppercase truncate"
+            style={{
+              color: isGhost ? "var(--bp-ink-muted)" : "var(--bp-ink-primary)",
+              fontFamily: "var(--bp-font-display)",
+            }}
+          >
+            {displayName}
+          </span>
           {/* Live pulse */}
           {isLive && (
             <span
-              className="inline-block w-1.5 h-1.5 rounded-full"
+              className="ml-auto inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
               style={{
                 background: STATUS_COLORS[status],
                 animation: status === "operational" ? "pulse-status 2s ease infinite" : undefined,
               }}
             />
           )}
-          <span
-            className="text-xs font-semibold tracking-wide uppercase"
-            style={{ color: isGhost ? "var(--bp-ink-muted)" : "var(--bp-ink-primary)" }}
-          >
-            {displayName}
-          </span>
         </div>
 
+        {/* Progress bar — shows load coverage */}
+        {!isGhost && (
+          <div className="mb-1.5">
+            <div className="h-[3px] rounded-full overflow-hidden" style={{ background: "var(--bp-border)" }}>
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${loadPct}%`,
+                  background: errorCount > 0 ? "var(--bp-caution)" : STATUS_COLORS[status],
+                  transition: "width 0.8s var(--ease-claude)",
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Stats row */}
-        <div className="flex items-baseline gap-3 text-[10px]" style={{ color: "var(--bp-ink-tertiary)" }}>
+        <div className="flex items-baseline gap-2 text-[10px]" style={{ color: "var(--bp-ink-tertiary)" }}>
           <span className="tabular-nums">
             <strong style={{ color: isGhost ? "var(--bp-ink-muted)" : "var(--bp-ink-secondary)" }}>
-              {entityCount}
+              {entityCount.toLocaleString()}
             </strong>{" "}
             entities
           </span>
           {loadedCount > 0 && (
-            <span className="tabular-nums">
-              {loadedCount} loaded
+            <span className="tabular-nums" style={{ color: "var(--bp-operational)" }}>
+              {loadedCount.toLocaleString()}
+            </span>
+          )}
+          {errorCount > 0 && (
+            <span className="tabular-nums" style={{ color: "var(--bp-fault)" }}>
+              {errorCount} err
             </span>
           )}
         </div>
@@ -92,8 +138,8 @@ export function SourceNode({
         )}
 
         {isGhost && (
-          <div className="text-[9px] mt-1" style={{ color: "var(--bp-ink-muted)" }}>
-            Not yet loaded
+          <div className="text-[9px] mt-1 italic" style={{ color: "var(--bp-ink-muted)" }}>
+            Awaiting first load
           </div>
         )}
       </div>
