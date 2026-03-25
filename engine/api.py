@@ -489,7 +489,18 @@ def _handle_status(handler, config: dict) -> None:
         run_info["completed_units"] = _to_int(row.get("CompletedUnits"))
         run_info["resumable"] = row.get("Status") in ("Interrupted", "Aborted", "Failed")
 
+        # Scope truth — from the run record, not optimistic frontend state
+        run_info["source_filter"] = str(row.get("SourceFilter", ""))
+        run_info["entity_filter"] = str(row.get("EntityFilter", ""))
+        run_info["resolved_entity_count"] = _to_int(row.get("ResolvedEntityCount"))
+
         response["last_run"] = run_info
+
+        # If the in-process engine is idle but a worker subprocess is alive
+        # and running (spawned via _spawn_worker), reflect that in top-level status
+        if response["status"] == "idle" and worker_alive:
+            response["status"] = "running"
+            response["current_run_id"] = run_info["run_id"]
 
     handler._json_response(response)
 
@@ -612,6 +623,18 @@ def _handle_start(handler, config: dict, body: dict) -> None:
     layers = body.get("layers")       # list or None
     entity_ids = body.get("entity_ids")  # list or None
     triggered_by = body.get("triggered_by", "dashboard")
+    source_filter = body.get("source_filter") or []
+
+    # SCOPE GUARD: If a source filter was provided but entity_ids resolved to
+    # nothing, hard-reject.  Never let the engine silently widen to "all".
+    if source_filter and (not entity_ids or len(entity_ids) == 0):
+        handler._error_response(
+            f"Source filter specified ({', '.join(source_filter)}) but resolved to 0 entities. "
+            "Refusing to launch — this would load everything. "
+            "Check that the selected sources have active entities in lz_entities.",
+            400,
+        )
+        return
 
     # Plan mode still runs in-process (read-only, fast)
     if mode == "plan":
@@ -634,15 +657,23 @@ def _handle_start(handler, config: dict, body: dict) -> None:
     # Persist entity filter so resume can recover the original scope
     entity_filter_str = ",".join(str(i) for i in entity_ids) if entity_ids else ""
 
+    # Persist source filter and resolved count for scope transparency
+    source_filter = body.get("source_filter") or []
+    source_filter_str = ",".join(source_filter) if source_filter else ""
+    resolved_entity_count = body.get("resolved_entity_count") or (len(entity_ids) if entity_ids else 0)
+
     # Pre-create engine_runs row — API owns this, worker will upsert into it
     _db_execute(
-        "INSERT INTO engine_runs (RunId, Status, Layers, TriggeredBy, EntityFilter, StartedAt) "
-        "VALUES (?, 'InProgress', ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
-        (run_id, layer_str, triggered_by, entity_filter_str),
+        "INSERT INTO engine_runs (RunId, Status, Layers, TriggeredBy, EntityFilter, "
+        "SourceFilter, ResolvedEntityCount, StartedAt) "
+        "VALUES (?, 'InProgress', ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
+        (run_id, layer_str, triggered_by, entity_filter_str,
+         source_filter_str, resolved_entity_count),
     )
 
     _publish_log("info", f"Engine starting: run_id={run_id[:8]}, layers={layer_str}, "
-                 f"entity_ids={'all' if not entity_ids else len(entity_ids)}, "
+                 f"sources={source_filter_str or 'all'}, "
+                 f"entities={resolved_entity_count or 'all'}, "
                  f"triggered_by={triggered_by}")
 
     # Build worker args

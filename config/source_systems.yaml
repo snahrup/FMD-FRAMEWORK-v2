@@ -19,6 +19,18 @@ gateway_connections:
     metadata_type: SQL
     description: "M3 Cloud (DI_PRD_Staging) on sql2016live via on-prem gateway"
     cred_type: Basic
+  CON_FMD_M3DB2_XRITE10:
+    metadata_type: SQL
+    description: "XRite10 on M3-Db2 via on-prem gateway"
+    cred_type: Basic
+  CON_FMD_M3DB3_SYSAID:
+    metadata_type: SQL
+    description: "SysAid (sysaid) on M3-DB3 via on-prem gateway"
+    cred_type: Basic
+  CON_FMD_M3DB3_SCHEDULING55:
+    metadata_type: SQL
+    description: "Scheduling55 on M3-DB3 via on-prem gateway"
+    cred_type: Basic
 
 datasources:
   MES:
@@ -45,3 +57,21 @@ datasources:
     target_schema: m3
     type: SQL
     description: "M3 ERP production database"
+  XRite10:
+    connection: CON_FMD_M3DB2_XRITE10
+    namespace: dbo
+    target_schema: xrite
+    type: SQL
+    description: "XRite10 color management database on M3-Db2"
+  sysaid:
+    connection: CON_FMD_M3DB3_SYSAID
+    namespace: dbo
+    target_schema: sysaid
+    type: SQL
+    description: "SysAid IT ticketing system on M3-DB3"
+  Scheduling55:
+    connection: CON_FMD_M3DB3_SCHEDULING55
+    namespace: dbo
+    target_schema: scheduling
+    type: SQL
+    description: "Scheduling55 on M3-DB3"

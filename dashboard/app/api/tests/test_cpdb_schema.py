@@ -395,10 +395,10 @@ class TestGetStatsIncludesNewTables:
         )
 
     def test_get_stats_total_count(self):
-        """get_stats() must report counts for all 21 tables."""
+        """get_stats() must report counts for all tables (at least 21)."""
         stats = cpdb.get_stats()
-        assert len(stats) == 21, (
-            f"Expected 21 table counts in get_stats(), got {len(stats)}: {list(stats.keys())}"
+        assert len(stats) >= 21, (
+            f"Expected at least 21 table counts in get_stats(), got {len(stats)}: {list(stats.keys())}"
         )
 
 

@@ -100,13 +100,13 @@ def get_entity_ids_by_source(params: dict) -> dict:
 
     placeholders = ",".join("?" for _ in source_names)
     rows = _safe_query(
-        f"SELECT le.EntityId "
+        f"SELECT le.LandingzoneEntityId "
         f"FROM lz_entities le "
         f"JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
         f"WHERE le.IsActive = 1 AND ds.Name IN ({placeholders})",
         tuple(source_names),
     )
-    ids = [_int(r["EntityId"]) for r in rows]
+    ids = [_int(r["LandingzoneEntityId"]) for r in rows]
     return {"entity_ids": ids, "count": len(ids)}
 
 

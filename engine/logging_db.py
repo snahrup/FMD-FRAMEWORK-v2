@@ -540,6 +540,7 @@ class AuditLogger:
             "ErrorStackTrace": "",
             "ErrorSuggestion": (result.error_suggestion or "")[:2000],
             "LogData": log_data[:8000],
+            "ExtractionMethod": result.extraction_method or "unknown",
         }
 
         cpdb = _get_cpdb()

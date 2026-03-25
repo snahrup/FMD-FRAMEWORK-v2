@@ -113,7 +113,7 @@ def _bring_vpn_to_front():
             capture_output=True, timeout=5,
         )
     except Exception:
-        pass
+        log.debug("Could not focus WatchGuard window — may not be open")
 
 
 def _auto_fill_password(password: str) -> bool:

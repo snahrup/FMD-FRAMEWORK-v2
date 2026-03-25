@@ -157,6 +157,8 @@ def init_db():
                 WorkerPid              INTEGER,
                 CurrentLayer           TEXT,
                 CompletedUnits         INTEGER DEFAULT 0,
+                SourceFilter           TEXT DEFAULT '',
+                ResolvedEntityCount    INTEGER DEFAULT 0,
                 updated_at              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );
 
@@ -1180,6 +1182,20 @@ def init_db():
             ("WorkerPid", "INTEGER"),
             ("CurrentLayer", "TEXT"),
             ("CompletedUnits", "INTEGER DEFAULT 0"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE engine_runs ADD COLUMN {col} {coldef}")
+            except sqlite3.OperationalError:
+                log.debug("Column %s already exists in engine_runs, skipping", col)
+
+        # Migration: add scope enforcement columns to engine_runs (2026-03-25)
+        # Root cause fix: entity-ids-by-source queried nonexistent EntityId column,
+        # causing every run to launch with empty scope (= all entities).
+        # SourceFilter persists which source names were selected.
+        # ResolvedEntityCount persists the exact entity count at launch time.
+        for col, coldef in [
+            ("SourceFilter", "TEXT DEFAULT ''"),
+            ("ResolvedEntityCount", "INTEGER DEFAULT 0"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE engine_runs ADD COLUMN {col} {coldef}")

@@ -60,19 +60,80 @@ class Entity:
         """OneLake folder = just the namespace. See ARCHITECTURE.md."""
         return self.namespace or self.source_database
 
+    @staticmethod
+    def _watermark_is_numeric(value: str) -> bool:
+        """Return True if the watermark value looks like an integer or float."""
+        try:
+            int(value)
+            return True
+        except (ValueError, TypeError):
+            pass
+        try:
+            float(value)
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    @staticmethod
+    def _normalize_datetime_watermark(value: str) -> str:
+        """Truncate datetime watermark strings to 3 decimal places (ms).
+
+        SQL Server `datetime` columns only support 3ms precision.
+        Polars and Python emit 6-digit microseconds (e.g. '.793000'),
+        which causes SQLSTATE 22007 on implicit string→datetime conversion.
+        Truncating to 3 decimals fixes this without any query wrapping.
+        """
+        # Match pattern: ...HH:MM:SS.ffffff  →  ...HH:MM:SS.fff
+        if "." in value:
+            base, frac = value.rsplit(".", 1)
+            # Only truncate if the fractional part is all digits (datetime, not IP, etc.)
+            if frac.isdigit() and len(frac) > 3:
+                return base + "." + frac[:3]
+        return value
+
+    @property
+    def watermark_strategy(self) -> str:
+        """Return the watermark strategy label for this entity.
+
+        Values: 'full_load', 'numeric', 'native_datetime'.
+        Logged per entity so operators know which comparison path ran.
+        """
+        if not self.is_incremental or not self.watermark_column or not self.last_load_value:
+            return "full_load"
+        if self._watermark_is_numeric(self.last_load_value):
+            return "numeric"
+        return "native_datetime"
+
     def build_source_query(self) -> tuple[str, list]:
         """Build the extraction SQL — full or incremental.
 
         Returns (sql, params) tuple for parameterized execution via pyodbc.
         Table/column names stay as identifiers; the watermark VALUE uses a ?
-        placeholder to prevent SQL injection.  Fixes: CRITICAL BUG #2
+        placeholder to prevent SQL injection.
+
+        Plain indexed comparison for ALL watermark types:
+        - Numeric watermarks (int PKs like M3XferID, SEQU): WHERE [col] > ?
+        - Datetime watermarks (ChangeDate, MODIFY_DATE): WHERE [col] > ?
+
+        All 44 datetime watermark columns across 5 sources are native
+        datetime/datetime2 — no guarded conversion needed.  TRY_CONVERT was
+        removed because MES (m3-db1) runs compat level < 110 and doesn't
+        support it, and native datetime columns don't need it anyway.
         """
         base = "SELECT * FROM " + self.qualified_name
         if self.is_incremental and self.watermark_column and self.last_load_value:
             if not self._SAFE_IDENT.match(self.watermark_column):
                 raise ValueError("Unsafe watermark column: " + repr(self.watermark_column))
             safe_wm = self.watermark_column.replace("]", "]]")
-            return base + " WHERE [" + safe_wm + "] > ?", [self.last_load_value]
+            # Normalize datetime strings: truncate microseconds → milliseconds
+            # to prevent SQLSTATE 22007 on SQL Server datetime columns.
+            wm_value = self.last_load_value
+            if not self._watermark_is_numeric(wm_value):
+                wm_value = self._normalize_datetime_watermark(wm_value)
+            return (
+                base + " WHERE [" + safe_wm + "] > ?",
+                [wm_value],
+            )
         return base, []
 
     def build_source_query_display(self) -> str:
@@ -85,7 +146,10 @@ class Entity:
             if not self._SAFE_IDENT.match(self.watermark_column):
                 raise ValueError(f"Unsafe watermark column: {self.watermark_column!r}")
             safe_wm = self.watermark_column.replace("]", "]]")
-            escaped = self.last_load_value.replace("'", "''")
+            wm_value = self.last_load_value
+            if not self._watermark_is_numeric(wm_value):
+                wm_value = self._normalize_datetime_watermark(wm_value)
+            escaped = wm_value.replace("'", "''")
             return base + " WHERE [" + safe_wm + "] > '" + escaped + "'"
         return base
 
@@ -187,6 +251,7 @@ class RunResult:
     watermark_before: Optional[str] = None
     watermark_after: Optional[str] = None
     extraction_method: str = "unknown"        # "connectorx" | "pyodbc" | "unknown"
+    watermark_strategy: str = "unknown"       # "full_load" | "numeric" | "native_datetime"
 
     @property
     def succeeded(self) -> bool:

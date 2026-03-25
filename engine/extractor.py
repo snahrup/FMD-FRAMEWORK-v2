@@ -93,8 +93,9 @@ class DataExtractor:
 
         # Fallback: pyodbc path (existing code below)
         query, params = entity.build_source_query()
+        wm_strategy = entity.watermark_strategy
         log.info(
-            "[%s] Extracting entity %d: %s.%s from %s/%s (incremental=%s)",
+            "[%s] Extracting entity %d: %s.%s from %s/%s (incremental=%s, wm_strategy=%s)",
             run_id[:8] if run_id else "?",
             entity.id,
             entity.source_schema,
@@ -102,6 +103,7 @@ class DataExtractor:
             entity.source_server,
             entity.source_database,
             entity.is_incremental,
+            wm_strategy,
         )
 
         try:
@@ -121,6 +123,7 @@ class DataExtractor:
                         rows_written=0,
                         duration_seconds=round(elapsed, 2),
                         extraction_method="pyodbc",
+                        watermark_strategy=wm_strategy,
                     )
 
                 col_names = [desc[0] for desc in cursor.description]
@@ -193,6 +196,7 @@ class DataExtractor:
                             "For full loads, verify the source table is not empty."
                         ),
                         extraction_method="pyodbc",
+                        watermark_strategy=wm_strategy,
                     )
 
                 # Build Polars DataFrame — handle type coercion gracefully
@@ -227,6 +231,7 @@ class DataExtractor:
                     watermark_before=entity.last_load_value,
                     watermark_after=new_watermark,
                     extraction_method="pyodbc",
+                    watermark_strategy=wm_strategy,
                 )
 
         except pyodbc.Error as exc:
@@ -244,6 +249,7 @@ class DataExtractor:
                 error=error_msg,
                 error_suggestion=suggestion,
                 extraction_method="pyodbc",
+                watermark_strategy=wm_strategy,
             )
 
         except Exception as exc:
@@ -260,6 +266,7 @@ class DataExtractor:
                 error=str(exc),
                 error_suggestion="Unexpected error during extraction. Check the stack trace in the engine logs.",
                 extraction_method="pyodbc",
+                watermark_strategy=wm_strategy,
             )
 
     # ------------------------------------------------------------------
@@ -271,6 +278,7 @@ class DataExtractor:
     ) -> tuple[Optional[bytes], RunResult]:
         """Extract using ConnectorX (Rust-speed, Windows or SQL Auth)."""
         t0 = time.perf_counter()
+        wm_strategy = entity.watermark_strategy
 
         query, params = entity.build_source_query()
         # ConnectorX doesn't support parameterized queries — inline the watermark
@@ -297,6 +305,7 @@ class DataExtractor:
                 duration_seconds=round(elapsed, 2), error=error_msg,
                 error_suggestion=self._diagnose_error(error_msg, entity),
                 extraction_method="connectorx",
+                watermark_strategy=wm_strategy,
             )
 
         # Filter binary columns (ConnectorX may include them)
@@ -318,6 +327,7 @@ class DataExtractor:
                 watermark_before=entity.last_load_value,
                 watermark_after=entity.last_load_value,
                 extraction_method="connectorx",
+                watermark_strategy=wm_strategy,
             )
 
         # Compute new watermark value
@@ -343,6 +353,7 @@ class DataExtractor:
             watermark_before=entity.last_load_value,
             watermark_after=new_watermark,
             extraction_method="connectorx",
+            watermark_strategy=wm_strategy,
         )
 
     @staticmethod
@@ -424,6 +435,17 @@ class DataExtractor:
             return (
                 f"Authentication failed on {entity.source_server}/{entity.source_database}. "
                 "Verify Trusted_Connection works — try sqlcmd from this machine."
+            )
+
+        if "22007" in error_msg or "22018" in error_msg or ("datetime" in msg_lower and "convert" in msg_lower):
+            wm_val = entity.last_load_value or "(none)"
+            return (
+                f"DatetimeConversion: {entity.qualified_name} watermark column "
+                f"[{entity.watermark_column}] failed with value '{wm_val}'. "
+                "Common cause: watermark stored with microsecond precision (.xxxxxx) "
+                "but source column is datetime (max 3ms). The engine truncates to 3 "
+                "decimal places automatically — if still failing, reset this entity "
+                "to full load or check watermark value format in the watermarks table."
             )
 
         if "invalid object name" in msg_lower or "invalid column name" in msg_lower:
