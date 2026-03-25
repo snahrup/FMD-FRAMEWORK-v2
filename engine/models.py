@@ -321,6 +321,9 @@ class EngineConfig:
     pipeline_copy_sql_id: str = ""           # GUID of deployed PL_FMD_LDZ_COPY_SQL
     pipeline_workspace_id: str = ""          # workspace where COPY_SQL pipeline lives
 
+    # Schema validation
+    validation_mode: str = "warn"            # "enforce" | "warn" | "off"
+
     # Delta table maintenance
     delta_compact_interval: int = 10         # compact after every N writes per table
     delta_vacuum_retention_days: int = 7     # VACUUM retention period in days

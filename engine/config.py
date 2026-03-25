@@ -138,6 +138,9 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
         pipeline_copy_sql_id=engine_section.get("pipeline_copy_sql_id", ""),
         pipeline_workspace_id=engine_section.get("pipeline_workspace_id", ""),
 
+        # Schema validation
+        validation_mode=engine_section.get("validation_mode", "warn"),
+
         # Delta table maintenance
         delta_compact_interval=int(engine_section.get("delta_compact_interval", 10)),
         delta_vacuum_retention_days=int(engine_section.get("delta_vacuum_retention_days", 7)),

@@ -455,6 +455,22 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_lrc_lookup ON lakehouse_row_counts(lakehouse, schema_name, table_name);
             CREATE INDEX IF NOT EXISTS idx_lcr_active ON load_center_runs(active);
 
+            -- Schema validation results (Packet B) ---------------------------
+
+            CREATE TABLE IF NOT EXISTS schema_validations (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id          TEXT NOT NULL,
+                entity_id       INTEGER NOT NULL,
+                layer           TEXT NOT NULL DEFAULT 'landing',
+                passed          INTEGER NOT NULL DEFAULT 1,
+                schema_name     TEXT,
+                error_count     INTEGER DEFAULT 0,
+                errors_json     TEXT DEFAULT '[]',
+                validated_at    TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_sv_run ON schema_validations(run_id);
+            CREATE INDEX IF NOT EXISTS idx_sv_entity ON schema_validations(entity_id);
+
             -- =================================================================
             -- Gold Studio tables (19 tables, gs_ prefix)
             -- =================================================================
@@ -1117,7 +1133,7 @@ def init_db():
             try:
                 conn.execute(f"ALTER TABLE engine_runs ADD COLUMN {col} {coldef}")
             except sqlite3.OperationalError:
-                pass  # column already exists
+                log.debug("Column %s already exists in engine_runs, skipping", col)
 
     finally:
         conn.close()

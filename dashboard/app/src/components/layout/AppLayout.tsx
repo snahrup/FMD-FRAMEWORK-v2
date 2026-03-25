@@ -45,6 +45,8 @@ import {
   FolderOpen,
   BookOpen,
   Radar,
+  Globe,
+  ClipboardCheck,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -72,8 +74,9 @@ interface NavGroup {
 
 const CORE_GROUPS: NavGroup[] = [
   {
-    label: "Overview",
+    label: "Estate",
     items: [
+      { icon: Globe, label: "Data Estate", href: "/estate" },
       { icon: LayoutDashboard, label: "Overview", href: "/overview" },
     ],
   },
@@ -116,6 +119,7 @@ const CORE_GROUPS: NavGroup[] = [
   {
     label: "Quality",
     items: [
+      { icon: ClipboardCheck, label: "Schema Validation", href: "/schema-validation" },
       { icon: FileCheck, label: "DQ Scorecard", href: "/labs/dq-scorecard" },
       { icon: Eraser, label: "Cleansing Rules", href: "/labs/cleansing" },
       { icon: History, label: "SCD Audit", href: "/labs/scd-audit" },

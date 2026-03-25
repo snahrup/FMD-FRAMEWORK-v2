@@ -70,6 +70,8 @@ import DatabaseExplorer from '@/pages/DatabaseExplorer'
 import DataManager from '@/pages/DataManager'
 import LoadCenter from '@/pages/LoadCenter'
 import LoadMissionControl from '@/pages/LoadMissionControl'
+const SchemaValidation = lazy(() => import('@/pages/SchemaValidation'))
+const DataEstate = lazy(() => import('@/pages/DataEstate'))
 
 /** Redirect "/" to the Overview page — same landing for both personas */
 function HomeLanding() {
@@ -138,6 +140,8 @@ function App() {
         <Route path="/data-manager" element={<DataManager />} />
         <Route path="/load-center" element={<LoadCenter />} />
         <Route path="/load-mission-control" element={<LoadMissionControl />} />
+        <Route path="/schema-validation" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><SchemaValidation /></Suspense>} />
+        <Route path="/estate" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><DataEstate /></Suspense>} />
         {/* Labs pages — always routed, nav visibility controlled by feature flags */}
         <Route path="/labs/cleansing" element={<CleansingRuleEditor />} />
         <Route path="/labs/scd-audit" element={<ScdAudit />} />

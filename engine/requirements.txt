@@ -4,3 +4,4 @@ pyarrow>=14.0.0
 azure-storage-file-datalake>=12.14.0
 deltalake>=0.25.0
 connectorx>=0.3.3
+pandera[polars]>=0.18.0

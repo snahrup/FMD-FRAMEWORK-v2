@@ -1339,7 +1339,7 @@ class LoadOrchestrator:
         return self._try_entity_local(run_id, entity)
 
     def _try_entity_local(self, run_id: str, entity: Entity) -> RunResult:
-        """Local mode: extract via pyodbc + upload parquet to OneLake."""
+        """Local mode: extract via pyodbc/ConnectorX + validate + upload parquet to OneLake."""
         if self._stop_requested:
             return RunResult(entity_id=entity.id, layer="landing", status="skipped")
 
@@ -1348,6 +1348,32 @@ class LoadOrchestrator:
 
         if not extract_result.succeeded or parquet_bytes is None:
             return extract_result
+
+        # Step 1.5: Schema validation (between extract and upload)
+        validation_mode = getattr(self._config, "validation_mode", "warn")
+        if validation_mode != "off" and parquet_bytes:
+            try:
+                from engine.schema_validator import validate_extraction
+                import io as _io
+                import polars as _pl
+                df_for_validation = _pl.read_parquet(_io.BytesIO(parquet_bytes))
+                v_result = validate_extraction(
+                    df_for_validation, entity.source_database, entity.source_name.strip(),
+                    mode=validation_mode,
+                )
+                if not v_result.passed and validation_mode == "enforce":
+                    return RunResult(
+                        entity_id=entity.id, layer="landing", status="failed",
+                        rows_read=extract_result.rows_read,
+                        duration_seconds=extract_result.duration_seconds,
+                        error=f"Schema validation failed: {v_result.error_count} errors",
+                        error_suggestion=f"Schema: {v_result.schema_name}. Errors: {v_result.errors_json}",
+                    )
+            except ImportError:
+                pass  # pandera not installed — skip validation silently
+            except Exception as val_exc:
+                log.warning("[%s] Schema validation error for entity %d (non-blocking): %s",
+                            run_id[:8], entity.id, val_exc)
 
         if self._stop_requested:
             return RunResult(entity_id=entity.id, layer="landing", status="skipped")
