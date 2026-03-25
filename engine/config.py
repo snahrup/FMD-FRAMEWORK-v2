@@ -123,6 +123,12 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
         query_timeout=int(engine_section.get("query_timeout", 120)),
         source_sql_driver=engine_section.get("source_sql_driver", "ODBC Driver 18 for SQL Server"),
 
+        # ConnectorX
+        use_connectorx=engine_section.get("use_connectorx", True),
+        connectorx_auth_mode=engine_section.get("connectorx_auth_mode", "windows"),
+        sql_username=engine_section.get("sql_username", ""),
+        sql_password=engine_section.get("sql_password", ""),
+
         # OneLake Explorer local mount path (filesystem mode — no auth needed)
         onelake_mount_path=engine_section.get("onelake_mount_path", ""),
 
@@ -131,4 +137,8 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
         pipeline_fallback=engine_section.get("pipeline_fallback", True),
         pipeline_copy_sql_id=engine_section.get("pipeline_copy_sql_id", ""),
         pipeline_workspace_id=engine_section.get("pipeline_workspace_id", ""),
+
+        # Delta table maintenance
+        delta_compact_interval=int(engine_section.get("delta_compact_interval", 10)),
+        delta_vacuum_retention_days=int(engine_section.get("delta_vacuum_retention_days", 7)),
     )

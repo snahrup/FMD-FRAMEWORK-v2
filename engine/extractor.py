@@ -1,13 +1,15 @@
 """
 FMD v3 Engine — Data extraction from source SQL servers.
 
-Reads data via pyodbc, converts to Polars DataFrame, writes to Parquet bytes.
+Reads data via pyodbc (or ConnectorX when enabled), converts to Polars
+DataFrame, writes to Parquet bytes.
 Handles:
   - Full loads (SELECT * FROM ...)
   - Incremental loads (WHERE watermark_col > last_value)
   - Chunked reads for large tables (>chunk_rows threshold)
   - SourceName whitespace stripping (caused 55% of v2 LZ failures)
   - Exclusion of rowversion/timestamp columns from comparison
+  - ConnectorX Rust-speed extraction with Windows Auth (SSPI) or SQL Auth
 """
 
 import io
@@ -23,6 +25,13 @@ from engine.connections import SourceConnection
 from engine.models import EngineConfig, Entity, RunResult, LogEnvelope
 
 log = logging.getLogger("fmd.extractor")
+
+# ConnectorX — optional Rust-based SQL reader (5-13x faster than pyodbc)
+try:
+    import connectorx as cx
+    HAS_CONNECTORX = True
+except ImportError:
+    HAS_CONNECTORX = False
 
 # Column types that cannot be compared as varchar — exclude from watermark reads
 # FIXED: CRITICAL BUG #8 — Extended list to include geometry, geography, xml, hierarchyid, sql_variant
@@ -78,6 +87,11 @@ class DataExtractor:
                 error_suggestion="Check integration.LandingzoneEntity.SourceName — it's blank or whitespace-only.",
             )
 
+        # ConnectorX path (Rust speed — Windows Auth or SQL Auth)
+        if HAS_CONNECTORX and self._config.use_connectorx:
+            return self._extract_connectorx(entity, run_id)
+
+        # Fallback: pyodbc path (existing code below)
         query, params = entity.build_source_query()
         log.info(
             "[%s] Extracting entity %d: %s.%s from %s/%s (incremental=%s)",
@@ -242,6 +256,95 @@ class DataExtractor:
                 error=str(exc),
                 error_suggestion="Unexpected error during extraction. Check the stack trace in the engine logs.",
             )
+
+    # ------------------------------------------------------------------
+    # ConnectorX extraction
+    # ------------------------------------------------------------------
+
+    def _extract_connectorx(
+        self, entity: Entity, run_id: str
+    ) -> tuple[Optional[bytes], RunResult]:
+        """Extract using ConnectorX (Rust-speed, Windows or SQL Auth)."""
+        t0 = time.perf_counter()
+
+        query, params = entity.build_source_query()
+        # ConnectorX doesn't support parameterized queries — inline the watermark
+        if params:
+            # Safe: watermark value is from our own DB, already validated/escaped
+            query = query.replace("?", f"'{params[0]}'", 1)
+
+        uri = self._source.build_connectorx_uri(
+            entity.source_server, entity.source_database
+        )
+
+        try:
+            df = cx.read_sql(uri, query, return_type="polars2")
+        except Exception as exc:
+            elapsed = time.perf_counter() - t0
+            error_msg = str(exc)
+            log.error(
+                "[%s] ConnectorX extraction failed for entity %d: %s",
+                run_id[:8] if run_id else "?", entity.id, error_msg,
+            )
+            return None, RunResult(
+                entity_id=entity.id, layer="landing", status="failed",
+                rows_read=0, rows_written=0, bytes_transferred=0,
+                duration_seconds=round(elapsed, 2), error=error_msg,
+                error_suggestion=self._diagnose_error(error_msg, entity),
+            )
+
+        # Filter binary columns (ConnectorX may include them)
+        binary_cols = self._binary_columns(entity, df)
+        if binary_cols:
+            df = df.drop(binary_cols)
+
+        rows_read = len(df)
+
+        if rows_read == 0:
+            elapsed = time.perf_counter() - t0
+            if entity.is_incremental:
+                log.info("[%s] ConnectorX: no new rows for %s (incremental)", run_id[:8] if run_id else "?", entity.source_name)
+            else:
+                log.warning("[%s] ConnectorX: 0 rows from %s (full load)", run_id[:8] if run_id else "?", entity.source_name)
+            return None, RunResult(
+                entity_id=entity.id, layer="landing", status="succeeded",
+                rows_read=0, rows_written=0, duration_seconds=round(elapsed, 2),
+                watermark_before=entity.last_load_value,
+                watermark_after=entity.last_load_value,
+            )
+
+        # Compute new watermark value
+        new_watermark = self._compute_watermark(entity, df)
+
+        # Write parquet to memory buffer
+        parquet_buf = io.BytesIO()
+        df.write_parquet(parquet_buf, compression="snappy")
+        parquet_bytes = parquet_buf.getvalue()
+
+        elapsed = time.perf_counter() - t0
+        log.info(
+            "[%s] ConnectorX extracted entity %d (%s): %d rows, %.1f KB, %.1fs",
+            run_id[:8] if run_id else "?", entity.id, entity.source_name,
+            rows_read, len(parquet_bytes) / 1024, elapsed,
+        )
+
+        return parquet_bytes, RunResult(
+            entity_id=entity.id, layer="landing", status="succeeded",
+            rows_read=rows_read, rows_written=rows_read,
+            bytes_transferred=len(parquet_bytes),
+            duration_seconds=round(elapsed, 2),
+            watermark_before=entity.last_load_value,
+            watermark_after=new_watermark,
+        )
+
+    @staticmethod
+    def _binary_columns(entity: Entity, df: pl.DataFrame) -> list[str]:
+        """Return column names that match binary type patterns to exclude."""
+        # ConnectorX doesn't expose type metadata the same way pyodbc does,
+        # so we filter by known column name patterns from the binary type list.
+        # This is a best-effort filter — the primary filtering happens at
+        # the SQL query level via Entity.build_source_query().
+        return [c for c in df.columns if c.lower() in _BINARY_TYPE_NAMES]
 
     # ------------------------------------------------------------------
     # Internal helpers

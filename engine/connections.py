@@ -26,6 +26,7 @@ class SourceConnection:
     """
 
     def __init__(self, config: EngineConfig):
+        self._config = config
         self._driver = config.source_sql_driver
         self._query_timeout = config.query_timeout
 
@@ -58,6 +59,24 @@ class SourceConnection:
             yield conn
         finally:
             conn.close()
+
+    def build_connectorx_uri(self, server: str, database: str) -> str:
+        """Build a ConnectorX-compatible mssql:// connection URI.
+
+        Supports two auth modes:
+        - "windows" (default): Uses Windows Integrated Auth (SSPI/Trusted_Connection).
+          ConnectorX's tiberius driver supports this natively on Windows.
+        - "sql": Uses SQL Server username/password (Basic credentials).
+        """
+        port = 1433
+        if self._config.connectorx_auth_mode == "sql":
+            from urllib.parse import quote_plus
+            username = self._config.sql_username
+            password = quote_plus(self._config.sql_password)
+            return f"mssql://{username}:{password}@{server}:{port}/{database}?TrustServerCertificate=true"
+        else:
+            # Windows Auth — same auth the engine already uses via SSPI
+            return f"mssql://{server}:{port}/{database}?trusted_connection=true&TrustServerCertificate=true"
 
     def ping(self, server: str, database: str) -> bool:
         """Test connectivity to a source server.

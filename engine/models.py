@@ -309,6 +309,12 @@ class EngineConfig:
     # Source SQL driver (on-prem)
     source_sql_driver: str = "ODBC Driver 18 for SQL Server"
 
+    # ConnectorX — Rust-based SQL reader (5-13x faster than pyodbc)
+    use_connectorx: bool = True              # Feature flag — False falls back to pyodbc
+    connectorx_auth_mode: str = "windows"    # "windows" (SSPI, default) or "sql" (username/password)
+    sql_username: str = ""                    # Only used when connectorx_auth_mode="sql"
+    sql_password: str = ""                    # Only used when connectorx_auth_mode="sql"
+
     # Pipeline mode — "local" (pyodbc/parquet) or "pipeline" (Fabric Copy Activity)
     load_method: str = "local"               # "local" | "pipeline"
     pipeline_fallback: bool = True           # auto-fallback to local on pipeline failure
