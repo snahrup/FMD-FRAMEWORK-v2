@@ -7,23 +7,23 @@
 
 ---
 
-## 0. PRE-REQUISITES (MUST COMPLETE BEFORE PACKET A)
+## 0. PRE-REQUISITES
 
-### SQL Auth on Source Servers — BLOCKER
+### ConnectorX Auth — NO BLOCKER
 
-**This is the single highest risk across all 5 packets.** If SQL Auth logins are not created on the source servers, Packet A (ConnectorX) delivers zero value. The feature flag fallback keeps pyodbc working, but the entire speed improvement — the primary reason for Packet A — requires SQL Auth.
+ConnectorX supports **both** auth methods on Windows:
 
-| Action | Owner | Deadline | Status |
-|--------|-------|----------|--------|
-| Create `UsrSQLRead` SQL login on `m3-db1` (MES, M3 FDB) | DBA (Pat / Matt Francis) | Before Packet A build starts | NOT STARTED |
-| Create `UsrSQLRead` SQL login on `M3-DB3` (ETQ, SysAid, Scheduling55) | DBA | Same | NOT STARTED |
-| Create `UsrSQLRead` SQL login on `sqllogshipprd` (M3 ERP prod) | DBA | Same | NOT STARTED |
-| Create `UsrSQLRead` SQL login on `sql2016live` (M3 Cloud) | DBA | Same | NOT STARTED |
-| Create `UsrSQLRead` SQL login on `sqloptivalive` (OPTIVA) | DBA | Same | NOT STARTED |
-| Grant `db_datareader` on all source databases for the login | DBA | Same | NOT STARTED |
-| Set env vars `FMD_SQL_USERNAME` / `FMD_SQL_PASSWORD` on vsc-fabric | Steve | After DBA completes | NOT STARTED |
+1. **Windows Auth (SSPI)** — Same `Trusted_Connection` the engine already uses. ConnectorX's mssql driver (tiberius) supports Windows Integrated Auth natively on Windows via SSPI. URI: `mssql://server/database?trusted_connection=true`
+2. **SQL Auth** — The Fabric gateway connections already use `cred_type: Basic` (username/password) for all 7 source connections. These credentials already exist. URI: `mssql://user:pass@server/database`
 
-**If DBA cannot create SQL logins:** Packet A still gets built (feature flag, connection string builder, etc.) but runs in pyodbc fallback mode. The speed improvement is deferred until SQL Auth is available. Packets B-E are unaffected.
+**Default approach:** Use Windows Auth (path 1) — zero credential changes, same auth the engine uses today. ConnectorX gets the speed improvement immediately without any DBA work.
+
+**Optional future optimization:** If SQL Auth is preferred (e.g., for service account isolation), the Basic credentials from the Fabric gateway connections can be reused. No new logins needed.
+
+| Action | Owner | Status |
+|--------|-------|--------|
+| Verify ConnectorX Windows Auth works on vsc-fabric | Steve | During Packet A build |
+| (Optional) Extract Basic credentials from Fabric gateway for SQL Auth mode | Steve | If Windows Auth has issues |
 
 ### Baseline Profile Storage — DEFERRED
 
@@ -97,36 +97,32 @@ Per-table statistical baselines (for "has this table's shape changed since last 
    - Add: partitioned parallel reads for large tables (configurable `partition_on` + `partition_num`)
 
 2. **`engine/connections.py`** — Add ConnectorX connection string builder:
-   - Current: Windows Auth (`Trusted_Connection=yes`) via pyodbc
-   - New: SQL Auth (`mssql://user:pass@host:port/db`) for ConnectorX
-   - ConnectorX does NOT support Windows Auth — must use SQL Auth credentials
-   - Credentials from config (new fields: `sql_username`, `sql_password`)
-   - URL-encode special characters in password (e.g., `@` → `%40`)
+   - Dual-mode URI builder: Windows Auth (default) or SQL Auth
+   - Windows Auth: `mssql://host:port/db?trusted_connection=true` — uses SSPI, zero credential changes
+   - SQL Auth: `mssql://user:pass@host:port/db` — for optional service account isolation
+   - URL-encode special characters in password (e.g., `@` → `%40`) when in SQL Auth mode
 
 3. **`engine/models.py`** — Add to `EngineConfig`:
-   - `sql_username: str` — SQL Server login
-   - `sql_password: str` — SQL Server password
    - `use_connectorx: bool = True` — feature flag for rollback
+   - `connectorx_auth_mode: str = "windows"` — `"windows"` (SSPI, default) or `"sql"` (username/password)
+   - `sql_username: str = ""` — only used when `connectorx_auth_mode="sql"`
+   - `sql_password: str = ""` — only used when `connectorx_auth_mode="sql"`
    - Optional per-entity: `partition_on: str`, `partition_num: int`
 
 4. **`config/` changes:**
-   - SQL Auth credentials stored in **environment variables** (never plaintext in config.json):
-     - `FMD_SQL_USERNAME` — SQL Server login (e.g., `UsrSQLRead`)
-     - `FMD_SQL_PASSWORD` — SQL Server password
-   - `config.json` references: `"sql_username": "${FMD_SQL_USERNAME}"`, `"sql_password": "${FMD_SQL_PASSWORD}"`
-   - On vsc-fabric server: set via NSSM service environment or Windows system env vars
-   - Future: migrate to Azure Key Vault when available
+   - Default: no config changes needed — Windows Auth works out of the box
+   - Optional SQL Auth: set `connectorx_auth_mode: "sql"` + provide credentials in `config.json`
    - `source_systems.yaml`: optional `partition_on` / `partition_num` per table
 
 5. **`engine/requirements.txt`** — Add `connectorx`
 
-**Auth:** See Section 0 (Pre-Requisites) for the SQL Auth blocker. ConnectorX cannot deliver its speed improvement without SQL Auth logins on all source servers. The `use_connectorx` feature flag keeps pyodbc as fallback.
+**Auth:** No blocker — ConnectorX uses Windows Auth (SSPI) by default, same as the current engine. See Section 0. SQL Auth is available as an optional mode using the existing Fabric gateway Basic credentials.
 
 **Dashboard Changes:**
 - None required — existing Throughput + Elapsed KPIs on LoadMissionControl will automatically reflect speed improvements
 - Optional: Add "Extraction Engine" badge (ConnectorX vs pyodbc) to run detail view
 
-**Risk:** SQL Auth availability on source servers. If only Windows Auth is allowed, ConnectorX cannot be used. Feature flag enables rollback.
+**Risk:** Low. Windows Auth works natively on Windows via SSPI. Feature flag (`use_connectorx=False`) enables instant rollback to pyodbc if any edge cases surface.
 
 ---
 
@@ -439,7 +435,7 @@ Packet C (delta-rs default) → Packet A (ConnectorX) → Packet B (Pandera) →
 
 | Risk | Packet | Mitigation |
 |------|--------|-----------|
-| SQL Auth not available on source servers | A | Feature flag `use_connectorx`. Keep pyodbc as fallback. |
+| ConnectorX Windows Auth (SSPI) edge cases | A | Feature flag `use_connectorx`. Fallback to pyodbc. SQL Auth mode as alternative. |
 | ConnectorX Windows build issues | A | Pre-test `pip install connectorx` on vsc-fabric server |
 | Presidio NLP model size (~500MB) | D | Download once, cache. Only run on-demand, not every load. |
 | Schema validation false positives | B | Start in `warn` mode. Don't block loads until schemas stabilize. |
@@ -478,7 +474,7 @@ Packet C (delta-rs default) → Packet A (ConnectorX) → Packet B (Pandera) →
 2. **Partitioned read:** Extract a large table (e.g., `OOLINE`) with `partition_on` + `partition_num=4`. Verify row count matches non-partitioned read.
 3. **Incremental watermark:** Run incremental extraction with ConnectorX. Verify watermark value matches pyodbc result for same query.
 4. **Feature flag rollback:** Set `use_connectorx=False`, verify extraction falls back to pyodbc cleanly.
-5. **Connection failure:** Test with wrong SQL credentials. Verify error message is clear and diagnostic.
+5. **Connection failure:** Test with unreachable server. Verify error message is clear and diagnostic. If SQL Auth mode: test with wrong credentials.
 6. **Binary column filtering:** Verify geometry/geography/xml columns are still excluded in output.
 
 ### Packet B (Pandera) — Verification
