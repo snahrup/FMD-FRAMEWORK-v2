@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-24
 **Author:** Steve Nahrup
-**Scope:** 4 packets — ConnectorX, Pandera, delta-rs writes, Presidio
+**Scope:** 5 packets — ConnectorX, Pandera, delta-rs writes, Presidio + Purview, Data Estate
 **Source Brief:** `C:\Users\sasnahrup\Downloads\build_progress_testing.md`
 
 ---
@@ -64,7 +64,7 @@
 
 1. **`engine/extractor.py`** — Rewrite `DataExtractor.extract()`:
    - Replace `pyodbc.connect()` + `cursor.execute()` + `fetchmany()` with `cx.read_sql()`
-   - Output: Arrow table → convert to Polars (or use `return_type="polars"` directly)
+   - Output: Use `return_type="polars2"` (native Polars path, avoids Arrow→Polars conversion overhead)
    - Remove chunked fetch loop (ConnectorX handles batching internally)
    - Keep: watermark computation, binary column filtering, error diagnostics
    - Add: partitioned parallel reads for large tables (configurable `partition_on` + `partition_num`)
@@ -83,16 +83,27 @@
    - Optional per-entity: `partition_on: str`, `partition_num: int`
 
 4. **`config/` changes:**
-   - `config.json` or env vars: SQL Auth credentials for each source server
+   - SQL Auth credentials stored in **environment variables** (never plaintext in config.json):
+     - `FMD_SQL_USERNAME` — SQL Server login (e.g., `UsrSQLRead`)
+     - `FMD_SQL_PASSWORD` — SQL Server password
+   - `config.json` references: `"sql_username": "${FMD_SQL_USERNAME}"`, `"sql_password": "${FMD_SQL_PASSWORD}"`
+   - On vsc-fabric server: set via NSSM service environment or Windows system env vars
+   - Future: migrate to Azure Key Vault when available
    - `source_systems.yaml`: optional `partition_on` / `partition_num` per table
 
 5. **`engine/requirements.txt`** — Add `connectorx`
 
-**Auth Consideration:**
+**Auth Consideration — DEPLOYMENT BLOCKER:**
 - ConnectorX uses connection-string auth (SQL login), not Windows Auth
-- Need SQL Server login with read access to all source databases
-- The spec references `UsrSQLRead` — verify this account exists on DEV/PROD servers
-- If Windows Auth is the only option, keep pyodbc as fallback (`use_connectorx=False`)
+- The entire FMD framework currently uses Windows Auth (`Trusted_Connection=yes`) on all 5 source servers
+- **Pre-requisite:** DBA must create SQL login (`UsrSQLRead`) with `db_datareader` on all source databases:
+  - `m3-db1` (MES, M3 FDB)
+  - `M3-DB3` (ETQ, SysAid, Scheduling55)
+  - `sqllogshipprd` (M3 ERP prod)
+  - `sql2016live` (M3 Cloud)
+  - `sqloptivalive` (OPTIVA)
+- **If SQL Auth is not approved:** Keep pyodbc as primary (`use_connectorx=False`). ConnectorX becomes a future upgrade once SQL Auth is available.
+- **Security:** Credentials MUST be in env vars, never in config.json or source control
 
 **Dashboard Changes:**
 - None required — existing Throughput + Elapsed KPIs on LoadMissionControl will automatically reflect speed improvements
@@ -135,9 +146,12 @@
    - If validation fails: log error, mark entity as `failed` with validation errors, skip upload
    - Configurable: `validation_mode: "enforce" | "warn" | "off"` (default: "warn" initially)
 
-4. **`engine/logging_db.py`** — New table + stored proc:
+4. **`dashboard/app/api/control_plane_db.py`** — New SQLite table (NOT Fabric SQL DB):
    - `schema_validations` table: `run_id, entity_id, layer, passed, error_count, errors_json, validated_at`
-   - `sp_InsertSchemaValidation` stored proc
+   - Lives in SQLite control-plane DB alongside `column_classifications`, `quality_scores`, etc.
+   - Engine writes results via `POST /api/schema-validation/result` (same pattern as engine task logging)
+   - Dashboard API routes read directly from SQLite — no cross-boundary access needed
+   - **Rationale:** Validation results are consumed by the dashboard, not the Fabric SQL metadata DB. SQLite keeps the query path simple.
 
 **Dashboard Changes:**
 
@@ -173,17 +187,19 @@
 
 **Engine Changes:**
 
-1. **`engine/orchestrator.py`** — Change default `load_method`:
-   - Current: Defaults to notebook mode, local is opt-in
-   - New: Default to `"local"` for Bronze + Silver
+1. **`engine/config.py`** — Change fallback default:
+   - `models.py` already defaults `load_method` to `"local"` (line 313)
+   - But `config.py` line 130 overrides: `engine_section.get("load_method", "notebook")` — fallback is `"notebook"`
+   - **Fix:** Change `config.py` line 130 fallback from `"notebook"` to `"local"`
+   - Also explicitly set `"load_method": "local"` in `dashboard/app/api/config.json` engine section
    - Keep notebook path as documented fallback (don't delete code)
-   - Config: `load_method: "local" | "notebook"` (default changes from `"notebook"` to `"local"`)
+   - Config: `load_method: "local" | "notebook" | "pipeline"` (runtime-changeable via API)
 
 2. **`engine/onelake_io.py`** — Verify + harden:
    - Write path already uses `df.write_delta()` with `schema_mode: "overwrite"` ✅
    - Timezone stripping already handles `timestampNtz` requirement ✅
    - ADLS fallback already works with SP token ✅
-   - **Add:** Delta table compaction after N writes (VACUUM / OPTIMIZE)
+   - **Add:** Delta table compaction every 10 writes per table (VACUUM with 7-day retention, configurable via `EngineConfig.delta_compact_interval` and `delta_vacuum_retention_days`)
    - **Add:** Write verification — read back row count after write, compare to input
 
 3. **`engine/bronze_processor.py`** — Minor hardening:
@@ -216,7 +232,7 @@
 1. **`engine/requirements.txt`** — Add:
    - `presidio-analyzer`
    - `presidio-anonymizer` (for future masking)
-   - `spacy` + `en_core_web_lg` model download
+   - `spacy` + `en_core_web_sm` model (~12MB, per prior MDM spec decision — upgrade to `en_core_web_lg` later if accuracy insufficient)
 
 2. **`engine/orchestrator.py`** — Wire schema capture into post-load flow:
    - After successful LZ upload: query Fabric SQL Endpoint for column metadata
@@ -418,3 +434,70 @@ Packet C (delta-rs default) → Packet A (ConnectorX) → Packet B (Pandera) →
 | E | **DataEstate.tsx (NEW — CROWN JEWEL)** | Maximum /interface-design treatment. Premium motion, animation, exec-demo quality. Multiple design iterations expected. |
 
 **Three pages need /interface-design:** SchemaValidation (new), DataClassification (major enhance with Purview), DataEstate (new — premium).
+
+## 7. TEST PLANS
+
+### Packet A (ConnectorX) — Verification
+
+1. **Comparative extraction:** Extract same table (e.g., `MITMAS`) via pyodbc AND ConnectorX. Compare row counts, column names, data types, and a checksum of first 1000 rows. Must match exactly.
+2. **Partitioned read:** Extract a large table (e.g., `OOLINE`) with `partition_on` + `partition_num=4`. Verify row count matches non-partitioned read.
+3. **Incremental watermark:** Run incremental extraction with ConnectorX. Verify watermark value matches pyodbc result for same query.
+4. **Feature flag rollback:** Set `use_connectorx=False`, verify extraction falls back to pyodbc cleanly.
+5. **Connection failure:** Test with wrong SQL credentials. Verify error message is clear and diagnostic.
+6. **Binary column filtering:** Verify geometry/geography/xml columns are still excluded in output.
+
+### Packet B (Pandera) — Verification
+
+1. **Schema pass:** Extract a table with a registered schema. Verify validation passes and result is logged to `schema_validations`.
+2. **Schema fail:** Inject a bad row (null PK, wrong type) into test data. Verify validation catches it.
+3. **No schema:** Extract a table WITHOUT a registered schema. Verify it passes with a warning (not blocked).
+4. **Warn mode:** Set `validation_mode: "warn"`. Extract bad data. Verify load proceeds but warning is logged.
+5. **Enforce mode:** Set `validation_mode: "enforce"`. Extract bad data. Verify load is blocked and entity marked failed.
+6. **Schema import safety:** Introduce a syntax error in a schema file. Verify orchestrator starts without crashing (try/except around schema import).
+7. **Dashboard:** Verify SchemaValidation page shows results after a run with mixed pass/fail.
+
+### Packet C (delta-rs Default) — Verification
+
+1. **Config change:** Verify `config.py` fallback is `"local"`. Start engine. Confirm `load_method=local` in status API.
+2. **Bronze local:** Run Bronze processing for 5 entities. Verify Delta tables written to OneLake. Compare row counts to LZ parquet source.
+3. **Silver local:** Run Silver processing. Verify SCD columns added. Check insert/update/delete counts in logs.
+4. **Write verification:** Verify row count read-back matches written count for each entity.
+5. **Notebook fallback:** Set `load_method: "notebook"` via API. Verify notebook path still works.
+6. **Delta compaction:** Write to same table 11 times. Verify compaction triggered on 10th write.
+
+### Packet D (Presidio + Purview) — Verification
+
+1. **Presidio install:** `pip install presidio-analyzer` + `python -m spacy download en_core_web_sm`. Verify no import errors.
+2. **Schema capture:** Run LZ load. Verify `column_metadata` table populated for loaded entities.
+3. **Pattern classification:** Trigger scan. Verify columns with PII-like names (email, ssn, phone) get classified.
+4. **Presidio scan:** Trigger Presidio scan on a source with known PII (e.g., employee names). Verify `pii_entities` populated.
+5. **Purview mappings:** Verify `classification_type_mappings` table is seeded with all Presidio→Purview type mappings.
+6. **Purview UI:** Navigate to DataClassification page. Verify Purview panel shows "Ready for Purview" state with mapping coverage.
+7. **Cross-page badges:** Verify PII badge appears on DataProfiler for classified columns.
+
+### Packet E (Data Estate) — Verification
+
+1. **Data aggregation:** Hit `GET /api/estate/overview`. Verify response includes source stats, layer stats, classification coverage, schema health.
+2. **Empty state:** Load page with no run data. Verify graceful empty state (see below).
+3. **Animation performance:** Open page on mid-range laptop. Verify 60fps using Chrome DevTools Performance tab.
+4. **Source scaling:** Add a new source system to config. Verify it appears in Data Estate without code changes.
+5. **Drill-through:** Click a source node → verify navigation to correct detail page.
+6. **Responsive:** Test at 1920px, 1440px, 1024px widths. Verify layout adapts.
+
+## 8. PACKET E — EMPTY STATE DESIGN
+
+When the Data Estate page has no data (first visit, no loads run yet), it MUST NOT show a grid of zeros. Instead:
+
+**Empty State Flow:**
+- Pipeline flow diagram renders with **ghost nodes** — faded, dashed outlines showing where sources and layers WILL appear
+- Center message: "Your data estate is being set up. Run your first load to see data flow through the pipeline."
+- Each ghost node shows what it represents: "Sources (0 connected)", "Landing Zone (0 entities)", etc.
+- Purview panel shows "Ready for Purview" with mapping coverage count
+- Subtle pulse animation on the "Run First Load" call-to-action
+- As each component gets data (sources registered, first load completes, first classification runs), the corresponding ghost node transitions to a LIVE node with spring animation
+
+**Partially Populated State:**
+- If sources are registered but no loads have run: Source nodes are live, layer nodes are ghosts
+- If LZ loaded but no Bronze: LZ node is live, Bronze/Silver/Gold are ghosts
+- Animated particles only flow between LIVE nodes — no particles for ghost connections
+- This creates a natural visual progression that rewards the user for completing each step
