@@ -127,7 +127,7 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
         onelake_mount_path=engine_section.get("onelake_mount_path", ""),
 
         # Execution mode: "notebook" (Fabric notebooks), "pipeline" (Fabric pipelines), "local" (pyodbc)
-        load_method=engine_section.get("load_method", "notebook"),
+        load_method=engine_section.get("load_method", "local"),
         pipeline_fallback=engine_section.get("pipeline_fallback", True),
         pipeline_copy_sql_id=engine_section.get("pipeline_copy_sql_id", ""),
         pipeline_workspace_id=engine_section.get("pipeline_workspace_id", ""),

@@ -30,6 +30,21 @@ from engine.models import EngineConfig
 log = logging.getLogger("fmd.onelake_io")
 
 
+def _strip_tz(df: pl.DataFrame) -> pl.DataFrame:
+    """Cast timezone-aware datetimes to naive UTC.
+
+    Delta protocol requires the timestampNtz feature for tz-aware columns,
+    and OneLake/Fabric handles UTC implicitly.
+    """
+    cast_cols = []
+    for col_name, dtype in zip(df.columns, df.dtypes):
+        if isinstance(dtype, pl.Datetime) and dtype.time_zone is not None:
+            cast_cols.append(pl.col(col_name).dt.replace_time_zone(None))
+    if cast_cols:
+        df = df.with_columns(cast_cols)
+    return df
+
+
 class OneLakeIO:
     """Read and write parquet/Delta files on OneLake.
 
@@ -298,12 +313,9 @@ class OneLakeIO:
             # Cast timezone-aware datetimes to naive UTC (Delta protocol
             # requires the timestampNtz feature for tz-aware columns, and
             # OneLake/Fabric handles UTC implicitly).
-            cast_cols = []
-            for col_name, dtype in zip(df.columns, df.dtypes):
-                if isinstance(dtype, pl.Datetime) and dtype.time_zone is not None:
-                    cast_cols.append(pl.col(col_name).dt.replace_time_zone(None))
-            if cast_cols:
-                df = df.with_columns(cast_cols)
+            df = _strip_tz(df)
+
+            expected_rows = len(df)
 
             # schema_mode="overwrite" replaces the existing table schema
             # entirely, which handles tables created by Fabric notebooks
@@ -312,9 +324,13 @@ class OneLakeIO:
                 local_path, mode=mode,
                 delta_write_options={"schema_mode": "overwrite"},
             )
+
+            # Write verification — read back row count
+            verified = self._verify_write(local_path, expected_rows, "fs")
+
             elapsed = time.perf_counter() - t0
-            log.info("Wrote delta (fs) %s: %d rows in %.3fs (mode=%s)",
-                     os.path.basename(local_path), len(df), elapsed, mode)
+            log.info("Wrote delta (fs) %s: %d rows in %.3fs (mode=%s, verified=%s)",
+                     os.path.basename(local_path), expected_rows, elapsed, mode, verified)
             return True
         except Exception as exc:
             log.error("Failed to write delta (fs) %s: %s", local_path, exc)
@@ -327,13 +343,8 @@ class OneLakeIO:
         t0 = time.perf_counter()
         uri = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{table_path}"
         try:
-            # Strip timezone info (same as fs mode)
-            cast_cols = []
-            for col_name, dtype in zip(df.columns, df.dtypes):
-                if isinstance(dtype, pl.Datetime) and dtype.time_zone is not None:
-                    cast_cols.append(pl.col(col_name).dt.replace_time_zone(None))
-            if cast_cols:
-                df = df.with_columns(cast_cols)
+            df = _strip_tz(df)
+            expected_rows = len(df)
 
             from engine.auth import SCOPE_ONELAKE
             token = self._token_provider.get_token(SCOPE_ONELAKE)
@@ -342,9 +353,13 @@ class OneLakeIO:
                 uri, mode=mode, storage_options=storage_options,
                 delta_write_options={"schema_mode": "overwrite"},
             )
+
+            # Write verification — read back row count from ADLS
+            verified = self._verify_write_adls(uri, expected_rows, storage_options)
+
             elapsed = time.perf_counter() - t0
-            log.info("Wrote delta (adls) %s: %d rows in %.1fs (mode=%s)",
-                     table_path.split("/")[-1], len(df), elapsed, mode)
+            log.info("Wrote delta (adls) %s: %d rows in %.1fs (mode=%s, verified=%s)",
+                     table_path.split("/")[-1], expected_rows, elapsed, mode, verified)
             return True
         except Exception as exc:
             log.error("Failed to write delta (adls) %s: %s", table_path, exc)
@@ -368,4 +383,77 @@ class OneLakeIO:
             return True
         except Exception as e:
             log.debug("Delta table check failed for %s: %s", table_path, e)
+            return False
+
+    # ------------------------------------------------------------------
+    # Write Verification & Compaction
+    # ------------------------------------------------------------------
+
+    def _verify_write(self, local_path: str, expected_rows: int, label: str) -> bool:
+        """Read back a local Delta table and verify row count matches expected."""
+        try:
+            from deltalake import DeltaTable
+            dt = DeltaTable(local_path)
+            actual = len(dt.to_pyarrow_table())
+            if actual != expected_rows:
+                log.warning("Write verification MISMATCH (%s) %s: expected %d, got %d",
+                            label, os.path.basename(local_path), expected_rows, actual)
+                return False
+            return True
+        except Exception as exc:
+            log.warning("Write verification FAILED (%s) %s: %s", label, local_path, exc)
+            return False
+
+    def _verify_write_adls(self, uri: str, expected_rows: int, storage_options: dict) -> bool:
+        """Read back an ADLS Delta table and verify row count matches expected."""
+        try:
+            from deltalake import DeltaTable
+            dt = DeltaTable(uri, storage_options=storage_options)
+            actual = len(dt.to_pyarrow_table())
+            if actual != expected_rows:
+                log.warning("Write verification MISMATCH (adls) %s: expected %d, got %d",
+                            uri.split("/")[-1], expected_rows, actual)
+                return False
+            return True
+        except Exception as exc:
+            log.warning("Write verification FAILED (adls): %s", exc)
+            return False
+
+    def compact_delta(self, workspace_id: str, table_path: str) -> bool:
+        """Run Delta compaction (optimize + vacuum) on a table.
+
+        Called periodically (every N writes) to merge small files and
+        remove old versions. Interval controlled by config.delta_compact_interval.
+        """
+        try:
+            from deltalake import DeltaTable
+            from datetime import timedelta
+
+            retention = timedelta(days=self._config.delta_vacuum_retention_days)
+
+            if self._filesystem_mode:
+                local_path = self._resolve_local_path(table_path)
+                if not local_path or not os.path.exists(os.path.join(local_path, "_delta_log")):
+                    return False
+                dt = DeltaTable(local_path)
+            else:
+                uri = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{table_path}"
+                from engine.auth import SCOPE_ONELAKE
+                token = self._token_provider.get_token(SCOPE_ONELAKE)
+                storage_options = {"bearer_token": token, "use_fabric_endpoint": "true"}
+                dt = DeltaTable(uri, storage_options=storage_options)
+
+            # Optimize: merge small parquet files into larger ones
+            dt.optimize.compact()
+
+            # Vacuum: remove files older than retention period
+            dt.vacuum(retention_hours=int(retention.total_seconds() / 3600),
+                      enforce_retention_duration=False)
+
+            table_name = table_path.split("/")[-1]
+            log.info("Delta compaction complete: %s (vacuum retention=%dd)",
+                     table_name, self._config.delta_vacuum_retention_days)
+            return True
+        except Exception as exc:
+            log.warning("Delta compaction failed for %s: %s", table_path, exc)
             return False

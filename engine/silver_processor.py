@@ -232,6 +232,7 @@ class SilverProcessor:
             result_df = pl.concat(parts, how="diagonal_relaxed")
 
         # Write Silver Delta table
+        rows_written = len(result_df)
         success = self._io.write_delta(workspace_id, entity.delta_table_path, result_df, mode="overwrite")
         elapsed = time.perf_counter() - t0
 
@@ -245,11 +246,31 @@ class SilverProcessor:
                 error="Failed to write Delta table to Silver lakehouse",
             )
 
+        # Log SCD statistics prominently
+        if silver_df is not None:
+            unchanged_count = rows_written - insert_count - update_count - delete_count
+            log.info(
+                "[%s] Silver %s SCD stats: %d total rows | %d inserts | %d updates | %d deletes | %d unchanged",
+                run_id[:8], entity.source_name, rows_written,
+                insert_count, update_count, delete_count, unchanged_count,
+            )
+
+        # Log Delta table version for diagnostics
+        try:
+            from deltalake import DeltaTable
+            if self._io._filesystem_mode:
+                local_path = self._io._resolve_local_path(entity.delta_table_path)
+                if local_path:
+                    dt_version = DeltaTable(local_path).version()
+                    log.info("[%s] Silver %s: Delta version %d", run_id[:8], entity.source_name, dt_version)
+        except Exception:
+            pass  # non-critical
+
         return RunResult(
             entity_id=entity.silver_entity_id,
             layer="silver",
             status="succeeded",
             rows_read=rows_read,
-            rows_written=len(result_df),
+            rows_written=rows_written,
             duration_seconds=round(elapsed, 2),
         )

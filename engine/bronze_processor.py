@@ -173,6 +173,17 @@ class BronzeProcessor:
                 error="Failed to write Delta table to Bronze lakehouse",
             )
 
+        # Log Delta table version for diagnostics
+        try:
+            from deltalake import DeltaTable
+            if self._io._filesystem_mode:
+                local_path = self._io._resolve_local_path(table_path)
+                if local_path:
+                    dt_version = DeltaTable(local_path).version()
+                    log.info("[%s] Bronze %s: Delta version %d", run_id[:8], entity.source_name, dt_version)
+        except Exception:
+            pass  # non-critical
+
         return RunResult(
             entity_id=entity.bronze_entity_id,
             layer="bronze",
