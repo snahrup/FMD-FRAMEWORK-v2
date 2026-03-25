@@ -79,6 +79,37 @@ def get_lmc_sources(params: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/lmc/entity-ids-by-source — Resolve source names → entity IDs
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/lmc/entity-ids-by-source")
+def get_entity_ids_by_source(params: dict) -> dict:
+    """Return active LZ entity IDs for the given source names (comma-separated).
+
+    Query params:
+        sources — comma-separated source names (e.g. "M3C,MES")
+    """
+    sources_raw = params.get("sources", "")
+    if not sources_raw:
+        return {"entity_ids": [], "count": 0}
+
+    source_names = [s.strip() for s in sources_raw.split(",") if s.strip()]
+    if not source_names:
+        return {"entity_ids": [], "count": 0}
+
+    placeholders = ",".join("?" for _ in source_names)
+    rows = _safe_query(
+        f"SELECT le.EntityId "
+        f"FROM lz_entities le "
+        f"JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
+        f"WHERE le.IsActive = 1 AND ds.Name IN ({placeholders})",
+        tuple(source_names),
+    )
+    ids = [_int(r["EntityId"]) for r in rows]
+    return {"entity_ids": ids, "count": len(ids)}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/lmc/progress — Enhanced overall progress
 # ---------------------------------------------------------------------------
 
@@ -318,14 +349,21 @@ def get_lmc_runs(params: dict) -> dict:
         "    WHERE etl.RunId = er.RunId AND etl.Status = 'succeeded') AS totalRowsRead, "
         "  (SELECT SUM(BytesTransferred) FROM engine_task_log etl "
         "    WHERE etl.RunId = er.RunId AND etl.Status = 'succeeded') AS totalBytes, "
-        "  (SELECT COUNT(*) FROM engine_task_log etl WHERE etl.RunId = er.RunId) AS totalTaskLogs "
+        "  (SELECT COUNT(*) FROM engine_task_log etl WHERE etl.RunId = er.RunId) AS totalTaskLogs, "
+        "  (SELECT ExtractionMethod FROM engine_task_log "
+        "    WHERE RunId = er.RunId AND ExtractionMethod != 'unknown' "
+        "    GROUP BY ExtractionMethod ORDER BY COUNT(*) DESC LIMIT 1"
+        "  ) AS extraction_method "
         "FROM engine_runs er "
         "ORDER BY er.StartedAt DESC LIMIT ?",
         (str(limit),),
     )
 
     return {
-        "runs": runs,
+        "runs": [{
+            **r,
+            "extractionMethod": r.get("extraction_method") or "unknown",
+        } for r in runs],
         "serverTime": _utcnow_iso(),
     }
 
@@ -370,7 +408,7 @@ def get_lmc_run_detail(params: dict) -> dict:
     failures = _safe_query(
         "SELECT etl.EntityId, etl.Layer, etl.SourceTable, etl.ErrorType, "
         "  etl.ErrorMessage, etl.ErrorSuggestion, etl.DurationSeconds, "
-        "  etl.LoadType, etl.created_at "
+        "  etl.LoadType, etl.ExtractionMethod, etl.created_at "
         "FROM engine_task_log etl "
         "WHERE etl.RunId = ? AND etl.Status = 'failed' "
         "ORDER BY etl.created_at DESC",
@@ -395,6 +433,41 @@ def get_lmc_run_detail(params: dict) -> dict:
         "FROM engine_task_log "
         "WHERE RunId = ? AND WatermarkAfter IS NOT NULL AND WatermarkAfter != '' "
         "ORDER BY created_at DESC",
+        (run_id,),
+    )
+
+    # Per-entity results with extraction method and completion time
+    entity_results = _safe_query(
+        "SELECT etl.EntityId, etl.Layer, etl.Status, etl.SourceTable, "
+        "  etl.RowsRead, etl.RowsWritten, etl.BytesTransferred, "
+        "  etl.DurationSeconds, etl.LoadType, "
+        "  etl.ExtractionMethod, etl.created_at "
+        "FROM engine_task_log etl "
+        "WHERE etl.RunId = ? "
+        "ORDER BY etl.created_at DESC",
+        (run_id,),
+    )
+    entity_results_mapped = [{
+        "entityId": r["EntityId"],
+        "layer": r["Layer"],
+        "status": r["Status"],
+        "sourceTable": r["SourceTable"],
+        "rowsRead": _int(r["RowsRead"]),
+        "rowsWritten": _int(r["RowsWritten"]),
+        "bytesTransferred": _int(r["BytesTransferred"]),
+        "durationSeconds": float(r["DurationSeconds"] or 0),
+        "loadType": r["LoadType"],
+        "extractionMethod": r["ExtractionMethod"] or "unknown",
+        "completedAt": r["created_at"],
+    } for r in entity_results]
+
+    # Extraction method breakdown for this run
+    extraction_methods = _safe_query(
+        "SELECT ExtractionMethod, COUNT(*) AS cnt, "
+        "  SUM(RowsRead) AS total_rows "
+        "FROM engine_task_log "
+        "WHERE RunId = ? AND Status = 'succeeded' "
+        "GROUP BY ExtractionMethod ORDER BY cnt DESC",
         (run_id,),
     )
 
@@ -425,7 +498,17 @@ def get_lmc_run_detail(params: dict) -> dict:
             "errorSummary": run_meta.get("ErrorSummary", ""),
         },
         "layerSource": layer_source,
-        "failures": failures,
+        "failures": [{
+            **f,
+            "extractionMethod": f.get("ExtractionMethod") or "unknown",
+            "completedAt": f.get("created_at"),
+        } for f in failures],
+        "entityResults": entity_results_mapped,
+        "extractionMethods": [{
+            "method": r["ExtractionMethod"] or "unknown",
+            "count": _int(r["cnt"]),
+            "totalRows": _int(r["total_rows"]),
+        } for r in extraction_methods],
         "loadTypes": load_types,
         "watermarkUpdates": watermark_updates,
         "timeline": timeline,
