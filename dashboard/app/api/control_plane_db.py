@@ -185,6 +185,7 @@ def init_db():
                 ErrorStackTrace     TEXT,
                 ErrorSuggestion     TEXT,
                 LogData             TEXT,
+                ExtractionMethod    TEXT DEFAULT 'unknown',
                 created_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );
 
@@ -1167,6 +1168,12 @@ def init_db():
             conn.commit()
             log.info("Migration: gs_audit_log recreated with correct CHECK constraints")
 
+        # Migration: add ExtractionMethod to engine_task_log if missing
+        try:
+            conn.execute("SELECT ExtractionMethod FROM engine_task_log LIMIT 1")
+        except Exception:
+            conn.execute("ALTER TABLE engine_task_log ADD COLUMN ExtractionMethod TEXT DEFAULT 'unknown'")
+
         # Migration: add durable worker columns to engine_runs (Phase 1)
         for col, coldef in [
             ("HeartbeatAt", "TEXT"),
@@ -1388,7 +1395,7 @@ def upsert_engine_run(row: dict) -> None:
             conn.close()
 
 
-def insert_engine_task_log(row: dict) -> None:
+def insert_engine_task_log(row: dict, extraction_method: str = "unknown") -> None:
     with _db_lock:
         conn = _get_conn()
         try:
@@ -1398,8 +1405,8 @@ def insert_engine_task_log(row: dict) -> None:
                 "SourceTable, SourceQuery, RowsRead, RowsWritten, BytesTransferred, "
                 "DurationSeconds, TargetLakehouse, TargetPath, WatermarkColumn, "
                 "WatermarkBefore, WatermarkAfter, LoadType, ErrorType, ErrorMessage, "
-                "ErrorStackTrace, ErrorSuggestion, LogData, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "ErrorStackTrace, ErrorSuggestion, LogData, ExtractionMethod, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (_v(row.get('RunId')), row.get('EntityId'),
                  _v(row.get('Layer')), _v(row.get('Status', 'Unknown')),
                  _v(row.get('SourceServer')), _v(row.get('SourceDatabase')),
@@ -1411,7 +1418,9 @@ def insert_engine_task_log(row: dict) -> None:
                  _v(row.get('WatermarkAfter')), _v(row.get('LoadType')),
                  _v(row.get('ErrorType')), _v(row.get('ErrorMessage')),
                  _v(row.get('ErrorStackTrace')), _v(row.get('ErrorSuggestion')),
-                 _v(row.get('LogData')), _now())
+                 _v(row.get('LogData')),
+                 _v(row.get('ExtractionMethod', extraction_method)),
+                 _now())
             )
             conn.commit()
         finally:
