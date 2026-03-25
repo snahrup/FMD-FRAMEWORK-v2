@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
+import dashboard.app.api.control_plane_db as cpdb
 
 log = logging.getLogger("fmd.routes.lmc")
 
@@ -703,4 +704,129 @@ def get_lmc_entity_history(params: dict) -> dict:
         "history": history,
         "retries": retries,
         "serverTime": _utcnow_iso(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/lmc/compare — Side-by-side run comparison
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/lmc/compare")
+def compare_runs(params, body=None, headers=None):
+    """Compare two runs side-by-side for performance benchmarking."""
+    run_a = params.get("run_a", "").strip()
+    run_b = params.get("run_b", "").strip()
+    if not run_a or not run_b:
+        raise HttpError("run_a and run_b query params required", 400)
+
+    conn = cpdb._get_conn()
+
+    def _run_stats(rid):
+        # Wall-clock duration from engine_runs
+        run_row = conn.execute("""
+            SELECT StartedAt, EndedAt,
+                   ROUND((julianday(EndedAt) - julianday(StartedAt)) * 86400, 2) AS wall_clock_secs
+            FROM engine_runs WHERE RunId = ?
+        """, (rid,)).fetchone()
+        wall_clock = run_row[2] if run_row and run_row[2] else None
+
+        # Deduplicated entity stats (latest succeeded landing per entity)
+        row = conn.execute("""
+            WITH deduped AS (
+                SELECT EntityId, RowsRead, BytesTransferred, DurationSeconds, ExtractionMethod,
+                       ROW_NUMBER() OVER (PARTITION BY EntityId ORDER BY created_at DESC) AS rn
+                FROM engine_task_log
+                WHERE RunId = ? AND Status = 'succeeded' AND Layer = 'landing'
+            )
+            SELECT COUNT(*) AS entity_count,
+                   SUM(RowsRead) AS total_rows,
+                   ROUND(SUM(DurationSeconds), 2) AS entity_duration_sum,
+                   ROUND(SUM(RowsRead) * 1.0 / NULLIF(SUM(DurationSeconds), 0), 1) AS rows_per_sec,
+                   ROUND(SUM(BytesTransferred) * 1.0 / NULLIF(SUM(DurationSeconds), 0), 1) AS bytes_per_sec,
+                   (SELECT ExtractionMethod FROM engine_task_log
+                    WHERE RunId = ? AND ExtractionMethod != 'unknown'
+                    GROUP BY ExtractionMethod ORDER BY COUNT(*) DESC LIMIT 1) AS extraction_method
+            FROM deduped WHERE rn = 1
+        """, (rid, rid)).fetchone()
+        if not row or not row[0]:
+            return None
+
+        # Median and p95 entity duration
+        durations = conn.execute("""
+            WITH deduped AS (
+                SELECT DurationSeconds,
+                       ROW_NUMBER() OVER (PARTITION BY EntityId ORDER BY created_at DESC) AS rn
+                FROM engine_task_log
+                WHERE RunId = ? AND Status = 'succeeded' AND Layer = 'landing'
+            )
+            SELECT DurationSeconds FROM deduped WHERE rn = 1 ORDER BY DurationSeconds
+        """, (rid,)).fetchall()
+        dur_list = [d[0] for d in durations if d[0]]
+        median_dur = dur_list[len(dur_list) // 2] if dur_list else 0
+        p95_dur = dur_list[int(len(dur_list) * 0.95)] if dur_list else 0
+
+        return {
+            "run_id": rid,
+            "entity_count": row[0] or 0,
+            "total_rows": row[1] or 0,
+            "entity_duration_sum": row[2] or 0,
+            "wall_clock_duration": wall_clock,
+            "rows_per_sec": row[3] or 0,
+            "bytes_per_sec": row[4] or 0,
+            "extraction_method": row[5] or "unknown",
+            "median_entity_duration": round(median_dur, 2),
+            "p95_entity_duration": round(p95_dur, 2),
+        }
+
+    stats_a = _run_stats(run_a)
+    stats_b = _run_stats(run_b)
+    if not stats_a or not stats_b:
+        raise HttpError("One or both runs not found or have no succeeded entities", 404)
+
+    # Matched entities — deduplicated (latest succeeded landing per entity per run)
+    matched = conn.execute("""
+        WITH deduped_a AS (
+            SELECT EntityId, SourceTable, RowsRead, DurationSeconds,
+                   ROW_NUMBER() OVER (PARTITION BY EntityId ORDER BY created_at DESC) AS rn
+            FROM engine_task_log
+            WHERE RunId = ? AND Status = 'succeeded' AND Layer = 'landing'
+        ),
+        deduped_b AS (
+            SELECT EntityId, RowsRead, DurationSeconds,
+                   ROW_NUMBER() OVER (PARTITION BY EntityId ORDER BY created_at DESC) AS rn
+            FROM engine_task_log
+            WHERE RunId = ? AND Status = 'succeeded' AND Layer = 'landing'
+        )
+        SELECT a.EntityId, a.SourceTable,
+               a.RowsRead AS rows,
+               a.DurationSeconds AS dur_a,
+               b.DurationSeconds AS dur_b,
+               ROUND(a.DurationSeconds / NULLIF(b.DurationSeconds, 0), 2) AS speedup
+        FROM deduped_a a
+        INNER JOIN deduped_b b ON a.EntityId = b.EntityId
+        WHERE a.rn = 1 AND b.rn = 1
+        ORDER BY speedup DESC
+    """, (run_a, run_b)).fetchall()
+
+    # Use wall-clock for headline speedup when available, fall back to entity sum
+    dur_a = stats_a.get("wall_clock_duration") or stats_a["entity_duration_sum"]
+    dur_b = stats_b.get("wall_clock_duration") or stats_b["entity_duration_sum"]
+    speedup = round(dur_a / max(dur_b, 0.01), 1)
+
+    return {
+        "run_a": stats_a,
+        "run_b": stats_b,
+        "speedup": speedup,
+        "speedup_basis": "wall_clock" if stats_a.get("wall_clock_duration") else "entity_sum",
+        "matched_entities": [
+            {
+                "entity_id": r[0],
+                "source_name": r[1] or "",
+                "rows": r[2] or 0,
+                "run_a_duration": r[3] or 0,
+                "run_b_duration": r[4] or 0,
+                "speedup": r[5] or 0,
+            }
+            for r in matched
+        ],
     }
