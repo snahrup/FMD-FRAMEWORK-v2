@@ -67,11 +67,14 @@
   --color-claude-blue: oklch(0.62 0.1 230);
   --color-claude-green: oklch(0.58 0.1 145);
 
-  /* --- Typography (Phase 3/4) --- */
-  --font-sans: 'Manrope', system-ui, sans-serif;
-  --font-display: 'Manrope', system-ui, sans-serif;
-  --font-serif: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
-  --font-mono: 'Manrope', system-ui, sans-serif;
+  /* --- Typography — SINGLE SOURCE OF TRUTH --- */
+  /* Change this one value to re-skin the entire app's font */
+  --font-family: 'Manrope', system-ui, sans-serif;
+
+  --font-sans: var(--font-family);
+  --font-display: var(--font-family);
+  --font-serif: var(--font-family);
+  --font-mono: var(--font-family);
 
   /* --- Animation (Phase 7) --- */
   --ease-claude: cubic-bezier(0.25, 0.1, 0.25, 1);
@@ -534,10 +537,10 @@
   /* BP Code block surface */
   --bp-code-block: #2B2A27;
 
-  /* BP Typography */
-  --bp-font-display: 'Manrope', system-ui, sans-serif;
-  --bp-font-body: 'Manrope', system-ui, sans-serif;
-  --bp-font-mono: 'Manrope', system-ui, sans-serif;
+  /* BP Typography — inherits from --font-family */
+  --bp-font-display: var(--font-family);
+  --bp-font-body: var(--font-family);
+  --bp-font-mono: var(--font-family);
 
   /* BP Spacing scale — 4px base */
   --bp-space-1: 4px;
@@ -712,14 +715,21 @@
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.bp-badge-sm {
+  font-size: 10px;
+  padding: 1px 6px;
+  gap: 3px;
 }
 
-.bp-badge-critical { background: var(--bp-fault-light); color: var(--bp-fault); }
-.bp-badge-warning { background: var(--bp-caution-light); color: var(--bp-caution); }
-.bp-badge-info { background: var(--bp-surface-inset); color: var(--bp-ink-tertiary); }
-.bp-badge-operational { background: var(--bp-operational-light); color: var(--bp-operational); }
+.bp-badge-critical { background: var(--bp-fault-light); color: var(--bp-fault); border: 1px solid color-mix(in srgb, var(--bp-fault) 20%, transparent); }
+.bp-badge-warning { background: var(--bp-caution-light); color: var(--bp-caution); border: 1px solid color-mix(in srgb, var(--bp-caution) 20%, transparent); }
+.bp-badge-info { background: var(--bp-surface-inset); color: var(--bp-ink-tertiary); border: 1px solid var(--bp-border); }
+.bp-badge-operational { background: var(--bp-operational-light); color: var(--bp-operational); border: 1px solid color-mix(in srgb, var(--bp-operational) 20%, transparent); }
+.bp-badge-active { background: var(--bp-info-light); color: var(--bp-info); border: 1px solid color-mix(in srgb, var(--bp-info) 20%, transparent); }
 
 /* BP Quality tier badges */
 .bp-tier-gold {

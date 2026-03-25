@@ -2,7 +2,7 @@
 // BusinessShell — Wrapper that applies the Business Portal design system
 //
 // Wraps content in .bp-shell class which activates BP CSS custom properties,
-// fonts (Instrument Serif, Outfit, JetBrains Mono), and scoped styles.
+// Manrope font family, and scoped styles.
 //
 // Engineering mode passes children through unstyled.
 // ============================================================================

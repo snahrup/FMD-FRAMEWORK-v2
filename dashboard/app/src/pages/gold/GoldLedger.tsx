@@ -2,8 +2,7 @@
 // Gold Ledger — Home base of Gold Studio. Specimen list, entity view, import.
 //
 // Design system: Industrial Precision, Light Mode
-// Fonts: Instrument Serif (display), Outfit (body), JetBrains Mono (data)
-// All styles use BP CSS custom properties (--bp-*)
+// Font: Manrope (all weights). All styles use BP CSS custom properties (--bp-*)
 // Data: /api/gold-studio/stats, /api/gold-studio/specimens
 // ============================================================================
 

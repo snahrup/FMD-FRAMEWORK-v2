@@ -10,9 +10,12 @@ Auto-trigger:  Claude Code PostToolUse hook after `gh pr merge`
 """
 
 import json
+import logging
 import subprocess
 import sys
 from datetime import datetime
+
+log = logging.getLogger("fmd.command_center")
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -309,7 +312,7 @@ def get_pr_state():
         if out.returncode == 0:
             merged = json.loads(out.stdout)
     except Exception:
-        pass
+        log.debug("Could not fetch merged PRs from GitHub — gh CLI may not be available")
     try:
         out = subprocess.run(
             ["gh", "pr", "list", "--state", "open", "--json", "number,title,headRefName,reviewDecision", "--limit", "50"],
@@ -318,7 +321,7 @@ def get_pr_state():
         if out.returncode == 0:
             opened = json.loads(out.stdout)
     except Exception:
-        pass
+        log.debug("Could not fetch open PRs from GitHub — gh CLI may not be available")
     return merged, opened
 
 

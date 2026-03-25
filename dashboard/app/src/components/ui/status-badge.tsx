@@ -16,11 +16,10 @@ export function StatusBadge({ status, label, className, showIcon = true, size = 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded border font-medium transition-colors",
-        config.bg, config.color, config.border,
+        "bp-badge",
+        config.badgeClass,
         config.pulse && "animate-pulse",
-        size === "sm" && "text-[10px] px-1.5 py-0.5",
-        size === "md" && "text-xs px-2.5 py-0.5",
+        size === "sm" && "bp-badge-sm",
         className
       )}
     >

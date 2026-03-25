@@ -11,7 +11,7 @@
  *   Phase 4 — Context panel (slide-out): Entity detail, Failures, Verification
  *   Phase 5 — Orchestration wiring: SSE live feed, auto-refresh, keyboard shortcuts
  *
- * Design system: BP tokens (--bp-*), borders-only depth, Outfit/JetBrains Mono.
+ * Design system: BP tokens (--bp-*), borders-only depth, Manrope.
  * State management: React context + useReducer for cross-component scope sharing.
  * Data: All reads from /api/lmc/*, /api/engine/*, /api/load-center/* endpoints.
  *
@@ -197,6 +197,10 @@ interface Scope {
   contextOpen: boolean;
   engineStatus: "idle" | "running" | "stopping" | "error";
   isRunActive: boolean;
+  /** Sources selected for the current run (empty = all sources) */
+  runSources: string[];
+  /** Current page offset for entities/history tabs */
+  entityPage: number;
 }
 
 type ScopeAction =
@@ -211,6 +215,8 @@ type ScopeAction =
   | { type: "TOGGLE_CONTEXT" }
   | { type: "SET_ENGINE_STATUS"; status: Scope["engineStatus"]; isRunActive: boolean }
   | { type: "CLICK_MATRIX_CELL"; source: string; layer: string }
+  | { type: "SET_RUN_SOURCES"; sources: string[] }
+  | { type: "SET_ENTITY_PAGE"; page: number }
   | { type: "CLEAR_SCOPE" };
 
 const initialScope: Scope = {
@@ -225,6 +231,8 @@ const initialScope: Scope = {
   contextOpen: false,
   engineStatus: "idle",
   isRunActive: false,
+  runSources: [],
+  entityPage: 0,
 };
 
 function scopeReducer(state: Scope, action: ScopeAction): Scope {
@@ -232,11 +240,11 @@ function scopeReducer(state: Scope, action: ScopeAction): Scope {
     case "SET_RUN":
       return { ...state, selectedRunId: action.runId, selectedEntityId: null };
     case "SET_SOURCES":
-      return { ...state, selectedSources: action.sources };
+      return { ...state, selectedSources: action.sources, entityPage: 0 };
     case "SET_LAYERS":
-      return { ...state, selectedLayers: action.layers };
+      return { ...state, selectedLayers: action.layers, entityPage: 0 };
     case "SET_STATUSES":
-      return { ...state, selectedStatuses: action.statuses };
+      return { ...state, selectedStatuses: action.statuses, entityPage: 0 };
     case "SET_ENTITY":
       return { ...state, selectedEntityId: action.entityId, contextOpen: action.entityId !== null };
     case "SET_SEARCH":
@@ -248,7 +256,13 @@ function scopeReducer(state: Scope, action: ScopeAction): Scope {
     case "TOGGLE_CONTEXT":
       return { ...state, contextOpen: !state.contextOpen };
     case "SET_ENGINE_STATUS":
-      return { ...state, engineStatus: action.status, isRunActive: action.isRunActive };
+      return {
+        ...state,
+        engineStatus: action.status,
+        isRunActive: action.isRunActive,
+        // Keep runSources sticky — only clear when user explicitly starts a new run
+        // or clicks the clear button. Never let polling wipe scope mid-run.
+      };
     case "CLICK_MATRIX_CELL":
       return {
         ...state,
@@ -256,8 +270,12 @@ function scopeReducer(state: Scope, action: ScopeAction): Scope {
         selectedLayers: [action.layer],
         activeTab: "entities",
       };
+    case "SET_RUN_SOURCES":
+      return { ...state, runSources: action.sources };
+    case "SET_ENTITY_PAGE":
+      return { ...state, entityPage: action.page };
     case "CLEAR_SCOPE":
-      return { ...initialScope, selectedRunId: state.selectedRunId, engineStatus: state.engineStatus, isRunActive: state.isRunActive };
+      return { ...initialScope, selectedRunId: state.selectedRunId, engineStatus: state.engineStatus, isRunActive: state.isRunActive, runSources: state.runSources };
     default:
       return state;
   }
@@ -399,13 +417,12 @@ function useEntities(
 function useSSE(enabled: boolean) {
   const [events, setEvents] = useState<Array<{ type: string; data: unknown; ts: number }>>([]);
   const esRef = useRef<EventSource | null>(null);
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
 
-  useEffect(() => {
-    if (!enabled) {
-      esRef.current?.close();
-      esRef.current = null;
-      return;
-    }
+  const connect = useCallback(() => {
+    if (esRef.current) { esRef.current.close(); esRef.current = null; }
+
     const es = new EventSource(`${API}/api/engine/logs/stream`);
     esRef.current = es;
 
@@ -415,21 +432,44 @@ function useSSE(enabled: boolean) {
         setEvents(prev => [...prev.slice(-499), { type: eventType, data: parsed, ts: Date.now() }]);
       } catch { /* ignore malformed */ }
     };
-    // Listen for ALL named event types the server sends
+
     es.addEventListener("entity_result", handler("entity_result"));
     es.addEventListener("log", handler("log"));
     es.addEventListener("run_complete", handler("run_complete"));
     es.addEventListener("run_error", handler("run_error"));
-    // Also catch unnamed events as fallback
     es.onmessage = (e: MessageEvent) => {
       try {
         const parsed = JSON.parse(e.data);
         setEvents(prev => [...prev.slice(-499), { type: parsed.type ?? "log", data: parsed, ts: Date.now() }]);
       } catch { /* ignore */ }
     };
-    es.onerror = () => { es.close(); };
-    return () => { es.close(); };
-  }, [enabled]);
+
+    es.onopen = () => { retryCountRef.current = 0; };
+    es.onerror = () => {
+      es.close();
+      esRef.current = null;
+      // Exponential backoff reconnect: 1s, 2s, 4s, 8s, max 15s
+      const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 15000);
+      retryCountRef.current++;
+      retryRef.current = setTimeout(connect, delay);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) {
+      esRef.current?.close();
+      esRef.current = null;
+      if (retryRef.current) clearTimeout(retryRef.current);
+      retryCountRef.current = 0;
+      return;
+    }
+    connect();
+    return () => {
+      esRef.current?.close();
+      esRef.current = null;
+      if (retryRef.current) clearTimeout(retryRef.current);
+    };
+  }, [enabled, connect]);
 
   const clear = useCallback(() => setEvents([]), []);
   return { events, clear };
@@ -511,23 +551,15 @@ function trustBadge(verified: boolean | null): { icon: typeof Check; color: stri
   return { icon: HelpCircle, color: "var(--bp-ink-muted)", label: "Unverified" };
 }
 
-function engineActionLabel(status: Scope["engineStatus"]): string {
-  switch (status) {
-    case "running": return "Stop";
-    case "stopping": return "Stopping…";
-    default: return "Start";
-  }
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // §5  INLINE STYLE CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const S = {
-  mono: { fontFamily: "'JetBrains Mono', monospace" } as React.CSSProperties, // ONLY for log output, code, watermarks
-  data: { fontFamily: "'Manrope', sans-serif", fontVariantNumeric: "tabular-nums" } as React.CSSProperties, // numbers with aligned columns
-  sans: { fontFamily: "'Manrope', sans-serif" } as React.CSSProperties,
-  display: { fontFamily: "'Instrument Serif', serif" } as React.CSSProperties,
+  mono: { fontFamily: "var(--bp-font-mono, 'Manrope', sans-serif)" } as React.CSSProperties, // monospace-like contexts (tabular data, logs)
+  data: { fontFamily: "var(--bp-font-body, 'Manrope', sans-serif)", fontVariantNumeric: "tabular-nums" } as React.CSSProperties, // numbers with aligned columns
+  sans: { fontFamily: "var(--bp-font-body, 'Manrope', sans-serif)" } as React.CSSProperties,
+  display: { fontFamily: "var(--bp-font-display, 'Manrope', sans-serif)" } as React.CSSProperties,
   card: {
     background: "var(--bp-surface-1)",
     border: "1px solid var(--bp-border)",
@@ -604,9 +636,9 @@ const LAYER_LABELS: Record<string, string> = { landing: "Landing Zone", bronze: 
 function StatusBadge({ currentRun, engineStatus }: { currentRun: LmcRun | null; engineStatus: string }) {
   const runStatus = currentRun?.status ?? "";
   const showStatus = currentRun ? runStatus : engineStatus;
-  const label = currentRun
-    ? runStatus.charAt(0).toUpperCase() + runStatus.slice(1)
-    : engineStatus.toUpperCase();
+  // Insert spaces before uppercase letters (InProgress → In Progress, etc.)
+  const humanize = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase());
+  const label = currentRun ? humanize(runStatus) : humanize(engineStatus);
   const isActive = engineStatus === "running";
   return (
     <div style={{
@@ -648,7 +680,7 @@ function CommandBand({
   const [launchLayers, setLaunchLayers] = useState<string[]>(["landing", "bronze", "silver"]);
   const [launchSources, setLaunchSources] = useState<string[]>([]);
 
-  const currentRun = runs.find(r => r.runId === scope.selectedRunId) ?? runs[0] ?? null;
+  const currentRun = runs.find(r => r.runId === scope.selectedRunId) ?? null;
   const canResume = engine?.last_run?.resumable === true && scope.engineStatus === "idle";
   const canRetry = currentRun?.status === "completed" || currentRun?.status === "failed";
 
@@ -712,7 +744,7 @@ function CommandBand({
                     {r.startedAt ? new Date(r.startedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
                   </span>
                   <span style={{ ...S.badge, background: statusColor(r.status) + "18", color: statusColor(r.status) }}>
-                    {r.status}
+                    {r.status.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase())}
                   </span>
                 </button>
               ))}
@@ -815,8 +847,8 @@ function CommandBand({
               ...S.card, background: "var(--bp-surface-1)",
               width: 560, maxWidth: "90vw",
               padding: 0, overflow: "hidden",
-              boxShadow: "0 24px 48px rgba(0,0,0,0.15), 0 8px 16px rgba(0,0,0,0.1)",
-              animation: "slideInUp 0.4s ease-out",
+              border: "2px solid var(--bp-border)",
+              animation: "slideInUp 0.4s var(--ease-claude)",
             }}
           >
             {/* Modal header */}
@@ -979,14 +1011,35 @@ function CommandBand({
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function KpiStrip({ progress }: { progress: ProgressResponse | null }) {
+  const scope = useScope();
+  const hasRunScope = scope.runSources.length > 0;
+
   if (!progress) return null;
 
+  // When run is scoped to specific sources, derive KPIs from bySource instead of global layers
+  const scopedSources = hasRunScope
+    ? (progress.bySource ?? []).filter(s => scope.runSources.includes(s.source))
+    : (progress.bySource ?? []);
+
   const allLayers = Object.values(progress.layers);
-  const succeeded = allLayers.reduce((a, l) => a + l.succeeded, 0);
-  const failed = allLayers.reduce((a, l) => a + l.failed, 0);
-  const skipped = allLayers.reduce((a, l) => a + l.skipped, 0);
-  const pending = progress.totalActiveEntities - succeeded - failed - skipped;
-  const totalRows = allLayers.reduce((a, l) => a + l.total_rows_written, 0);
+
+  // Use scoped totals when source filter is active
+  const succeeded = hasRunScope
+    ? scopedSources.reduce((a, s) => a + (s.succeeded ?? 0), 0)
+    : allLayers.reduce((a, l) => a + l.succeeded, 0);
+  const failed = hasRunScope
+    ? scopedSources.reduce((a, s) => a + (s.failed ?? 0), 0)
+    : allLayers.reduce((a, l) => a + l.failed, 0);
+  const skipped = hasRunScope
+    ? scopedSources.reduce((a, s) => a + (s.skipped ?? 0), 0)
+    : allLayers.reduce((a, l) => a + l.skipped, 0);
+  const scopedTotal = hasRunScope
+    ? scopedSources.reduce((a, s) => a + (s.total_entities ?? 0), 0)
+    : progress.totalActiveEntities;
+  const pending = scopedTotal - succeeded - failed - skipped;
+  const totalRows = hasRunScope
+    ? scopedSources.reduce((a, s) => a + (s.rows_read ?? 0), 0)
+    : allLayers.reduce((a, l) => a + l.total_rows_written, 0);
   const totalDuration = allLayers.reduce((a, l) => a + l.total_duration, 0);
   const verified = (progress.verification?.lz_verified ?? 0) + (progress.verification?.brz_verified ?? 0) + (progress.verification?.slv_verified ?? 0);
   const totalActive = progress.verification?.total_active ?? progress.totalActiveEntities;
@@ -1012,7 +1065,7 @@ function KpiStrip({ progress }: { progress: ProgressResponse | null }) {
             {formatNumber(succeeded)}
           </div>
           <div style={{ ...S.data, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
-            of {formatNumber(progress.totalActiveEntities)} total
+            of {formatNumber(scopedTotal)} {hasRunScope ? `(${scope.runSources.join(", ")})` : "total"}
           </div>
         </div>
 
@@ -1146,8 +1199,7 @@ function PhaseRail({ progress, engine }: { progress: ProgressResponse | null; en
               borderRadius: 6,
               border: isActive ? `2px solid ${layerColor(layer)}` : `1.5px solid var(--bp-border)`,
               background: isActive ? layerLightColor(layer) : "var(--bp-surface-1)",
-              transition: "all 0.3s ease",
-              boxShadow: isActive ? `0 0 0 3px ${layerColor(layer)}20` : "none",
+              transition: "all 0.3s var(--ease-claude)",
             }}>
               {isActive && <Loader2 size={16} style={{ color: layerColor(layer), animation: "spin 1s linear infinite", flexShrink: 0 }} />}
               {isDone && <CheckCircle2 size={16} style={{ color: "var(--bp-operational)", flexShrink: 0 }} />}
@@ -1178,6 +1230,7 @@ function PhaseRail({ progress, engine }: { progress: ProgressResponse | null; en
 function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: ProgressResponse | null; engine: EngineStatusResponse | null; sourceNames: SourceInfo[] }) {
   const scope = useScope();
   const dispatch = useScopeDispatch();
+  const hasRunScope = scope.runSources.length > 0;
 
   // Build display name lookup
   const displayNameMap = useMemo(() => {
@@ -1192,7 +1245,7 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
     return progress.bySource.map(s => s.source).sort();
   }, [progress?.bySource]);
 
-  const layerKeys = ["landing", "bronze", "silver", "gold"] as const;
+  const layerKeys = ["landing", "bronze", "silver"] as const;
   const currentLayer = engine?.last_run?.current_layer?.toLowerCase() ?? null;
 
   // Build lookup from lakehouseBySource array → { "source|lakehouse": { tables_loaded, total_rows } }
@@ -1245,15 +1298,24 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
   const isSelected = (source: string, layer: string) =>
     scope.selectedSources.includes(source) && scope.selectedLayers.includes(layer);
 
+  // Separate in-scope and out-of-scope rows for layout
+  const scopedRows = cells.map((row, ri) => ({
+    row,
+    source: row[0]?.source ?? sources[ri],
+    inScope: !hasRunScope || scope.runSources.includes(row[0]?.source ?? sources[ri]),
+  }));
+
+  const gridCols = `140px repeat(${layerKeys.length}, 1fr) 80px`;
+
   return (
-    <div style={{ padding: "24px 32px 0" }}>
+    <div style={{ padding: "24px 32px 0", display: "flex", flexDirection: "column", gap: 8 }}>
+      {/* Header row — same grid template as data rows */}
       <div style={{
         display: "grid",
-        gridTemplateColumns: `140px repeat(${layerKeys.length}, 1fr) 80px`,
+        gridTemplateColumns: gridCols,
         gap: 8,
       }}>
-        {/* Header row */}
-        <div style={{ padding: "4px 8px" }} /> {/* empty corner */}
+        <div style={{ padding: "4px 8px" }} />
         {layerKeys.map(l => (
           <div key={l} style={{
             padding: "6px 8px", textAlign: "center",
@@ -1270,15 +1332,30 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
         }}>
           Failed
         </div>
+      </div>
 
-        {/* Data rows */}
-        {cells.map((row, ri) => {
-          const source = sources[ri];
-          const srcData = progress?.bySource?.find(s => s.source === source);
-          const totalFailed = srcData?.failed ?? 0;
+      {/* Data rows — out-of-scope rows animate collapsed, in-scope rows stay aligned */}
+      {scopedRows.map(({ row, source, inScope }) => {
+        const srcData = progress?.bySource?.find(s => s.source === source);
+        const totalFailed = srcData?.failed ?? 0;
 
-          return (
-            <div key={source} style={{ display: "contents" }}>
+        return (
+          <div
+            key={source}
+            style={{
+              display: "grid",
+              gridTemplateColumns: gridCols,
+              gap: 8,
+              width: "100%",
+              // Collapse out-of-scope rows with animation
+              maxHeight: hasRunScope && !inScope ? 0 : 120,
+              opacity: hasRunScope && !inScope ? 0 : 1,
+              overflow: "hidden",
+              marginTop: hasRunScope && !inScope ? -8 : 0,
+              transition: "max-height 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease, margin 0.5s ease",
+              pointerEvents: hasRunScope && !inScope ? "none" : "auto",
+            }}
+          >
               {/* Source label */}
               <div style={{
                 padding: "8px 8px",
@@ -1287,7 +1364,7 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
                 display: "flex", alignItems: "center", gap: 6,
                 overflow: "hidden",
               }}>
-                <Server size={12} style={{ color: "var(--bp-ink-muted)", flexShrink: 0 }} />
+                <Server size={12} style={{ color: hasRunScope && inScope ? "var(--bp-copper)" : "var(--bp-ink-muted)", flexShrink: 0, transition: "color 0.3s ease" }} />
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayNameMap[source] || source}</span>
               </div>
 
@@ -1312,16 +1389,19 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
                           : "var(--bp-surface-1)",
                       borderColor: selected
                         ? layerColor(cell.layer)
-                        : "var(--bp-border-subtle)",
+                        : hasRunScope && inScope
+                          ? layerColor(cell.layer) + "40"
+                          : "var(--bp-border-subtle)",
                       borderWidth: selected ? 2 : 1,
                       position: "relative",
                       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                       minHeight: 72, gap: 6,
                       animation: cell.inProgress ? "pulse 2s ease-in-out infinite" : "none",
-                      transition: "all 0.2s ease",
+                      transition: "all 0.3s ease",
+                      cursor: "pointer",
                     }}
                     onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = layerColor(cell.layer); (e.currentTarget as HTMLDivElement).style.transform = "translateY(-1px)"; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = selected ? layerColor(cell.layer) : "var(--bp-border-subtle)"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = selected ? layerColor(cell.layer) : hasRunScope && inScope ? layerColor(cell.layer) + "40" : "var(--bp-border-subtle)"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)"; }}
                   >
                     {/* Count */}
                     <div style={{ ...S.data, fontSize: 16, fontWeight: 700, color: "var(--bp-ink-primary)", lineHeight: 1.2 }}>
@@ -1364,6 +1444,7 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
                 display: "flex", alignItems: "center", justifyContent: "center",
                 minHeight: 64,
                 cursor: totalFailed > 0 ? "pointer" : "default",
+                transition: "all 0.3s ease",
               }}
                 onClick={() => {
                   if (totalFailed > 0) {
@@ -1513,19 +1594,32 @@ function LiveTailTab({ events, onClear }: LiveTailTabProps) {
         ) : (
           events
             .filter(ev => {
+              const d = ev.data as Record<string, unknown>;
               // Only show entity results and important log messages — not server access logs
-              if (ev.type === "entity_result" || ev.type === "run_complete" || ev.type === "run_error") return true;
+              if (ev.type === "entity_result" || ev.type === "run_complete" || ev.type === "run_error") {
+                // Filter by run-scoped sources if active
+                if (scope.runSources.length > 0) {
+                  const evSource = (d?.source as string) ?? "";
+                  if (evSource && !scope.runSources.includes(evSource)) return false;
+                }
+                return true;
+              }
               if (ev.type === "log") {
-                const msg = (ev.data as Record<string, unknown>)?.message as string ?? "";
-                // Filter out GET/POST access logs and routine messages
+                const msg = (d?.message as string) ?? "";
+                // Filter out empty, access logs, and routine messages
+                if (!msg || msg.trim().length === 0) return false;
                 if (msg.startsWith("GET ") || msg.startsWith("POST ")) return false;
                 if (msg.includes("SSE") || msg.includes("poller")) return false;
                 return true;
               }
+              // Filter out any events with no displayable content (no table, no message)
+              if (!d?.table && !d?.SourceTable && !d?.message) return false;
               return false;
             })
             .map((ev, i) => {
             const parsed = parseEvent(ev);
+            // Skip events that parsed to nothing visible (no table, no error, no layer)
+            if (!parsed.table && !parsed.error && !parsed.layer) return null;
             const isFailed = parsed.status.toLowerCase().includes("fail") || parsed.status.toLowerCase().includes("error");
             const isSucceeded = parsed.status.toLowerCase().includes("succeed") || parsed.status.toLowerCase().includes("success") || parsed.status.toLowerCase().includes("complet");
             const isRunning = parsed.status.toLowerCase().includes("running") || parsed.status.toLowerCase().includes("progress");
@@ -1598,14 +1692,17 @@ function LiveTailTab({ events, onClear }: LiveTailTabProps) {
                   </span>
                 )}
 
-                {/* Error snippet — show first on errors */}
+                {/* Error message — show prominently on failures */}
                 {parsed.error && (
-                  <span style={{
-                    ...S.mono, fontSize: 10, color: "var(--bp-fault)",
-                    maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    flexShrink: 0, marginLeft: "auto",
-                  }}>
-                    {parsed.error.slice(0, 60)}
+                  <span
+                    title={parsed.error}
+                    style={{
+                      ...S.mono, fontSize: 11, color: "var(--bp-fault)",
+                      flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      marginLeft: "auto",
+                    }}
+                  >
+                    {parsed.error.slice(0, 120)}
                   </span>
                 )}
               </div>
@@ -1813,7 +1910,8 @@ function EntitiesTab({ entities, total, loading, onRetryEntity }: EntitiesTabPro
   const scope = useScope();
   const dispatch = useScopeDispatch();
   const [localSearch, setLocalSearch] = useState(scope.searchQuery);
-  const [page, setPage] = useState(0);
+  const page = scope.entityPage;
+  const setPage = useCallback((fn: (p: number) => number) => dispatch({ type: "SET_ENTITY_PAGE", page: fn(scope.entityPage) }), [dispatch, scope.entityPage]);
   const [sortCol, setSortCol] = useState<string>("Time");
   const [sortAsc, setSortAsc] = useState(false);
   const pageSize = 100;
@@ -2694,34 +2792,51 @@ function LoadMissionControlInner() {
 
   const handleStart = useCallback(async (layers: string[], sourceFilter: string[]) => {
     try {
-      // If sources are filtered, we need to get entity_ids for those sources
+      // Set run scope IMMEDIATELY before any async work — prevents poller from
+      // seeing stale scope between click and engine startup
+      dispatch({ type: "SET_RUN_SOURCES", sources: sourceFilter });
+
+      // Resolve source names → entity_ids if source filter is active
       let entityIds: number[] | undefined;
       if (sourceFilter.length > 0) {
-        // Query entities for the selected sources
-        const srcSet = new Set(sourceFilter.map(s => s.toLowerCase()));
-        const allEntities = await fetch(`${API}/api/lmc/run/${scope.selectedRunId || "_"}/entities?limit=5000`).then(r => r.json()).catch(() => ({ entities: [] }));
-        // Actually, we need active entity IDs by source from the DB, not from a run.
-        // Use load-center status which has source-level detail
-        const lcStatus = await fetch(`${API}/api/load-center/status`).then(r => r.json()).catch(() => null);
-        // For now, pass source info — the engine will filter by entity_ids if we can get them
-        // Simplification: start without entity_ids filter, let it run all.
-        // TODO: Add source-filtered entity_ids endpoint
+        const idsRes = await fetch(
+          `${API}/api/lmc/entity-ids-by-source?sources=${encodeURIComponent(sourceFilter.join(","))}`
+        );
+        if (!idsRes.ok) {
+          console.error("Failed to resolve entity IDs for sources:", sourceFilter);
+          dispatch({ type: "SET_RUN_SOURCES", sources: [] });
+          return; // HARD FAIL — do not launch with wrong scope
+        }
+        const idsData = await idsRes.json();
+        entityIds = idsData.entity_ids;
+        if (!entityIds || entityIds.length === 0) {
+          console.error("No entities found for sources:", sourceFilter);
+          dispatch({ type: "SET_RUN_SOURCES", sources: [] });
+          return; // HARD FAIL — empty scope means nothing to load
+        }
       }
+
       const res = await fetch(`${API}/api/engine/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           layers: layers.length > 0 ? layers : undefined,
+          entity_ids: entityIds,
           triggered_by: "dashboard",
+          // Persist the resolved scope on the run record for backend truth
+          source_filter: sourceFilter.length > 0 ? sourceFilter : undefined,
+          resolved_entity_count: entityIds?.length,
         }),
       });
       if (res.ok) {
         const d = await res.json();
-        if (d.run_id) dispatch({ type: "SET_RUN", runId: d.run_id });
+        if (d.run_id) {
+          dispatch({ type: "SET_RUN", runId: d.run_id });
+        }
         refetchRuns();
       }
-    } catch { /* swallow */ }
-  }, [dispatch, refetchRuns, scope.selectedRunId]);
+    } catch (err) { console.error("Engine start failed:", err); }
+  }, [dispatch, refetchRuns]);
 
   const handleStop = useCallback(async () => {
     try { await fetch(`${API}/api/engine/stop`, { method: "POST" }); } catch { /* swallow */ }
@@ -2758,8 +2873,8 @@ function LoadMissionControlInner() {
     status: scope.selectedStatuses[0],
     search: scope.searchQuery,
     limit: 100,
-    offset: 0,
-  }), [scope.selectedSources, scope.selectedLayers, scope.selectedStatuses, scope.searchQuery]);
+    offset: scope.entityPage * 100,
+  }), [scope.selectedSources, scope.selectedLayers, scope.selectedStatuses, scope.searchQuery, scope.entityPage]);
   const { entities, total: entityTotal, loading: entitiesLoading, refetch: refetchEntities } = useEntities(scope.selectedRunId, entityParams);
 
   // SSE for live tab
@@ -2781,12 +2896,21 @@ function LoadMissionControlInner() {
     } catch { /* swallow */ }
   }, [scope.selectedRunId, refetchEntities]);
 
-  // Error-type batch retry handler
+  // Error-type batch retry handler — queries ALL failed (not capped by client page size)
   const handleRetryErrorType = useCallback(async (errorType: string) => {
     if (!scope.selectedRunId) return;
-    const failed = entities.filter(e => e.ErrorType === errorType).map(e => e.EntityId);
-    if (failed.length === 0) return;
     try {
+      // Fetch all failed entities of this error type from backend (uncapped)
+      const failedRes = await fetch(
+        `${API}/api/lmc/run/${scope.selectedRunId}/entities?status=failed&limit=5000`
+      );
+      if (!failedRes.ok) return;
+      const failedData = await failedRes.json();
+      const failed = (failedData.entities ?? [])
+        .filter((e: TaskEntity) => e.ErrorType === errorType)
+        .map((e: TaskEntity) => e.EntityId);
+      if (failed.length === 0) return;
+
       await fetch(`${API}/api/engine/retry`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2794,7 +2918,7 @@ function LoadMissionControlInner() {
       });
       refetchEntities();
     } catch { /* swallow */ }
-  }, [scope.selectedRunId, entities, refetchEntities]);
+  }, [scope.selectedRunId, refetchEntities]);
 
   return (
     <div style={{
@@ -2805,15 +2929,30 @@ function LoadMissionControlInner() {
     }}>
       {/* Keyframe for pulse animation */}
       <style>{`
+        :root { --ease-claude: cubic-bezier(0.25, 0.1, 0.25, 1); }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
         @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-12px); } }
         @keyframes slideInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideInDown { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes highlight { 0%, 100% { background-color: transparent; } 50% { background-color: var(--bp-copper-soft); } }
-        .metric-value { transition: color 0.3s ease, font-size 0.2s ease; }
+        @keyframes scopeIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+        .metric-value { transition: color 0.3s var(--ease-claude), font-size 0.2s var(--ease-claude); }
         .metric-value:hover { color: var(--bp-copper); }
       `}</style>
+
+      {/* Page heading */}
+      <div style={{
+        padding: "20px 32px 0",
+        display: "flex", alignItems: "baseline", gap: 12,
+      }}>
+        <h1 style={{ ...S.display, fontSize: 28, fontWeight: 700, color: "var(--bp-ink-primary)", margin: 0 }}>
+          Load Mission Control
+        </h1>
+        <span style={{ ...S.sans, fontSize: 13, color: "var(--bp-ink-muted)" }}>
+          Pipeline operations workbench
+        </span>
+      </div>
 
       {/* §6 Command Band */}
       <CommandBand
@@ -2826,12 +2965,48 @@ function LoadMissionControlInner() {
         onResume={handleResume}
       />
 
+      {/* Scoped-run banner — shows when run is filtered to specific sources */}
+      {scope.runSources.length > 0 && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 12,
+          padding: "10px 32px",
+          background: "var(--bp-copper-soft)",
+          borderBottom: "1px solid var(--bp-copper)",
+          animation: "slideInDown 0.4s var(--ease-claude, ease-out)",
+        }}>
+          <Server size={14} style={{ color: "var(--bp-copper)", flexShrink: 0 }} />
+          <span style={{ ...S.sans, fontSize: 13, fontWeight: 600, color: "var(--bp-copper)" }}>
+            Scoped to:
+          </span>
+          {scope.runSources.map(s => (
+            <span key={s} style={{
+              ...S.badge,
+              background: "var(--bp-copper)", color: "#fff",
+              fontSize: 12, padding: "3px 10px",
+            }}>
+              {availableSources.find(src => src.name === s)?.displayName || s}
+            </span>
+          ))}
+          <div style={{ flex: 1 }} />
+          <button
+            onClick={() => dispatch({ type: "SET_RUN_SOURCES", sources: [] })}
+            style={{
+              ...S.badge, cursor: "pointer", fontSize: 11,
+              background: "transparent", color: "var(--bp-copper)",
+              border: "1px solid var(--bp-copper)", padding: "4px 12px",
+            }}
+          >
+            Show All Sources
+          </button>
+        </div>
+      )}
+
       {/* §7 KPI Strip + Matrix — only when a run is selected */}
       {!scope.selectedRunId ? (
         <div style={{
           padding: "48px 32px", display: "flex", flexDirection: "column",
           alignItems: "center", gap: 20, color: "var(--bp-ink-muted)",
-          background: "linear-gradient(135deg, var(--bp-surface-inset) 0%, var(--bp-canvas) 100%)",
+          background: "var(--bp-surface-inset)",
           minHeight: "600px", justifyContent: "center",
         }}>
           <div style={{
@@ -2884,7 +3059,7 @@ function LoadMissionControlInner() {
       )}
 
       {/* Section divider */}
-      <div style={{ height: 1, background: "linear-gradient(90deg, transparent, var(--bp-border), transparent)", margin: "20px 0 0" }} />
+      <div style={{ height: 1, background: "var(--bp-border)", margin: "20px 0 0" }} />
 
       {/* Tab bar — Redesigned with premium appearance and motion */}
       <div style={{

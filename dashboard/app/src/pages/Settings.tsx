@@ -20,6 +20,7 @@ import {
   Cog,
 } from "lucide-react";
 import { getLabsFlags, setLabsFlag, type LabsFlags } from "@/lib/featureFlags";
+import { FONT_OPTIONS, getStoredFont, applyFont } from "@/lib/fontSettings";
 import DeploymentManager from "./settings/DeploymentManager";
 
 const API = "/api";
@@ -962,16 +963,73 @@ type SettingsTab = (typeof SETTINGS_TABS)[number]['id'];
 
 export function GeneralTab() {
   const [flags, setFlags] = useState<LabsFlags>(getLabsFlags);
+  const [selectedFont, setSelectedFont] = useState(getStoredFont);
 
   const toggle = useCallback((key: keyof LabsFlags) => {
     const updated = setLabsFlag(key, !flags[key]);
     setFlags(updated);
   }, [flags]);
 
+  const handleFontChange = useCallback((fontId: string) => {
+    setSelectedFont(fontId);
+    applyFont(fontId);
+  }, []);
+
   const enabledCount = Object.values(flags).filter(Boolean).length;
 
   return (
     <div className="space-y-8 max-w-2xl">
+      {/* ── Appearance ── */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <SettingsIcon className="w-5 h-5" style={{ color: "var(--bp-copper)" }} />
+          <div>
+            <h2 className="text-base font-semibold" style={{ color: "var(--bp-ink-primary)", fontFamily: "var(--bp-font-display)" }}>Appearance</h2>
+            <p className="text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>
+              Customize how the dashboard looks.
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-lg px-5 py-5" style={{ border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)" }}>
+          <label className="text-xs font-semibold block mb-2" style={{ color: "var(--bp-ink-secondary)" }}>
+            Font Family
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {FONT_OPTIONS.map((font) => {
+              const isSelected = selectedFont === font.id;
+              return (
+                <button
+                  key={font.id}
+                  onClick={() => handleFontChange(font.id)}
+                  className="text-left rounded-lg px-4 py-3 transition-all cursor-pointer"
+                  style={{
+                    border: isSelected ? "1px solid var(--bp-copper)" : "1px solid var(--bp-border)",
+                    background: isSelected ? "var(--bp-copper-light)" : "transparent",
+                  }}
+                >
+                  <span
+                    className="text-sm font-semibold block"
+                    style={{ fontFamily: font.family, color: "var(--bp-ink-primary)" }}
+                  >
+                    {font.label}
+                  </span>
+                  <span
+                    className="text-[10px] block mt-0.5"
+                    style={{ fontFamily: font.family, color: "var(--bp-ink-tertiary)" }}
+                  >
+                    The quick brown fox jumps over the lazy dog
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[10px] mt-2" style={{ color: "var(--bp-ink-muted)" }}>
+            Changes apply instantly across the entire dashboard.
+          </p>
+        </div>
+      </div>
+
       {/* ── Notebook Deployment (legacy) ── */}
       <div className="space-y-4">
         <div className="flex items-center gap-3">

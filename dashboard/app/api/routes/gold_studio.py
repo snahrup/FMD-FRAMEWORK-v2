@@ -2757,7 +2757,8 @@ def gs_domains_update(params: dict) -> dict:
             raise HttpError("No fields to update", 400)
         sets.append("updated_at = CURRENT_TIMESTAMP")
         vals.append(domain_id)
-        conn.execute(f"UPDATE gs_domain_workspaces SET {', '.join(sets)} WHERE id = ?", vals)
+        set_clause = ", ".join(sets)  # sets built from hardcoded column allowlist above
+        conn.execute("UPDATE gs_domain_workspaces SET " + set_clause + " WHERE id = ?", vals)
         conn.commit()
         return {"ok": True}
     finally:
@@ -2913,7 +2914,8 @@ def gs_coverage_update(params: dict) -> dict:
         if "coverage_status" in params:
             sets.append("assessed_at = CURRENT_TIMESTAMP")
         vals.append(cov_id)
-        conn.execute(f"UPDATE gs_report_recreation_coverage SET {', '.join(sets)} WHERE id = ?", vals)
+        set_clause = ", ".join(sets)  # sets built from hardcoded column allowlist above
+        conn.execute("UPDATE gs_report_recreation_coverage SET " + set_clause + " WHERE id = ?", vals)
         _audit(conn, "report_coverage", cov_id, "updated",
                previous_value={"coverage_status": prev["coverage_status"]},
                new_value={"coverage_status": params.get("coverage_status", prev["coverage_status"])})

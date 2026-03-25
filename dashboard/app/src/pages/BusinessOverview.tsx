@@ -3,8 +3,7 @@
 //
 // Design system: Industrial Precision, Light Mode
 // Matches wireframe: .superpowers/brainstorm/130-1773660833/bp-overview.html
-// Fonts: Instrument Serif (display), Outfit (body), JetBrains Mono (data)
-// All styles use BP CSS custom properties (--bp-*)
+// Font: Manrope (all weights). All styles use BP CSS custom properties (--bp-*)
 // Data: /api/overview/kpis, /api/overview/sources, /api/overview/activity
 // ============================================================================
 
@@ -197,7 +196,7 @@ export default function BusinessOverview() {
         <KPIRowSkeleton />
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
-          {/* Freshness — Instrument Serif value + progress ring */}
+          {/* Freshness — hero value + progress ring */}
           <div className="bp-card" style={{ padding: 20 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
               <div style={{ flex: 1 }}>

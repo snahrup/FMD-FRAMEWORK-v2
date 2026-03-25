@@ -351,7 +351,7 @@ def get_entity_columns(params, body, headers):
     if not entity_id:
         raise HttpError(400, "entity_id is required")
 
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
     rows = conn.execute("""
         SELECT cm.column_name, cm.data_type, cm.ordinal_position, cm.is_nullable,
                cc.sensitivity_level, cc.classified_by, cc.confidence, cc.pii_entities,
@@ -402,7 +402,7 @@ def override_classification(params, body, headers):
     if new_level not in _VALID_LEVELS:
         raise HttpError(400, f"Invalid sensitivity level: {new_level}")
 
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
     conn.execute("""
         INSERT INTO column_classifications (entity_id, layer, column_name, sensitivity_level, classified_by, confidence)
         VALUES (?, 'landing', ?, ?, 'manual', 1.0)

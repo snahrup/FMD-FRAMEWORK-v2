@@ -117,26 +117,26 @@ function layerStatusLabel(s: LayerStatus): string {
 
 function layerStatusCls(s: LayerStatus): string {
   const lower = s.toLowerCase();
-  if (SUCCESS_STATUSES.has(lower)) return "bg-[#E7F3EB] text-[#3D7C4F] border-[#3D7C4F]/20";
-  if (PENDING_STATUSES.has(lower)) return "bg-[#FDF3E3] text-[#C27A1A] border-[#C27A1A]/20";
-  if (lower === "failed" || lower === "error") return "bg-[#FBEAE8] text-[#B93A2A] border-[#B93A2A]/20";
-  return "bg-[#EDEAE4] text-[#A8A29E] border-[#A8A29E]/20";
+  if (SUCCESS_STATUSES.has(lower)) return "bp-badge-operational";
+  if (PENDING_STATUSES.has(lower)) return "bp-badge-warning";
+  if (lower === "failed" || lower === "error") return "bp-badge-critical";
+  return "bp-badge-info";
 }
 
 function layerStatusIcon(s: LayerStatus) {
   const lower = s.toLowerCase();
   if (SUCCESS_STATUSES.has(lower)) return <CheckCircle2 className="w-3 h-3" />;
   if (PENDING_STATUSES.has(lower)) return <Clock className="w-3 h-3" />;
-  if (lower === "failed" || lower === "error") return <XCircle className="w-3 h-3 text-[#B93A2A]" />;
+  if (lower === "failed" || lower === "error") return <XCircle className="w-3 h-3" style={{ color: "var(--bp-fault)" }} />;
   return <XCircle className="w-3 h-3 opacity-40" />;
 }
 
 function overallStatusCls(overall: string): string {
-  if (overall === "complete") return "text-[#3D7C4F]";
-  if (overall === "error") return "text-[#B93A2A]";
-  if (overall === "partial") return "text-[#C27A1A]";
-  if (overall === "pending") return "text-[#B45624]";
-  return "text-[#A8A29E]";
+  if (overall === "complete") return "text-[var(--bp-operational)]";
+  if (overall === "error") return "text-[var(--bp-fault)]";
+  if (overall === "partial") return "text-[var(--bp-caution)]";
+  if (overall === "pending") return "text-[var(--bp-copper)]";
+  return "text-[var(--bp-ink-muted)]";
 }
 
 // ── Component ──
@@ -266,14 +266,14 @@ export function EntityTable({
 
   const SortIcon = ({ col }: { col: SortKey }) => {
     if (sortKey !== col) return <ArrowUpDown className="w-3 h-3 opacity-30" />;
-    return sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-[#B45624]" /> : <ArrowDown className="w-3 h-3 text-[#B45624]" />;
+    return sortDir === "asc" ? <ArrowUp className="w-3 h-3 text-[var(--bp-copper)]" /> : <ArrowDown className="w-3 h-3 text-[var(--bp-copper)]" />;
   };
 
   return (
     <div className={className} data-testid="entity-table">
       {/* Table header bar */}
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-[#A8A29E]">
+        <span className="text-xs text-[var(--bp-ink-muted)]">
           Showing {fmt(pagedEntities.length)} of {fmt(sortedEntities.length)} entities
           {sortedEntities.length !== totalCount && ` (${fmt(totalCount)} total)`}
         </span>
@@ -292,7 +292,7 @@ export function EntityTable({
               <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
                 Prev
               </Button>
-              <span className="text-xs text-[#A8A29E] px-2" data-testid="page-indicator">
+              <span className="text-xs text-[var(--bp-ink-muted)] px-2" data-testid="page-indicator">
                 Page {page + 1} of {totalPages}
               </span>
               <Button
@@ -309,16 +309,16 @@ export function EntityTable({
       </div>
 
       {/* Table */}
-      <div className="rounded-lg border border-[rgba(0,0,0,0.08)] overflow-hidden" style={{ background: "#FEFDFB" }}>
+      <div className="rounded-lg border border-[rgba(0,0,0,0.08)] overflow-hidden" style={{ background: "var(--bp-surface-1)" }}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr style={{ background: "#F9F7F3", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
+              <tr style={{ background: "var(--bp-surface-inset)", borderBottom: "1px solid var(--bp-border)" }}>
                 <th className="w-8 px-3 py-2.5" />
                 <th className="px-3 py-2.5 text-left">
                   <button
                     onClick={() => toggleSort("id")}
-                    className="inline-flex items-center gap-1 uppercase hover:text-[#1C1917]" style={{ fontSize: "11px", fontWeight: 600, color: "#78716C", letterSpacing: "0.5px" }}
+                    className="inline-flex items-center gap-1 uppercase" style={{ fontSize: "11px", fontWeight: 600, color: "var(--bp-ink-tertiary)", letterSpacing: "0.5px" }}
                   >
                     ID <SortIcon col="id" />
                   </button>
@@ -326,7 +326,7 @@ export function EntityTable({
                 <th className="px-3 py-2.5 text-left">
                   <button
                     onClick={() => toggleSort("tableName")}
-                    className="inline-flex items-center gap-1 uppercase hover:text-[#1C1917]" style={{ fontSize: "11px", fontWeight: 600, color: "#78716C", letterSpacing: "0.5px" }}
+                    className="inline-flex items-center gap-1 uppercase" style={{ fontSize: "11px", fontWeight: 600, color: "var(--bp-ink-tertiary)", letterSpacing: "0.5px" }}
                   >
                     Source Name <SortIcon col="tableName" />
                   </button>
@@ -334,7 +334,7 @@ export function EntityTable({
                 <th className="px-3 py-2.5 text-left">
                   <button
                     onClick={() => toggleSort("source")}
-                    className="inline-flex items-center gap-1 uppercase hover:text-[#1C1917]" style={{ fontSize: "11px", fontWeight: 600, color: "#78716C", letterSpacing: "0.5px" }}
+                    className="inline-flex items-center gap-1 uppercase" style={{ fontSize: "11px", fontWeight: 600, color: "var(--bp-ink-tertiary)", letterSpacing: "0.5px" }}
                   >
                     Data Source <SortIcon col="source" />
                   </button>
@@ -342,7 +342,7 @@ export function EntityTable({
                 <th className="px-3 py-2.5 text-left">
                   <button
                     onClick={() => toggleSort("targetSchema")}
-                    className="inline-flex items-center gap-1 uppercase hover:text-[#1C1917]" style={{ fontSize: "11px", fontWeight: 600, color: "#78716C", letterSpacing: "0.5px" }}
+                    className="inline-flex items-center gap-1 uppercase" style={{ fontSize: "11px", fontWeight: 600, color: "var(--bp-ink-tertiary)", letterSpacing: "0.5px" }}
                   >
                     Target Schema <SortIcon col="targetSchema" />
                   </button>
@@ -350,7 +350,7 @@ export function EntityTable({
                 <th className="px-3 py-2.5 text-center">
                   <button
                     onClick={() => toggleSort("lzStatus")}
-                    className="inline-flex items-center gap-1 uppercase hover:text-[#1C1917]" style={{ fontSize: "11px", fontWeight: 600, color: "#78716C", letterSpacing: "0.5px" }}
+                    className="inline-flex items-center gap-1 uppercase" style={{ fontSize: "11px", fontWeight: 600, color: "var(--bp-ink-tertiary)", letterSpacing: "0.5px" }}
                   >
                     Landing Zone <SortIcon col="lzStatus" />
                   </button>
@@ -358,7 +358,7 @@ export function EntityTable({
                 <th className="px-3 py-2.5 text-center">
                   <button
                     onClick={() => toggleSort("bronzeStatus")}
-                    className="inline-flex items-center gap-1 uppercase hover:text-[#1C1917]" style={{ fontSize: "11px", fontWeight: 600, color: "#78716C", letterSpacing: "0.5px" }}
+                    className="inline-flex items-center gap-1 uppercase" style={{ fontSize: "11px", fontWeight: 600, color: "var(--bp-ink-tertiary)", letterSpacing: "0.5px" }}
                   >
                     Bronze <SortIcon col="bronzeStatus" />
                   </button>
@@ -366,7 +366,7 @@ export function EntityTable({
                 <th className="px-3 py-2.5 text-center">
                   <button
                     onClick={() => toggleSort("silverStatus")}
-                    className="inline-flex items-center gap-1 uppercase hover:text-[#1C1917]" style={{ fontSize: "11px", fontWeight: 600, color: "#78716C", letterSpacing: "0.5px" }}
+                    className="inline-flex items-center gap-1 uppercase" style={{ fontSize: "11px", fontWeight: 600, color: "var(--bp-ink-tertiary)", letterSpacing: "0.5px" }}
                   >
                     Silver <SortIcon col="silverStatus" />
                   </button>
@@ -374,13 +374,13 @@ export function EntityTable({
                 <th className="px-3 py-2.5 text-right">
                   <button
                     onClick={() => toggleSort("lzLastLoad")}
-                    className="inline-flex items-center gap-1 uppercase hover:text-[#1C1917]" style={{ fontSize: "11px", fontWeight: 600, color: "#78716C", letterSpacing: "0.5px" }}
+                    className="inline-flex items-center gap-1 uppercase" style={{ fontSize: "11px", fontWeight: 600, color: "var(--bp-ink-tertiary)", letterSpacing: "0.5px" }}
                   >
                     Last Load <SortIcon col="lzLastLoad" />
                   </button>
                 </th>
                 <th className="px-3 py-2.5 text-center">
-                  <span className="uppercase" style={{ fontSize: "11px", fontWeight: 600, color: "#78716C", letterSpacing: "0.5px" }}>
+                  <span className="uppercase" style={{ fontSize: "11px", fontWeight: 600, color: "var(--bp-ink-tertiary)", letterSpacing: "0.5px" }}>
                     Actions
                   </span>
                 </th>
@@ -390,9 +390,9 @@ export function EntityTable({
               {pagedEntities.length === 0 && (
                 <tr>
                   <td colSpan={10} className="px-4 py-12 text-center" data-testid="empty-state">
-                    <Database className="w-10 h-10 text-[#A8A29E]/15 mx-auto mb-3" />
-                    <p className="text-sm text-[#A8A29E]">No entities match your filters</p>
-                    <p className="text-xs text-[#A8A29E]/60 mt-1">
+                    <Database className="w-10 h-10 text-[var(--bp-ink-muted)]/15 mx-auto mb-3" />
+                    <p className="text-sm text-[var(--bp-ink-muted)]">No entities match your filters</p>
+                    <p className="text-xs text-[var(--bp-ink-muted)]/60 mt-1">
                       Try adjusting your search or filter criteria
                     </p>
                   </td>
@@ -422,7 +422,7 @@ export function EntityTable({
           <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
             Prev
           </Button>
-          <span className="text-xs text-[#A8A29E] px-3">
+          <span className="text-xs text-[var(--bp-ink-muted)] px-3">
             Page {page + 1} of {totalPages}
           </span>
           <Button
@@ -476,31 +476,31 @@ function EntityRow({
       <tr
         className={cn(
           "cursor-pointer transition-colors",
-          isExpanded ? "bg-[#F9F7F3]" : "hover:bg-[#F9F7F3]/50"
+          isExpanded ? "bg-[var(--bp-surface-inset)]" : "hover:bg-[var(--bp-surface-inset)]/50"
         )}
-        style={{ background: isExpanded ? "#F9F7F3" : "#FEFDFB", borderBottom: "1px solid rgba(0,0,0,0.04)" }}
+        style={{ background: isExpanded ? "var(--bp-surface-inset)" : "var(--bp-surface-1)", borderBottom: "1px solid var(--bp-border-subtle, var(--bp-border))" }}
         onClick={onToggleExpand}
         data-testid={`entity-row-${e.id}`}
       >
         {/* Expand chevron */}
         <td className="px-3 py-2">
           {isExpanded ? (
-            <ChevronDown className="w-3.5 h-3.5 text-[#A8A29E]" />
+            <ChevronDown className="w-3.5 h-3.5 text-[var(--bp-ink-muted)]" />
           ) : (
-            <ChevronRight className="w-3.5 h-3.5 text-[#A8A29E]" />
+            <ChevronRight className="w-3.5 h-3.5 text-[var(--bp-ink-muted)]" />
           )}
         </td>
 
         {/* Entity ID */}
         <td className="px-3 py-2">
-          <span className="text-xs text-[#A8A29E]" style={{ fontFamily: "var(--font-mono)" }}>{e.id}</span>
+          <span className="text-xs text-[var(--bp-ink-muted)]" style={{ fontFamily: "var(--bp-font-mono)" }}>{e.id}</span>
         </td>
 
         {/* Source Name (schema.table) */}
         <td className="px-3 py-2">
           <div className="flex flex-col">
-            <span className="text-xs font-medium" style={{ color: "#1C1917" }}>{e.tableName}</span>
-            <span className="text-[10px]" style={{ color: "#A8A29E" }}>{e.sourceSchema}</span>
+            <span className="text-xs font-medium" style={{ color: "var(--bp-ink-primary)" }}>{e.tableName}</span>
+            <span className="text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>{e.sourceSchema}</span>
           </div>
         </td>
 
@@ -519,37 +519,27 @@ function EntityRow({
 
         {/* Target Schema */}
         <td className="px-3 py-2">
-          <span className="text-[10px]" style={{ fontFamily: "var(--font-mono)", color: "#A8A29E" }}>{e.targetSchema}</span>
+          <span className="text-[10px]" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-muted)" }}>{e.targetSchema}</span>
         </td>
 
         {/* Landing Zone */}
         <td className="px-3 py-2 text-center">
           <div className="flex flex-col items-center gap-0.5">
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium",
-                layerStatusCls(e.lzStatus)
-              )}
-            >
+            <span className={cn("bp-badge bp-badge-sm", layerStatusCls(e.lzStatus))}>
               {layerStatusIcon(e.lzStatus)} {layerStatusLabel(e.lzStatus)}
             </span>
-            {e.lzLastLoad && <span className="text-[9px] text-[#A8A29E]">{timeAgo(e.lzLastLoad)}</span>}
+            {e.lzLastLoad && <span className="text-[9px]" style={{ color: "var(--bp-ink-muted)" }}>{timeAgo(e.lzLastLoad)}</span>}
           </div>
         </td>
 
         {/* Bronze */}
         <td className="px-3 py-2 text-center">
           <div className="flex flex-col items-center gap-0.5">
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium",
-                layerStatusCls(e.bronzeStatus)
-              )}
-            >
+            <span className={cn("bp-badge bp-badge-sm", layerStatusCls(e.bronzeStatus))}>
               {layerStatusIcon(e.bronzeStatus)} {layerStatusLabel(e.bronzeStatus)}
             </span>
             {e.bronzeLastLoad && (
-              <span className="text-[9px] text-[#A8A29E]">{timeAgo(e.bronzeLastLoad)}</span>
+              <span className="text-[9px]" style={{ color: "var(--bp-ink-muted)" }}>{timeAgo(e.bronzeLastLoad)}</span>
             )}
           </div>
         </td>
@@ -557,23 +547,18 @@ function EntityRow({
         {/* Silver */}
         <td className="px-3 py-2 text-center">
           <div className="flex flex-col items-center gap-0.5">
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium",
-                layerStatusCls(e.silverStatus)
-              )}
-            >
+            <span className={cn("bp-badge bp-badge-sm", layerStatusCls(e.silverStatus))}>
               {layerStatusIcon(e.silverStatus)} {layerStatusLabel(e.silverStatus)}
             </span>
             {e.silverLastLoad && (
-              <span className="text-[9px] text-[#A8A29E]">{timeAgo(e.silverLastLoad)}</span>
+              <span className="text-[9px]" style={{ color: "var(--bp-ink-muted)" }}>{timeAgo(e.silverLastLoad)}</span>
             )}
           </div>
         </td>
 
         {/* Last Load */}
         <td className="px-3 py-2 text-right">
-          <span className="text-[10px]" style={{ color: "#A8A29E", fontFamily: "var(--font-mono)" }}>{formatTimestamp(lastLoadTime)}</span>
+          <span className="text-[10px]" style={{ color: "var(--bp-ink-muted)", fontFamily: "var(--bp-font-mono)" }}>{formatTimestamp(lastLoadTime)}</span>
         </td>
 
         {/* Actions */}
@@ -601,7 +586,7 @@ function EntityRow({
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 text-[10px] px-2 text-[#A8A29E] hover:text-[#1C1917]"
+              className="h-6 text-[10px] px-2 text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-primary)]"
               onClick={() => setResetConfirm(e.id)}
               title="Reset watermark"
             >
@@ -613,58 +598,58 @@ function EntityRow({
 
       {/* Expanded row: entity logs */}
       {isExpanded && (
-        <tr style={{ background: "#F9F7F3" }} data-testid={`entity-detail-${e.id}`}>
+        <tr style={{ background: "var(--bp-surface-inset)" }} data-testid={`entity-detail-${e.id}`}>
           <td colSpan={10} className="px-6 py-3">
             <div className="space-y-2">
               {/* Entity metadata summary */}
-              <div className="flex items-center gap-4 text-[10px] mb-2 flex-wrap" style={{ color: "#A8A29E" }}>
+              <div className="flex items-center gap-4 text-[10px] mb-2 flex-wrap" style={{ color: "var(--bp-ink-muted)" }}>
                 <span>
                   Watermark:{" "}
-                  <strong className="text-[#1C1917]" style={{ fontFamily: "var(--font-mono)" }}>{e.watermarkColumn || "none"}</strong>
+                  <strong className="text-[var(--bp-ink-primary)]" style={{ fontFamily: "var(--bp-font-mono)" }}>{e.watermarkColumn || "none"}</strong>
                 </span>
                 <span>
-                  Incremental: <strong className="text-[#1C1917]">{e.isIncremental ? "Yes" : "No"}</strong>
+                  Incremental: <strong className="text-[var(--bp-ink-primary)]">{e.isIncremental ? "Yes" : "No"}</strong>
                 </span>
                 <span>
-                  Bronze ID: <strong className="text-[#1C1917]" style={{ fontFamily: "var(--font-mono)" }}>{e.bronzeId ?? "\u2014"}</strong>
+                  Bronze ID: <strong className="text-[var(--bp-ink-primary)]" style={{ fontFamily: "var(--bp-font-mono)" }}>{e.bronzeId ?? "\u2014"}</strong>
                 </span>
                 <span>
-                  Silver ID: <strong className="text-[#1C1917]" style={{ fontFamily: "var(--font-mono)" }}>{e.silverId ?? "\u2014"}</strong>
+                  Silver ID: <strong className="text-[var(--bp-ink-primary)]" style={{ fontFamily: "var(--bp-font-mono)" }}>{e.silverId ?? "\u2014"}</strong>
                 </span>
                 {e.bronzePKs && (
                   <span>
-                    PKs: <strong className="text-[#1C1917]" style={{ fontFamily: "var(--font-mono)" }}>{e.bronzePKs}</strong>
+                    PKs: <strong className="text-[var(--bp-ink-primary)]" style={{ fontFamily: "var(--bp-font-mono)" }}>{e.bronzePKs}</strong>
                   </span>
                 )}
               </div>
 
               {/* Last error */}
               {e.lastError && (
-                <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-[#B93A2A]/20 bg-[#FBEAE8]">
-                  <XCircle className="w-3.5 h-3.5 text-[#B93A2A] mt-0.5 flex-shrink-0" />
+                <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-[var(--bp-fault)]/20 bg-[var(--bp-fault-light)]">
+                  <XCircle className="w-3.5 h-3.5 text-[var(--bp-fault)] mt-0.5 flex-shrink-0" />
                   <div>
-                    <span className="text-[10px] text-[#B93A2A] font-medium">{e.lastError.layer} layer error</span>
-                    <span className="text-[10px] text-[#A8A29E] ml-2">{timeAgo(e.lastError.time)}</span>
-                    <p className="text-[10px] text-[#A8A29E] font-mono mt-0.5">{e.lastError.message}</p>
+                    <span className="text-[10px] text-[var(--bp-fault)] font-medium">{e.lastError.layer} layer error</span>
+                    <span className="text-[10px] text-[var(--bp-ink-muted)] ml-2">{timeAgo(e.lastError.time)}</span>
+                    <p className="text-[10px] text-[var(--bp-ink-muted)] font-mono mt-0.5">{e.lastError.message}</p>
                   </div>
                 </div>
               )}
 
               {/* Diagnosis */}
               {e.diagnosis && (
-                <div className="text-[10px] text-[#A8A29E] italic px-1">{e.diagnosis}</div>
+                <div className="text-[10px] text-[var(--bp-ink-muted)] italic px-1">{e.diagnosis}</div>
               )}
 
               {/* Recent task logs from engine */}
               {logsLoading && (
                 <div className="flex items-center gap-2 py-4 justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-[#A8A29E]" />
-                  <span className="text-xs text-[#A8A29E]">Loading task logs...</span>
+                  <Loader2 className="w-4 h-4 animate-spin text-[var(--bp-ink-muted)]" />
+                  <span className="text-xs text-[var(--bp-ink-muted)]">Loading task logs...</span>
                 </div>
               )}
 
               {!logsLoading && logs.length === 0 && (
-                <p className="text-[10px] text-[#A8A29E]/60 py-2 text-center">
+                <p className="text-[10px] text-[var(--bp-ink-muted)]/60 py-2 text-center">
                   No engine task logs available for this entity
                 </p>
               )}
@@ -673,59 +658,59 @@ function EntityRow({
                 <div className="rounded-md border border-[rgba(0,0,0,0.08)] overflow-hidden">
                   <table className="w-full text-[10px]">
                     <thead>
-                      <tr style={{ background: "#F9F7F3", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
-                        <th className="px-2 py-1.5 text-left text-[#A8A29E] font-semibold uppercase tracking-wider">
+                      <tr style={{ background: "var(--bp-surface-inset)", borderBottom: "1px solid var(--bp-border)" }}>
+                        <th className="px-2 py-1.5 text-left font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
                           Run
                         </th>
-                        <th className="px-2 py-1.5 text-left text-[#A8A29E] font-semibold uppercase tracking-wider">
+                        <th className="px-2 py-1.5 text-left font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
                           Layer
                         </th>
-                        <th className="px-2 py-1.5 text-left text-[#A8A29E] font-semibold uppercase tracking-wider">
+                        <th className="px-2 py-1.5 text-left font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
                           Status
                         </th>
-                        <th className="px-2 py-1.5 text-right text-[#A8A29E] font-semibold uppercase tracking-wider">
+                        <th className="px-2 py-1.5 text-right font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
                           Rows
                         </th>
-                        <th className="px-2 py-1.5 text-right text-[#A8A29E] font-semibold uppercase tracking-wider">
+                        <th className="px-2 py-1.5 text-right font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
                           Duration
                         </th>
-                        <th className="px-2 py-1.5 text-right text-[#A8A29E] font-semibold uppercase tracking-wider">
+                        <th className="px-2 py-1.5 text-right font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
                           Time
                         </th>
-                        <th className="px-2 py-1.5 text-left text-[#A8A29E] font-semibold uppercase tracking-wider">
+                        <th className="px-2 py-1.5 text-left font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
                           Error
                         </th>
                       </tr>
                     </thead>
                     <tbody>
                       {logs.map((log) => (
-                        <tr key={log.log_id} className="border-b border-[rgba(0,0,0,0.08)]/30">
-                          <td className="px-2 py-1.5 text-[#A8A29E]" style={{ fontFamily: "var(--font-mono)" }}>#{log.run_id}</td>
-                          <td className="px-2 py-1.5 uppercase text-[#A8A29E]">{log.layer}</td>
+                        <tr key={log.log_id} style={{ borderBottom: "1px solid var(--bp-border-subtle, var(--bp-border))" }}>
+                          <td className="px-2 py-1.5" style={{ color: "var(--bp-ink-muted)", fontFamily: "var(--bp-font-mono)" }}>#{log.run_id}</td>
+                          <td className="px-2 py-1.5 uppercase" style={{ color: "var(--bp-ink-muted)" }}>{log.layer}</td>
                           <td className="px-2 py-1.5">
                             <span
                               className={cn(
-                                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-medium",
+                                "bp-badge bp-badge-sm",
                                 log.status === "succeeded"
-                                  ? "bg-[#E7F3EB] text-[#3D7C4F] border-[#3D7C4F]/20"
+                                  ? "bp-badge-operational"
                                   : log.status === "failed"
-                                    ? "bg-[#FBEAE8] text-[#B93A2A] border-[#B93A2A]/20"
-                                    : "bg-[#F4E8DF] text-[#B45624] border-[#B45624]/20"
+                                    ? "bp-badge-critical"
+                                    : "bp-badge-warning"
                               )}
                             >
                               {log.status}
                             </span>
                           </td>
-                          <td className="px-2 py-1.5 text-right text-[#1C1917]" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: "'tnum'" }}>
+                          <td className="px-2 py-1.5 text-right" style={{ color: "var(--bp-ink-primary)", fontFamily: "var(--bp-font-mono)", fontFeatureSettings: "'tnum'" }}>
                             {log.rows_read > 0 ? fmt(log.rows_read) : "\u2014"}
                           </td>
-                          <td className="px-2 py-1.5 text-right text-[#A8A29E]" style={{ fontFamily: "var(--font-mono)", fontFeatureSettings: "'tnum'" }}>
+                          <td className="px-2 py-1.5 text-right" style={{ color: "var(--bp-ink-muted)", fontFamily: "var(--bp-font-mono)", fontFeatureSettings: "'tnum'" }}>
                             {humanDuration(log.duration_seconds)}
                           </td>
-                          <td className="px-2 py-1.5 text-right text-[#A8A29E]">
+                          <td className="px-2 py-1.5 text-right" style={{ color: "var(--bp-ink-muted)" }}>
                             {formatTimestamp(log.ended_at || log.started_at)}
                           </td>
-                          <td className="px-2 py-1.5 text-[#B93A2A] truncate max-w-[200px]" style={{ fontFamily: "var(--font-mono)" }}>
+                          <td className="px-2 py-1.5 truncate max-w-[200px]" style={{ color: "var(--bp-fault)", fontFamily: "var(--bp-font-mono)" }}>
                             {log.error_message || "\u2014"}
                           </td>
                         </tr>

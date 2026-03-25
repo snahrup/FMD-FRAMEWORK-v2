@@ -2,8 +2,7 @@
 // Admin & Governance — Framework metadata, lineage, and health overview.
 //
 // Design system: Industrial Precision (Business Portal), Light Mode
-// Fonts: Instrument Serif (display), Outfit (body), JetBrains Mono (data)
-// All styles use BP CSS custom properties (--bp-*)
+// Font: Manrope (all weights). All styles use BP CSS custom properties (--bp-*)
 // ============================================================================
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';

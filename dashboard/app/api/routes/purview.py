@@ -23,7 +23,7 @@ log = logging.getLogger("fmd.routes.purview")
 @route("GET", "/api/classification/purview/status")
 def get_status(params, body, headers):
     """Purview connection state + mapping coverage."""
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
 
     # Count mappings
     total_mappings = conn.execute(
@@ -76,7 +76,7 @@ def get_status(params, body, headers):
 @route("GET", "/api/classification/purview/mappings")
 def get_mappings(params, body, headers):
     """Return all classification → Purview type mappings."""
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
     rows = conn.execute(
         "SELECT id, internal_type, purview_type, sensitivity_label, description, is_active "
         "FROM classification_type_mappings ORDER BY internal_type"
@@ -104,7 +104,7 @@ def update_mapping(params, body, headers):
     if not mapping_id:
         raise HttpError(400, "Missing mapping id")
 
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
     conn.execute(
         """UPDATE classification_type_mappings
            SET purview_type = ?, sensitivity_label = ?, description = ?, is_active = ?
@@ -124,7 +124,7 @@ def update_mapping(params, body, headers):
 @route("GET", "/api/classification/purview/history")
 def get_history(params, body, headers):
     """Sync history log."""
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
     rows = conn.execute(
         "SELECT id, sync_id, direction, status, entities_synced, classifications_synced, "
         "started_at, completed_at, error FROM purview_sync_log ORDER BY started_at DESC LIMIT 50"
@@ -155,7 +155,7 @@ def trigger_sync(params, body, headers):
     For now: logs the sync attempt and records it. Actual Purview API call
     is scaffolded but deferred until Purview account is configured.
     """
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
     sync_id = str(uuid.uuid4())[:8]
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -194,7 +194,7 @@ def trigger_import(params, body, headers):
     sync_id = str(uuid.uuid4())[:8]
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
     conn.execute(
         """INSERT INTO purview_sync_log
            (sync_id, direction, status, started_at, completed_at, error)

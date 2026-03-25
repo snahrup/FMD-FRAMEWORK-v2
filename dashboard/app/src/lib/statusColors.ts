@@ -14,48 +14,92 @@ import {
 
 // ── Canonical Status Configuration ──
 // Single source of truth for all status → color/icon mappings across the dashboard.
-// Import this instead of defining inline status configs per page.
+// Uses BP design system CSS classes (bp-badge-*) instead of Tailwind color classes.
 
 export interface StatusConfig {
   label: string;
   icon: LucideIcon;
-  color: string;       // text color class
-  bg: string;           // background class
-  border: string;       // border class
+  badgeClass: string;   // BP badge variant class
   pulse?: boolean;      // animate-pulse for active states
+  // Legacy — kept for pages that use inline text color
+  color: string;
+  bg: string;
+  border: string;
 }
+
+// Shared config builders to keep the map DRY
+const success = (label: string, icon: LucideIcon): StatusConfig => ({
+  label, icon,
+  badgeClass: "bp-badge-operational",
+  color: "text-emerald-800 dark:text-emerald-300",
+  bg: "bg-emerald-100 dark:bg-emerald-950/40",
+  border: "border-emerald-300 dark:border-emerald-700/60",
+});
+
+const failure = (label: string, icon: LucideIcon): StatusConfig => ({
+  label, icon,
+  badgeClass: "bp-badge-critical",
+  color: "text-red-800 dark:text-red-300",
+  bg: "bg-red-100 dark:bg-red-950/40",
+  border: "border-red-300 dark:border-red-700/60",
+});
+
+const active = (label: string, icon: LucideIcon): StatusConfig => ({
+  label, icon,
+  badgeClass: "bp-badge-active",
+  pulse: true,
+  color: "text-blue-800 dark:text-blue-300",
+  bg: "bg-blue-100 dark:bg-blue-950/40",
+  border: "border-blue-300 dark:border-blue-700/60",
+});
+
+const warning = (label: string, icon: LucideIcon): StatusConfig => ({
+  label, icon,
+  badgeClass: "bp-badge-warning",
+  color: "text-amber-800 dark:text-amber-300",
+  bg: "bg-amber-100 dark:bg-amber-950/40",
+  border: "border-amber-300 dark:border-amber-700/60",
+});
+
+const inactive = (label: string, icon: LucideIcon): StatusConfig => ({
+  label, icon,
+  badgeClass: "bp-badge-info",
+  color: "text-slate-600 dark:text-slate-300",
+  bg: "bg-slate-100 dark:bg-slate-950/40",
+  border: "border-slate-300 dark:border-slate-700/60",
+});
 
 export const STATUS_MAP: Record<string, StatusConfig> = {
   // ── Success states ──
-  success:   { label: "Success",     icon: CheckCircle2, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30",  border: "border-emerald-200 dark:border-emerald-800/50" },
-  succeeded: { label: "Succeeded",   icon: CheckCircle2, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30",  border: "border-emerald-200 dark:border-emerald-800/50" },
-  completed: { label: "Completed",   icon: CheckCircle2, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30",  border: "border-emerald-200 dark:border-emerald-800/50" },
-  loaded:    { label: "Loaded",      icon: CheckCircle2, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30",  border: "border-emerald-200 dark:border-emerald-800/50" },
-  idle:      { label: "Idle",        icon: CheckCircle2, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/30",  border: "border-emerald-200 dark:border-emerald-800/50" },
+  success:   success("Success", CheckCircle2),
+  succeeded: success("Succeeded", CheckCircle2),
+  completed: success("Completed", CheckCircle2),
+  loaded:    success("Loaded", CheckCircle2),
+  idle:      success("Idle", CheckCircle2),
 
   // ── Failure states ──
-  failed:    { label: "Failed",      icon: XCircle,      color: "text-red-600 dark:text-red-400",        bg: "bg-red-50 dark:bg-red-950/30",          border: "border-red-200 dark:border-red-800/50" },
-  error:     { label: "Error",       icon: XCircle,      color: "text-red-600 dark:text-red-400",        bg: "bg-red-50 dark:bg-red-950/30",          border: "border-red-200 dark:border-red-800/50" },
+  failed:    failure("Failed", XCircle),
+  error:     failure("Error", XCircle),
 
   // ── Active states ──
-  running:    { label: "Running",     icon: Loader2, color: "text-blue-600 dark:text-blue-400",       bg: "bg-blue-50 dark:bg-blue-950/30",         border: "border-blue-200 dark:border-blue-800/50",  pulse: true },
-  inprogress: { label: "In Progress", icon: Loader2, color: "text-blue-600 dark:text-blue-400",       bg: "bg-blue-50 dark:bg-blue-950/30",         border: "border-blue-200 dark:border-blue-800/50",  pulse: true },
+  running:    active("Running", Loader2),
+  inprogress: active("In Progress", Loader2),
 
   // ── Pending/queued states ──
-  pending:    { label: "Pending",    icon: Timer,        color: "text-amber-600 dark:text-amber-400",    bg: "bg-amber-50 dark:bg-amber-950/30",       border: "border-amber-200 dark:border-amber-800/50" },
-  notstarted: { label: "Queued",     icon: Timer,        color: "text-amber-600 dark:text-amber-400",    bg: "bg-amber-50 dark:bg-amber-950/30",       border: "border-amber-200 dark:border-amber-800/50" },
-  not_started:{ label: "Not Started",icon: Timer,        color: "text-amber-600 dark:text-amber-400",    bg: "bg-amber-50 dark:bg-amber-950/30",       border: "border-amber-200 dark:border-amber-800/50" },
+  pending:     warning("Pending", Timer),
+  notstarted:  warning("Queued", Timer),
+  not_started: warning("Not Started", Timer),
 
   // ── Warning states ──
-  warning:  { label: "Warning",      icon: AlertCircle,  color: "text-amber-600 dark:text-amber-400",    bg: "bg-amber-50 dark:bg-amber-950/30",       border: "border-amber-200 dark:border-amber-800/50" },
-  stopping: { label: "Stopping",     icon: AlertCircle,  color: "text-amber-600 dark:text-amber-400",    bg: "bg-amber-50 dark:bg-amber-950/30",       border: "border-amber-200 dark:border-amber-800/50" },
-  aborted:  { label: "Aborted",      icon: AlertCircle,  color: "text-amber-600 dark:text-amber-400",    bg: "bg-amber-50 dark:bg-amber-950/30",       border: "border-amber-200 dark:border-amber-800/50" },
+  warning:  warning("Warning", AlertCircle),
+  stopping: warning("Stopping", AlertCircle),
+  aborted:  warning("Aborted", AlertCircle),
 
   // ── Inactive states ──
-  cancelled: { label: "Cancelled",   icon: Ban,          color: "text-slate-500 dark:text-slate-400",    bg: "bg-slate-50 dark:bg-slate-950/30",       border: "border-slate-200 dark:border-slate-800/50" },
-  deduped:   { label: "Deduped",     icon: SkipForward,  color: "text-slate-500 dark:text-slate-400",    bg: "bg-slate-50 dark:bg-slate-950/30",       border: "border-slate-200 dark:border-slate-800/50" },
-  unknown:   { label: "Unknown",     icon: Info,         color: "text-slate-500 dark:text-slate-400",    bg: "bg-slate-50 dark:bg-slate-950/30",       border: "border-slate-200 dark:border-slate-800/50" },
-  none:      { label: "No Runs",     icon: Clock,        color: "text-muted-foreground",                 bg: "bg-muted/30",                            border: "border-border" },
+  cancelled: inactive("Cancelled", Ban),
+  deduped:   inactive("Deduped", SkipForward),
+  unknown:   inactive("Unknown", Info),
+  none:      { label: "No Runs", icon: Clock, badgeClass: "bp-badge-info", color: "text-muted-foreground", bg: "bg-muted/30", border: "border-border" },
 };
 
 const FALLBACK: StatusConfig = STATUS_MAP.unknown;

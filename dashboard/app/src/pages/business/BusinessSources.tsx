@@ -41,7 +41,7 @@ interface SourceHealth {
 
 interface LZEntity {
   LandingzoneEntityId: number;
-  SourceName: string;         // source system name (e.g., "MES", "ETQ")
+  SourceName: string;         // source system name from API
   SourceDisplayName: string;  // display name for the source
   SchemaName: string;         // schema (e.g., "dbo")
   TableName: string;          // table name

@@ -20,7 +20,7 @@ log = logging.getLogger("fmd.routes.schema_validation")
 @route("GET", "/api/schema-validation/summary")
 def get_summary(params, body, headers):
     """Aggregate pass/fail/warn counts across all validation runs."""
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
     rows = conn.execute("""
         SELECT
             COUNT(*)                                    AS total,
@@ -55,13 +55,13 @@ def get_run(params, body, headers):
     if not run_id:
         raise HttpError(400, "run_id is required")
 
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
     rows = conn.execute("""
         SELECT sv.id, sv.entity_id, sv.layer, sv.passed, sv.schema_name,
                sv.error_count, sv.errors_json, sv.validated_at,
-               lz.SourceName, lz.SourceDatabase
+               lz.SourceName, lz.SourceSchema
         FROM schema_validations sv
-        LEFT JOIN lz_entities lz ON sv.entity_id = lz.Id
+        LEFT JOIN lz_entities lz ON sv.entity_id = lz.LandingzoneEntityId
         WHERE sv.run_id = ?
         ORDER BY sv.passed ASC, sv.error_count DESC
     """, (run_id,)).fetchall()
@@ -79,7 +79,7 @@ def get_run(params, body, headers):
                 "errors": json.loads(r[6]) if r[6] else [],
                 "validated_at": r[7],
                 "source_name": r[8],
-                "source_database": r[9],
+                "source_schema": r[9],
             }
             for r in rows
         ],
@@ -93,7 +93,7 @@ def get_entity_history(params, body, headers):
     if not entity_id:
         raise HttpError(400, "entity_id is required")
 
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
     rows = conn.execute("""
         SELECT id, run_id, layer, passed, schema_name,
                error_count, errors_json, validated_at
@@ -124,13 +124,13 @@ def get_entity_history(params, body, headers):
 @route("GET", "/api/schema-validation/coverage")
 def get_coverage(params, body, headers):
     """Which entities have registered schemas (based on validation results)."""
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
 
     # Entities that have been validated at least once
     validated = conn.execute("""
-        SELECT DISTINCT sv.entity_id, lz.SourceName, lz.SourceDatabase, sv.schema_name
+        SELECT DISTINCT sv.entity_id, lz.SourceName, lz.SourceSchema, sv.schema_name
         FROM schema_validations sv
-        LEFT JOIN lz_entities lz ON sv.entity_id = lz.Id
+        LEFT JOIN lz_entities lz ON sv.entity_id = lz.LandingzoneEntityId
         WHERE sv.schema_name IS NOT NULL
     """).fetchall()
 
@@ -144,7 +144,7 @@ def get_coverage(params, body, headers):
             {
                 "entity_id": r[0],
                 "source_name": r[1],
-                "source_database": r[2],
+                "source_schema": r[2],
                 "schema_name": r[3],
             }
             for r in validated
@@ -160,7 +160,7 @@ def post_result(params, body, headers):
         if field not in body:
             raise HttpError(400, f"Missing required field: {field}")
 
-    conn = cpdb.get_connection()
+    conn = cpdb._get_conn()
     conn.execute("""
         INSERT INTO schema_validations (run_id, entity_id, layer, passed, schema_name, error_count, errors_json)
         VALUES (?, ?, ?, ?, ?, ?, ?)

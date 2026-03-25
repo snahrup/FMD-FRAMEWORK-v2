@@ -71,7 +71,7 @@ export function DqScoreRing({
 
   return (
     <div className={`relative flex flex-col items-center ${className}`}>
-      <div style={{ width: size, height: size, boxShadow: scoreGlow(score), borderRadius: "50%" }}>
+      <div className="relative" style={{ width: size, height: size, boxShadow: scoreGlow(score), borderRadius: "50%" }}>
         <ResponsiveContainer width="100%" height="100%">
           <RadialBarChart
             cx="50%"

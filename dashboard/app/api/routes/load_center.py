@@ -116,7 +116,7 @@ def _mark_interrupted_runs():
 try:
     _mark_interrupted_runs()
 except Exception:
-    pass  # Table may not exist yet on first run
+    log.debug("_mark_interrupted_runs skipped — table may not exist yet on first run")
 
 
 # ---------------------------------------------------------------------------
@@ -925,5 +925,5 @@ def get_load_center_run_status(params: dict) -> dict:
         if persisted.get("active") or persisted.get("phase"):
             return persisted
     except Exception:
-        pass
+        log.debug("Could not load persisted run state — falling back to in-memory state")
     return _run_state

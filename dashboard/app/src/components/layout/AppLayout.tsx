@@ -51,7 +51,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BackgroundTaskToast } from "@/components/BackgroundTaskToast";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { getHiddenPages } from "@/lib/pageVisibility";
 import { usePersona } from "@/contexts/PersonaContext";
 import {
@@ -198,6 +198,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [hiddenPages, setHiddenPages] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(() => localStorage.getItem("fmd-show-all") === "1");
 
+  // Preserve sidebar nav scroll position across route changes
+  const navScrollRef = useRef<HTMLElement>(null);
+  const navScrollPos = useRef(0);
+  const handleNavScroll = useCallback(() => {
+    if (navScrollRef.current) {
+      navScrollPos.current = navScrollRef.current.scrollTop;
+    }
+  }, []);
+  useEffect(() => {
+    if (navScrollRef.current) {
+      navScrollRef.current.scrollTop = navScrollPos.current;
+    }
+  });
+
   // Listen for page visibility changes from the Admin gateway
   const onVisibilityChanged = useCallback((e: Event) => {
     const detail = (e as CustomEvent<string[]>).detail;
@@ -267,7 +281,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const mainMargin = "md:ml-64";
 
   // ── Business Portal sidebar — matches wireframe exactly ──
-  const BPNavContent = () => (
+  const BPNavContent = (
     <div
       style={{
         display: "flex",
@@ -289,7 +303,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Nav */}
-      <nav style={{ flex: 1, padding: "8px 0", overflowY: "auto" }}>
+      <nav ref={navScrollRef} onScroll={handleNavScroll} style={{ flex: 1, padding: "8px 0", overflowY: "auto" }}>
         {sidebarGroups.map((group) => (
           <div key={group.label}>
             {group.items.map((item) => {
@@ -394,7 +408,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   );
 
   // ── Engineering Console sidebar — mirrors Business Portal style ──
-  const EngNavContent = () => (
+  const EngNavContent = (
     <div
       style={{
         display: "flex",
@@ -416,7 +430,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Nav */}
-      <nav style={{ flex: 1, padding: "8px 0", overflowY: "auto" }}>
+      <nav ref={navScrollRef} onScroll={handleNavScroll} style={{ flex: 1, padding: "8px 0", overflowY: "auto" }}>
         {sidebarGroups.map((group) => (
           <div key={group.label}>
             <div style={{ padding: "12px 24px 4px", fontSize: 10, fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "var(--bp-ink-muted)" }}>
@@ -556,7 +570,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     >
       {/* Desktop Sidebar */}
       <aside className={cn("hidden md:block fixed inset-y-0 z-50 transition-all duration-200", sidebarWidth)}>
-        <NavContent />
+        {NavContent}
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -564,7 +578,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="fixed inset-0 bg-black/40 backdrop-blur-[4px]" role="button" tabIndex={0} onClick={() => setIsMobileOpen(false)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsMobileOpen(false); } }} />
           <div className="fixed inset-y-0 left-0 w-64 z-50 animate-[slideIn_0.25s_var(--ease-claude)]">
-            <NavContent />
+            {NavContent}
           </div>
         </div>
       )}
