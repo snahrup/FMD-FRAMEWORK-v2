@@ -7,6 +7,33 @@
 
 ---
 
+## 0. PRE-REQUISITES (MUST COMPLETE BEFORE PACKET A)
+
+### SQL Auth on Source Servers — BLOCKER
+
+**This is the single highest risk across all 5 packets.** If SQL Auth logins are not created on the source servers, Packet A (ConnectorX) delivers zero value. The feature flag fallback keeps pyodbc working, but the entire speed improvement — the primary reason for Packet A — requires SQL Auth.
+
+| Action | Owner | Deadline | Status |
+|--------|-------|----------|--------|
+| Create `UsrSQLRead` SQL login on `m3-db1` (MES, M3 FDB) | DBA (Pat / Matt Francis) | Before Packet A build starts | NOT STARTED |
+| Create `UsrSQLRead` SQL login on `M3-DB3` (ETQ, SysAid, Scheduling55) | DBA | Same | NOT STARTED |
+| Create `UsrSQLRead` SQL login on `sqllogshipprd` (M3 ERP prod) | DBA | Same | NOT STARTED |
+| Create `UsrSQLRead` SQL login on `sql2016live` (M3 Cloud) | DBA | Same | NOT STARTED |
+| Create `UsrSQLRead` SQL login on `sqloptivalive` (OPTIVA) | DBA | Same | NOT STARTED |
+| Grant `db_datareader` on all source databases for the login | DBA | Same | NOT STARTED |
+| Set env vars `FMD_SQL_USERNAME` / `FMD_SQL_PASSWORD` on vsc-fabric | Steve | After DBA completes | NOT STARTED |
+
+**If DBA cannot create SQL logins:** Packet A still gets built (feature flag, connection string builder, etc.) but runs in pyodbc fallback mode. The speed improvement is deferred until SQL Auth is available. Packets B-E are unaffected.
+
+### Baseline Profile Storage — DEFERRED
+
+Per-table statistical baselines (for "has this table's shape changed since last load?" comparisons) are NOT in scope for any of the 5 packets. whylogs and Evidently were cut from the tool list. If baseline comparison is needed later, the approach is:
+- Store last successful run's per-table stats (row count, null rates per column, column types, min/max for numerics) in a `table_baselines` SQLite table
+- Compare current extraction against baseline during Pandera validation (Packet B extension)
+- This is a natural Packet B follow-up, not a separate packet
+
+---
+
 ## 1. TRUTH AUDIT
 
 ### What exists today (verified via code audit)
@@ -93,17 +120,7 @@
 
 5. **`engine/requirements.txt`** — Add `connectorx`
 
-**Auth Consideration — DEPLOYMENT BLOCKER:**
-- ConnectorX uses connection-string auth (SQL login), not Windows Auth
-- The entire FMD framework currently uses Windows Auth (`Trusted_Connection=yes`) on all 5 source servers
-- **Pre-requisite:** DBA must create SQL login (`UsrSQLRead`) with `db_datareader` on all source databases:
-  - `m3-db1` (MES, M3 FDB)
-  - `M3-DB3` (ETQ, SysAid, Scheduling55)
-  - `sqllogshipprd` (M3 ERP prod)
-  - `sql2016live` (M3 Cloud)
-  - `sqloptivalive` (OPTIVA)
-- **If SQL Auth is not approved:** Keep pyodbc as primary (`use_connectorx=False`). ConnectorX becomes a future upgrade once SQL Auth is available.
-- **Security:** Credentials MUST be in env vars, never in config.json or source control
+**Auth:** See Section 0 (Pre-Requisites) for the SQL Auth blocker. ConnectorX cannot deliver its speed improvement without SQL Auth logins on all source servers. The `use_connectorx` feature flag keeps pyodbc as fallback.
 
 **Dashboard Changes:**
 - None required — existing Throughput + Elapsed KPIs on LoadMissionControl will automatically reflect speed improvements
@@ -145,6 +162,9 @@
    - Before `OneLakeLoader.upload()` writes Parquet
    - If validation fails: log error, mark entity as `failed` with validation errors, skip upload
    - Configurable: `validation_mode: "enforce" | "warn" | "off"` (default: "warn" initially)
+   - **Config location:** `config.json` → `engine.validation_mode` (read by `config.py` into `EngineConfig.validation_mode`)
+   - **Runtime override:** Changeable via `POST /api/engine/settings` (same pattern as `load_method` toggle)
+   - **Per-entity override (future):** Not in v1. All entities share the same mode. If needed later, add `validation_mode` column to `lz_entities`.
 
 4. **`dashboard/app/api/control_plane_db.py`** — New SQLite table (NOT Fabric SQL DB):
    - `schema_validations` table: `run_id, entity_id, layer, passed, error_count, errors_json, validated_at`
@@ -232,7 +252,7 @@
 1. **`engine/requirements.txt`** — Add:
    - `presidio-analyzer`
    - `presidio-anonymizer` (for future masking)
-   - `spacy` + `en_core_web_sm` model (~12MB, per prior MDM spec decision — upgrade to `en_core_web_lg` later if accuracy insufficient)
+   - `spacy` + `en_core_web_lg` model (~560MB, loads once into memory). The small model (`en_core_web_sm`) has unacceptable false negative rates on manufacturing/ERP data where customer names are mixed into technical fields across 1,666 entities. The 560MB cost is a one-time download; accuracy on non-obvious PII justifies it.
 
 2. **`engine/orchestrator.py`** — Wire schema capture into post-load flow:
    - After successful LZ upload: query Fabric SQL Endpoint for column metadata
@@ -396,7 +416,22 @@ Packet C (delta-rs default) → Packet A (ConnectorX) → Packet B (Pandera) →
 
 **Navigation:** Add "Data Estate" as the FIRST item in sidebar, above all other groups. This is the landing page for demos.
 
-**Quality Gate:** This page goes through `/interface-design` with maximum premium treatment. If the design doesn't hit "exec-demo-ready" quality, it gets revised until it does. No shipping a mediocre version.
+**Quality Gate:** This page goes through `/interface-design` with maximum premium treatment. **2 design iterations maximum before shipping v1.** Polish is a follow-up, not a blocker.
+
+**v1 Definition ("exec-demo-ready" — concrete criteria):**
+- Pipeline flow animates (particles move source → layers)
+- Numbers update live when data refreshes (animated counters)
+- Click any node → navigates to correct detail page
+- Sources scale dynamically (add a source, it appears without code changes)
+- Purview panel shows sync status
+- Page loads in < 2 seconds, animations run at 60fps
+
+**v2 (follow-up polish, NOT blocking v1 ship):**
+- Ambient idle breathing on nodes
+- Shared-element drill-through animations (node expands into detail page)
+- Particle speed tied to real throughput metrics
+- Particle color reflecting per-entity quality scores
+- Responsive tablet layout for exec demos on iPad
 
 ---
 
