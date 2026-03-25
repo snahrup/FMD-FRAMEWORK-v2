@@ -31,6 +31,7 @@ import {
   RotateCcw, Search, Server, Square, Timer, X, XCircle, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AreaChart, Area, ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 const API = import.meta.env.VITE_API_URL || "";
 
@@ -1068,12 +1069,35 @@ function KpiStrip({ progress }: { progress: ProgressResponse | null }) {
             {formatDuration(totalDuration)}
           </div>
         </div>
-        {/* Throughput */}
+        {/* Throughput + sparkline (Task 8) */}
         <div style={{ ...S.card, padding: "12px 16px" }}>
           <div style={{ ...S.sans, fontSize: 10, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>Throughput</div>
           <div style={{ ...S.data, fontSize: 18, fontWeight: 600, color: "var(--bp-ink-secondary)" }}>
             {progress.throughput ? `${formatNumber(Math.round(progress.throughput.rows_per_sec))}/s` : "—"}
           </div>
+          {(() => {
+            const sparklineData = (progress.bySource ?? [])
+              .filter(s => (s.rows_read ?? 0) > 0)
+              .map(s => ({ rowsPerSec: s.rows_read ?? 0 }));
+            return sparklineData.length > 2 ? (
+              <div style={{ marginTop: 6, height: 28 }}>
+                <ResponsiveContainer width="100%" height={28}>
+                  <AreaChart data={sparklineData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                    <Area
+                      type="monotone"
+                      dataKey="rowsPerSec"
+                      stroke="var(--bp-copper)"
+                      fill="var(--bp-copper)"
+                      fillOpacity={0.15}
+                      strokeWidth={1.5}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : null;
+          })()}
         </div>
         {/* Verified */}
         <div style={{ ...S.card, padding: "12px 16px", borderLeft: `3px solid var(--bp-operational)` }}>
