@@ -120,6 +120,7 @@ class DataExtractor:
                         rows_read=0,
                         rows_written=0,
                         duration_seconds=round(elapsed, 2),
+                        extraction_method="pyodbc",
                     )
 
                 col_names = [desc[0] for desc in cursor.description]
@@ -191,6 +192,7 @@ class DataExtractor:
                             "For incremental loads this is OK (no new data since last watermark). "
                             "For full loads, verify the source table is not empty."
                         ),
+                        extraction_method="pyodbc",
                     )
 
                 # Build Polars DataFrame — handle type coercion gracefully
@@ -224,6 +226,7 @@ class DataExtractor:
                     duration_seconds=round(elapsed, 2),
                     watermark_before=entity.last_load_value,
                     watermark_after=new_watermark,
+                    extraction_method="pyodbc",
                 )
 
         except pyodbc.Error as exc:
@@ -240,6 +243,7 @@ class DataExtractor:
                 duration_seconds=round(elapsed, 2),
                 error=error_msg,
                 error_suggestion=suggestion,
+                extraction_method="pyodbc",
             )
 
         except Exception as exc:
@@ -255,6 +259,7 @@ class DataExtractor:
                 duration_seconds=round(elapsed, 2),
                 error=str(exc),
                 error_suggestion="Unexpected error during extraction. Check the stack trace in the engine logs.",
+                extraction_method="pyodbc",
             )
 
     # ------------------------------------------------------------------
@@ -291,6 +296,7 @@ class DataExtractor:
                 rows_read=0, rows_written=0, bytes_transferred=0,
                 duration_seconds=round(elapsed, 2), error=error_msg,
                 error_suggestion=self._diagnose_error(error_msg, entity),
+                extraction_method="connectorx",
             )
 
         # Filter binary columns (ConnectorX may include them)
@@ -311,6 +317,7 @@ class DataExtractor:
                 rows_read=0, rows_written=0, duration_seconds=round(elapsed, 2),
                 watermark_before=entity.last_load_value,
                 watermark_after=entity.last_load_value,
+                extraction_method="connectorx",
             )
 
         # Compute new watermark value
@@ -335,6 +342,7 @@ class DataExtractor:
             duration_seconds=round(elapsed, 2),
             watermark_before=entity.last_load_value,
             watermark_after=new_watermark,
+            extraction_method="connectorx",
         )
 
     @staticmethod
