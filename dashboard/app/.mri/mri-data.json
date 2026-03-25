@@ -1,0 +1,45 @@
+{
+  "runs": [
+    {
+      "runId": "1774389100568",
+      "summary": {
+        "runId": "1774389100568",
+        "status": "complete",
+        "startedAt": 1774389100569,
+        "completedAt": 1774389429441,
+        "totalDuration": 328872,
+        "iterations": 1,
+        "testsBefore": {
+          "total": 0,
+          "passed": 0,
+          "failed": 0
+        },
+        "testsAfter": {
+          "total": 14,
+          "passed": 6,
+          "failed": 8
+        },
+        "testsFixed": 0,
+        "visualSummary": {
+          "totalScreenshots": 39,
+          "mismatches": 0,
+          "newScreenshots": 39,
+          "matches": 0
+        },
+        "backendSummary": {
+          "total": 14,
+          "passed": 6,
+          "failed": 8,
+          "avgResponseMs": 2058
+        },
+        "aiSummary": {
+          "analyzed": 39,
+          "highRisk": 0,
+          "mediumRisk": 0,
+          "lowRisk": 39
+        }
+      }
+    }
+  ],
+  "baselines": []
+}

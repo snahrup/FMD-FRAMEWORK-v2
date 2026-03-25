@@ -10,6 +10,7 @@ import {
  * Component: TransformationReplay
  * Source: dashboard/app/src/pages/TransformationReplay.tsx
  *
+ * KPIs detected: Loading transformation data
  * Has search: yes
  * Table columns: Pass-through, Rename, Add Columns, Transform, Remove Rows, Delta Merge, Source Extraction, Column Name Sanitization
  *
@@ -109,6 +110,59 @@ test.describe('Page: /transformation-replay', () => {
     await expect(page.locator('body')).toBeVisible();
     const bodyHTML = await page.locator('body').innerHTML();
     expect(bodyHTML.trim().length).toBeGreaterThan(50);
+  });
+
+  // ════════════════════════════════════════════════════════════
+  // SECTION 2: KPI & Data Consistency
+  // ════════════════════════════════════════════════════════════
+
+  test('KPI values are real numbers (not undefined/NaN/empty)', async ({ page }) => {
+    await navigateToPage(page);
+    const kpiValueSelectors = [
+      '[data-testid="kpi-value"]',
+      '.kpi-value',
+      '.stat-value',
+      '.metric-value',
+      '.bp-card .text-2xl, .bp-card .text-3xl, .bp-card .text-4xl',
+      '.bp-card [style*="fontSize: 42"], .bp-card [style*="fontSize: 36"]',
+      '.bp-mono',
+    ];
+    let totalKPIsFound = 0;
+    for (const selector of kpiValueSelectors) {
+      const elements = page.locator(selector);
+      const count = await elements.count();
+      for (let i = 0; i < count; i++) {
+        const text = await elements.nth(i).textContent();
+        if (text && text.trim().length > 0 && text.trim() !== '/') {
+          expectRealValue(text, `KPI at ${selector}[${i}]`);
+          totalKPIsFound++;
+        }
+      }
+    }
+  });
+
+  test('KPI total count matches visible table row count', async ({ page }) => {
+    await navigateToPage(page);
+    const kpiElements = page.locator(
+      '.bp-card [style*="fontSize: 42"], .bp-card [style*="fontSize: 36"], '
+      + '.bp-card .bp-mono, .bp-card .text-3xl, .bp-card .text-4xl, '
+      + '[data-testid="kpi-value"]'
+    );
+    const tableRows = page.locator('tbody tr');
+    const rowCount = await tableRows.count();
+    if (rowCount > 0) {
+      const kpiCount = await kpiElements.count();
+      const kpiValues: number[] = [];
+      for (let i = 0; i < kpiCount; i++) {
+        const text = (await kpiElements.nth(i).textContent()) || '';
+        const num = parseDisplayNumber(text);
+        if (!isNaN(num) && num > 0) kpiValues.push(num);
+      }
+      if (kpiValues.length > 0) {
+        const maxKPI = Math.max(...kpiValues);
+        expect(maxKPI).toBeGreaterThanOrEqual(rowCount);
+      }
+    }
   });
 
   // ════════════════════════════════════════════════════════════

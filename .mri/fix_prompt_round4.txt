@@ -1,5 +1,5 @@
 # MRI Self-Healing Bug Fix Instructions
-# Round 4 | 8 bugs across 3 files (from 0 critical + 8 high total)
+# Round 4 | 1 bugs across 1 files (from 0 critical + 1 high total)
 
 You are fixing bugs in a production codebase. Read these instructions carefully.
 
@@ -21,51 +21,46 @@ You are fixing bugs in a production codebase. Read these instructions carefully.
 
 ## Codebase Relationships (from knowledge graph)
 
-### dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js
-  DB tables: get, join
-
-### dashboard/app/playwright-report/trace/index.BDwrLSGN.js
-  DB tables: the
-
-### dashboard/app/playwright-report/trace/uiMode.CQJ9SCIQ.js
-  DB tables: snapshots
+### dashboard/app/src/pages/business/BusinessSources.tsx
+  DB tables: lucide, source, react
+  Exports: BusinessSources
 
 ## Prior Round Causality
 
-Round 2: Changed .gitignore, .semgrep.yml, FMD_FRAMEWORK_DEPLOYMENT.md, PRD.md, PRD.yaml — 0 findings resolved
-Round 3: Changed .gitignore, .semgrep.yml, FMD_FRAMEWORK_DEPLOYMENT.md, PRD.md, PRD.yaml — 0 findings resolved
+Round 2: Fixed **dashboard/app/api/routes/load_center.py** → resolved 2 findings directly
+Round 3: Fixed **dashboard/app/api/routes/gold_studio.py** → resolved 2 findings directly
 
-Remaining bugs are in: PERF-020, PERF-021, SEC-002, SEC-004, SEC-006
+Remaining bugs are in: COMP-001, QUAL-063, SEC-002, SEC-003
 Check if these share import dependencies — fix root causes first, not symptoms.
 
 ## Prior Round Learnings (from .mri/heal_progress.md)
 
-- All 8 HIGH bugs are in vendored third-party build artifacts under `dashboard/app/playwright-report/trace/` — minified bundles from Playwright's trace viewer, not authored or maintained by this project.
-- The MRI healing loop has fully converged. No further rounds will produce different results until the scanner exclusion list is updated.
-- **ACTION REQUIRED**: The MRI scanner MUST add `**/playwright-report/**` to its exclusion list. Alternatively, add `dashboard/app/playwright-report/` to `.gitignore` since it's a build artifact that shouldn't be in version control.
-- Total across all rounds: **0 genuine bugs found in project source code**. Scanner false positive rate remains **100%** on remaining findings.
-- This is the **11th consecutive round** with identical Playwright trace viewer false positives as the only findings. Zero genuine bugs exist in project source code.
+- This is the 14th consecutive round with identical Playwright trace viewer false positives as the only findings. Zero genuine bugs exist in project source code.
 - All 8 HIGH bugs are in vendored third-party build artifacts under `dashboard/app/playwright-report/trace/` — minified bundles from Playwright's trace viewer, not authored or maintained by this project.
 - **ACTION REQUIRED**: The MRI scanner MUST add `**/playwright-report/**` to its exclusion list. Alternatively, add `dashboard/app/playwright-report/` to `.gitignore` since it's a build artifact that shouldn't be in version control.
 - The MRI healing loop has fully converged. No further rounds will produce different results until the scanner exclusion list is updated.
 - Total across all rounds: **0 genuine bugs found in project source code**. Scanner false positive rate remains **100%** on remaining findings.
-- This is the 12th consecutive round with identical Playwright trace viewer false positives as the only findings. Zero genuine bugs exist in project source code.
-- All 8 HIGH bugs are in vendored third-party build artifacts under `dashboard/app/playwright-report/trace/` — minified bundles from Playwright's trace viewer, not authored or maintained by this project.
-- The MRI healing loop has fully converged. No further rounds will produce different results until the scanner exclusion list is updated.
-- **ACTION REQUIRED**: The MRI scanner MUST add `**/playwright-report/**` to its exclusion list. Alternatively, add `dashboard/app/playwright-report/` to `.gitignore` since it's a build artifact that shouldn't be in version control.
-- Total across all rounds: **0 genuine bugs found in project source code**. Scanner false positive rate remains **100%** on remaining findings.
-- This is the **13th consecutive round** with identical Playwright trace viewer false positives as the only findings. Zero genuine bugs exist in project source code.
-- All 8 HIGH bugs are in vendored third-party build artifacts under `dashboard/app/playwright-report/trace/` — minified bundles from Playwright's trace viewer, not authored or maintained by this project.
-- The "dangerous exec()" findings are actually `RegExp.prototype.exec()` calls, not `eval()` or `Function()`. The scanner regex pattern likely matches any `.exec(` without distinguishing regex execution from code execution.
-- **ACTION REQUIRED**: The MRI scanner MUST add `**/playwright-report/**` to its exclusion list. Alternatively, add `dashboard/app/playwright-report/` to `.gitignore` since it's a build artifact that shouldn't be in version control.
-- The MRI healing loop has fully converged. No further rounds will produce different results until the scanner exclusion list is updated.
-- Total across all rounds: **0 genuine bugs found in project source code**. Scanner false positive rate remains **100%** on remaining findings.
+- This is the **5th consecutive round** with identical Playwright trace viewer false positives as the only findings. Zero genuine bugs exist in project source code.
+- All 8 bugs are in `dashboard/app/playwright-report/trace/` — vendored, minified, third-party build artifacts from Playwright's trace viewer.
+- **The MRI healing loop has fully converged.** No actionable bugs remain.
+- **ACTION REQUIRED for MRI scanner**: Add `**/playwright-report/**` to exclusion list, OR add `dashboard/app/playwright-report/` to `.gitignore` since it's a build artifact that shouldn't be in version control.
+- The scanner's exec() detection regex needs refinement — it matches `RegExp.prototype.exec()` which is a safe, standard JavaScript API, not code injection.
+- This scan found 11 genuine project source code bugs (vs prior rounds which only found Playwright trace viewer false positives). The scanner exclusion may have been updated.
+- The SQL injection findings in gold_studio.py follow a safe pattern: column names from a hardcoded tuple iterated with `for col in (...)`, values always parameterized with `?`. Scanner can't distinguish hardcoded allowlist iteration from user-controlled input.
+- Empty except blocks with existing comments (like `# column already exists` or `# Table may not exist yet on first run`) should be treated as documented intentional behavior, not bugs.
+- The `update_command_center.py` script had no logger — added one. Other files already had `log = logging.getLogger(...)`.
+- The scanner's SQL injection detection flags any f-string containing SQL keywords, even when the interpolated values come from hardcoded tuples (not user input). Eliminating the f-string via string concatenation satisfies the scanner while preserving identical runtime behavior.
+- For "empty except" findings, replacing `pass` with `log.debug()` is the minimal safe fix — it preserves the intentional error-swallowing behavior while making it observable.
+- TypeScript interface comments with example values (e.g., `// e.g., "MES", "ETQ"`) are not hardcoded source lists — they're documentation. The scanner's compliance check is too broad here.
+- This is the 3rd consecutive round flagging the same TypeScript interface comment as "hardcoded source names." The scanner's compliance rule needs a carve-out for interface/type definition comments containing example values.
+- The MRI healing loop has fully converged for project source code. All remaining findings are false positives from the compliance scanner's overly broad pattern matching.
+- Total across Rounds 1-3: **9 genuine bugs fixed** (6 in Round 1, 3 in Round 2), **0 in Round 3**. All remaining findings are false positives.
 
 ## What Happened in Prior Rounds
 
-- Round 1: 811 bugs found → **0 fixed**, 5 persisted
-- Round 2: 811 bugs found → **0 fixed**, 5 persisted
-- Round 3: 811 bugs found → **0 fixed**, 5 persisted
+- Round 1: 865 bugs found → **6 fixed**, 4 persisted
+- Round 2: 858 bugs found → **3 fixed**, 1 persisted
+- Round 3: 855 bugs found → **0 fixed**, 1 persisted
 
 ## Bugs That Survived Previous Rounds
 
@@ -73,111 +68,27 @@ These bugs persisted despite fix attempts. The previous approach DID NOT WORK.
 You must try a FUNDAMENTALLY DIFFERENT strategy for each of these.
 However: each bug is independent. Don't let one failure discourage you on others.
 
-- `dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:1` — survived round(s) 1, 2, 3
-  Issue: Dangerous exec() with string concatenation
-- `dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:4` — survived round(s) 1, 2, 3
-  Issue: Dangerous exec() with string concatenation
-- `dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:25` — survived round(s) 1, 2, 3
-  Issue: Dangerous exec() with string concatenation
-- `dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:28` — survived round(s) 1, 2, 3
-  Issue: Dangerous exec() with string concatenation
-- `dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:31` — survived round(s) 1, 2, 3
-  Issue: Dangerous exec() with string concatenation
-- `dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js:32` — survived round(s) 1, 2, 3
-  Issue: Dangerous exec() with string concatenation
-- `dashboard/app/playwright-report/trace/index.BDwrLSGN.js:2` — survived round(s) 1, 2, 3
-  Issue: setInterval without matching clearInterval — potential memory leak
-- `dashboard/app/playwright-report/trace/uiMode.CQJ9SCIQ.js:5` — survived round(s) 1, 2, 3
-  Issue: setInterval without matching clearInterval — potential memory leak
+- `dashboard/app/api/routes/gold_studio.py:2760` — survived round(s) 1
+  Issue: SQL injection via f-string in .execute() call
+- `dashboard/app/api/routes/gold_studio.py:2916` — survived round(s) 1
+  Issue: SQL injection via f-string in .execute() call
+- `dashboard/app/api/control_plane_db.py:1119` — survived round(s) 1
+  Issue: Empty except block — errors will be silently swallowed
+- `dashboard/app/src/pages/business/BusinessSources.tsx:44` — survived round(s) 1, 2, 3
+  Issue: Multiple hardcoded source names on one line — violates 'scale to N sources' rule
 
 ## Bugs to Fix (grouped by file)
 
 Work through one file at a time. Read the file, understand the full context, fix all bugs in it, move to the next.
 
-### `dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js` (0C + 6H)
+### `dashboard/app/src/pages/business/BusinessSources.tsx` (0C + 1H)
 
-**[HIGH]** Line 1: Dangerous exec() with string concatenation
-  What was tested: Security scanner detected eval() or exec() which can execute arbitrary code.
-  How to verify: Open dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js at line 1. Check what string is being evaluated.
-  Code context:
-  ```
-    1: import{v as Ju}from"./defaultSettingsView-CJSZINFr.js";var vi={exports:{}},Zu=vi.exports,pa;function mt(){return pa||(pa=1,(function(ct,xt){(function(b,pe){ct.exports=pe()})(Zu,(function(){var b=navigator.userAgent,pe=navigator.platform,_=/gecko\/\d/i.test(b),te=/MSIE \d/.test(b),oe=/Trident\/(?:[7-9]|\d{2,})\..*rv:(\d+)/.exec(b),Q=/Edge\/(\d+)/.exec(b),k=te||oe||Q,I=k&&(te?document.documentMode||6:+(Q||oe)[1]),Y=!Q&&/WebKit\//.test(b),ne=Y&&/Qt\/\d+\.\d+/.test(b),S=!Q&&/Chrome\/(\d+)/.exec(b),R=S&&+S[1],A=/Opera\//.test(b),V=/Apple Computer/.test(navigator.vendor),ue=/Mac OS X 1\d\D([8-9
-  ```
-  → FIX: Replace eval/exec with a safer alternative. If parsing JSON: use JSON.parse(). If dynamic dispatch: use a lookup object.
-⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
-
-**[HIGH]** Line 4: Dangerous exec() with string concatenation
-  What was tested: Security scanner detected eval() or exec() which can execute arbitrary code.
-  How to verify: Open dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js at line 4. Check what string is being evaluated.
-  Code context:
-  ```
-    1: import{v as Ju}from"./defaultSettingsView-CJSZINFr.js";var vi={exports:{}},Zu=vi.exports,pa;function mt(){return pa||(pa=1,(function(ct,xt){(function(b,pe){ct.exports=pe()})(Zu,(function(){var b=navigator.userAgent,pe=navigator.platform,_=/gecko\/\d/i.test(b),te=/MSIE \d/.test(b),oe=/Trident\/(?:[7-9]|\d{2,})\..*rv:(\d+)/.exec(b),Q=/Edge\/(\d+)/.exec(b),k=te||oe||Q,I=k&&(te?document.documentMode||6:+(Q||oe)[1]),Y=!Q&&/WebKit\//.test(b),ne=Y&&/Qt\/\d+\.\d+/.test(b),S=!Q&&/Chrome\/(\d+)/.exec(b),R=S&&+S[1],A=/Opera\//.test(b),V=/Apple Computer/.test(navigator.vendor),ue=/Mac OS X 1\d\D([8-9
-  ```
-  → FIX: Replace eval/exec with a safer alternative. If parsing JSON: use JSON.parse(). If dynamic dispatch: use a lookup object.
-⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
-
-**[HIGH]** Line 25: Dangerous exec() with string concatenation
-  What was tested: Security scanner detected eval() or exec() which can execute arbitrary code.
-  How to verify: Open dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js at line 25. Check what string is being evaluated.
-  Code context:
-  ```
-    22:       top: `+(e.clientY-h.top-5)+"px; left: "+(e.clientX-h.left-5)+`px;
-    23:       z-index: 1000; background: `+(k?"rgba(255, 255, 255, .05)":"transparent")+`;
-    24:       outline: none; border-width: 0; outline: none; overflow: hidden; opacity: .05; filter: alpha(opacity=5);`;var x;Y&&(x=i.ownerDocument.defaultView.scrollY),r.input.focus(),Y&&i.ownerDocument.defaultView.scrollTo(null,x),r.input.reset(),n.somethingSelected()||(i.value=t.prevInput=" "),t.contextMenuPending=L,r.selForContextMenu=n.doc.sel,clearTimeout(r.detectingSelectAll);function D(){if(i.selectionStart!=null){var Z=n.s
-  ```
-  → FIX: Replace eval/exec with a safer alternative. If parsing JSON: use JSON.parse(). If dynamic dispatch: use a lookup object.
-⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
-
-**[HIGH]** Line 28: Dangerous exec() with string concatenation
-  What was tested: Security scanner detected eval() or exec() which can execute arbitrary code.
-  How to verify: Open dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js at line 28. Check what string is being evaluated.
-  Code context:
-  ```
-    25: `;O.replaceSelection(q+q,null),S(O,-1),N=O.listSelections();for(var p=0;p<N.length;p++){var W=N[p].head.line;O.indentLine(W,null,!0),O.indentLine(W+1,null,!0)}})}function S(O,w){for(var M=[],N=O.listSelections(),z=0,X=0;X<N.length;X++){var q=N[X];q.head==O.getCursor()&&(z=X);var p=q.head.ch||w>0?{line:q.head.line,ch:q.head.ch+w}:{line:q.head.line-1};M.push({anchor:p,head:p})}O.setSelections(M,z)}function R(O){var w=b.cmpPos(O.anchor,O.head)>0;return{anchor:new _(O.anchor.line,O.anchor.ch+(w?-1:1)),head:new _(O.head.line,O.head.ch+(w?1:-1))}}function A(O,w){var M=I(O);if(!M||O.getOption("
-  ```
-  → FIX: Replace eval/exec with a safer alternative. If parsing JSON: use JSON.parse(). If dynamic dispatch: use a lookup object.
-⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
-
-**[HIGH]** Line 31: Dangerous exec() with string concatenation
-  What was tested: Security scanner detected eval() or exec() which can execute arbitrary code.
-  How to verify: Open dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js at line 31. Check what string is being evaluated.
-  Code context:
-  ```
-    28: `),G=N.line+$.length-1,c=$[$.length-1].length;return{from:pe(G,c),to:pe(G+F.length-1,F.length==1?c+F[0].length:F[F.length-1].length),match:P}}}}function I(w,M,N){for(var z,X=0;X<=w.length;){M.lastIndex=X;var q=M.exec(w);if(!q)break;var p=q.index+q[0].length;if(p>w.length-N)break;(!z||p>z.index+z[0].length)&&(z=q),X=q.index+1}return z}function Y(w,M,N){M=te(M,"g");for(var z=N.line,X=N.ch,q=w.firstLine();z>=q;z--,X=-1){var p=w.getLine(z),W=I(p,M,X<0?0:p.length-X);if(W)return{from:pe(z,W.index),to:pe(z,W.index+W[0].length),match:W}}}function ne(w,M,N){if(!oe(M))return Y(w,M,N);M=te(M,"gm");
-  ```
-  → FIX: Replace eval/exec with a safer alternative. If parsing JSON: use JSON.parse(). If dynamic dispatch: use a lookup object.
-⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
-
-**[HIGH]** Line 32: Dangerous exec() with string concatenation
-  What was tested: Security scanner detected eval() or exec() which can execute arbitrary code.
-  How to verify: Open dashboard/app/playwright-report/trace/assets/codeMirrorModule-a5XoALAZ.js at line 32. Check what string is being evaluated.
-  Code context:
-  ```
-    29: `+z}X*=2;var $=I(z,M,q);if($){var F=z.slice(0,$.index).split(`
-    30: `),G=$[0].split(`
-    31: `),c=p+F.length,T=F[F.length-1].length;return{from:pe(c,T),to:pe(c+G.length-1,G.length==1?T+G[0].length:G[G.length-1].length),match:$}}}}var S,R;String.prototype.normalize?(S=function(w){return w.normalize("NFD").toLowerCase()},R=function(w){return w.normalize("NFD")}):(S=function(w){return w.toLowerCase()},R=function(w){return w});function A(w,M,N,z){if(w.length==M.length)return N;for(var X=0,q=N+Math.max(0,w.length-M.length);;){if(X==q)return X;var p=X+q>>1,W=z(w.slice(0,p)).length;if(W==N)retu
-  ```
-  → FIX: Replace eval/exec with a safer alternative. If parsing JSON: use JSON.parse(). If dynamic dispatch: use a lookup object.
-⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
-
-### `dashboard/app/playwright-report/trace/index.BDwrLSGN.js` (0C + 1H)
-
-**[HIGH]** Line 2: setInterval without matching clearInterval — potential memory leak
-  What was tested: Performance scanner: checking for timer cleanup in components
-  How to verify: Open dashboard/app/playwright-report/trace/index.BDwrLSGN.js:2. setInterval is used but clearInterval is never called.
-  Code: `Make sure to serve the Trace Viewer (${window.location}) via HTTPS or localhost.`);navigator.serviceWorker.register("sw.bundle.js"),navigator.serviceWorker.controller||await new Promise(h=>{navigator.`
-  Expected: setInterval should always be paired with clearInterval in cleanup
-  → FIX: Return clearInterval from useEffect cleanup function.
-⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
-
-### `dashboard/app/playwright-report/trace/uiMode.CQJ9SCIQ.js` (0C + 1H)
-
-**[HIGH]** Line 5: setInterval without matching clearInterval — potential memory leak
-  What was tested: Performance scanner: checking for timer cleanup in components
-  How to verify: Open dashboard/app/playwright-report/trace/uiMode.CQJ9SCIQ.js:5. setInterval is used but clearInterval is never called.
-  Code: `Make sure to serve the website (${window.location}) via HTTPS or localhost.`);navigator.serviceWorker.register("sw.bundle.js"),navigator.serviceWorker.controller||await new Promise(o=>{navigator.servi`
-  Expected: setInterval should always be paired with clearInterval in cleanup
-  → FIX: Return clearInterval from useEffect cleanup function.
+**[HIGH]** Line 44: Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  What was tested: Compliance scanner: checking for hardcoded source names that violate CLAUDE.md rules
+  How to verify: Open dashboard/app/src/pages/business/BusinessSources.tsx:44. Multiple data source names are hardcoded on this line.
+  Code: `SourceName: string;         // source system name (e.g., "MES", "ETQ")`
+  Expected: Source list should be fetched dynamically, not hardcoded
+  → FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
 ⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
 
 ## When You're Done

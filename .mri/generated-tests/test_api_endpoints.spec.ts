@@ -8,6 +8,22 @@ import { test, expect } from '@playwright/test';
 
 test.describe('API: GET endpoints — full validation', () => {
 
+  test('GET /api/... returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/...');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
   test('GET /api/things returns 200 and valid JSON', async ({ request }) => {
     const response = await request.get('http://localhost:8000/api/things');
     expect(response.status()).toBe(200);
@@ -170,6 +186,54 @@ test.describe('API: GET endpoints — full validation', () => {
 
   test('GET /api/classification/data returns 200 and valid JSON', async ({ request }) => {
     const response = await request.get('http://localhost:8000/api/classification/data');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/cleansing/functions returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/cleansing/functions');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/cleansing/rules returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/cleansing/rules');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/cleansing/summary returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/cleansing/summary');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -488,6 +552,22 @@ test.describe('API: GET endpoints — full validation', () => {
     }
   });
 
+  test('GET /api/estate/overview returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/estate/overview');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
   test('GET /api/data-manager/tables returns 200 and valid JSON', async ({ request }) => {
     const response = await request.get('http://localhost:8000/api/data-manager/tables');
     expect(response.status()).toBe(200);
@@ -728,8 +808,328 @@ test.describe('API: GET endpoints — full validation', () => {
     }
   });
 
+  test('GET /api/glossary/annotations/bulk returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/glossary/annotations/bulk');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
   test('GET /api/gold/domains returns 200 and valid JSON', async ({ request }) => {
     const response = await request.get('http://localhost:8000/api/gold/domains');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold/mlvs/summary returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold/mlvs/summary');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold/mlvs returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold/mlvs');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/specimens returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/specimens');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/entities returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/entities');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/clusters returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/clusters');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/clusters/unclustered returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/clusters/unclustered');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/canonical returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/canonical');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/canonical/domains returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/canonical/domains');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/canonical/relationships returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/canonical/relationships');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/semantic returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/semantic');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/specs returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/specs');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/catalog returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/catalog');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/jobs returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/jobs');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/audit/log returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/audit/log');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/stats returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/stats');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/field-usage returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/field-usage');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/domains returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/domains');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/report-coverage/summary returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/report-coverage/summary');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/report-coverage returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/report-coverage');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -778,6 +1178,86 @@ test.describe('API: GET endpoints — full validation', () => {
 
   test('GET /api/load-center/run-status returns 200 and valid JSON', async ({ request }) => {
     const response = await request.get('http://localhost:8000/api/load-center/run-status');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/lmc/sources returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/lmc/sources');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/lmc/entity-ids-by-source returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/lmc/entity-ids-by-source');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/lmc/progress returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/lmc/progress');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/lmc/runs returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/lmc/runs');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/lmc/compare returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/lmc/compare');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1112,6 +1592,22 @@ test.describe('API: GET endpoints — full validation', () => {
     }
   });
 
+  test('GET /api/overview/entities returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/overview/entities');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
   test('GET /api/pipelines returns 200 and valid JSON', async ({ request }) => {
     const response = await request.get('http://localhost:8000/api/pipelines');
     expect(response.status()).toBe(200);
@@ -1304,6 +1800,54 @@ test.describe('API: GET endpoints — full validation', () => {
     }
   });
 
+  test('GET /api/classification/purview/status returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/classification/purview/status');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/classification/purview/mappings returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/classification/purview/mappings');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/classification/purview/history returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/classification/purview/history');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
   test('GET /api/quality/scores returns 200 and valid JSON', async ({ request }) => {
     const response = await request.get('http://localhost:8000/api/quality/scores');
     expect(response.status()).toBe(200);
@@ -1338,6 +1882,86 @@ test.describe('API: GET endpoints — full validation', () => {
 
   test('GET /api/requests returns 200 and valid JSON', async ({ request }) => {
     const response = await request.get('http://localhost:8000/api/requests');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/scd/summary returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/scd/summary');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/scd/runs returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/scd/runs');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/schema-validation/summary returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/schema-validation/summary');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/schema-validation/coverage returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/schema-validation/coverage');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gateway-connections returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gateway-connections');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1799,25 +2423,17 @@ test.describe('API: GET endpoints — full validation', () => {
       expect(text.length).toBeGreaterThan(0);
     }
   });
-
-  test('GET /api/... returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/...');
-    expect(response.status()).toBe(200);
-    const contentType = response.headers()['content-type'] || '';
-    if (contentType.includes('application/json')) {
-      const body = await response.json();
-      expect(body).toBeDefined();
-      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
-        if ('error' in body) expect(body.error).toBeFalsy();
-      }
-    } else {
-      const text = await response.text();
-      expect(text.length).toBeGreaterThan(0);
-    }
-  });
 });
 
 test.describe('API: Response time validation', () => {
+
+  test('GET /api/... responds within 5 seconds', async ({ request }) => {
+    const start = Date.now();
+    const response = await request.get('http://localhost:8000/api/...');
+    const elapsed = Date.now() - start;
+    expect(response.status()).toBeLessThan(500);
+    expect(elapsed).toBeLessThan(5000);
+  });
 
   test('GET /api/things responds within 5 seconds', async ({ request }) => {
     const start = Date.now();
@@ -1890,17 +2506,14 @@ test.describe('API: Response time validation', () => {
     expect(response.status()).toBeLessThan(500);
     expect(elapsed).toBeLessThan(5000);
   });
-
-  test('GET /api/classification/summary responds within 5 seconds', async ({ request }) => {
-    const start = Date.now();
-    const response = await request.get('http://localhost:8000/api/classification/summary');
-    const elapsed = Date.now() - start;
-    expect(response.status()).toBeLessThan(500);
-    expect(elapsed).toBeLessThan(5000);
-  });
 });
 
 test.describe('API: Parameterized endpoints (smoke)', () => {
+
+  test('GET /api/classification/entity/{entity_id}/columns responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/classification/entity/1/columns');
+    expect([200, 404, 422]).toContain(response.status());
+  });
 
   test('GET /api/data-manager/table/{name} responds (param substituted)', async ({ request }) => {
     const response = await request.get('http://localhost:8000/api/data-manager/table/1');
@@ -1922,8 +2535,128 @@ test.describe('API: Parameterized endpoints (smoke)', () => {
     expect([200, 404, 422]).toContain(response.status());
   });
 
+  test('GET /api/gold/mlvs/{id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold/mlvs/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/specimens/{id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/specimens/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/specimens/{id}/queries responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/specimens/1/queries');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/entities/{id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/entities/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/entities/{id}/columns responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/entities/1/columns');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/entities/{id}/schema responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/entities/1/schema');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/clusters/{id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/clusters/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/clusters/{id}/column-decisions responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/clusters/1/column-decisions');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/canonical/{id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/canonical/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/canonical/{id}/versions responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/canonical/1/versions');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/specs/{id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/specs/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/specs/{id}/versions responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/specs/1/versions');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/specs/{id}/impact responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/specs/1/impact');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/validation/specs/{id}/runs responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/validation/specs/1/runs');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/validation/runs/{id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/validation/runs/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/validation/specs/{id}/reconciliation responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/validation/specs/1/reconciliation');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/catalog/{id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/catalog/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/catalog/{id}/versions responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/catalog/1/versions');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/jobs/{id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/jobs/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/domains/{id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/domains/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/gold-studio/report-coverage/{id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/gold-studio/report-coverage/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
   test('GET /api/lineage/columns/{entityId} responds (param substituted)', async ({ request }) => {
     const response = await request.get('http://localhost:8000/api/lineage/columns/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/lmc/run/{run_id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/lmc/run/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/lmc/run/{run_id}/entities responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/lmc/run/1/entities');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/lmc/entity/{entity_id}/history responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/lmc/entity/1/history');
     expect([200, 404, 422]).toContain(response.status());
   });
 
@@ -1959,6 +2692,21 @@ test.describe('API: Parameterized endpoints (smoke)', () => {
 
   test('GET /api/quality/score/{entityId} responds (param substituted)', async ({ request }) => {
     const response = await request.get('http://localhost:8000/api/quality/score/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/scd/entity/{entityId} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/scd/entity/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/schema-validation/run/{run_id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/schema-validation/run/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/schema-validation/entity/{entity_id} responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://localhost:8000/api/schema-validation/entity/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
@@ -2012,6 +2760,26 @@ test.describe('API: Mutation endpoints (existence check)', () => {
     });
     expect(response.status()).not.toBe(404);
     expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/classification/entity/{entity_id}/override — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/cleansing/rules endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/cleansing/rules', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('PUT /api/cleansing/rules/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('DELETE /api/cleansing/rules/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
   });
 
   test('POST /api/config-manager/update endpoint exists (not 404)', async ({ request }) => {
@@ -2106,6 +2874,14 @@ test.describe('API: Mutation endpoints (existence check)', () => {
     expect(response.status()).toBeLessThan(500);
   });
 
+  test('POST /api/engine/resume endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/engine/resume', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
   test('POST /api/engine/settings endpoint exists (not 404)', async ({ request }) => {
     const response = await request.post('http://localhost:8000/api/engine/settings', {
       data: {},
@@ -2152,6 +2928,146 @@ test.describe('API: Mutation endpoints (existence check)', () => {
     });
     expect(response.status()).not.toBe(404);
     expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/gold-studio/specimens endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/gold-studio/specimens', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('PUT /api/gold-studio/specimens/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('DELETE /api/gold-studio/specimens/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/specimens/{id}/extract — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/specimens/bulk endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/gold-studio/specimens/bulk', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/gold-studio/entities/{id}/discover-schema — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('PUT /api/gold-studio/clusters/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/clusters/{id}/resolve — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('PUT /api/gold-studio/clusters/{id}/column-decisions — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/clusters/detect endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/gold-studio/clusters/detect', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/gold-studio/canonical endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/gold-studio/canonical', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('PUT /api/gold-studio/canonical/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/canonical/{id}/approve — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/canonical/{id}/generate-spec — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/semantic endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/gold-studio/semantic', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('PUT /api/gold-studio/semantic/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('DELETE /api/gold-studio/semantic/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('PUT /api/gold-studio/specs/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('PUT /api/gold-studio/specs/{id}/sql — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/validation/specs/{id}/validate — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/validation/runs/{id}/waiver — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/catalog/specs/{id}/publish — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('PUT /api/gold-studio/catalog/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/domains endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/gold-studio/domains', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('PUT /api/gold-studio/domains/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/report-coverage endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/gold-studio/report-coverage', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('PUT /api/gold-studio/report-coverage/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('DELETE /api/gold-studio/report-coverage/{id} — parameterized, skip', async () => {
+    expect(true).toBe(true);
   });
 
   test('POST /api/load-center/refresh endpoint exists (not 404)', async ({ request }) => {
@@ -2254,6 +3170,30 @@ test.describe('API: Mutation endpoints (existence check)', () => {
     expect(response.status()).toBeLessThan(500);
   });
 
+  test('PUT /api/classification/purview/mappings endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.put('http://localhost:8000/api/classification/purview/mappings', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/classification/purview/sync endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/classification/purview/sync', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/classification/purview/import endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/classification/purview/import', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
   test('POST /api/quality/refresh endpoint exists (not 404)', async ({ request }) => {
     const response = await request.post('http://localhost:8000/api/quality/refresh', {
       data: {},
@@ -2272,6 +3212,22 @@ test.describe('API: Mutation endpoints (existence check)', () => {
 
   test('PATCH /api/requests/{id} — parameterized, skip', async () => {
     expect(true).toBe(true);
+  });
+
+  test('POST /api/schema-validation/result endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/schema-validation/result', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/connections endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://localhost:8000/api/connections', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
   });
 
   test('POST /api/datasources endpoint exists (not 404)', async ({ request }) => {
@@ -2393,6 +3349,11 @@ test.describe('API: Mutation endpoints (existence check)', () => {
 
 test.describe('API: Method validation', () => {
 
+  test('DELETE /api/... is rejected', async ({ request }) => {
+    const response = await request.delete('http://localhost:8000/api/...');
+    expect([404, 405]).toContain(response.status());
+  });
+
   test('DELETE /api/things is rejected', async ({ request }) => {
     const response = await request.delete('http://localhost:8000/api/things');
     expect([404, 405]).toContain(response.status());
@@ -2410,11 +3371,6 @@ test.describe('API: Method validation', () => {
 
   test('DELETE /api/fabric/workspaces is rejected', async ({ request }) => {
     const response = await request.delete('http://localhost:8000/api/fabric/workspaces');
-    expect([404, 405]).toContain(response.status());
-  });
-
-  test('DELETE /api/fabric/connections is rejected', async ({ request }) => {
-    const response = await request.delete('http://localhost:8000/api/fabric/connections');
     expect([404, 405]).toContain(response.status());
   });
 });

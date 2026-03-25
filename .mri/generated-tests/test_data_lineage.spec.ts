@@ -10,7 +10,7 @@ import {
  * Component: DataLineage
  * Source: dashboard/app/src/pages/DataLineage.tsx
  *
- * KPIs detected: pb-3, text-base, Total Entities, Landing Zone, Bronze, Silver, Full Chain, p-0
+ * KPIs detected: pb-3, text-base, h-4 w-4, text-[11px] mt-1, p-0, \u2014, Table Lineage, Source
  * Has search: yes
  * Table columns: Entity, Source, LZ, Bronze, Silver, Gold, Rows, LZ Status
  *

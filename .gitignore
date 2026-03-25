@@ -103,3 +103,5 @@ CODEBASE.html
 
 # DB backups
 *.db.pre-demo-seed
+.windsurf\rules\openmemory.md
+CLAUDE.md

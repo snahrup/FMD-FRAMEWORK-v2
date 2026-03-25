@@ -86,6 +86,22 @@ test.describe('Page: /control-plane', () => {
     expect(hasErrorUI).toBe(true);
   });
 
+  test('handles empty API response without crash', async ({ page }) => {
+    await page.route('**/api/**', route => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+    await page.goto('/control-plane');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(2000);
+    await expect(page.locator('body')).toBeVisible();
+    const bodyHTML = await page.locator('body').innerHTML();
+    expect(bodyHTML.trim().length).toBeGreaterThan(50);
+  });
+
   test('handles network timeout gracefully', async ({ page }) => {
     await page.route('**/api/**', route => route.abort('timedout'));
     await page.goto('/control-plane');

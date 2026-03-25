@@ -10,7 +10,7 @@ import {
  * Component: LoadCenter
  * Source: dashboard/app/src/App.tsx
  *
- * KPIs detected: Landing Zone, Bronze, Silver, Sources, Table, Running..., total entities, Source
+ * KPIs detected: Landing Zone, Bronze, Silver, Sources, Table, Running..., total entities, Table counts
  * Has search: yes
  * Table columns: Type, Status
  *
@@ -84,6 +84,22 @@ test.describe('Page: /load-center', () => {
       body.toLowerCase().includes('not reachable') ||
       await page.locator('[class*="error"], [class*="alert"], [role="alert"]').count() > 0;
     expect(hasErrorUI).toBe(true);
+  });
+
+  test('handles empty API response without crash', async ({ page }) => {
+    await page.route('**/api/**', route => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+    await page.goto('/load-center');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(2000);
+    await expect(page.locator('body')).toBeVisible();
+    const bodyHTML = await page.locator('body').innerHTML();
+    expect(bodyHTML.trim().length).toBeGreaterThan(50);
   });
 
   test('handles network timeout gracefully', async ({ page }) => {
