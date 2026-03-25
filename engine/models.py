@@ -186,6 +186,7 @@ class RunResult:
     error_suggestion: Optional[str] = None  # plain-English hint for operators
     watermark_before: Optional[str] = None
     watermark_after: Optional[str] = None
+    extraction_method: str = "unknown"        # "connectorx" | "pyodbc" | "unknown"
 
     @property
     def succeeded(self) -> bool:
