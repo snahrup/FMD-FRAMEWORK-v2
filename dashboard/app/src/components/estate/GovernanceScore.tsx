@@ -48,8 +48,8 @@ export function GovernanceScore({
   const offset = circumference - (displayed / 100) * circumference;
 
   const scoreColor =
-    displayed >= 80 ? "var(--bp-operational)" :
-    displayed >= 50 ? "var(--bp-caution)" :
+    displayed >= 70 ? "var(--bp-operational)" :
+    displayed >= 40 ? "var(--bp-caution)" :
     "var(--bp-fault)";
 
   // Breakdown bars for the three sub-metrics
@@ -121,7 +121,7 @@ export function GovernanceScore({
                 className="h-full rounded-full"
                 style={{
                   width: `${item.pct}%`,
-                  background: item.pct >= 80 ? "var(--bp-operational)" : item.pct >= 50 ? "var(--bp-caution)" : "var(--bp-fault)",
+                  background: item.pct >= 70 ? "var(--bp-operational)" : item.pct >= 40 ? "var(--bp-caution)" : "var(--bp-fault)",
                   transition: "width 0.8s var(--ease-claude)",
                 }}
               />
