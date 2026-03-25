@@ -556,6 +556,46 @@ const S = {
   } as React.CSSProperties,
 } as const;
 
+// ── Extraction method helpers (Task 7) ──
+function ExtractionBadge({ method }: { method: string }) {
+  const isCx = method === "connectorx";
+  return (
+    <span style={{
+      ...S.badge,
+      fontSize: 10,
+      padding: "1px 6px",
+      background: isCx ? "var(--bp-copper)" : "var(--bp-surface-inset)",
+      color: isCx ? "#fff" : "var(--bp-ink-secondary)",
+      fontFamily: "var(--bp-font-mono)",
+    }}>
+      {isCx ? "CX" : method === "pyodbc" ? "ODBC" : "—"}
+    </span>
+  );
+}
+
+function PipelineStack({ method }: { method: string }) {
+  const steps = method === "connectorx"
+    ? ["ConnectorX", "Polars", "Snappy Parquet", "OneLake"]
+    : ["pyodbc", "pandas", "PyArrow Parquet", "OneLake"];
+  return (
+    <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 8 }}>
+      {steps.map((s, i) => (
+        <span key={s} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          {i > 0 && <span style={{ color: "var(--bp-ink-tertiary)", fontSize: 10 }}>→</span>}
+          <span style={{
+            ...S.badge,
+            fontSize: 10,
+            padding: "2px 8px",
+            background: "var(--bp-surface-inset)",
+            color: "var(--bp-ink-secondary)",
+            fontFamily: "var(--bp-font-mono)",
+          }}>{s}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // Shared constants (must be before components that use them)
 const LAYER_ORDER = ["landing", "bronze", "silver", "gold"] as const;
 const LAYER_LABELS: Record<string, string> = { landing: "Landing Zone", bronze: "Bronze", silver: "Silver", gold: "Gold" };
@@ -1638,7 +1678,7 @@ function HistoryTab({ entities, total, loading }: HistoryTabProps) {
           <table style={{ width: "100%", borderCollapse: "collapse", ...S.data, fontSize: 12 }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--bp-border-subtle)" }}>
-                {["Time", "Source", "Table", "Layer", "Status", "Rows", "Duration"].map(h => (
+                {["Time", "Source", "Table", "Layer", "Status", "Rows", "Duration", "Engine"].map(h => (
                   <th key={h} style={{
                     padding: "8px 10px", textAlign: "left",
                     ...S.sans, fontSize: 11, fontWeight: 600, color: "var(--bp-ink-tertiary)",
@@ -1684,6 +1724,9 @@ function HistoryTab({ entities, total, loading }: HistoryTabProps) {
                   </td>
                   <td style={{ padding: "6px 10px", color: "var(--bp-ink-muted)" }}>
                     {formatDuration(e.DurationSeconds)}
+                  </td>
+                  <td style={{ padding: "6px 10px" }}>
+                    <ExtractionBadge method={(e as any).ExtractionMethod || (e as any).extractionMethod || "unknown"} />
                   </td>
                 </tr>
               ))}
