@@ -141,6 +141,9 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
         # Schema validation
         validation_mode=engine_section.get("validation_mode", "warn"),
 
+        # Control plane dashboard
+        control_plane_url=engine_section.get("control_plane_url", "http://localhost:8787"),
+
         # Delta table maintenance
         delta_compact_interval=int(engine_section.get("delta_compact_interval", 10)),
         delta_vacuum_retention_days=int(engine_section.get("delta_vacuum_retention_days", 7)),

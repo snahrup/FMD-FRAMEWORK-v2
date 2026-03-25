@@ -325,6 +325,9 @@ class EngineConfig:
     # Schema validation
     validation_mode: str = "warn"            # "enforce" | "warn" | "off"
 
+    # Control plane dashboard URL (for validation callbacks, etc.)
+    control_plane_url: str = "http://localhost:8787"
+
     # Delta table maintenance
     delta_compact_interval: int = 10         # compact after every N writes per table
     delta_vacuum_retention_days: int = 7     # VACUUM retention period in days

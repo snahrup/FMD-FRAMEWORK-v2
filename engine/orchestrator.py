@@ -1338,6 +1338,31 @@ class LoadOrchestrator:
 
         return self._try_entity_local(run_id, entity)
 
+    def _log_validation(self, run_id: str, entity_id: int, v_result) -> None:
+        """POST schema validation result to control plane dashboard."""
+        import json
+        import urllib.request
+        base_url = getattr(self._config, "control_plane_url", "http://localhost:8787")
+        data = json.dumps({
+            "run_id": run_id,
+            "entity_id": entity_id,
+            "layer": "landing",
+            "passed": v_result.passed,
+            "error_count": v_result.error_count,
+            "errors": v_result.errors[:20],
+            "schema_name": v_result.schema_name,
+        })
+        try:
+            req = urllib.request.Request(
+                f"{base_url}/api/schema-validation/result",
+                data=data.encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=1)
+        except Exception as exc:
+            log.debug("Failed to POST validation result for entity %d: %s", entity_id, exc)
+
     def _try_entity_local(self, run_id: str, entity: Entity) -> RunResult:
         """Local mode: extract via pyodbc/ConnectorX + validate + upload parquet to OneLake."""
         if self._stop_requested:
@@ -1361,6 +1386,7 @@ class LoadOrchestrator:
                     df_for_validation, entity.source_database, entity.source_name.strip(),
                     mode=validation_mode,
                 )
+                self._log_validation(run_id, entity.id, v_result)
                 if not v_result.passed and validation_mode == "enforce":
                     return RunResult(
                         entity_id=entity.id, layer="landing", status="failed",
