@@ -2644,6 +2644,13 @@ function LoadMissionControlInner() {
   // Fetch runs list
   const { runs, loading: runsLoading, refetch: refetchRuns } = useRuns(20);
 
+  // ── Performance Comparison state (Task 9) ──
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareRunA, setCompareRunA] = useState("");
+  const [compareRunB, setCompareRunB] = useState("");
+  const [compareData, setCompareData] = useState<any>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+
   // Engine status (polls every 5s) — must be before useEffects that reference it
   const { engine } = useEngineStatus(scope.isRunActive ? 3000 : 10000);
 
@@ -2661,6 +2668,25 @@ function LoadMissionControlInner() {
       refetchRuns();
     }
   }, [engine?.status, engine?.current_run_id, scope.selectedRunId, dispatch, refetchRuns]);
+
+  // ── Compare fetch effect (Task 9) ──
+  useEffect(() => {
+    if (!compareRunA || !compareRunB || compareRunA === compareRunB) {
+      setCompareData(null);
+      return;
+    }
+    const controller = new AbortController();
+    setCompareLoading(true);
+    fetch(
+      `${API}/api/lmc/compare?run_a=${encodeURIComponent(compareRunA)}&run_b=${encodeURIComponent(compareRunB)}`,
+      { signal: controller.signal }
+    )
+      .then(r => r.json())
+      .then(setCompareData)
+      .catch((err) => { if (err.name !== "AbortError") setCompareData(null); })
+      .finally(() => setCompareLoading(false));
+    return () => controller.abort();
+  }, [compareRunA, compareRunB]);
 
   // Engine actions
   // Available sources (fast dedicated endpoint, not dependent on slow progress query)
@@ -2898,7 +2924,162 @@ function LoadMissionControlInner() {
       <div style={{ display: "flex", padding: "24px 32px 40px", gap: 20, minHeight: 520 }}>
         <div style={{ flex: 1, minWidth: 0, animation: "slideInUp 0.5s ease-out 0.1s backwards" }}>
           {scope.activeTab === "live" && <LiveTailTab events={sseEvents} onClear={clearSse} />}
-          {scope.activeTab === "history" && <HistoryTab entities={entities} total={entityTotal} loading={entitiesLoading} />}
+          {scope.activeTab === "history" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* ── Extraction Performance Comparison (Task 9) ── */}
+              <div style={{ ...S.card, overflow: "hidden" }}>
+                <button
+                  onClick={() => setCompareOpen(!compareOpen)}
+                  style={{
+                    width: "100%", display: "flex", justifyContent: "space-between",
+                    alignItems: "center", padding: "12px 16px",
+                    background: "var(--bp-surface-1)", border: "none", cursor: "pointer",
+                    color: "var(--bp-ink-primary)", ...S.display,
+                    fontSize: 14, fontWeight: 600,
+                  }}
+                >
+                  <span>Extraction Performance</span>
+                  <ChevronDown size={16} style={{
+                    transition: "transform 0.2s",
+                    transform: compareOpen ? "rotate(180deg)" : "rotate(0deg)",
+                  }} />
+                </button>
+
+                {compareOpen && (
+                  <div style={{ padding: 16, borderTop: "1px solid var(--bp-border-subtle)" }}>
+                    {/* Run Pickers */}
+                    <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+                      {(["A", "B"] as const).map(label => (
+                        <select
+                          key={label}
+                          value={label === "A" ? compareRunA : compareRunB}
+                          onChange={e => label === "A" ? setCompareRunA(e.target.value) : setCompareRunB(e.target.value)}
+                          style={{
+                            flex: 1, padding: 8, borderRadius: 6,
+                            border: "1px solid var(--bp-border)",
+                            background: "var(--bp-surface-inset)",
+                            color: "var(--bp-ink-primary)",
+                            ...S.sans, fontSize: 12,
+                          }}
+                        >
+                          <option value="">Select Run {label}</option>
+                          {(runs || []).map((r: any) => (
+                            <option key={r.runId || r.RunId} value={r.runId || r.RunId}>
+                              {(r.startedAt || r.StartedAt || "").slice(0, 16)} · {
+                                (r.extractionMethod || r.extraction_method) === "connectorx" ? "CX" :
+                                (r.extractionMethod || r.extraction_method) === "pyodbc" ? "ODBC" : "?"
+                              } · {r.totalEntities || r.TotalEntities || "?"} entities
+                            </option>
+                          ))}
+                        </select>
+                      ))}
+                    </div>
+
+                    {/* Summary Cards + Scatter */}
+                    {compareData && !compareLoading && (
+                      <>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+                          {[
+                            {
+                              label: "Duration",
+                              a: `${Math.round(compareData.run_a?.wall_clock_duration || compareData.run_a?.entity_duration_sum || 0)}s`,
+                              b: `${Math.round(compareData.run_b?.wall_clock_duration || compareData.run_b?.entity_duration_sum || 0)}s`,
+                            },
+                            {
+                              label: "Throughput",
+                              a: `${Math.round(compareData.run_a?.rows_per_sec || 0).toLocaleString()} rows/s`,
+                              b: `${Math.round(compareData.run_b?.rows_per_sec || 0).toLocaleString()} rows/s`,
+                            },
+                            {
+                              label: "Data Volume",
+                              a: `${(compareData.run_a?.total_rows || 0).toLocaleString()} rows`,
+                              b: `${(compareData.run_b?.total_rows || 0).toLocaleString()} rows`,
+                            },
+                            { label: "Speedup", a: "", b: `${compareData.speedup}×`, highlight: true },
+                          ].map((card) => (
+                            <div key={card.label} style={{
+                              padding: 16, borderRadius: 8,
+                              border: `1px solid ${card.highlight ? "var(--bp-copper)" : "var(--bp-border)"}`,
+                              background: card.highlight ? "color-mix(in srgb, var(--bp-copper) 8%, var(--bp-surface-1))" : "var(--bp-surface-1)",
+                            }}>
+                              <div style={{ fontSize: 11, color: "var(--bp-ink-tertiary)", marginBottom: 8, ...S.sans, textTransform: "uppercase", letterSpacing: "0.04em" }}>{card.label}</div>
+                              {card.highlight ? (
+                                <div style={{ fontSize: 28, fontWeight: 700, color: "var(--bp-copper)", ...S.display }}>
+                                  {card.b}
+                                </div>
+                              ) : (
+                                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                  <div>
+                                    <div style={{ fontSize: 10, color: "var(--bp-ink-muted)", ...S.sans }}>Run A</div>
+                                    <div style={{ fontSize: 16, fontWeight: 600, ...S.data }}>{card.a}</div>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 10, color: "var(--bp-ink-muted)", ...S.sans }}>Run B</div>
+                                    <div style={{ fontSize: 16, fontWeight: 600, ...S.data }}>{card.b}</div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Entity Scatter Plot */}
+                        {compareData.matched_entities?.length > 0 && (
+                          <div style={{ ...S.card, padding: 16 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--bp-ink-secondary)", marginBottom: 8, ...S.sans }}>
+                              Per-Entity Duration (dots below diagonal = faster with Run B)
+                            </div>
+                            <ResponsiveContainer width="100%" height={300}>
+                              <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 20 }}>
+                                <XAxis dataKey="run_a_duration" name="Run A (s)" type="number"
+                                  tick={{ fontSize: 10, fill: "var(--bp-ink-tertiary)" }}
+                                  label={{ value: "Run A duration (s)", position: "bottom", fontSize: 10, fill: "var(--bp-ink-tertiary)" }} />
+                                <YAxis dataKey="run_b_duration" name="Run B (s)" type="number"
+                                  tick={{ fontSize: 10, fill: "var(--bp-ink-tertiary)" }}
+                                  label={{ value: "Run B (s)", angle: -90, position: "left", fontSize: 10, fill: "var(--bp-ink-tertiary)" }} />
+                                <Tooltip content={({ payload }: any) => {
+                                  if (!payload?.length) return null;
+                                  const d = payload[0].payload;
+                                  return (
+                                    <div style={{ ...S.card, padding: 8, fontSize: 11 }}>
+                                      <div style={{ fontWeight: 600 }}>{d.source_name}</div>
+                                      <div>Rows: {d.rows?.toLocaleString()}</div>
+                                      <div>Run A: {d.run_a_duration}s → Run B: {d.run_b_duration}s</div>
+                                      <div style={{ color: "var(--bp-copper)", fontWeight: 600 }}>{d.speedup}× faster</div>
+                                    </div>
+                                  );
+                                }} />
+                                <ReferenceLine segment={[{ x: 0, y: 0 }, {
+                                  x: Math.max(...(compareData.matched_entities || []).map((e: any) => Math.max(e.run_a_duration || 0, e.run_b_duration || 0)), 1),
+                                  y: Math.max(...(compareData.matched_entities || []).map((e: any) => Math.max(e.run_a_duration || 0, e.run_b_duration || 0)), 1),
+                                }]} stroke="var(--bp-border)" strokeDasharray="4 4" />
+                                <Scatter data={compareData.matched_entities} fill="var(--bp-copper)" fillOpacity={0.7} />
+                              </ScatterChart>
+                            </ResponsiveContainer>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {compareLoading && (
+                      <div style={{ textAlign: "center", padding: 24, color: "var(--bp-ink-tertiary)", ...S.sans, fontSize: 13 }}>
+                        <Loader2 size={14} style={{ animation: "spin 1s linear infinite", marginRight: 6, display: "inline-block" }} />
+                        Loading comparison...
+                      </div>
+                    )}
+
+                    {!compareRunA && !compareRunB && (
+                      <div style={{ textAlign: "center", padding: 24, color: "var(--bp-ink-tertiary)", ...S.sans, fontSize: 13 }}>
+                        Select two runs to compare extraction performance
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <HistoryTab entities={entities} total={entityTotal} loading={entitiesLoading} />
+            </div>
+          )}
           {scope.activeTab === "entities" && <EntitiesTab entities={entities} total={entityTotal} loading={entitiesLoading} onRetryEntity={handleRetryEntity} />}
           {scope.activeTab === "triage" && <TriageTab progress={progress} onRetryErrorType={handleRetryErrorType} />}
           {scope.activeTab === "inventory" && <InventoryTab progress={progress} />}
