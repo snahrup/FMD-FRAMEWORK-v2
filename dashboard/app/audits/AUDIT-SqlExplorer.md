@@ -92,3 +92,47 @@ When `toggleDatabase` or `toggleSchema` fetch calls return non-200, the response
 The resize handle is a 3px transparent bar with no hover state, making it difficult to discover.
 
 **Fix**: Added hover background color using `var(--bp-border)`.
+
+---
+
+## Table Browser Feature — Addendum (2026-03-26)
+
+**Purpose**: Audit baseline for adding a Table Browser feature that lets users browse source tables, select unregistered ones, register them into the pipeline, and trigger an immediate load.
+
+### Additional Findings
+
+| # | Severity | Category | Finding | File:Line |
+|---|----------|----------|---------|-----------|
+| 16 | MODERATE | Missing | No "already registered" indicator on tables in ObjectTree. All tables shown identically regardless of pipeline status. | ObjectTree.tsx |
+| 17 | MODERATE | Missing | No multi-select mechanism. ObjectTree is single-select only — clicking opens detail panel. | ObjectTree.tsx |
+| 18 | LOW | Gap | `SourceTable` interface is minimal (TABLE_NAME, TABLE_TYPE). Missing row_count, size_bytes, is_registered, entity_id. | sqlExplorer.ts:25-28 |
+| 19 | Info | Existing | `/api/source-manager/discover-all` already does bulk auto-discovery + cascade registration (LZ->Bronze->Silver). Reusable. | source_manager.py:845-1078 |
+| 20 | Info | Existing | `/api/source-tables` (POST) discovers tables for a server/database with row counts. | source_manager.py |
+| 21 | Info | Existing | `control_plane_db.py` has upsert functions for all 3 layers. Registration logic is complete. | control_plane_db.py:1315-1375 |
+| 22 | MODERATE | Missing | No "trigger run for specific entities" from SQL Explorer context. User must go to LMC. | — |
+| 23 | LOW | Gap | ObjectTree caches discovered tables. Registration would need cache invalidation. | ObjectTree.tsx |
+| 24 | Info | Existing | F8 (`isRegistered` ghost field) — ObjectTree already has conditional badge rendering for `db.isRegistered` (lines 543-545) but backend never sends it. Fixing F8 provides a foundation for table-level registration badges. | ObjectTree.tsx:543-545 |
+
+### Existing Backend Capabilities (Reusable)
+
+| Endpoint | What it does | Reusable for Table Browser? |
+|----------|-------------|---------------------------|
+| `GET /api/sql-explorer/tables` | Lists tables in a schema | YES — enrich with registration status |
+| `POST /api/source-tables` | Discovers tables with row counts | YES — already returns enriched data |
+| `POST /api/source-manager/discover-all` | Bulk register LZ->Bronze->Silver | PARTIAL — too broad; need per-table version |
+| `POST /api/register-bronze-silver` | Cascade Bronze/Silver from LZ | YES — after LZ registration |
+| `POST /api/engine/start` | Start engine run with entity filter | YES — filter to new entity IDs |
+
+### Registration Flow (Required)
+
+```
+User selects tables in SQL Explorer
+  → POST /api/entities/register-tables  (NEW endpoint)
+    → Insert into lz_entities (DataSourceId, SourceSchema, SourceName, FileName, FilePath)
+    → Insert into bronze_entities (LandingzoneEntityId, LakehouseId, Schema_, Name)
+    → Insert into silver_entities (BronzeLayerEntityId, LakehouseId, Schema_, Name)
+    → Return new entity IDs
+  → POST /api/engine/start (with entity filter = new IDs)
+    → Engine extracts just those tables across LZ->Bronze->Silver
+  → Redirect to LMC to watch progress
+```

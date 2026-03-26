@@ -10,10 +10,11 @@ Covers:
     GET  /api/sql-explorer/servers                 — registered source servers + reachability
     GET  /api/sql-explorer/databases               — databases on a source server
     GET  /api/sql-explorer/schemas                 — schemas in a database
-    GET  /api/sql-explorer/tables                  — tables in a schema
+    GET  /api/sql-explorer/tables                  — tables in a schema (enriched with registration status)
     GET  /api/sql-explorer/columns                 — column metadata + row count
     GET  /api/sql-explorer/preview                 — sampled rows
     POST /api/sql-explorer/server-label            — save custom display label
+    POST /api/sql-explorer/register-tables         — cascade-register tables into pipeline (LZ→Bronze→Silver)
     GET  /api/sql-explorer/lakehouses              — registered Fabric lakehouses
     GET  /api/sql-explorer/lakehouse-schemas       — schemas in a lakehouse
     GET  /api/sql-explorer/lakehouse-tables        — tables in a lakehouse schema
@@ -31,6 +32,7 @@ from pathlib import Path
 
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
+from dashboard.app.api import control_plane_db as cpdb
 
 log = logging.getLogger("fmd.routes.sql_explorer")
 
@@ -375,7 +377,30 @@ def get_sql_explorer_tables(params: dict) -> list:
         cols = [c[0] for c in cursor.description]
         rows = cursor.fetchall()
         conn.close()
-        return [{c: (str(v) if v is not None else None) for c, v in zip(cols, row)} for row in rows]
+        result = [{c: (str(v) if v is not None else None) for c, v in zip(cols, row)} for row in rows]
+
+        # Enrich with registration status from control plane
+        # NOTE: LOWER() on both sides — sys.databases may return different case
+        # than what's stored in connections.DatabaseName (e.g. 'MES' vs 'mes')
+        try:
+            registered = db.query(
+                "SELECT le.LandingzoneEntityId, le.SourceName "
+                "FROM lz_entities le "
+                "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
+                "JOIN connections c ON ds.ConnectionId = c.ConnectionId "
+                "WHERE LOWER(c.ServerName) = LOWER(?) AND LOWER(c.DatabaseName) = LOWER(?) "
+                "  AND LOWER(le.SourceSchema) = LOWER(?) AND le.IsActive = 1",
+                (server, database, schema),
+            )
+            reg_map = {r["SourceName"].strip(): r["LandingzoneEntityId"] for r in registered}
+            for tbl in result:
+                name = tbl.get("TABLE_NAME", "")
+                tbl["is_registered"] = name in reg_map
+                tbl["entity_id"] = reg_map.get(name)
+        except Exception:
+            pass  # Don't break table listing if enrichment fails
+
+        return result
     except Exception as e:
         raise HttpError(str(e), 502)
 
@@ -516,6 +541,168 @@ def post_server_label(params: dict) -> dict:
     _validate_server(server)
     _save_server_label(server, label)
     return {"server": server, "label": label}
+
+
+# ---------------------------------------------------------------------------
+# Table registration — cascade LZ → Bronze → Silver
+# ---------------------------------------------------------------------------
+
+@route("POST", "/api/sql-explorer/register-tables")
+def post_register_tables(params: dict) -> dict:
+    """Register one or more source tables into the FMD pipeline.
+
+    Expects JSON body:
+        {
+            "tables": [
+                {"server": "m3-db1", "database": "mes", "schema": "dbo", "table": "MyTable"},
+                ...
+            ]
+        }
+
+    For each table, creates a cascade: LZ entity → Bronze entity → Silver entity.
+    Returns the list of newly created entity IDs.
+    """
+    tables = params.get("tables")
+    if not tables or not isinstance(tables, list):
+        raise HttpError("tables array is required", 400)
+
+    if len(tables) > 200:
+        raise HttpError("Maximum 200 tables per registration request", 400)
+
+    # ── 1. Resolve lakehouse IDs ──
+    lakehouses = cpdb.get_lakehouses()
+    lz_lh = [lh for lh in lakehouses if lh.get("Name") == "LH_DATA_LANDINGZONE"]
+    bronze_lh = [lh for lh in lakehouses if lh.get("Name") == "LH_BRONZE_LAYER"]
+    silver_lh = [lh for lh in lakehouses if lh.get("Name") == "LH_SILVER_LAYER"]
+    lz_lh_id = int(lz_lh[0]["LakehouseId"]) if lz_lh else None
+    bronze_lh_id = int(bronze_lh[0]["LakehouseId"]) if bronze_lh else None
+    silver_lh_id = int(silver_lh[0]["LakehouseId"]) if silver_lh else None
+
+    if lz_lh_id is None:
+        raise HttpError("Landing Zone lakehouse not found in control plane", 503)
+
+    # ── 2. Get next available entity IDs ──
+    existing_lz = cpdb.get_lz_entities()
+    existing_bronze = cpdb.get_bronze_entities()
+    existing_silver = cpdb.get_silver_entities()
+    next_lz_id = max((int(e["LandingzoneEntityId"]) for e in existing_lz), default=0) + 1
+    next_bronze_id = max((int(e["BronzeLayerEntityId"]) for e in existing_bronze), default=0) + 1
+    next_silver_id = max((int(e["SilverLayerEntityId"]) for e in existing_silver), default=0) + 1
+
+    # ── 3. Build lookup of already-registered entities ──
+    registered_set: dict[int, set[tuple[str, str]]] = {}
+    for e in existing_lz:
+        ds_id = e.get("DataSourceId")
+        if ds_id is None:
+            continue
+        schema = (e.get("SourceSchema") or "dbo").strip().lower()
+        table = (e.get("SourceName") or "").strip().lower()
+        registered_set.setdefault(ds_id, set()).add((schema, table))
+
+    # ── 4. Register each table ──
+    registered: list[dict] = []
+    skipped: list[dict] = []
+    errors: list[str] = []
+
+    for tbl in tables:
+        server = (tbl.get("server") or "").strip()
+        database = (tbl.get("database") or "").strip()
+        schema = (tbl.get("schema") or "dbo").strip()
+        table = (tbl.get("table") or "").strip()
+
+        if not server or not database or not table:
+            errors.append(f"Missing server/database/table in: {tbl}")
+            continue
+
+        # Resolve DataSourceId from connections + datasources (case-insensitive)
+        ds_rows = db.query(
+            "SELECT ds.DataSourceId FROM datasources ds "
+            "JOIN connections c ON ds.ConnectionId = c.ConnectionId "
+            "WHERE LOWER(c.ServerName) = LOWER(?) AND LOWER(c.DatabaseName) = LOWER(?)",
+            (server, database),
+        )
+        if not ds_rows:
+            errors.append(f"No datasource found for {server}/{database}")
+            continue
+
+        ds_id = ds_rows[0]["DataSourceId"]
+
+        # Skip if already registered
+        known = registered_set.get(ds_id, set())
+        if (schema.lower(), table.lower()) in known:
+            skipped.append({"server": server, "database": database,
+                            "schema": schema, "table": table, "reason": "already_registered"})
+            continue
+
+        try:
+            lz_id = next_lz_id
+            next_lz_id += 1
+
+            cpdb.upsert_lz_entity({
+                "LandingzoneEntityId": lz_id,
+                "DataSourceId": ds_id,
+                "LakehouseId": lz_lh_id,
+                "SourceSchema": schema,
+                "SourceName": table,
+                "SourceCustomSelect": "",
+                "FileName": table,
+                "FilePath": f"/{schema}/{table}.parquet",
+                "FileType": "parquet",
+                "IsIncremental": 0,
+                "IsIncrementalColumn": "",
+                "CustomNotebookName": "",
+                "IsActive": 1,
+            })
+
+            br_id = None
+            sv_id = None
+
+            if bronze_lh_id is not None:
+                br_id = next_bronze_id
+                next_bronze_id += 1
+                cpdb.upsert_bronze_entity({
+                    "BronzeLayerEntityId": br_id,
+                    "LandingzoneEntityId": lz_id,
+                    "LakehouseId": bronze_lh_id,
+                    "Schema_": schema,
+                    "Name": table,
+                    "PrimaryKeys": "N/A",
+                    "FileType": "Delta",
+                    "IsActive": 1,
+                })
+
+                if silver_lh_id is not None:
+                    sv_id = next_silver_id
+                    next_silver_id += 1
+                    cpdb.upsert_silver_entity({
+                        "SilverLayerEntityId": sv_id,
+                        "BronzeLayerEntityId": br_id,
+                        "LakehouseId": silver_lh_id,
+                        "Schema_": schema,
+                        "Name": table,
+                        "FileType": "delta",
+                        "IsActive": 1,
+                    })
+
+            registered.append({
+                "server": server, "database": database, "schema": schema, "table": table,
+                "entity_id": lz_id, "bronze_id": br_id, "silver_id": sv_id,
+            })
+            # Update in-memory set to prevent duplicates within same request
+            known.add((schema.lower(), table.lower()))
+            registered_set[ds_id] = known
+
+        except Exception as e:
+            errors.append(f"{server}/{database}/{schema}.{table}: {str(e)[:150]}")
+
+    return {
+        "registered": registered,
+        "skipped": skipped,
+        "errors": errors,
+        "total_registered": len(registered),
+        "total_skipped": len(skipped),
+        "total_errors": len(errors),
+    }
 
 
 # ---------------------------------------------------------------------------

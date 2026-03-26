@@ -25,6 +25,9 @@ export interface SourceSchema {
 export interface SourceTable {
   TABLE_NAME: string;
   TABLE_TYPE: string;
+  is_registered?: boolean;
+  entity_id?: number | null;
+  row_count?: number | null;
 }
 
 export interface SourceColumn {

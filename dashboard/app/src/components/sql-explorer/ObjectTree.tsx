@@ -4,20 +4,32 @@ import { Input } from '@/components/ui/input';
 import {
   Search, ChevronRight, ChevronDown, Server, Database, Layers,
   Table2, Loader2, AlertCircle, EyeOff, Eye, Cloud, FolderOpen, FileText,
+  CheckCircle2, Square, CheckSquare,
 } from 'lucide-react';
 import type {
   SourceServer, SourceDatabase, SourceSchema, SourceTable, SelectedTable,
   FabricLakehouse, OneLakeFileEntry,
 } from '@/types/sqlExplorer';
 
+export interface CheckedTable {
+  server: string;
+  database: string;
+  schema: string;
+  table: string;
+}
+
 interface ObjectTreeProps {
   selectedTable: SelectedTable | null;
   onSelectTable: (t: SelectedTable) => void;
   /** Optional deep-link: auto-expand tree to this table on mount */
   initialSelection?: SelectedTable | null;
+  /** Tables checked for registration */
+  checkedTables?: CheckedTable[];
+  /** Toggle a table's checked state */
+  onToggleCheck?: (t: CheckedTable) => void;
 }
 
-export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: ObjectTreeProps) {
+export function ObjectTree({ selectedTable, onSelectTable, initialSelection, checkedTables = [], onToggleCheck }: ObjectTreeProps) {
   const [search, setSearch] = useState('');
   const [servers, setServers] = useState<SourceServer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -414,6 +426,27 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
   const matchesSearch = (name: string) =>
     !search || name.toLowerCase().includes(search.toLowerCase());
 
+  const isChecked = (srv: string, dbName: string, sch: string, tbl: string) =>
+    checkedTables.some(c => c.server === srv && c.database === dbName && c.schema === sch && c.table === tbl);
+
+  /** Re-fetch tables for a schema key to refresh registration badges after registration */
+  const refreshTables = useCallback(async (serverName: string, dbName: string, schemaName: string) => {
+    const key = `${serverName}::${dbName}::${schemaName}`;
+    try {
+      const resp = await fetch(`/api/sql-explorer/tables?server=${encodeURIComponent(serverName)}&database=${encodeURIComponent(dbName)}&schema=${encodeURIComponent(schemaName)}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setTables(prev => ({ ...prev, [key]: data }));
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  // Expose refresh for parent to call after registration
+  useEffect(() => {
+    (window as any).__objectTreeRefreshTables = refreshTables;
+    return () => { delete (window as any).__objectTreeRefreshTables; };
+  }, [refreshTables]);
+
   return (
     <div className="flex flex-col h-full">
       {/* Search + empty-db toggle */}
@@ -645,23 +678,55 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection }: O
                                             .filter(t => matchesSearch(t.TABLE_NAME))
                                             .map(tbl => {
                                               const sel = isSelected(srv.server, db.name, sch.schema_name, tbl.TABLE_NAME);
+                                              const registered = tbl.is_registered === true;
+                                              const checked = !registered && isChecked(srv.server, db.name, sch.schema_name, tbl.TABLE_NAME);
                                               return (
-                                                <button
+                                                <div
                                                   key={tbl.TABLE_NAME}
-                                                  onClick={() => onSelectTable({
-                                                    server: srv.server, database: db.name,
-                                                    schema: sch.schema_name, table: tbl.TABLE_NAME,
-                                                  })}
                                                   className={cn(
-                                                    "flex items-center gap-2 w-full px-2 py-1 ml-3 rounded-[var(--radius-md)] text-[11px] transition-colors cursor-pointer",
+                                                    "group flex items-center gap-1 w-full px-1 py-1 ml-3 rounded-[var(--radius-md)] text-[11px] transition-colors",
                                                     sel
                                                       ? "bg-primary/10 text-primary font-medium border-l-2 border-primary"
                                                       : "text-muted-foreground hover:bg-accent hover:text-foreground"
                                                   )}
                                                 >
-                                                  <Table2 className={cn("h-3 w-3 flex-shrink-0", sel ? "text-primary" : "text-muted-foreground/50")} />
-                                                  <span className="truncate">{tbl.TABLE_NAME}</span>
-                                                </button>
+                                                  {/* Checkbox for unregistered tables */}
+                                                  {onToggleCheck && !registered && (
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onToggleCheck({ server: srv.server, database: db.name, schema: sch.schema_name, table: tbl.TABLE_NAME });
+                                                      }}
+                                                      className="flex-shrink-0 p-0.5 rounded transition-colors hover:bg-accent cursor-pointer"
+                                                      title={checked ? "Deselect" : "Select to load"}
+                                                    >
+                                                      {checked ? (
+                                                        <CheckSquare className="h-3 w-3 text-[var(--bp-copper)]" />
+                                                      ) : (
+                                                        <Square className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground/70" />
+                                                      )}
+                                                    </button>
+                                                  )}
+                                                  {/* In Pipeline badge for registered tables */}
+                                                  {registered && (
+                                                    <CheckCircle2 className="h-3 w-3 flex-shrink-0 text-[var(--bp-operational)]" />
+                                                  )}
+                                                  <button
+                                                    onClick={() => onSelectTable({
+                                                      server: srv.server, database: db.name,
+                                                      schema: sch.schema_name, table: tbl.TABLE_NAME,
+                                                    })}
+                                                    className="flex items-center gap-1.5 flex-1 min-w-0 cursor-pointer"
+                                                  >
+                                                    <Table2 className={cn("h-3 w-3 flex-shrink-0", sel ? "text-primary" : registered ? "text-[var(--bp-operational)]/60" : "text-muted-foreground/50")} />
+                                                    <span className="truncate">{tbl.TABLE_NAME}</span>
+                                                  </button>
+                                                  {registered && (
+                                                    <span className="flex-shrink-0 text-[8px] px-1 py-px rounded bg-[var(--bp-operational)]/10 text-[var(--bp-operational)] border border-[var(--bp-operational)]/20 font-semibold uppercase tracking-wider">
+                                                      Loaded
+                                                    </span>
+                                                  )}
+                                                </div>
                                               );
                                             })}
                                         </div>
