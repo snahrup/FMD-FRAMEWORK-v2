@@ -446,14 +446,9 @@ def main():
     if args.output:
         output_dir = Path(args.output).resolve()
     else:
-        # Try OneLake mount first
-        onelake = Path(r"C:\Users\sasnahrup\OneLake - Microsoft\INTEGRATION DATA (D)\LH_DATA_LANDINGZONE.Lakehouse\Files")
-        if onelake.exists():
-            output_dir = onelake
-            print(f"Output: OneLake mount ({output_dir})")
-        else:
-            output_dir = Path("./parquet_out").resolve()
-            print(f"Output: local ({output_dir})")
+        # Always use local parquet_out — OneLake mounts can hang on servers
+        output_dir = Path("./parquet_out").resolve()
+        print(f"Output: local ({output_dir})")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Method selection ────────────────────────────────────────────────
