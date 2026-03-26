@@ -65,8 +65,30 @@ def _has_arrow_odbc() -> bool:
 
 # ── Entity loading ──────────────────────────────────────────────────────────
 
+ENTITIES_JSON = Path(__file__).resolve().parent / "entities_export.json"
+
+
 def get_entities(source: str | None = None, limit: int | None = None) -> list[dict]:
-    """Read active entities from the control plane SQLite DB."""
+    """Read active entities — tries JSON export first, falls back to SQLite DB."""
+    # JSON export is tiny (~183KB) and avoids needing the 258MB SQLite DB on remote servers
+    if ENTITIES_JSON.exists():
+        import json
+        with open(ENTITIES_JSON) as f:
+            entities = json.load(f)
+        if source:
+            entities = [e for e in entities if e.get("ds_name") == source]
+        if limit:
+            entities = entities[:limit]
+        print(f"  Loaded {len(entities)} entities from {ENTITIES_JSON.name}")
+        return entities
+
+    # Fall back to SQLite DB
+    if not DB_PATH.exists():
+        print(f"ERROR: Neither {ENTITIES_JSON.name} nor {DB_PATH.name} found.")
+        print(f"  Copy entities_export.json to: {ENTITIES_JSON}")
+        print(f"  Or copy fmd_control_plane.db to: {DB_PATH}")
+        sys.exit(1)
+
     conn = sqlite3.connect(str(DB_PATH), timeout=10)
     conn.row_factory = sqlite3.Row
     sql = """
