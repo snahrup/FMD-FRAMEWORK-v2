@@ -45,9 +45,9 @@
             "predictedResolutions": 1
           },
           "verificationCriteria": "Re-scan shows no quality finding at engine/bronze_processor.py:184",
-          "status": "pending",
-          "resolvedAt": null,
-          "resolvedInRound": null
+          "status": "fixed",
+          "resolvedAt": "2026-03-25T16:24:59Z",
+          "resolvedInRound": 5
         },
         {
           "id": "REM-002",
@@ -67,9 +67,9 @@
             "predictedResolutions": 1
           },
           "verificationCriteria": "Re-scan shows no quality finding at engine/silver_processor.py:266",
-          "status": "pending",
-          "resolvedAt": null,
-          "resolvedInRound": null
+          "status": "fixed",
+          "resolvedAt": "2026-03-25T16:24:59Z",
+          "resolvedInRound": 5
         },
         {
           "id": "REM-003",
@@ -87,9 +87,9 @@
             "predictedResolutions": 0
           },
           "verificationCriteria": "Re-scan shows no quality finding at engine/orchestrator.py:1398",
-          "status": "pending",
-          "resolvedAt": null,
-          "resolvedInRound": null
+          "status": "fixed",
+          "resolvedAt": "2026-03-25T16:24:59Z",
+          "resolvedInRound": 5
         },
         {
           "id": "REM-004",
@@ -107,9 +107,9 @@
             "predictedResolutions": 0
           },
           "verificationCriteria": "Re-scan shows no quality finding at dashboard/app/api/tests/test_routes_lmc_scope.py:73",
-          "status": "pending",
-          "resolvedAt": null,
-          "resolvedInRound": null
+          "status": "fixed",
+          "resolvedAt": "2026-03-25T16:24:59Z",
+          "resolvedInRound": 5
         },
         {
           "id": "REM-005",
@@ -139,7 +139,7 @@
       "description": "Medium-severity findings",
       "priority": "medium",
       "estimatedRound": 2,
-      "status": "pending",
+      "status": "active",
       "items": [
         {
           "id": "REM-006",

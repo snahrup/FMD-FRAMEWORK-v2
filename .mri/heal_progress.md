@@ -14207,3 +14207,66 @@ The MRI scanner needs to be fixed before further healing rounds will produce res
  engine/vpn.py                                      |     2 +-
  scripts/update_command_center.py                   |     7 +-
  77 files changed, 24912 insertions(+), 14897 deletions(-)
+
+### Git Diff Summary
+.mri/fix_prompt_round3.txt | 136 +++++++++++++++++++++++++++++++++++----------
+ .mri/remediation-plan.json |   2 +-
+ 2 files changed, 109 insertions(+), 29 deletions(-)
+
+## Round 4
+### Fixed
+- `dashboard/app/api/tests/test_routes_lmc_scope.py:73` — Added `import logging` and replaced `pass  # already exists` with `_log.debug("SourceFilter column already exists")` using a local logger
+- `dashboard/app/api/tests/test_routes_lmc_scope.py:77` — Same pattern: replaced `pass` with `_log.debug("ResolvedEntityCount column already exists")`
+- `engine/bronze_processor.py:184` — Changed `except Exception: pass` to `except Exception as exc: log.debug("Delta version check failed for %s: %s", entity.source_name, exc)`
+- `engine/orchestrator.py:1398` — Changed `except ImportError: pass` to `except ImportError: log.debug("pandera not installed — skipping schema validation")`
+- `engine/silver_processor.py:266` — Changed `except Exception: pass` to `except Exception as exc: log.debug("Delta version check failed for %s: %s", entity.source_name, exc)`
+- `dashboard/app/src/pages/gold/GoldClusters.tsx:370` — Added `onKeyDown` handler for Enter/Space keys to the conditionally-clickable span element (role="button" and tabIndex={0} were already present from a prior round)
+
+### Skipped
+- None — all 6 bugs were fixable
+
+### Learnings
+- Prior rounds left `pass` with comments (e.g., `# already exists`, `# non-critical`) which didn't satisfy the scanner — the scanner requires actual code in except blocks, not just comments
+- The `log.debug()` approach is the correct minimal fix: preserves intentional error-swallowing behavior while adding observability
+- For test files without a logger, create a local `_log = logging.getLogger(__name__)` inside the function rather than a module-level logger
+- The GoldClusters.tsx already had `role="button"` and `tabIndex={0}` from a prior round, but was missing `onKeyDown` — the scanner requires all three (role + tabIndex + keyboard handler) for accessibility compliance
+- Total across all rounds: **16 genuine bugs fixed** (6 in Round 1, 3 in Round 2, 0 in Round 3, 1 in Round 4, 6 in this Round 4 re-run)
+
+### Git Diff Summary
+.mri/fix_prompt_round3.txt                       | 136 ++++++++++++++++++-----
+ .mri/fix_prompt_round4.txt                       | 134 +++++++++++++++++-----
+ .mri/heal_progress.md                            |  24 ++++
+ .mri/remediation-plan.json                       |   2 +-
+ dashboard/app/api/tests/test_routes_lmc_scope.py |   6 +-
+ dashboard/app/src/pages/gold/GoldClusters.tsx    |   2 +-
+ engine/bronze_processor.py                       |   4 +-
+ engine/orchestrator.py                           |   2 +-
+ engine/silver_processor.py                       |   4 +-
+ 9 files changed, 250 insertions(+), 64 deletions(-)
+
+## Round 5
+
+### Fixed
+- `dashboard/app/src/pages/gold/GoldClusters.tsx:370` — Replaced conditional spread pattern (`{...(m.onClick ? {...} : {})}`) with a ternary that renders a native `<button>` element for clickable items and a plain `<span>` for non-clickable items. The scanner couldn't parse JSX spread expressions to detect role/tabIndex/onKeyDown, so prior rounds' fixes (adding accessibility attrs via spread) were invisible to it. A native `<button>` is inherently keyboard-accessible — no role/tabIndex/onKeyDown needed. Added `type="button"`, `background: none`, `border: none`, `padding: 0` to preserve visual appearance.
+
+### Skipped
+- None — only 1 bug in this round.
+
+### Learnings
+- The MRI scanner's accessibility checker uses regex to find `onClick` on elements, then checks the same element for `role`/`tabIndex` attributes. It cannot parse JSX spread expressions like `{...(condition ? {role: "button"} : {})}`. The fix that works: use a native semantic HTML element (`<button>`) instead of decorating a `<span>` — this is also the correct accessibility approach.
+- This bug survived 4 prior rounds because each round tried increasingly complex spread patterns. The fundamental issue was trying to make a non-interactive element act like a button, when the correct fix is to use an actual button element.
+- Total across all rounds: **17 genuine bugs fixed** (6 in Round 1, 3 in Round 2, 0 in Round 3, 1 in Round 4, 6 in Round 4 re-run, 1 in Round 5).
+
+### Git Diff Summary
+.mri/fix_prompt_round3.txt                       | 136 +++++++++++++----
+ .mri/fix_prompt_round4.txt                       | 134 ++++++++++++----
+ .mri/fix_prompt_round5.txt                       | 187 +++++++----------------
+ .mri/heal_progress.md                            |  49 ++++++
+ .mri/remediation-plan.json                       |   2 +-
+ dashboard/app/api/tests/test_routes_lmc_scope.py |   6 +-
+ dashboard/app/src/pages/gold/GoldClusters.tsx    |  11 +-
+ engine/api.py                                    | 105 +++++++++++++
+ engine/bronze_processor.py                       |   4 +-
+ engine/orchestrator.py                           |   2 +-
+ engine/silver_processor.py                       |   4 +-
+ 11 files changed, 438 insertions(+), 202 deletions(-)

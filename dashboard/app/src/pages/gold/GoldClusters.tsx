@@ -366,9 +366,14 @@ export default function GoldClusters() {
             {[
               { label: "Resolved", value: stats.resolved },
               { label: "Not Clustered", value: stats.not_clustered, onClick: () => setActiveTab("unclustered") },
-            ].map((m, i) => (
-              <span key={m.label} className="gs-stagger-row flex items-center gap-1.5" style={{ "--i": i, cursor: m.onClick ? "pointer" : undefined } as React.CSSProperties}
-                {...(m.onClick ? { onClick: m.onClick, role: "button", tabIndex: 0 } : {})}>
+            ].map((m, i) => m.onClick ? (
+              <button key={m.label} type="button" className="gs-stagger-row flex items-center gap-1.5" style={{ "--i": i, cursor: "pointer", background: "none", border: "none", padding: 0 } as React.CSSProperties}
+                onClick={m.onClick}>
+                <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
+                <span style={{ fontFamily: "var(--bp-font-display)", fontSize: 18, color: "var(--bp-ink-primary)" }}>{m.value}</span>
+              </button>
+            ) : (
+              <span key={m.label} className="gs-stagger-row flex items-center gap-1.5" style={{ "--i": i } as React.CSSProperties}>
                 <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--bp-ink-tertiary)" }}>{m.label}</span>
                 <span style={{ fontFamily: "var(--bp-font-display)", fontSize: 18, color: "var(--bp-ink-primary)" }}>{m.value}</span>
               </span>

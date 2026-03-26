@@ -12,6 +12,7 @@ These tests ensure:
 """
 import importlib
 import json
+import logging
 import sys
 import sqlite3
 
@@ -68,14 +69,15 @@ def tmp_db(tmp_path):
             (i, f"TableB{i}"),
         )
     # Also add engine_runs schema columns for scope tracking
+    _log = logging.getLogger(__name__)
     try:
         conn.execute("ALTER TABLE engine_runs ADD COLUMN SourceFilter TEXT DEFAULT ''")
     except Exception:
-        pass  # already exists
+        _log.debug("SourceFilter column already exists")
     try:
         conn.execute("ALTER TABLE engine_runs ADD COLUMN ResolvedEntityCount INTEGER DEFAULT 0")
     except Exception:
-        pass
+        _log.debug("ResolvedEntityCount column already exists")
     conn.commit()
     conn.close()
 

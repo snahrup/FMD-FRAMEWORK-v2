@@ -291,7 +291,7 @@ class DataExtractor:
         )
 
         try:
-            df = cx.read_sql(uri, query, return_type="polars2")
+            df = cx.read_sql(uri, query, return_type="polars")
         except Exception as exc:
             elapsed = time.perf_counter() - t0
             error_msg = str(exc)

@@ -39,7 +39,7 @@ class Entity:
     namespace: Optional[str] = None          # e.g. "MES", "ETQ" — for OneLake path
     connection_guid: str = ""                # Fabric Connection GUID for pipeline mode
 
-    _SAFE_IDENT = re.compile(r'^[\w\.\[\] ]+$')
+    _SAFE_IDENT = re.compile(r'^[\w\.\[\] \$\#\@]+$')
 
     @property
     def qualified_name(self) -> str:
@@ -376,7 +376,7 @@ class EngineConfig:
     source_sql_driver: str = "ODBC Driver 18 for SQL Server"
 
     # ConnectorX — Rust-based SQL reader (5-13x faster than pyodbc)
-    use_connectorx: bool = True              # Feature flag — False falls back to pyodbc
+    use_connectorx: bool = False             # pyodbc — ConnectorX bb8 pool hangs with 16+ workers
     connectorx_auth_mode: str = "windows"    # "windows" (SSPI, default) or "sql" (username/password)
     sql_username: str = ""                    # Only used when connectorx_auth_mode="sql"
     sql_password: str = ""                    # Only used when connectorx_auth_mode="sql"

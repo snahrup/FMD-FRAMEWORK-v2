@@ -11,6 +11,9 @@ Usage:
     # New run (API-spawned — run_id pre-generated):
     python -m engine.worker --run-id <uuid> --layers landing bronze silver
 
+    # Bulk snapshot (fast parallel full-load, no watermarks/retries):
+    python -m engine.worker --run-id <uuid> --bulk --workers 8
+
     # Resume interrupted run:
     python -m engine.worker --resume <run_id>
 
@@ -36,6 +39,10 @@ def main():
     parser.add_argument("--layers", nargs="*", help="Layers to run (landing bronze silver)")
     parser.add_argument("--entity-ids", nargs="*", type=int, help="Specific entity IDs")
     parser.add_argument("--triggered-by", default="worker")
+    parser.add_argument("--bulk", action="store_true",
+                        help="Bulk snapshot mode: parallel full-load, no watermarks/retries")
+    parser.add_argument("--workers", type=int, default=8,
+                        help="Max parallel workers for bulk mode (default: 8)")
     args = parser.parse_args()
 
     # Console-only logging (API redirects stdout to per-run log file)
@@ -54,10 +61,44 @@ def main():
     config = load_config()
     engine = LoadOrchestrator(config)
 
-    if args.resume:
+    if args.bulk:
+        # ── Bulk Snapshot Mode ─────────────────────────────────────────
+        import uuid as _uuid
+        from engine.auth import TokenProvider
+        from engine.connections import SourceConnection
+        from engine.loader import OneLakeLoader
+        from engine.logging_db import AuditLogger
+        from engine.bulk_snapshot import BulkSnapshot
+
+        run_id = args.run_id or str(_uuid.uuid4())
+        tokens = TokenProvider(config)
+        source_conn = SourceConnection(config)
+        loader = OneLakeLoader(config, tokens)
+        audit = AuditLogger()
+
+        # Fetch worklist (reuse orchestrator's query)
+        entities = engine.get_worklist(args.entity_ids)
+        log.info("Bulk snapshot: %d entities, %d workers", len(entities), args.workers)
+
+        # Log run start
+        audit.log_run_start(run_id, "bulk", len(entities), ["landing"], args.triggered_by)
+
+        # Update PID on pre-created engine_runs row
+        engine._cpdb_execute(
+            "UPDATE engine_runs SET WorkerPid = ?, CurrentLayer = 'landing' WHERE RunId = ?",
+            (pid, run_id),
+        )
+
+        snap = BulkSnapshot(config, source_conn, loader, audit)
+        results = snap.run(run_id, entities, max_workers=args.workers)
+
+        # Log run end
+        audit.log_run_end(run_id, results)
+
+    elif args.resume:
         # Resume: recover original run shape from engine_runs
         run_meta = engine._cpdb_query(
-            "SELECT Layers, EntityFilter FROM engine_runs WHERE RunId = ?", (args.resume,)
+            "SELECT Layers, EntityFilter, Mode FROM engine_runs WHERE RunId = ?", (args.resume,)
         )
         run_row = run_meta[0] if run_meta else {}
 
@@ -81,12 +122,51 @@ def main():
             (pid, args.resume),
         )
 
-        results = engine.run(
-            resume_run_id=args.resume,
-            layers=layers,
-            entity_ids=entity_ids,
-            triggered_by=args.triggered_by,
-        )
+        original_mode = (run_row.get("Mode") or "").lower()
+
+        if original_mode == "bulk":
+            # ── Resume a bulk run via BulkSnapshot (fast parallel path) ──
+            from engine.auth import TokenProvider
+            from engine.connections import SourceConnection
+            from engine.loader import OneLakeLoader
+            from engine.logging_db import AuditLogger
+            from engine.bulk_snapshot import BulkSnapshot
+
+            tokens = TokenProvider(config)
+            source_conn = SourceConnection(config)
+            loader = OneLakeLoader(config, tokens)
+            audit = AuditLogger()
+
+            # Get full worklist, then filter out already-succeeded
+            all_entities = engine.get_worklist(entity_ids)
+            completed_ids = set()
+            completed_rows = engine._cpdb_query(
+                "SELECT DISTINCT EntityId FROM engine_task_log "
+                "WHERE RunId = ? AND LOWER(Status) = 'succeeded'",
+                (args.resume,),
+            )
+            for r in completed_rows:
+                completed_ids.add(int(r["EntityId"]))
+
+            remaining = [e for e in all_entities if e.id not in completed_ids]
+            log.info(
+                "Bulk resume: %d total, %d already succeeded, %d remaining",
+                len(all_entities), len(completed_ids), len(remaining),
+            )
+
+            workers = args.workers or 16
+            snap = BulkSnapshot(config, source_conn, loader, audit)
+            results = snap.run(args.resume, remaining, max_workers=workers)
+
+            audit.log_run_end(args.resume, results)
+        else:
+            # Standard orchestrator resume
+            results = engine.run(
+                resume_run_id=args.resume,
+                layers=layers,
+                entity_ids=entity_ids,
+                triggered_by=args.triggered_by,
+            )
     else:
         # New run
         # Write PID after run() sets up the engine_runs row

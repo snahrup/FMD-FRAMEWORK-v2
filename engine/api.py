@@ -21,6 +21,7 @@ Endpoints:
     GET  /api/engine/logs/stream    - SSE real-time log stream
     POST /api/engine/retry          - Retry failed entities from a run
     POST /api/engine/abort-run      - Abort a run by ID (or all InProgress)
+    POST /api/engine/cleanup-runs   - Clean up stale/zombie runs
     GET  /api/engine/health         - Preflight health checks
     GET  /api/engine/metrics        - Aggregated metrics (last N hours)
     POST /api/engine/entity/*/reset - Reset entity watermark
@@ -81,6 +82,9 @@ def _get_or_create_engine(dashboard_config: dict):
 
         # Clean up orphaned "InProgress" runs from previous process crashes
         _cleanup_orphaned_runs()
+
+        # Start periodic orphan cleanup (every 5 minutes)
+        _start_periodic_cleanup()
 
         return _engine
 
@@ -266,6 +270,29 @@ def _write_pipeline_audit_terminal(run_id: str, status: str, reason: str) -> Non
 
 
 # ---------------------------------------------------------------------------
+# PID liveness — cross-platform
+# ---------------------------------------------------------------------------
+
+def _is_pid_alive(pid: int) -> bool:
+    """Check if a process with the given PID is alive. Works on Windows + POSIX."""
+    if sys.platform == "win32":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if handle:
+            kernel32.CloseHandle(handle)
+            return True
+        return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
+
+
+# ---------------------------------------------------------------------------
 # Startup cleanup
 # ---------------------------------------------------------------------------
 
@@ -307,16 +334,16 @@ def _cleanup_orphaned_runs() -> None:
                 except (ValueError, TypeError):
                     pass  # Bad timestamp — proceed with cleanup
 
-            # PID liveness check
+            # PID liveness check (Windows-safe)
             pid = run.get("WorkerPid")
             if pid:
                 try:
-                    os.kill(int(pid), 0)  # existence check, doesn't kill
-                    log.debug("Run %s worker PID %d still alive — not orphaned",
-                              run["RunId"][:8], pid)
-                    continue  # Process alive — not an orphan
-                except (OSError, ProcessLookupError, TypeError, ValueError):
-                    pass  # Process dead — orphan
+                    if _is_pid_alive(int(pid)):
+                        log.debug("Run %s worker PID %d still alive — not orphaned",
+                                  run["RunId"][:8], pid)
+                        continue  # Process alive — not an orphan
+                except (TypeError, ValueError):
+                    pass  # Bad PID value — treat as orphan
 
             # Mark as Interrupted (resumable) instead of Aborted (terminal)
             _db_execute(
@@ -336,6 +363,105 @@ def _cleanup_orphaned_runs() -> None:
             log.info("Marked %d orphaned runs as Interrupted (resumable) on startup", cleaned)
     except Exception as exc:
         log.warning("Failed to clean up orphaned runs: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Periodic orphan cleanup — runs every 5 minutes in a daemon thread
+# ---------------------------------------------------------------------------
+
+_cleanup_thread: Optional[threading.Thread] = None
+_CLEANUP_INTERVAL_SECONDS = 300  # 5 minutes
+_MAX_RUN_AGE_HOURS = 24  # runs older than this with dead PIDs → auto-interrupt
+
+
+def _periodic_cleanup_loop() -> None:
+    """Background loop: clean up orphaned runs every 5 minutes."""
+    while True:
+        time.sleep(_CLEANUP_INTERVAL_SECONDS)
+        try:
+            cleaned = _cleanup_stale_runs()
+            if cleaned:
+                log.info("Periodic cleanup: marked %d stale runs as Interrupted", cleaned)
+        except Exception as exc:
+            log.warning("Periodic cleanup failed: %s", exc)
+
+
+def _cleanup_stale_runs() -> int:
+    """Find and mark runs that are stale (dead PID or exceeded max age).
+
+    Returns the number of runs cleaned up.
+    """
+    import datetime
+
+    orphaned = _db_query(
+        "SELECT RunId, WorkerPid, StartedAt FROM engine_runs "
+        "WHERE Status IN ('InProgress', 'running')"
+    )
+    if not orphaned:
+        return 0
+
+    now = datetime.datetime.utcnow()
+    cleaned = 0
+
+    for run in orphaned:
+        run_id = run["RunId"]
+        pid = run.get("WorkerPid")
+        started_at = run.get("StartedAt")
+
+        # Skip runs within 2-minute grace window
+        if started_at:
+            try:
+                started = datetime.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                age_seconds = (now - started.replace(tzinfo=None)).total_seconds()
+                if age_seconds < 120:
+                    continue
+            except (ValueError, TypeError):
+                age_seconds = float("inf")
+        else:
+            age_seconds = float("inf")
+
+        # Check 1: PID is dead → orphaned (Windows-safe)
+        pid_dead = False
+        if pid:
+            try:
+                pid_dead = not _is_pid_alive(int(pid))
+            except (TypeError, ValueError):
+                pid_dead = True
+        else:
+            pid_dead = True  # No PID recorded → legacy or lost
+
+        # Only interrupt runs whose worker PID is confirmed dead.
+        # A live PID means the worker is still running — never kill it.
+        if not pid_dead:
+            continue
+
+        reason = "Worker process died or server restarted"
+        _db_execute(
+            "UPDATE engine_runs "
+            "SET Status = 'Interrupted', "
+            "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+            "    ErrorSummary = ? "
+            "WHERE RunId = ?",
+            (f"Interrupted: {reason}", run_id),
+        )
+        _write_pipeline_audit_terminal(run_id, "Interrupted", reason)
+        cleaned += 1
+
+    return cleaned
+
+
+def _start_periodic_cleanup() -> None:
+    """Start the background cleanup thread (idempotent)."""
+    global _cleanup_thread
+    if _cleanup_thread is not None and _cleanup_thread.is_alive():
+        return
+    _cleanup_thread = threading.Thread(
+        target=_periodic_cleanup_loop,
+        daemon=True,
+        name="orphan-cleanup",
+    )
+    _cleanup_thread.start()
+    log.info("Started periodic orphan cleanup thread (every %ds)", _CLEANUP_INTERVAL_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +542,8 @@ def handle_engine_request(handler, method: str, path: str, config: dict) -> None
                     handler._error_response(f"Invalid entity ID: {entity_id_str}", 400)
                     return
                 _handle_entity_reset(handler, entity_id)
+            elif sub_path == "/cleanup-runs":
+                _handle_cleanup_runs(handler)
             else:
                 handler._error_response(f"Unknown engine POST endpoint: {sub_path}", 404)
 
@@ -478,9 +606,8 @@ def _handle_status(handler, config: dict) -> None:
         worker_alive = False
         if worker_pid and row.get("Status") in ("InProgress", "running"):
             try:
-                os.kill(int(worker_pid), 0)
-                worker_alive = True
-            except (OSError, ProcessLookupError, TypeError, ValueError):
+                worker_alive = _is_pid_alive(int(worker_pid))
+            except (TypeError, ValueError):
                 pass
         run_info["worker_pid"] = worker_pid
         run_info["worker_alive"] = worker_alive
@@ -578,15 +705,47 @@ def _start_sse_poller(run_id: str) -> None:
                     )
                     last_id = row.get("id", last_id)
 
-                # Check if run completed
+                # Emit bulk progress — use task_log as source of truth
+                # (engine_runs heartbeat counter resets on resume, task_log doesn't)
                 run_rows = _db_query(
-                    "SELECT Status FROM engine_runs WHERE RunId = ?", (run_id,)
+                    "SELECT Status, TotalEntities, ActiveWorkers, EtaSeconds "
+                    "FROM engine_runs WHERE RunId = ?", (run_id,)
                 )
-                if run_rows and run_rows[0].get("Status") not in ("InProgress", "running"):
-                    status = run_rows[0].get("Status", "Unknown")
-                    _publish_log("info", f"Run {run_id[:8]} finished: {status}")
-                    _SSEHook.publish("run_complete", {"status": status, "run_id": run_id})
-                    break
+                tl_rows = _db_query(
+                    "SELECT "
+                    "  COUNT(DISTINCT CASE WHEN Status = 'succeeded' THEN EntityId END) AS ok, "
+                    "  COUNT(DISTINCT CASE WHEN Status = 'failed' THEN EntityId END) AS fail, "
+                    "  SUM(CASE WHEN Status = 'succeeded' THEN RowsRead ELSE 0 END) AS total_rows, "
+                    "  SUM(CASE WHEN Status = 'succeeded' THEN BytesTransferred ELSE 0 END) AS total_bytes "
+                    "FROM engine_task_log WHERE RunId = ?", (run_id,)
+                )
+                if run_rows:
+                    run = run_rows[0]
+                    tl = tl_rows[0] if tl_rows else {}
+                    total_ent = run.get("TotalEntities", 0) or 0
+                    succeeded = tl.get("ok", 0) or 0
+                    failed = tl.get("fail", 0) or 0
+                    done = succeeded + failed
+                    if done > 0 and total_ent > 0:
+                        _SSEHook.publish("bulk_progress", {
+                            "run_id": run_id,
+                            "completed": done,
+                            "total": total_ent,
+                            "succeeded": succeeded,
+                            "failed": failed,
+                            "total_rows": tl.get("total_rows", 0) or 0,
+                            "total_bytes": tl.get("total_bytes", 0) or 0,
+                            "pct": round(done / total_ent * 100, 1),
+                            "active_workers": run.get("ActiveWorkers", 0) or 0,
+                            "eta_seconds": run.get("EtaSeconds", 0) or 0,
+                        })
+
+                    # Check if run completed
+                    if run.get("Status") not in ("InProgress", "running"):
+                        status = run.get("Status", "Unknown")
+                        _publish_log("info", f"Run {run_id[:8]} finished: {status}")
+                        _SSEHook.publish("run_complete", {"status": status, "run_id": run_id})
+                        break
             except Exception as exc:
                 log.debug("SSE poller error (non-fatal): %s", exc)
             time.sleep(2)
@@ -609,15 +768,13 @@ def _handle_start(handler, config: dict, body: dict) -> None:
         run = active[0]
         pid = run.get("WorkerPid")
         if pid:
-            try:
-                os.kill(pid, 0)  # existence check
+            if _is_pid_alive(pid):
                 handler._json_response({
                     "error": "Engine is already running",
                     "current_run_id": run.get("RunId"),
                 }, status=409)
                 return
-            except (OSError, ProcessLookupError):
-                pass  # Dead PID — allow new start
+            # Dead PID — allow new start
 
     mode = body.get("mode", "run")
     layers = body.get("layers")       # list or None
@@ -652,6 +809,9 @@ def _handle_start(handler, config: dict, body: dict) -> None:
     _SSEHook.clear()
 
     run_id = str(uuid.uuid4())
+    # Bulk mode defaults to landing-only (fast extract and land)
+    if mode == "bulk" and not layers:
+        layers = ["landing"]
     layer_str = ",".join(layers) if layers else "landing,bronze,silver"
 
     # Persist entity filter so resume can recover the original scope
@@ -678,6 +838,10 @@ def _handle_start(handler, config: dict, body: dict) -> None:
 
     # Build worker args
     worker_args = ["--run-id", run_id, "--triggered-by", triggered_by]
+    if mode == "bulk":
+        worker_args.append("--bulk")
+        bulk_workers = body.get("bulk_workers", 8)
+        worker_args += ["--workers", str(bulk_workers)]
     if layers:
         worker_args += ["--layers"] + layers
     if entity_ids:
@@ -711,7 +875,7 @@ def _handle_resume(handler, config: dict, body: dict) -> None:
         return
 
     # Verify run exists and is resumable
-    rows = _db_query("SELECT Status, Layers FROM engine_runs WHERE RunId = ?", (run_id,))
+    rows = _db_query("SELECT Status, Layers, Mode FROM engine_runs WHERE RunId = ?", (run_id,))
     if not rows:
         handler._error_response(f"Run {run_id} not found", 404)
         return
@@ -723,13 +887,19 @@ def _handle_resume(handler, config: dict, body: dict) -> None:
         return
 
     _SSEHook.clear()
-    _publish_log("info", f"Resuming run {run_id[:8]}")
+    original_mode = (run.get("Mode") or "").lower()
+    _publish_log("info", f"Resuming run {run_id[:8]} (mode={original_mode})")
 
     # Build worker args with original layers
     worker_args = ["--resume", run_id]
     original_layers = run.get("Layers", "")
     if original_layers:
         worker_args += ["--layers"] + [l.strip() for l in original_layers.split(",") if l.strip()]
+
+    # Pass bulk workers if resuming a bulk run
+    if original_mode == "bulk":
+        bulk_workers = body.get("bulk_workers", 16)
+        worker_args += ["--workers", str(bulk_workers)]
 
     worker_pid = _spawn_worker(run_id, worker_args)
     _db_execute("UPDATE engine_runs SET WorkerPid = ? WHERE RunId = ?", (worker_pid, run_id))
@@ -846,6 +1016,27 @@ def _handle_abort_run(handler, body: dict) -> None:
         })
     except Exception as exc:
         log.exception("Failed to abort run(s)")
+        handler._error_response(str(exc), 500)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/engine/cleanup-runs
+# ---------------------------------------------------------------------------
+
+def _handle_cleanup_runs(handler) -> None:
+    """Clean up stale/zombie runs immediately.
+
+    Marks InProgress runs as Interrupted if the worker PID is dead
+    or the run exceeds the max age threshold.
+    """
+    try:
+        cleaned = _cleanup_stale_runs()
+        handler._json_response({
+            "cleaned": cleaned,
+            "message": f"Cleaned up {cleaned} stale run(s)" if cleaned else "No stale runs found",
+        })
+    except Exception as exc:
+        log.exception("Failed to clean up stale runs")
         handler._error_response(str(exc), 500)
 
 

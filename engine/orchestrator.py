@@ -397,6 +397,29 @@ class LoadOrchestrator:
 
         finally:
             self.current_run_id = None
+            # Belt-and-suspenders: guarantee the run has a terminal status.
+            # If log_run_end / log_run_error succeeded, the row is already
+            # Succeeded/Failed and this UPDATE is a no-op (WHERE still InProgress).
+            try:
+                from dashboard.app.api import control_plane_db as cpdb
+                cpdb.execute(
+                    "UPDATE engine_runs "
+                    "SET Status = CASE "
+                    "    WHEN Status IN ('InProgress', 'running') THEN 'Interrupted' "
+                    "    ELSE Status END, "
+                    "EndedAt = CASE "
+                    "    WHEN EndedAt IS NULL THEN strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+                    "    ELSE EndedAt END, "
+                    "ErrorSummary = CASE "
+                    "    WHEN Status IN ('InProgress', 'running') AND "
+                    "         (ErrorSummary IS NULL OR ErrorSummary = '') "
+                    "    THEN 'Interrupted: process exited without recording completion' "
+                    "    ELSE ErrorSummary END "
+                    "WHERE RunId = ?",
+                    (run_id,),
+                )
+            except Exception:
+                log.debug("Finally-block status guard failed for %s (non-fatal)", run_id[:8])
 
     def stop(self, force: bool = False) -> None:
         """Stop the engine.
@@ -1396,7 +1419,7 @@ class LoadOrchestrator:
                         error_suggestion=f"Schema: {v_result.schema_name}. Errors: {v_result.errors_json}",
                     )
             except ImportError:
-                pass  # pandera not installed — skip validation silently
+                log.debug("pandera not installed — skipping schema validation")
             except Exception as val_exc:
                 log.warning("[%s] Schema validation error for entity %d (non-blocking): %s",
                             run_id[:8], entity.id, val_exc)

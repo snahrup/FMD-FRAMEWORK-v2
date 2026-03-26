@@ -188,7 +188,7 @@ def get_lmc_progress(params: dict) -> dict:
             layers[layer]["avg_duration"] = float(row["avg_duration"] or 0)
             layers[layer]["unique_entities"] = _int(row["unique_entities"])
 
-    # Per-source progress for this run
+    # Per-source progress for this run (aggregated across layers for backward compat)
     by_source = _safe_query(
         "SELECT ds.Name AS source, "
         "  COUNT(DISTINCT le.LandingzoneEntityId) AS total_entities, "
@@ -203,6 +203,22 @@ def get_lmc_progress(params: dict) -> dict:
         "  AND etl.RunId = ? "
         "WHERE le.IsActive = 1 "
         "GROUP BY ds.Name ORDER BY ds.Name",
+        (run_id,),
+    )
+
+    # Per-source PER-LAYER progress — the matrix truth source
+    by_source_layer = _safe_query(
+        "SELECT ds.Name AS source, etl.Layer AS layer, "
+        "  COUNT(DISTINCT CASE WHEN etl.Status = 'succeeded' THEN etl.EntityId END) AS succeeded, "
+        "  COUNT(DISTINCT CASE WHEN etl.Status = 'failed' THEN etl.EntityId END) AS failed, "
+        "  COUNT(DISTINCT CASE WHEN etl.Status = 'skipped' THEN etl.EntityId END) AS skipped, "
+        "  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.RowsRead ELSE 0 END) AS rows_read, "
+        "  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.BytesTransferred ELSE 0 END) AS bytes "
+        "FROM engine_task_log etl "
+        "JOIN lz_entities le ON le.LandingzoneEntityId = etl.EntityId "
+        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
+        "WHERE etl.RunId = ? AND etl.Layer IS NOT NULL "
+        "GROUP BY ds.Name, etl.Layer ORDER BY ds.Name, etl.Layer",
         (run_id,),
     )
 
@@ -233,71 +249,76 @@ def get_lmc_progress(params: dict) -> dict:
         (run_id,),
     )
 
-    # Physical verification — cross-reference lakehouse_row_counts
-    # Join key: lrc.schema_name = le.FilePath AND lrc.table_name = le.SourceName
-    verification = _safe_query(
-        "SELECT "
-        "  COUNT(DISTINCT le.LandingzoneEntityId) AS total_active, "
-        "  COUNT(DISTINCT CASE WHEN lrc_lz.row_count > 0 THEN le.LandingzoneEntityId END) AS lz_verified, "
-        "  COUNT(DISTINCT CASE WHEN lrc_br.row_count > 0 THEN le.LandingzoneEntityId END) AS brz_verified, "
-        "  COUNT(DISTINCT CASE WHEN lrc_sv.row_count > 0 THEN le.LandingzoneEntityId END) AS slv_verified, "
-        "  MAX(lrc_lz.scanned_at) AS lz_last_scan, "
-        "  MAX(lrc_br.scanned_at) AS brz_last_scan "
-        "FROM lz_entities le "
-        "LEFT JOIN lakehouse_row_counts lrc_lz "
-        "  ON LOWER(lrc_lz.schema_name) = LOWER(le.FilePath) "
-        "  AND LOWER(lrc_lz.table_name) = LOWER(le.SourceName) "
-        "  AND lrc_lz.lakehouse = 'LH_DATA_LANDINGZONE' "
-        "LEFT JOIN lakehouse_row_counts lrc_br "
-        "  ON LOWER(lrc_br.schema_name) = LOWER(le.FilePath) "
-        "  AND LOWER(lrc_br.table_name) = LOWER(le.SourceName) "
-        "  AND lrc_br.lakehouse = 'LH_BRONZE_LAYER' "
-        "LEFT JOIN lakehouse_row_counts lrc_sv "
-        "  ON LOWER(lrc_sv.schema_name) = LOWER(le.FilePath) "
-        "  AND LOWER(lrc_sv.table_name) = LOWER(le.SourceName) "
-        "  AND lrc_sv.lakehouse = 'LH_SILVER_LAYER' "
-        "WHERE le.IsActive = 1"
-    )
+    # Physical verification — LAZY: only when ?include_physical=1 is passed.
+    # These LOWER() joins on lakehouse_row_counts are expensive (~3.5s each)
+    # and not needed for the real-time progress view.
+    include_physical = params.get("include_physical") == "1"
 
-    # Actual lakehouse state — what's PHYSICALLY in each layer RIGHT NOW
-    # This is independent of any engine run — it's the ground truth from scans
-    lakehouse_state = _safe_query(
-        "SELECT lakehouse, "
-        "  COUNT(CASE WHEN row_count > 0 THEN 1 END) AS tables_with_data, "
-        "  COUNT(CASE WHEN row_count = 0 THEN 1 END) AS empty_tables, "
-        "  COUNT(CASE WHEN row_count = -1 THEN 1 END) AS scan_failed, "
-        "  SUM(CASE WHEN row_count > 0 THEN row_count ELSE 0 END) AS total_rows, "
-        "  SUM(CASE WHEN row_count > 0 THEN size_bytes ELSE 0 END) AS total_bytes, "
-        "  MAX(scanned_at) AS last_scan "
-        "FROM lakehouse_row_counts "
-        "GROUP BY lakehouse"
-    )
-    lh_state = {}
-    for lh in lakehouse_state:
-        key = lh["lakehouse"]
-        lh_state[key] = {
-            "tablesWithData": _int(lh["tables_with_data"]),
-            "emptyTables": _int(lh["empty_tables"]),
-            "scanFailed": _int(lh["scan_failed"]),
-            "totalRows": _int(lh["total_rows"]),
-            "totalBytes": _int(lh["total_bytes"]),
-            "lastScan": lh["last_scan"],
-        }
+    if include_physical:
+        verification = _safe_query(
+            "SELECT "
+            "  COUNT(DISTINCT le.LandingzoneEntityId) AS total_active, "
+            "  COUNT(DISTINCT CASE WHEN lrc_lz.row_count > 0 THEN le.LandingzoneEntityId END) AS lz_verified, "
+            "  COUNT(DISTINCT CASE WHEN lrc_br.row_count > 0 THEN le.LandingzoneEntityId END) AS brz_verified, "
+            "  COUNT(DISTINCT CASE WHEN lrc_sv.row_count > 0 THEN le.LandingzoneEntityId END) AS slv_verified, "
+            "  MAX(lrc_lz.scanned_at) AS lz_last_scan, "
+            "  MAX(lrc_br.scanned_at) AS brz_last_scan "
+            "FROM lz_entities le "
+            "LEFT JOIN lakehouse_row_counts lrc_lz "
+            "  ON lrc_lz.schema_name = le.FilePath "
+            "  AND lrc_lz.table_name = le.SourceName "
+            "  AND lrc_lz.lakehouse = 'LH_DATA_LANDINGZONE' "
+            "LEFT JOIN lakehouse_row_counts lrc_br "
+            "  ON lrc_br.schema_name = le.FilePath "
+            "  AND lrc_br.table_name = le.SourceName "
+            "  AND lrc_br.lakehouse = 'LH_BRONZE_LAYER' "
+            "LEFT JOIN lakehouse_row_counts lrc_sv "
+            "  ON lrc_sv.schema_name = le.FilePath "
+            "  AND lrc_sv.table_name = le.SourceName "
+            "  AND lrc_sv.lakehouse = 'LH_SILVER_LAYER' "
+            "WHERE le.IsActive = 1"
+        )
 
-    # Per-source physical counts from lakehouse_row_counts
-    lh_by_source = _safe_query(
-        "SELECT lrc.lakehouse, ds.Name AS source, "
-        "  COUNT(CASE WHEN lrc.row_count > 0 THEN 1 END) AS tables_loaded, "
-        "  SUM(CASE WHEN lrc.row_count > 0 THEN lrc.row_count ELSE 0 END) AS total_rows "
-        "FROM lz_entities le "
-        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
-        "JOIN lakehouse_row_counts lrc "
-        "  ON LOWER(lrc.schema_name) = LOWER(le.FilePath) "
-        "  AND LOWER(lrc.table_name) = LOWER(le.SourceName) "
-        "WHERE le.IsActive = 1 "
-        "GROUP BY lrc.lakehouse, ds.Name "
-        "ORDER BY lrc.lakehouse, ds.Name"
-    )
+        lakehouse_state = _safe_query(
+            "SELECT lakehouse, "
+            "  COUNT(CASE WHEN row_count > 0 THEN 1 END) AS tables_with_data, "
+            "  COUNT(CASE WHEN row_count = 0 THEN 1 END) AS empty_tables, "
+            "  COUNT(CASE WHEN row_count = -1 THEN 1 END) AS scan_failed, "
+            "  SUM(CASE WHEN row_count > 0 THEN row_count ELSE 0 END) AS total_rows, "
+            "  SUM(CASE WHEN row_count > 0 THEN size_bytes ELSE 0 END) AS total_bytes, "
+            "  MAX(scanned_at) AS last_scan "
+            "FROM lakehouse_row_counts "
+            "GROUP BY lakehouse"
+        )
+        lh_state = {}
+        for lh in lakehouse_state:
+            key = lh["lakehouse"]
+            lh_state[key] = {
+                "tablesWithData": _int(lh["tables_with_data"]),
+                "emptyTables": _int(lh["empty_tables"]),
+                "scanFailed": _int(lh["scan_failed"]),
+                "totalRows": _int(lh["total_rows"]),
+                "totalBytes": _int(lh["total_bytes"]),
+                "lastScan": lh["last_scan"],
+            }
+
+        lh_by_source = _safe_query(
+            "SELECT lrc.lakehouse, ds.Name AS source, "
+            "  COUNT(CASE WHEN lrc.row_count > 0 THEN 1 END) AS tables_loaded, "
+            "  SUM(CASE WHEN lrc.row_count > 0 THEN lrc.row_count ELSE 0 END) AS total_rows "
+            "FROM lz_entities le "
+            "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
+            "JOIN lakehouse_row_counts lrc "
+            "  ON lrc.schema_name = le.FilePath "
+            "  AND lrc.table_name = le.SourceName "
+            "WHERE le.IsActive = 1 "
+            "GROUP BY lrc.lakehouse, ds.Name "
+            "ORDER BY lrc.lakehouse, ds.Name"
+        )
+    else:
+        verification = []
+        lh_state = {}
+        lh_by_source = []
 
     return {
         "run": {
@@ -314,6 +335,7 @@ def get_lmc_progress(params: dict) -> dict:
         "totalActiveEntities": _int(total_active),
         "layers": layers,
         "bySource": by_source,
+        "bySourceByLayer": by_source_layer,
         "errorBreakdown": error_breakdown,
         "loadTypeBreakdown": load_type_breakdown,
         "throughput": throughput[0] if throughput else {"rows_per_sec": 0, "bytes_per_sec": 0},

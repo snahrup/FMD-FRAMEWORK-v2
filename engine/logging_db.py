@@ -209,6 +209,59 @@ class AuditLogger:
     # Entity-level logging
     # ------------------------------------------------------------------
 
+    def log_entity_start(
+        self,
+        run_id: str,
+        entity: Entity,
+        layer: str = "landing",
+        index: int = 0,
+        total: int = 0,
+    ) -> None:
+        """Record that extraction is STARTING for an entity.
+
+        Writes an 'extracting' status to engine_task_log so the SSE poller
+        and dashboard can show real-time progress immediately — not just
+        after the entity finishes.
+        """
+        log.info(
+            "[%s] Starting %d/%d: %s.%s from %s/%s",
+            run_id[:8], index, total,
+            entity.source_schema, entity.source_name,
+            entity.source_server, entity.source_database,
+        )
+
+        cpdb = _get_cpdb()
+        if cpdb:
+            try:
+                cpdb.insert_engine_task_log({
+                    "RunId": run_id,
+                    "EntityId": entity.id,
+                    "Layer": layer,
+                    "Status": "extracting",
+                    "SourceServer": entity.source_server or "",
+                    "SourceDatabase": entity.source_database or "",
+                    "SourceTable": f"{entity.source_schema}.{entity.source_name}",
+                    "SourceQuery": "",
+                    "RowsRead": 0,
+                    "RowsWritten": 0,
+                    "BytesTransferred": 0,
+                    "DurationSeconds": 0,
+                    "TargetLakehouse": entity.lakehouse_guid or "",
+                    "TargetPath": "",
+                    "WatermarkColumn": entity.watermark_column or "",
+                    "WatermarkBefore": entity.last_load_value or "",
+                    "WatermarkAfter": "",
+                    "LoadType": "bulk_snapshot",
+                    "ErrorType": "",
+                    "ErrorMessage": f"Extracting ({index}/{total})",
+                    "ErrorStackTrace": "",
+                    "ErrorSuggestion": "",
+                    "LogData": "",
+                    "ExtractionMethod": "bulk",
+                })
+            except Exception as exc:
+                log.debug("Failed to write entity-start log for %d: %s", entity.id, exc)
+
     def log_entity_result(
         self,
         run_id: str,
@@ -298,6 +351,39 @@ class AuditLogger:
                     "SQLite: Failed to upsert entity_status for entity %d: %s",
                     entity.id, exc,
                 )
+
+    def heartbeat_progress(
+        self,
+        run_id: str,
+        completed: int,
+        succeeded: int,
+        failed: int,
+        total_rows: int,
+        total_bytes: int,
+        elapsed_seconds: float,
+        eta_seconds: float,
+        active_workers: int,
+    ) -> None:
+        """Write live progress into engine_runs so the SSE poller can pick it up."""
+        cpdb = _get_cpdb()
+        if not cpdb:
+            return
+        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        try:
+            cpdb.upsert_engine_run({
+                "RunId": run_id,
+                "Status": "InProgress",
+                "CompletedUnits": completed,
+                "SucceededEntities": succeeded,
+                "FailedEntities": failed,
+                "TotalRowsRead": total_rows,
+                "TotalBytesTransferred": total_bytes,
+                "HeartbeatAt": now_str,
+                "ActiveWorkers": active_workers,
+                "EtaSeconds": round(eta_seconds, 1),
+            })
+        except Exception as exc:
+            log.debug("heartbeat_progress failed: %s", exc)
 
     def mark_bronze_entity_processed(self, entity, result) -> None:
         """Write Bronze entity processing status to SQLite tracking tables."""

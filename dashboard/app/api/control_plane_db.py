@@ -1202,6 +1202,16 @@ def init_db():
             except sqlite3.OperationalError:
                 log.debug("Column %s already exists in engine_runs, skipping", col)
 
+        # Migration: add bulk progress columns for SSE (2026-03-25)
+        for col, coldef in [
+            ("ActiveWorkers", "INTEGER DEFAULT 0"),
+            ("EtaSeconds", "REAL DEFAULT 0"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE engine_runs ADD COLUMN {col} {coldef}")
+            except sqlite3.OperationalError:
+                log.debug("Column %s already exists in engine_runs, skipping", col)
+
     finally:
         conn.close()
     log.info(f'Control-plane DB initialized at {DB_PATH}')
@@ -1374,8 +1384,8 @@ def upsert_engine_run(row: dict) -> None:
                 "(RunId, Mode, Status, TotalEntities, SucceededEntities, FailedEntities, "
                 "SkippedEntities, TotalRowsRead, TotalRowsWritten, TotalBytesTransferred, "
                 "TotalDurationSeconds, Layers, EntityFilter, TriggeredBy, ErrorSummary, "
-                "StartedAt, EndedAt, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "StartedAt, EndedAt, CompletedUnits, HeartbeatAt, ActiveWorkers, EtaSeconds, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(RunId) DO UPDATE SET "
                 "Mode              = COALESCE(excluded.Mode, Mode), "
                 "Status            = excluded.Status, "
@@ -1393,6 +1403,10 @@ def upsert_engine_run(row: dict) -> None:
                 "ErrorSummary      = COALESCE(excluded.ErrorSummary, ErrorSummary), "
                 "StartedAt         = COALESCE(excluded.StartedAt, StartedAt), "
                 "EndedAt           = COALESCE(excluded.EndedAt, EndedAt), "
+                "CompletedUnits    = CASE WHEN excluded.CompletedUnits > 0 THEN excluded.CompletedUnits ELSE CompletedUnits END, "
+                "HeartbeatAt       = COALESCE(excluded.HeartbeatAt, HeartbeatAt), "
+                "ActiveWorkers     = CASE WHEN excluded.ActiveWorkers > 0 THEN excluded.ActiveWorkers ELSE ActiveWorkers END, "
+                "EtaSeconds        = CASE WHEN excluded.EtaSeconds > 0 THEN excluded.EtaSeconds ELSE EtaSeconds END, "
                 "updated_at        = excluded.updated_at",
                 (row.get('RunId'), _v(row.get('Mode')),
                  _v(row.get('Status', 'Unknown')),
@@ -1404,6 +1418,8 @@ def upsert_engine_run(row: dict) -> None:
                  _v(row.get('Layers')), _v(row.get('EntityFilter')),
                  _v(row.get('TriggeredBy')), _v(row.get('ErrorSummary')),
                  _v(row.get('StartedAt')), _v(row.get('EndedAt')),
+                 row.get('CompletedUnits', 0), _v(row.get('HeartbeatAt')),
+                 row.get('ActiveWorkers', 0), row.get('EtaSeconds', 0),
                  _now())
             )
             conn.commit()

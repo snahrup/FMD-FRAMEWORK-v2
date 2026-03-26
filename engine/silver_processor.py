@@ -263,8 +263,8 @@ class SilverProcessor:
                 if local_path:
                     dt_version = DeltaTable(local_path).version()
                     log.info("[%s] Silver %s: Delta version %d", run_id[:8], entity.source_name, dt_version)
-        except Exception:
-            pass  # non-critical
+        except Exception as exc:
+            log.debug("Delta version check failed for %s: %s", entity.source_name, exc)
 
         return RunResult(
             entity_id=entity.silver_entity_id,

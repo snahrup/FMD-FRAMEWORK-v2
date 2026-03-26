@@ -127,11 +127,22 @@ interface LakehouseBySourceItem {
   total_rows: number;
 }
 
+interface SourceLayerProgress {
+  source: string;
+  layer: string;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  rows_read: number;
+  bytes: number;
+}
+
 interface ProgressResponse {
   run: LmcRun | null;
   totalActiveEntities: number;
   layers: Record<string, LayerStats>;
   bySource: SourceProgress[];
+  bySourceByLayer?: SourceLayerProgress[];
   errorBreakdown: Array<{ ErrorType: string; cnt: number }>;
   loadTypeBreakdown: Array<{ LoadType: string; cnt: number; total_rows: number }>;
   throughput: { rows_per_sec: number; bytes_per_sec: number };
@@ -437,6 +448,7 @@ function useSSE(enabled: boolean) {
     es.addEventListener("log", handler("log"));
     es.addEventListener("run_complete", handler("run_complete"));
     es.addEventListener("run_error", handler("run_error"));
+    es.addEventListener("bulk_progress", handler("bulk_progress"));
     es.onmessage = (e: MessageEvent) => {
       try {
         const parsed = JSON.parse(e.data);
@@ -668,7 +680,7 @@ function CommandBand({
   runs: LmcRun[];
   engine: EngineStatusResponse | null;
   sources: SourceInfo[];
-  onStart: (layers: string[], sourceFilter: string[]) => void;
+  onStart: (layers: string[], sourceFilter: string[], mode?: string) => void;
   onStop: () => void;
   onRetry: () => void;
   onResume: () => void;
@@ -679,6 +691,7 @@ function CommandBand({
   const [launchOpen, setLaunchOpen] = useState(false);
   const [launchLayers, setLaunchLayers] = useState<string[]>(["landing", "bronze", "silver"]);
   const [launchSources, setLaunchSources] = useState<string[]>([]);
+  const [bulkMode, setBulkMode] = useState(false);
 
   const currentRun = runs.find(r => r.runId === scope.selectedRunId) ?? null;
   const canResume = engine?.last_run?.resumable === true && scope.engineStatus === "idle";
@@ -963,6 +976,44 @@ function CommandBand({
                   }
                 </div>
               </div>
+
+              {/* Bulk Snapshot toggle */}
+              <button
+                onClick={() => {
+                  setBulkMode(!bulkMode);
+                  if (!bulkMode) setLaunchLayers(["landing"]);
+                  else setLaunchLayers(["landing", "bronze", "silver"]);
+                }}
+                style={{
+                  ...S.sans, cursor: "pointer", width: "100%",
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "10px 16px", borderRadius: 8,
+                  border: bulkMode ? "1.5px solid var(--bp-operational)" : "1px solid var(--bp-border)",
+                  background: bulkMode ? "rgba(34,197,94,0.06)" : "var(--bp-surface-1)",
+                  transition: "all 0.15s ease",
+                }}>
+                <Zap size={16} style={{ color: bulkMode ? "var(--bp-operational)" : "var(--bp-ink-muted)", flexShrink: 0 }} />
+                <div style={{ flex: 1, textAlign: "left" }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: bulkMode ? "var(--bp-operational)" : "var(--bp-ink)" }}>
+                    Bulk Snapshot Mode
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--bp-ink-muted)", marginTop: 1 }}>
+                    Fast parallel extraction via ConnectorX — no watermarks, no retries. Best for initial loads &amp; backfills.
+                  </div>
+                </div>
+                <div style={{
+                  width: 36, height: 20, borderRadius: 10,
+                  background: bulkMode ? "var(--bp-operational)" : "var(--bp-border)",
+                  position: "relative", transition: "background 0.15s ease",
+                }}>
+                  <div style={{
+                    width: 16, height: 16, borderRadius: 8,
+                    background: "#fff", position: "absolute", top: 2,
+                    left: bulkMode ? 18 : 2, transition: "left 0.15s ease",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
+                  }} />
+                </div>
+              </button>
             </div>
 
             {/* Modal footer */}
@@ -984,7 +1035,7 @@ function CommandBand({
               <button
                 disabled={launchLayers.length === 0}
                 onClick={() => {
-                  onStart(launchLayers, launchSources.map(s => s));
+                  onStart(launchLayers, launchSources.map(s => s), bulkMode ? "bulk" : "run");
                   setLaunchOpen(false);
                 }}
                 style={{
@@ -1010,7 +1061,19 @@ function CommandBand({
 // §7  KPI STRIP — Seven key metrics in a horizontal strip
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function KpiStrip({ progress }: { progress: ProgressResponse | null }) {
+interface BulkProgressData {
+  completed: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+  totalRows: number;
+  totalBytes: number;
+  pct: number;
+  etaSeconds: number | null;
+  activeWorkers: number | null;
+}
+
+function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | null; bulkProgress?: BulkProgressData | null }) {
   const scope = useScope();
   const hasRunScope = scope.runSources.length > 0;
 
@@ -1023,23 +1086,32 @@ function KpiStrip({ progress }: { progress: ProgressResponse | null }) {
 
   const allLayers = Object.values(progress.layers);
 
-  // Use scoped totals when source filter is active
-  const succeeded = hasRunScope
-    ? scopedSources.reduce((a, s) => a + (s.succeeded ?? 0), 0)
-    : allLayers.reduce((a, l) => a + l.succeeded, 0);
-  const failed = hasRunScope
-    ? scopedSources.reduce((a, s) => a + (s.failed ?? 0), 0)
-    : allLayers.reduce((a, l) => a + l.failed, 0);
-  const skipped = hasRunScope
-    ? scopedSources.reduce((a, s) => a + (s.skipped ?? 0), 0)
-    : allLayers.reduce((a, l) => a + l.skipped, 0);
-  const scopedTotal = hasRunScope
-    ? scopedSources.reduce((a, s) => a + (s.total_entities ?? 0), 0)
+  // When bulk progress SSE data is available and fresher, use it as the single source of truth
+  // This prevents timing mismatches between SSE heartbeat and progress API polling
+  const useBulk = bulkProgress && bulkProgress.total > 0 && scope.isRunActive;
+
+  const succeeded = useBulk
+    ? bulkProgress.succeeded
+    : hasRunScope
+      ? scopedSources.reduce((a, s) => a + (s.succeeded ?? 0), 0)
+      : allLayers.reduce((a, l) => a + l.succeeded, 0);
+  const failed = useBulk
+    ? bulkProgress.failed
+    : hasRunScope
+      ? scopedSources.reduce((a, s) => a + (s.failed ?? 0), 0)
+      : allLayers.reduce((a, l) => a + l.failed, 0);
+  const skipped = 0; // Bulk doesn't skip; for non-bulk use layer data
+  // Use totalActiveEntities as the stable denominator — it's always 1385 and never changes
+  // during a run. The scoped source reduce can give inconsistent totals between poll cycles.
+  const scopedTotal = useBulk
+    ? bulkProgress.total
     : progress.totalActiveEntities;
   const pending = scopedTotal - succeeded - failed - skipped;
-  const totalRows = hasRunScope
-    ? scopedSources.reduce((a, s) => a + (s.rows_read ?? 0), 0)
-    : allLayers.reduce((a, l) => a + l.total_rows_written, 0);
+  const totalRows = useBulk
+    ? bulkProgress.totalRows
+    : hasRunScope
+      ? scopedSources.reduce((a, s) => a + (s.rows_read ?? 0), 0)
+      : allLayers.reduce((a, l) => a + l.total_rows_written, 0);
   const totalDuration = allLayers.reduce((a, l) => a + l.total_duration, 0);
   const verified = (progress.verification?.lz_verified ?? 0) + (progress.verification?.brz_verified ?? 0) + (progress.verification?.slv_verified ?? 0);
   const totalActive = progress.verification?.total_active ?? progress.totalActiveEntities;
@@ -1268,6 +1340,15 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
     }
   };
 
+  // Build per-source-layer lookup from the granular data
+  const srcLayerLookup = useMemo(() => {
+    const map: Record<string, SourceLayerProgress> = {};
+    for (const item of progress?.bySourceByLayer ?? []) {
+      map[`${item.source}|${item.layer}`] = item;
+    }
+    return map;
+  }, [progress?.bySourceByLayer]);
+
   const cells = useMemo((): MatrixCell[][] => {
     if (!progress) return [];
 
@@ -1275,6 +1356,8 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
       return layerKeys.map(layer => {
         const srcData = progress.bySource?.find(s => s.source === source);
         const srcTotal = srcData?.total_entities ?? 0;
+        // Layer-accurate run data (from bySourceByLayer)
+        const layerData = srcLayerLookup[`${source}|${layer}`];
         // Lakehouse physical data for this source × layer
         const lhItem = lhLookup[`${source}|${lhNameForLayer(layer)}`];
 
@@ -1282,13 +1365,15 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
           source,
           layer,
           total: srcTotal,
-          succeeded: srcData?.succeeded ?? 0,
-          failed: srcData?.failed ?? 0,
-          skipped: srcData?.skipped ?? 0,
+          // Use layer-specific counts when available, otherwise 0
+          // This ensures bulk (landing-only) runs don't show counts in Bronze/Silver
+          succeeded: layerData?.succeeded ?? 0,
+          failed: layerData?.failed ?? 0,
+          skipped: layerData?.skipped ?? 0,
           inProgress: currentLayer != null && currentLayer.includes(layer),
           verified: lhItem != null && lhItem.tables_loaded > 0,
           physicalRows: lhItem?.total_rows ?? null,
-        } satisfies MatrixCell;
+        } as MatrixCell;
       });
     });
   }, [progress, sources, currentLayer, lhLookup]);
@@ -1307,14 +1392,17 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
 
   const gridCols = `140px repeat(${layerKeys.length}, 1fr) 80px`;
 
+  // Extracted to avoid complex inline expressions that confuse esbuild's JSX parser
+  const cellBorderColor = (cell: MatrixCell, selected: boolean, inScope: boolean) => {
+    if (selected) return layerColor(cell.layer);
+    if (hasRunScope && inScope) return layerColor(cell.layer) + "40";
+    return "var(--bp-border-subtle)";
+  };
+
   return (
     <div style={{ padding: "24px 32px 0", display: "flex", flexDirection: "column", gap: 8 }}>
-      {/* Header row — same grid template as data rows */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: gridCols,
-        gap: 8,
-      }}>
+      {/* Header row */}
+      <div style={{ display: "grid", gridTemplateColumns: gridCols, gap: 8 }}>
         <div style={{ padding: "4px 8px" }} />
         {layerKeys.map(l => (
           <div key={l} style={{
@@ -1334,7 +1422,7 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
         </div>
       </div>
 
-      {/* Data rows — out-of-scope rows animate collapsed, in-scope rows stay aligned */}
+      {/* Data rows */}
       {scopedRows.map(({ row, source, inScope }) => {
         const srcData = progress?.bySource?.find(s => s.source === source);
         const totalFailed = srcData?.failed ?? 0;
@@ -1347,7 +1435,6 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
               gridTemplateColumns: gridCols,
               gap: 8,
               width: "100%",
-              // Collapse out-of-scope rows with animation
               maxHeight: hasRunScope && !inScope ? 0 : 120,
               opacity: hasRunScope && !inScope ? 0 : 1,
               overflow: "hidden",
@@ -1356,87 +1443,92 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
               pointerEvents: hasRunScope && !inScope ? "none" : "auto",
             }}
           >
-              {/* Source label */}
-              <div style={{
-                padding: "8px 8px",
-                ...S.sans, fontSize: 13, fontWeight: 600,
-                color: "var(--bp-ink-primary)",
-                display: "flex", alignItems: "center", gap: 6,
-                overflow: "hidden",
-              }}>
-                <Server size={12} style={{ color: hasRunScope && inScope ? "var(--bp-copper)" : "var(--bp-ink-muted)", flexShrink: 0, transition: "color 0.3s ease" }} />
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayNameMap[source] || source}</span>
-              </div>
+            {/* Source label */}
+            <div style={{
+              padding: "8px 8px",
+              ...S.sans, fontSize: 13, fontWeight: 600,
+              color: "var(--bp-ink-primary)",
+              display: "flex", alignItems: "center", gap: 6,
+              overflow: "hidden",
+            }}>
+              <Server size={12} style={{ color: hasRunScope && inScope ? "var(--bp-copper)" : "var(--bp-ink-muted)", flexShrink: 0, transition: "color 0.3s ease" }} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayNameMap[source] || source}</span>
+            </div>
 
-              {/* Layer cells */}
-              {row.map(cell => {
-                const selected = isSelected(cell.source, cell.layer);
-                const pct = cell.total > 0 ? Math.round((cell.succeeded / cell.total) * 100) : 0;
-                const trust = trustBadge(cell.verified ? true : cell.physicalRows != null ? true : null);
-                const TrustIcon = trust.icon;
+            {/* Layer cells */}
+            {row.map(cell => {
+              const selected = isSelected(cell.source, cell.layer);
+              const pct = cell.total > 0 ? Math.round((cell.succeeded / cell.total) * 100) : 0;
+              const trust = trustBadge(cell.verified ? true : cell.physicalRows != null ? true : null);
+              const TrustIcon = trust.icon;
+              const border = cellBorderColor(cell, selected, inScope);
 
-                return (
-                  <div
-                    key={cell.layer}
-                    onClick={() => dispatch({ type: "CLICK_MATRIX_CELL", source: cell.source, layer: cell.layer })}
-                    style={{
-                      ...S.cell,
-                      padding: "14px 12px 16px",
-                      background: selected
+              return (
+                <div
+                  key={cell.layer}
+                  onClick={() => dispatch({ type: "CLICK_MATRIX_CELL", source: cell.source, layer: cell.layer })}
+                  style={{
+                    ...S.cell,
+                    padding: "14px 12px 16px",
+                    background: selected
+                      ? layerLightColor(cell.layer)
+                      : cell.inProgress
                         ? layerLightColor(cell.layer)
-                        : cell.inProgress
-                          ? layerLightColor(cell.layer)
-                          : "var(--bp-surface-1)",
-                      borderColor: selected
-                        ? layerColor(cell.layer)
-                        : hasRunScope && inScope
-                          ? layerColor(cell.layer) + "40"
-                          : "var(--bp-border-subtle)",
-                      borderWidth: selected ? 2 : 1,
-                      position: "relative",
-                      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                      minHeight: 72, gap: 6,
-                      animation: cell.inProgress ? "pulse 2s ease-in-out infinite" : "none",
-                      transition: "all 0.3s ease",
-                      cursor: "pointer",
-                    }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = layerColor(cell.layer); (e.currentTarget as HTMLDivElement).style.transform = "translateY(-1px)"; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = selected ? layerColor(cell.layer) : hasRunScope && inScope ? layerColor(cell.layer) + "40" : "var(--bp-border-subtle)"; (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)"; }}
-                  >
-                    {/* Count */}
-                    <div style={{ ...S.data, fontSize: 16, fontWeight: 700, color: "var(--bp-ink-primary)", lineHeight: 1.2 }}>
-                      {formatNumber(cell.succeeded)}<span style={{ color: "var(--bp-ink-muted)", fontWeight: 400, fontSize: 13 }}> / {formatNumber(cell.total)}</span>
+                        : "var(--bp-surface-1)",
+                    borderColor: border,
+                    borderWidth: selected ? 2 : 1,
+                    position: "relative",
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    minHeight: 72, gap: 6,
+                    animation: cell.inProgress ? "pulse 2s ease-in-out infinite" : "none",
+                    transition: "all 0.3s ease",
+                    cursor: "pointer",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = layerColor(cell.layer);
+                    e.currentTarget.style.transform = "translateY(-1px)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = border;
+                    e.currentTarget.style.transform = "translateY(0)";
+                  }}
+                >
+                  {/* Count */}
+                  <div style={{ ...S.data, fontSize: 16, fontWeight: 700, color: "var(--bp-ink-primary)", lineHeight: 1.2 }}>
+                    {formatNumber(cell.succeeded)}
+                    <span style={{ color: "var(--bp-ink-muted)", fontWeight: 400, fontSize: 13 }}>{" / "}{formatNumber(cell.total)}</span>
+                  </div>
+                  {/* Percentage */}
+                  {cell.total > 0 && (
+                    <div style={{ ...S.data, fontSize: 10, fontWeight: 600, color: pct === 100 ? "var(--bp-operational)" : "var(--bp-ink-muted)" }}>
+                      {pct}%
                     </div>
-                    {/* Percentage label */}
-                    {cell.total > 0 && (
-                      <div style={{ ...S.data, fontSize: 10, fontWeight: 600, color: pct === 100 ? "var(--bp-operational)" : "var(--bp-ink-muted)" }}>
-                        {pct}%
-                      </div>
-                    )}
-                    {/* Percent bar */}
+                  )}
+                  {/* Progress bar */}
+                  <div style={{
+                    width: "100%", height: 4, borderRadius: 3,
+                    background: "var(--bp-border)", marginTop: 2,
+                    overflow: "hidden",
+                  }}>
                     <div style={{
-                      width: "100%", height: 4, borderRadius: 3,
-                      background: "var(--bp-border)", marginTop: 2,
-                      overflow: "hidden",
-                    }}>
-                      <div style={{
-                        height: "100%", borderRadius: 3,
-                        width: `${pct}%`,
-                        background: pct === 100 ? "var(--bp-operational)" : cell.failed > 0 ? "var(--bp-fault)" : layerColor(cell.layer),
-                        transition: "width 0.5s ease",
-                      }} />
-                    </div>
-                    {/* Trust indicator */}
-                    <TrustIcon size={11} style={{
-                      position: "absolute", top: 5, right: 5,
-                      color: trust.color,
+                      height: "100%", borderRadius: 3,
+                      width: `${pct}%`,
+                      background: pct === 100 ? "var(--bp-operational)" : cell.failed > 0 ? "var(--bp-fault)" : layerColor(cell.layer),
+                      transition: "width 0.5s ease",
                     }} />
                   </div>
-                );
-              })}
+                  {/* Trust indicator */}
+                  <TrustIcon size={11} style={{
+                    position: "absolute", top: 5, right: 5,
+                    color: trust.color,
+                  }} />
+                </div>
+              );
+            })}
 
-              {/* Failed column */}
-              <div style={{
+            {/* Failed column */}
+            <div
+              style={{
                 ...S.cell,
                 padding: "12px 10px 14px",
                 background: totalFailed > 0 ? "var(--bp-fault)" + "0A" : "var(--bp-surface-1)",
@@ -1446,25 +1538,24 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
                 cursor: totalFailed > 0 ? "pointer" : "default",
                 transition: "all 0.3s ease",
               }}
-                onClick={() => {
-                  if (totalFailed > 0) {
-                    dispatch({ type: "SET_SOURCES", sources: [source] });
-                    dispatch({ type: "SET_STATUSES", statuses: ["failed"] });
-                    dispatch({ type: "SET_TAB", tab: "triage" });
-                  }
-                }}
-              >
-                <span style={{
-                  ...S.data, fontSize: 15, fontWeight: 700,
-                  color: totalFailed > 0 ? "var(--bp-fault)" : "var(--bp-ink-muted)",
-                }}>
-                  {formatNumber(totalFailed)}
-                </span>
-              </div>
+              onClick={() => {
+                if (totalFailed > 0) {
+                  dispatch({ type: "SET_SOURCES", sources: [source] });
+                  dispatch({ type: "SET_STATUSES", statuses: ["failed"] });
+                  dispatch({ type: "SET_TAB", tab: "triage" });
+                }
+              }}
+            >
+              <span style={{
+                ...S.data, fontSize: 15, fontWeight: 700,
+                color: totalFailed > 0 ? "var(--bp-fault)" : "var(--bp-ink-muted)",
+              }}>
+                {formatNumber(totalFailed)}
+              </span>
             </div>
-          );
-        })}
-      </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2790,7 +2881,7 @@ function LoadMissionControlInner() {
   // Available sources (fast dedicated endpoint, not dependent on slow progress query)
   const availableSources = useSources();
 
-  const handleStart = useCallback(async (layers: string[], sourceFilter: string[]) => {
+  const handleStart = useCallback(async (layers: string[], sourceFilter: string[], mode?: string) => {
     try {
       // Set run scope IMMEDIATELY before any async work — prevents poller from
       // seeing stale scope between click and engine startup
@@ -2820,6 +2911,7 @@ function LoadMissionControlInner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          mode: mode || "run",
           layers: layers.length > 0 ? layers : undefined,
           entity_ids: entityIds,
           triggered_by: "dashboard",
@@ -2879,6 +2971,44 @@ function LoadMissionControlInner() {
 
   // SSE for live tab
   const { events: sseEvents, clear: clearSse } = useSSE(scope.isRunActive || scope.activeTab === "live");
+
+  // Extract latest bulk_progress from SSE stream + compute ETA client-side
+  const bulkProgress = useMemo(() => {
+    const bpEvents = sseEvents.filter(e => e.type === "bulk_progress");
+    const bp = bpEvents[bpEvents.length - 1];
+    if (!bp) return null;
+    const d = bp.data as Record<string, unknown>;
+    const completed = (d.completed as number) ?? 0;
+    const total = (d.total as number) ?? 0;
+    const pct = (d.pct as number) ?? 0;
+
+    // Use server-side ETA when available, otherwise compute client-side
+    const serverEta = (d.eta_seconds as number) ?? 0;
+    let etaSeconds: number | null = serverEta > 0 ? serverEta : null;
+    if (!etaSeconds && bpEvents.length >= 2 && completed > 0 && completed < total) {
+      const first = bpEvents[0];
+      const elapsedMs = bp.ts - first.ts;
+      const firstCompleted = ((first.data as Record<string, unknown>).completed as number) ?? 0;
+      const entitiesDone = completed - firstCompleted;
+      if (entitiesDone > 0 && elapsedMs > 0) {
+        const msPerEntity = elapsedMs / entitiesDone;
+        etaSeconds = ((total - completed) * msPerEntity) / 1000;
+      }
+    }
+
+    const workers = (d.active_workers as number) ?? 0;
+    return {
+      completed,
+      total,
+      succeeded: (d.succeeded as number) ?? 0,
+      failed: (d.failed as number) ?? 0,
+      totalRows: (d.total_rows as number) ?? 0,
+      totalBytes: (d.total_bytes as number) ?? 0,
+      pct,
+      etaSeconds,
+      activeWorkers: workers > 0 ? workers : null,
+    };
+  }, [sseEvents]);
 
   // Selected entity from entities list
   const selectedEntity = useMemo(() => entities.find(e => e.EntityId === scope.selectedEntityId) ?? null, [entities, scope.selectedEntityId]);
@@ -2943,10 +3073,10 @@ function LoadMissionControlInner() {
 
       {/* Page heading */}
       <div style={{
-        padding: "20px 32px 0",
+        padding: "28px 32px 16px",
         display: "flex", alignItems: "baseline", gap: 12,
       }}>
-        <h1 style={{ ...S.display, fontSize: 28, fontWeight: 700, color: "var(--bp-ink-primary)", margin: 0 }}>
+        <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", fontWeight: 400, color: "var(--bp-ink-primary)", lineHeight: "1.1", margin: 0 }}>
           Load Mission Control
         </h1>
         <span style={{ ...S.sans, fontSize: 13, color: "var(--bp-ink-muted)" }}>
@@ -3052,7 +3182,63 @@ function LoadMissionControlInner() {
             {progress ? "Refreshing…" : "Loading pipeline data…"}
           </div>
         )}
-        <KpiStrip progress={progress} />
+        <KpiStrip progress={progress} bulkProgress={bulkProgress} />
+
+        {/* Bulk progress ETA banner — visible during active bulk runs */}
+        {bulkProgress && bulkProgress.total > 0 && scope.isRunActive && (
+          <div style={{
+            margin: "0 32px", padding: "12px 20px",
+            background: "var(--bp-surface-1)", border: "1px solid var(--bp-operational)",
+            borderRadius: 8, display: "flex", alignItems: "center", gap: 16,
+          }}>
+            <Zap size={16} style={{ color: "var(--bp-operational)", flexShrink: 0 }} />
+            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 20 }}>
+              <span style={{ ...S.sans, fontSize: 13, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
+                Bulk Snapshot
+              </span>
+              <span style={{ ...S.data, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
+                {bulkProgress.completed} / {bulkProgress.total} entities ({bulkProgress.pct}%)
+              </span>
+              {bulkProgress.totalRows > 0 && (
+                <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
+                  {formatNumber(bulkProgress.totalRows)} rows
+                </span>
+              )}
+              {bulkProgress.totalBytes > 0 && (
+                <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
+                  {(bulkProgress.totalBytes / (1024 * 1024)).toFixed(1)} MB
+                </span>
+              )}
+              {bulkProgress.activeWorkers != null && (
+                <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
+                  {bulkProgress.activeWorkers}w
+                </span>
+              )}
+            </div>
+            {bulkProgress.etaSeconds != null && bulkProgress.etaSeconds > 0 && (
+              <div style={{
+                ...S.data, fontSize: 14, fontWeight: 700, color: "var(--bp-operational)",
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                <Timer size={14} />
+                ETA {Math.ceil(bulkProgress.etaSeconds / 60)}m
+              </div>
+            )}
+            {/* Progress bar */}
+            <div style={{
+              width: 120, height: 6, borderRadius: 3,
+              background: "var(--bp-border)", overflow: "hidden", flexShrink: 0,
+            }}>
+              <div style={{
+                height: "100%", borderRadius: 3,
+                width: `${bulkProgress.pct}%`,
+                background: "var(--bp-operational)",
+                transition: "width 0.5s ease",
+              }} />
+            </div>
+          </div>
+        )}
+
         <PhaseRail progress={progress} engine={engine} />
         <SourceLayerMatrix progress={progress} engine={engine} sourceNames={availableSources} />
       </div>
