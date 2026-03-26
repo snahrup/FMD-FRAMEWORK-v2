@@ -568,6 +568,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="List entities, don't extract")
     parser.add_argument("--skip-existing", action="store_true",
                         help="Skip entities that already have a Parquet file")
+    parser.add_argument("--timeout", "-t", type=int, default=300,
+                        help="Per-table timeout in seconds (default: 300). Tables exceeding this are skipped.")
     args = parser.parse_args()
 
     # ── Output directory ────────────────────────────────────────────────
@@ -667,7 +669,19 @@ def main():
         }
 
         for future in as_completed(futures):
-            result = future.result()
+            entity = futures[future]
+            try:
+                result = future.result(timeout=args.timeout)
+            except TimeoutError:
+                result = {
+                    "id": entity["id"], "name": entity["source_name"].strip(),
+                    "namespace": entity.get("namespace") or entity["database"],
+                    "server": entity["server"], "database": entity["database"],
+                    "status": "failed", "rows": 0, "bytes": 0,
+                    "duration": args.timeout,
+                    "error": f"TIMEOUT: exceeded {args.timeout}s limit — skipped",
+                    "method": method,
+                }
             completed += 1
 
             if result["status"] == "succeeded":
@@ -698,7 +712,6 @@ def main():
                 print(f"         ERROR: {result['error'][:120]}")
 
             # Log to dashboard DB
-            entity = futures[future]
             log_task(run_id, entity, result)
             if completed % 10 == 0 or completed == total:
                 update_run_progress(run_id, succeeded, failed, total_rows, total_bytes,
