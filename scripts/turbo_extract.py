@@ -487,9 +487,10 @@ def main():
         print("No entities found.")
         return
 
-    # Sort by estimated duration (fast first)
+    # Sort by estimated duration (fast first, grinders last)
+    # Uses embedded avg_duration from JSON export, or falls back to DB hints
     hints = get_size_hints()
-    entities.sort(key=lambda e: hints.get(e["id"], 0))
+    entities.sort(key=lambda e: e.get("avg_duration", 0) or hints.get(e["id"], 0))
 
     # Skip existing
     if args.skip_existing:
