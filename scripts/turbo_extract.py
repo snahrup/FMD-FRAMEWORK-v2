@@ -31,7 +31,9 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 
 import polars as pl
@@ -132,6 +134,132 @@ def get_size_hints() -> dict[int, float]:
         return {r["EntityId"]: r["avg_dur"] or 0 for r in rows}
     except Exception:
         return {}
+
+
+# ── Dashboard DB logging ───────────────────────────────────────────────────
+
+_db_lock = threading.Lock()
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _get_db() -> sqlite3.Connection | None:
+    """Get a connection to the control plane DB. Returns None if unavailable."""
+    try:
+        conn = sqlite3.connect(str(DB_PATH), timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+    except Exception:
+        return None
+
+
+def register_run(run_id: str, total_entities: int, method: str, sources: list[str]) -> None:
+    """Create an engine_runs record so the dashboard can track this extraction."""
+    with _db_lock:
+        conn = _get_db()
+        if not conn:
+            return
+        try:
+            conn.execute(
+                """INSERT OR REPLACE INTO engine_runs
+                   (RunId, Mode, Status, TotalEntities, SucceededEntities, FailedEntities,
+                    SkippedEntities, TotalRowsRead, TotalRowsWritten, TotalBytesTransferred,
+                    TotalDurationSeconds, Layers, TriggeredBy, StartedAt, WorkerPid,
+                    CurrentLayer, CompletedUnits, SourceFilter, ResolvedEntityCount)
+                   VALUES (?, ?, 'InProgress', ?, 0, 0, 0, 0, 0, 0, 0, 'landing',
+                           ?, ?, ?, 'landing', 0, ?, ?)""",
+                (run_id, f"turbo_{method}", total_entities,
+                 f"turbo_extract.py ({method})", _now_iso(), os.getpid(),
+                 ",".join(sources) if sources else "", total_entities),
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"  [db] Failed to register run: {e}")
+        finally:
+            conn.close()
+
+
+def log_task(run_id: str, entity: dict, result: dict) -> None:
+    """Write a task log entry for a completed entity extraction."""
+    with _db_lock:
+        conn = _get_db()
+        if not conn:
+            return
+        try:
+            conn.execute(
+                """INSERT INTO engine_task_log
+                   (RunId, EntityId, Layer, Status, SourceServer, SourceDatabase,
+                    SourceTable, RowsRead, RowsWritten, BytesTransferred,
+                    DurationSeconds, TargetPath, LoadType, ErrorType, ErrorMessage,
+                    ExtractionMethod)
+                   VALUES (?, ?, 'landing', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'full', ?, ?, ?)""",
+                (run_id, entity["id"], result["status"],
+                 entity.get("server", ""), entity.get("database", ""),
+                 result["name"], result["rows"], result["rows"],
+                 result["bytes"], result["duration"],
+                 f"{result['namespace']}/{result['name']}.parquet",
+                 result.get("error", "")[:50] if result.get("error") else None,
+                 result.get("error", "")[:500] if result.get("error") else None,
+                 result.get("method", "pyodbc")),
+            )
+            conn.commit()
+        except Exception:
+            pass  # Don't let DB logging kill the extraction
+        finally:
+            conn.close()
+
+
+def update_run_progress(run_id: str, succeeded: int, failed: int, total_rows: int,
+                        total_bytes: int, completed: int, elapsed: float, eta: float) -> None:
+    """Update the run record with current progress."""
+    with _db_lock:
+        conn = _get_db()
+        if not conn:
+            return
+        try:
+            conn.execute(
+                """UPDATE engine_runs SET
+                   SucceededEntities = ?, FailedEntities = ?, TotalRowsRead = ?,
+                   TotalRowsWritten = ?, TotalBytesTransferred = ?,
+                   TotalDurationSeconds = ?, CompletedUnits = ?,
+                   HeartbeatAt = ?, EtaSeconds = ?
+                   WHERE RunId = ?""",
+                (succeeded, failed, total_rows, total_rows, total_bytes,
+                 round(elapsed, 1), completed, _now_iso(), round(eta, 0), run_id),
+            )
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+
+def finish_run(run_id: str, status: str, succeeded: int, failed: int,
+               total_rows: int, total_bytes: int, elapsed: float, error_summary: str = "") -> None:
+    """Mark the run as completed/failed."""
+    with _db_lock:
+        conn = _get_db()
+        if not conn:
+            return
+        try:
+            conn.execute(
+                """UPDATE engine_runs SET
+                   Status = ?, SucceededEntities = ?, FailedEntities = ?,
+                   TotalRowsRead = ?, TotalRowsWritten = ?, TotalBytesTransferred = ?,
+                   TotalDurationSeconds = ?, CompletedUnits = ?,
+                   EndedAt = ?, ErrorSummary = ?, EtaSeconds = 0
+                   WHERE RunId = ?""",
+                (status, succeeded, failed, total_rows, total_rows, total_bytes,
+                 round(elapsed, 1), succeeded + failed,
+                 _now_iso(), error_summary[:500] if error_summary else "", run_id),
+            )
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
 
 
 # ── Method 1: BCP ───────────────────────────────────────────────────────────
@@ -513,6 +641,12 @@ def main():
             print(f"  [{e['id']:>5}] {e['ds_name']:<18} {e['source_name']:<50}{hint_str}")
         return
 
+    # ── Register run in dashboard DB ─────────────────────────────────────
+    run_id = uuid.uuid4().hex[:8]
+    src_list = sorted(set(e["ds_name"] for e in entities))
+    register_run(run_id, total, method, src_list)
+    print(f"Run ID: {run_id} (visible in dashboard)")
+
     # ── BCP temp directory ──────────────────────────────────────────────
     tmp_dir = Path(tempfile.mkdtemp(prefix="turbo_extract_"))
     print(f"Temp: {tmp_dir}")
@@ -562,6 +696,19 @@ def main():
 
             if result["error"]:
                 print(f"         ERROR: {result['error'][:120]}")
+
+            # Log to dashboard DB
+            entity = futures[future]
+            log_task(run_id, entity, result)
+            if completed % 10 == 0 or completed == total:
+                update_run_progress(run_id, succeeded, failed, total_rows, total_bytes,
+                                    completed, elapsed, eta)
+
+    # ── Finalize run in dashboard DB ─────────────────────────────────────
+    final_status = "Completed" if failed == 0 else "CompletedWithErrors"
+    error_summary = f"{failed} failures" if failed > 0 else ""
+    finish_run(run_id, final_status, succeeded, failed, total_rows, total_bytes,
+               time.time() - t_start, error_summary)
 
     # ── Cleanup ─────────────────────────────────────────────────────────
     try:
