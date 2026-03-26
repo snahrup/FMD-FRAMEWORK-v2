@@ -77,6 +77,17 @@ def get_entities(source: str | None = None, limit: int | None = None) -> list[di
         import json
         with open(ENTITIES_JSON) as f:
             entities = json.load(f)
+        # Normalize keys — JSON export may use short names; turbo_extract expects DB column aliases
+        _NS_MAP = {"m3fdbprd": "m3", "mes": "mes", "etqstagingprd": "etq", "optivalive": "optiva", "di_prd_staging": "m3c"}
+        for e in entities:
+            if "source_name" not in e and "table" in e:
+                e["source_name"] = e["table"]
+            if "source_schema" not in e and "schema" in e:
+                e["source_schema"] = e["schema"]
+            if "ds_name" not in e and "source" in e:
+                e["ds_name"] = e["source"]
+            if "namespace" not in e:
+                e["namespace"] = _NS_MAP.get((e.get("ds_name") or e.get("database", "")).lower(), e.get("database"))
         if source:
             entities = [e for e in entities if e.get("ds_name") == source]
         if limit:
