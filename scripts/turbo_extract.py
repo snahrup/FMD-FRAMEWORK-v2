@@ -465,7 +465,7 @@ _pyodbc_pool: dict[str, object] = {}
 _pyodbc_pool_lock = threading.Lock()
 
 
-def _get_pyodbc_conn(server: str, database: str):
+def _get_pyodbc_conn(server: str, database: str, query_timeout: int = 300):
     """Get or create a pyodbc connection (one per server/database per thread)."""
     import pyodbc
     tid = threading.get_ident()
@@ -477,6 +477,7 @@ def _get_pyodbc_conn(server: str, database: str):
     if conn is not None:
         try:
             conn.execute("SELECT 1")
+            conn.timeout = query_timeout  # refresh timeout on reused connections
             return conn
         except Exception:
             pass  # stale — reconnect
@@ -487,12 +488,13 @@ def _get_pyodbc_conn(server: str, database: str):
         f"Trusted_Connection=yes;TrustServerCertificate=yes;"
     )
     conn = pyodbc.connect(conn_str, timeout=60)
+    conn.timeout = query_timeout  # SQL_ATTR_QUERY_TIMEOUT — ODBC driver cancels query after this
     with _pyodbc_pool_lock:
         _pyodbc_pool[key] = conn
     return conn
 
 
-def extract_pyodbc(entity: dict, output_dir: Path) -> dict:
+def extract_pyodbc(entity: dict, output_dir: Path, query_timeout: int = 300) -> dict:
     """pyodbc extraction with per-thread connection reuse + NOLOCK."""
     t0 = time.perf_counter()
     name = entity["source_name"].strip()
@@ -509,7 +511,7 @@ def extract_pyodbc(entity: dict, output_dir: Path) -> dict:
     }
 
     try:
-        conn = _get_pyodbc_conn(server, database)
+        conn = _get_pyodbc_conn(server, database, query_timeout=query_timeout)
         cursor = conn.cursor()
         cursor.execute(f"SELECT * FROM [{schema}].[{name}] WITH (NOLOCK)")
 
@@ -548,20 +550,31 @@ def extract_pyodbc(entity: dict, output_dir: Path) -> dict:
     except Exception as exc:
         result["error"] = str(exc)[:300]
         result["duration"] = round(time.perf_counter() - t0, 2)
+        # Timeout or broken connection — evict from pool so next entity gets a fresh one
+        if "timeout" in str(exc).lower() or "communication" in str(exc).lower():
+            tid = threading.get_ident()
+            key = f"{tid}:{server}:{database}"
+            with _pyodbc_pool_lock:
+                _pyodbc_pool.pop(key, None)
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     return result
 
 
 # ── Orchestrator ────────────────────────────────────────────────────────────
 
-def extract_one(entity: dict, method: str, output_dir: Path, tmp_dir: Path) -> dict:
+def extract_one(entity: dict, method: str, output_dir: Path, tmp_dir: Path,
+                 query_timeout: int = 300) -> dict:
     """Extract a single entity using the specified method."""
     if method == "bcp":
         return extract_bcp(entity, output_dir, tmp_dir)
     elif method == "arrow-odbc":
         return extract_arrow_odbc(entity, output_dir)
     else:
-        return extract_pyodbc(entity, output_dir)
+        return extract_pyodbc(entity, output_dir, query_timeout=query_timeout)
 
 
 def main():
@@ -675,24 +688,14 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(extract_one, e, method, output_dir, tmp_dir): e
+            pool.submit(extract_one, e, method, output_dir, tmp_dir,
+                        query_timeout=args.timeout): e
             for e in entities
         }
 
         for future in as_completed(futures):
             entity = futures[future]
-            try:
-                result = future.result(timeout=args.timeout)
-            except TimeoutError:
-                result = {
-                    "id": entity["id"], "name": entity["source_name"].strip(),
-                    "namespace": entity.get("namespace") or entity["database"],
-                    "server": entity["server"], "database": entity["database"],
-                    "status": "failed", "rows": 0, "bytes": 0,
-                    "duration": args.timeout,
-                    "error": f"TIMEOUT: exceeded {args.timeout}s limit — skipped",
-                    "method": method,
-                }
+            result = future.result()  # timeout is now enforced at ODBC level
             completed += 1
 
             if result["status"] == "succeeded":
