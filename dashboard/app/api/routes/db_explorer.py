@@ -80,6 +80,9 @@ def execute_query(params):
     sql = params.get("sql", "").strip()
     if not sql:
         raise HttpError("sql is required", 400)
+    # SECURITY: reject semicolons to prevent stacked-statement injection
+    if ";" in sql:
+        raise HttpError("Semicolons are not allowed — one statement at a time", 400)
     normalized = sql.upper().lstrip()
     if not normalized.startswith("SELECT") and not normalized.startswith("PRAGMA"):
         raise HttpError("Only SELECT and PRAGMA queries allowed", 400)

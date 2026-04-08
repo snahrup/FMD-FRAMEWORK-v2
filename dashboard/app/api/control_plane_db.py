@@ -1908,14 +1908,51 @@ def get_source_config() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def bulk_seed(table: str, rows: list[dict]) -> int:
-    """Bulk INSERT OR REPLACE for deploy-script seeding. Returns row count."""
+    """Bulk INSERT OR REPLACE for deploy-script seeding. Returns row count.
+
+    SHARED-BE-003: Table and column names are validated against the actual
+    SQLite schema to prevent SQL injection via dict keys.
+    """
     if not rows:
         return 0
-    # Use the keys from the first row as the column set
-    cols = list(rows[0].keys())
+
+    # ── SHARED-BE-003: Validate table name against actual DB schema ──
+    conn = _get_conn()
+    try:
+        known_tables = {
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if table not in known_tables:
+            raise ValueError(
+                f"bulk_seed rejected: table '{table}' is not a known "
+                f"control-plane table. Known: {sorted(known_tables)}"
+            )
+
+        # ── Validate column names against actual table schema ──
+        actual_cols = {
+            r[1] for r in conn.execute(
+                f"PRAGMA table_info([{table.replace(']', ']]')}])"
+            ).fetchall()
+        }
+        requested_cols = list(rows[0].keys())
+        bad_cols = [c for c in requested_cols if c not in actual_cols]
+        if bad_cols:
+            raise ValueError(
+                f"bulk_seed rejected: columns {bad_cols} do not exist in "
+                f"table '{table}'. Valid columns: {sorted(actual_cols)}"
+            )
+    finally:
+        conn.close()
+
+    # Build SQL with validated identifiers — bracket-escape for safety
+    cols = requested_cols
+    safe_col_names = ', '.join(f'[{c.replace("]", "]]")}]' for c in cols)
+    safe_table = f'[{table.replace("]", "]]")}]'
     placeholders = ', '.join(['?'] * len(cols))
-    col_names = ', '.join(cols)
-    sql = f"INSERT OR REPLACE INTO {table} ({col_names}) VALUES ({placeholders})"
+    sql = f"INSERT OR REPLACE INTO {safe_table} ({safe_col_names}) VALUES ({placeholders})"
+
     count = 0
     with _db_lock:
         conn = _get_conn()

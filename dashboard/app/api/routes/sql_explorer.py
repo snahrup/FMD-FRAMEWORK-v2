@@ -95,11 +95,22 @@ def _validate_server(server: str) -> None:
     are explicitly registered in the metadata DB can be connected to.
     Unregistered hostnames return HTTP 403.
     """
+    # SECURITY: reject empty-after-strip and malformed server names
+    stripped = server.strip() if server else ""
+    if not stripped:
+        raise HttpError("Server name must not be empty", 400)
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9\-.,]*", stripped):
+        raise HttpError(
+            f"Server name '{server}' contains invalid characters. "
+            "Only alphanumeric chars, hyphens, dots, and commas are allowed.",
+            400,
+        )
     allowed = db.query(
         "SELECT ServerName FROM connections WHERE ServerName IS NOT NULL AND ServerName != '' AND IsActive = 1"
     )
     allowed_servers = {r["ServerName"].strip().lower() for r in allowed if r.get("ServerName")}
-    if server.strip().lower() not in allowed_servers:
+    if stripped.lower() not in allowed_servers:
         raise HttpError(
             f"Server '{server}' is not in registered connections. "
             "Register it in the Source Manager before exploring.",

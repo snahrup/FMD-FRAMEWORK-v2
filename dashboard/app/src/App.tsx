@@ -1,7 +1,8 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { BackgroundTaskProvider } from '@/contexts/BackgroundTaskContext'
 import { PersonaProvider } from '@/contexts/PersonaContext'
 import { AppLayout } from '@/components/layout/AppLayout'
+import ErrorBoundary from '@/components/ErrorBoundary'
 import ExecutionMatrix from '@/pages/ExecutionMatrix'
 import BusinessOverview from '@/pages/BusinessOverview'
 import { BusinessShell } from '@/components/layout/BusinessShell'
@@ -78,11 +79,28 @@ function HomeLanding() {
   return <Navigate to="/overview" replace />;
 }
 
+function NotFound() {
+  return (
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 text-center">
+      <h1 className="text-4xl font-semibold" style={{ color: "#1C1917" }}>404</h1>
+      <p className="text-sm" style={{ color: "#78716C" }}>Page not found</p>
+      <Link
+        to="/"
+        className="mt-2 rounded-md px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
+        style={{ backgroundColor: "#292524" }}
+      >
+        Back to Home
+      </Link>
+    </div>
+  );
+}
+
 function App() {
   return (
     <PersonaProvider>
     <BackgroundTaskProvider>
     <AppLayout>
+      <ErrorBoundary>
       <Routes>
         <Route path="/" element={<HomeLanding />} />
         {/* Business Portal routes */}
@@ -147,7 +165,9 @@ function App() {
         <Route path="/labs/scd-audit" element={<ScdAudit />} />
         <Route path="/labs/gold-mlv" element={<GoldMlvManager />} />
         <Route path="/labs/dq-scorecard" element={<DqScorecard />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
+      </ErrorBoundary>
     </AppLayout>
     </BackgroundTaskProvider>
     </PersonaProvider>

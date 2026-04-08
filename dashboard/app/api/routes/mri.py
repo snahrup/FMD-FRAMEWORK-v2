@@ -66,8 +66,23 @@ def _save_data(data: dict):
     _DATA_FILE.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
 
+def _safe_component(value: str) -> str:
+    """Validate a path component — no traversal, no slashes, no null bytes.
+
+    Security: prevents path-traversal attacks via runId or similar params
+    that are used to construct filesystem paths.  Only alphanumeric chars,
+    hyphens, underscores, and dots are allowed.
+    """
+    if not value or not value.strip():
+        raise HttpError("Path component must not be empty", 400)
+    if ".." in value or "/" in value or "\\" in value or "\x00" in value:
+        raise HttpError("Invalid path component", 400)
+    return value
+
+
 def _load_run_file(run_id: str, filename: str) -> list | dict | None:
     """Load a JSON file from a specific run directory."""
+    run_id = _safe_component(run_id)
     run_dir = _RUNS_DIR / run_id
     fpath = run_dir / filename
     if fpath.exists():
@@ -80,6 +95,7 @@ def _load_run_file(run_id: str, filename: str) -> list | dict | None:
 
 def _save_run_file(run_id: str, filename: str, data):
     """Save a JSON file to a specific run directory."""
+    run_id = _safe_component(run_id)
     run_dir = _RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     fpath = run_dir / filename
@@ -575,7 +591,7 @@ def post_mri_run(params: dict) -> dict:
 @route("GET", "/api/mri/runs/{runId}/convergence")
 def get_mri_convergence(params: dict) -> list:
     """Return convergence data for a specific run."""
-    run_id = params.get("runId", "")
+    run_id = _safe_component(params.get("runId", ""))
     data = _load_run_file(run_id, "convergence.json")
     if isinstance(data, list):
         return data
@@ -589,7 +605,7 @@ def get_mri_convergence(params: dict) -> list:
 @route("GET", "/api/mri/runs/{runId}/visual-diffs")
 def get_mri_visual_diffs(params: dict) -> list:
     """Return visual diff results for a specific run."""
-    run_id = params.get("runId", "")
+    run_id = _safe_component(params.get("runId", ""))
     data = _load_run_file(run_id, "visual-diffs.json")
     if isinstance(data, list):
         return data
@@ -603,7 +619,7 @@ def get_mri_visual_diffs(params: dict) -> list:
 @route("GET", "/api/mri/runs/{runId}/backend-results")
 def get_mri_backend_results(params: dict) -> list:
     """Return backend API test results for a specific run."""
-    run_id = params.get("runId", "")
+    run_id = _safe_component(params.get("runId", ""))
     data = _load_run_file(run_id, "backend-results.json")
     if isinstance(data, list):
         return data
@@ -617,7 +633,7 @@ def get_mri_backend_results(params: dict) -> list:
 @route("GET", "/api/mri/runs/{runId}/ai-analyses")
 def get_mri_ai_analyses(params: dict) -> list:
     """Return AI analysis results for a specific run."""
-    run_id = params.get("runId", "")
+    run_id = _safe_component(params.get("runId", ""))
     data = _load_run_file(run_id, "ai-analyses.json")
     if isinstance(data, list):
         return data
@@ -631,7 +647,7 @@ def get_mri_ai_analyses(params: dict) -> list:
 @route("GET", "/api/mri/runs/{runId}/flake-results")
 def get_mri_flake_results(params: dict) -> list:
     """Return flake detection results for a specific run."""
-    run_id = params.get("runId", "")
+    run_id = _safe_component(params.get("runId", ""))
     data = _load_run_file(run_id, "flake-results.json")
     if isinstance(data, list):
         return data
@@ -645,8 +661,8 @@ def get_mri_flake_results(params: dict) -> list:
 @route("GET", "/api/mri/runs/{runId}/iteration/{n}")
 def get_mri_iteration(params: dict) -> dict:
     """Return iteration detail for a specific run and iteration number."""
-    run_id = params.get("runId", "")
-    n = params.get("n", "1")
+    run_id = _safe_component(params.get("runId", ""))
+    n = _safe_component(params.get("n", "1"))
     data = _load_run_file(run_id, f"iteration-{n}.json")
     if isinstance(data, dict):
         return data
