@@ -1302,9 +1302,10 @@ def upsert_pipeline(row: dict) -> None:
         try:
             conn.execute(
                 "INSERT OR REPLACE INTO pipelines "
-                "(PipelineId, Name, IsActive, updated_at) "
-                "VALUES (?, ?, ?, ?)",
+                "(PipelineId, Name, PipelineGuid, WorkspaceGuid, IsActive, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (row.get('PipelineId'), _v(row.get('Name')),
+                 _v(row.get('PipelineGuid')), _v(row.get('WorkspaceGuid')),
                  row.get('IsActive', 1), _now())
             )
             conn.commit()
@@ -1723,7 +1724,8 @@ def get_pipelines() -> list[dict]:
     conn = _get_conn()
     try:
         rows = conn.execute(
-            "SELECT PipelineId, Name, IsActive FROM pipelines ORDER BY Name"
+            "SELECT PipelineId, Name, PipelineGuid, WorkspaceGuid, IsActive "
+            "FROM pipelines ORDER BY Name"
         ).fetchall()
         return [dict(r) for r in rows]
     finally:

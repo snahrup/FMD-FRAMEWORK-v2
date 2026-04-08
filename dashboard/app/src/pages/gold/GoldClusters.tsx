@@ -282,7 +282,7 @@ export default function GoldClusters() {
     ) => {
       if (reconClusterId === null) return;
       try {
-        const res = await fetch(`${API}/clusters/${reconClusterId}/columns`, {
+        const res = await fetch(`${API}/clusters/${reconClusterId}/column-decisions`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ decisions }),
@@ -301,25 +301,14 @@ export default function GoldClusters() {
     [reconClusterId, fetchStats, fetchClusters, showToast]
   );
 
+  // TODO(P14): wire to actual endpoint — PUT /api/gold-studio/entities/{id} does not exist yet
   // Mark unclustered entity as standalone — sets provenance to 'canonicalized'
   // which removes it from the unclustered list. Does NOT create a canonical entity record.
   const handlePromote = useCallback(
-    async (entityId: number) => {
-      try {
-        // Mark as standalone by setting provenance to 'canonicalized'
-        const res = await fetch(`${API}/entities/${entityId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provenance: "canonicalized" }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        await Promise.all([fetchStats(), fetchUnclustered()]);
-        showToast("Entity marked as standalone", "success");
-      } catch {
-        showToast("Failed to mark entity as standalone", "error");
-      }
+    async (_entityId: number) => {
+      showToast("Standalone promotion not yet available — backend endpoint pending", "info");
     },
-    [fetchStats, fetchUnclustered, showToast]
+    [showToast]
   );
 
   // Soft-delete unclustered entity — removes from consideration

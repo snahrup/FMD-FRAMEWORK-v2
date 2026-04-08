@@ -21,8 +21,8 @@
 | 8 | AUDIT-ControlPlane.md | ControlPlane | `/control` | EXISTING | VERIFY_AND_EXTEND |
 | 9 | AUDIT-DatabaseExplorer.md | DatabaseExplorer | `/db-explorer` | EXISTING | VERIFY_AND_EXTEND |
 | 10 | AUDIT-DataBlender.md | DataBlender | `/blender` | EXISTING | VERIFY_AND_EXTEND |
-| 11 | AUDIT-DataCatalog.md | DataCatalog | `/catalog` | EXISTING | SUPERSEDE_AND_REPLACE |
-| 12 | AUDIT-DataClassification.md | DataClassification | `/classification` | EXISTING | SUPERSEDE_AND_REPLACE |
+| 11 | AUDIT-DataCatalog.md | DataCatalog | `/catalog` | EXISTING | VERIFY_AND_EXTEND |
+| 12 | AUDIT-DataClassification.md | DataClassification | `/classification` | EXISTING | VERIFY_AND_EXTEND |
 | 13 | AUDIT-DataJourney.md | DataJourney | `/journey` | EXISTING | VERIFY_AND_EXTEND |
 | 14 | AUDIT-DataLineage.md | DataLineage | `/lineage` | EXISTING | VERIFY_AND_EXTEND |
 | 15 | AUDIT-DataManager.md | DataManager | `/data-manager` | EXISTING | VERIFY_AND_EXTEND |
@@ -38,7 +38,7 @@
 | 25 | AUDIT-GoldCanonical.md | GoldCanonical | `/gold/canonical` | EXISTING | VERIFY_AND_EXTEND |
 | 26 | AUDIT-GoldLedger.md | GoldLedger | `/gold/ledger` | EXISTING | VERIFY_AND_EXTEND |
 | 27 | AUDIT-GoldSpecs.md | GoldSpecs | `/gold/specs` | EXISTING | VERIFY_AND_EXTEND |
-| 28 | AUDIT-ImpactAnalysis.md | ImpactAnalysis | `/impact` | EXISTING | SUPERSEDE_AND_REPLACE |
+| 28 | AUDIT-ImpactAnalysis.md | ImpactAnalysis | `/impact` | EXISTING | VERIFY_AND_EXTEND |
 | 29 | AUDIT-ImpactPulse.md | ImpactPulse | `/pulse` | EXISTING | VERIFY_AND_EXTEND |
 | 30 | AUDIT-LiveMonitor.md | LiveMonitor | `/live` | EXISTING | VERIFY_AND_EXTEND |
 | 31 | AUDIT-LoadMissionControl.md | LoadMissionControl | `/load-mission-control` | EXISTING | VERIFY_AND_EXTEND |
@@ -120,3 +120,10 @@
 | Shared infrastructure audit to create | 1 |
 | Consolidation documents to create | 2 |
 | **Total audit files at completion** | **67** |
+
+---
+
+## Corrections Applied (Packet P9, 2026-04-08)
+
+1. **GOV-002 DataClassification, GOV-003 DataCatalog, GOV-004 ImpactAnalysis**: Disposition changed from `SUPERSEDE_AND_REPLACE` to `VERIFY_AND_EXTEND`. Phase 1 GOV-MOCK-TRUTH audit confirmed these pages use real data (Entity Digest, real SQL queries), not mock data. The existing audits are accurate and need extension, not replacement. Reality classification corrected from MOCK to REAL_WITH_GAPS in the manifest.
+2. **LAB-001 through LAB-004**: All four labs pages confirmed as full implementations (700-900+ lines each) with real backends, not stubs. Reality classification corrected from STUBBED to REAL in the manifest. Surface type corrected from `stub` to `page`.

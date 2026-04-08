@@ -1150,11 +1150,13 @@ def get_load_config(params: dict) -> list:
             "le.SourceSchema AS [schema], le.SourceName AS [table], le.FileName, "
             "le.IsIncremental, le.IsIncrementalColumn AS watermarkColumn, "
             "be.BronzeLayerEntityId AS bronzeEntityId, be.PrimaryKeys AS primaryKeys, "
-            "se.SilverLayerEntityId AS silverEntityId "
+            "se.SilverLayerEntityId AS silverEntityId, "
+            "wm.LastLoadDatetime AS lastLoadTime, wm.LoadValue AS lastWatermarkValue "
             "FROM lz_entities le "
             "LEFT JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
             "LEFT JOIN bronze_entities be ON le.LandingzoneEntityId = be.LandingzoneEntityId "
             "LEFT JOIN silver_entities se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId "
+            "LEFT JOIN watermarks wm ON le.LandingzoneEntityId = wm.LandingzoneEntityId "
             "WHERE le.DataSourceId = ? "
             "ORDER BY ds.Name, le.SourceSchema, le.SourceName",
             (int(ds_id_str),),
@@ -1165,11 +1167,13 @@ def get_load_config(params: dict) -> list:
         "le.SourceSchema AS [schema], le.SourceName AS [table], le.FileName, "
         "le.IsIncremental, le.IsIncrementalColumn AS watermarkColumn, "
         "be.BronzeLayerEntityId AS bronzeEntityId, be.PrimaryKeys AS primaryKeys, "
-        "se.SilverLayerEntityId AS silverEntityId "
+        "se.SilverLayerEntityId AS silverEntityId, "
+        "wm.LastLoadDatetime AS lastLoadTime, wm.LoadValue AS lastWatermarkValue "
         "FROM lz_entities le "
         "LEFT JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
         "LEFT JOIN bronze_entities be ON le.LandingzoneEntityId = be.LandingzoneEntityId "
         "LEFT JOIN silver_entities se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId "
+        "LEFT JOIN watermarks wm ON le.LandingzoneEntityId = wm.LandingzoneEntityId "
         "ORDER BY ds.Name, le.SourceSchema, le.SourceName"
     )
 

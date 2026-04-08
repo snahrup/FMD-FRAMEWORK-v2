@@ -126,12 +126,15 @@ def get_coverage(params, body, headers):
     """Which entities have registered schemas (based on validation results)."""
     conn = cpdb._get_conn()
 
-    # Entities that have been validated at least once
+    # Entities that have been validated at least once (deduplicate on entity_id
+    # so an entity validated with different schema_names across runs is counted once)
     validated = conn.execute("""
-        SELECT DISTINCT sv.entity_id, lz.SourceName, lz.SourceSchema, sv.schema_name
+        SELECT sv.entity_id, lz.SourceName, lz.SourceSchema,
+               MAX(sv.schema_name) AS schema_name
         FROM schema_validations sv
         LEFT JOIN lz_entities lz ON sv.entity_id = lz.LandingzoneEntityId
         WHERE sv.schema_name IS NOT NULL
+        GROUP BY sv.entity_id, lz.SourceName, lz.SourceSchema
     """).fetchall()
 
     total_active = conn.execute("SELECT COUNT(*) FROM lz_entities WHERE IsActive = 1").fetchone()[0]

@@ -220,21 +220,17 @@ export default function DatasetDetail() {
     fetchEntityData();
   }, [isEntity, entityId]);
 
-  // ── Fetch gold model data ──
+  // ── Gold model data ──
+  // TODO(P14): wire to actual endpoint — /api/gold/models/{id} does not exist yet
+  // When the backend endpoint is created, replace this with a real fetch.
   useEffect(() => {
     if (!isGoldModel || !goldModelId) {
       setGoldLoading(false);
       return;
     }
-
-    fetch(`${API}/api/gold/models/${goldModelId}`)
-      .then((r) => {
-        if (!r.ok) throw new Error("not found");
-        return r.json();
-      })
-      .then((data) => setGoldModel(data))
-      .catch(() => setGoldNotFound(true))
-      .finally(() => setGoldLoading(false));
+    // No backend endpoint exists — immediately show "not found" state
+    setGoldNotFound(true);
+    setGoldLoading(false);
   }, [isGoldModel, goldModelId]);
 
   // ── Gold model mode ──
@@ -264,11 +260,8 @@ export default function DatasetDetail() {
         <BackLink />
         <Breadcrumb items={[goldModel.domain || "Model", goldModel.name]} />
 
-        <div className="flex items-center gap-3 mb-8">
-          <h1
-            className="bp-display text-[28px] leading-none"
-            style={{ color: "var(--bp-ink-primary)" }}
-          >
+        <div style={{ marginBottom: 24 }}>
+          <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
             {goldModel.name}
           </h1>
         </div>
@@ -358,11 +351,8 @@ export default function DatasetDetail() {
       />
 
       {/* Hero */}
-      <div className="mb-8">
-        <h1
-          className="bp-display text-[28px] leading-none mb-3"
-          style={{ color: "var(--bp-ink-primary)" }}
-        >
+      <div style={{ marginBottom: 24 }}>
+        <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
           {displayName}
         </h1>
         <div className="flex items-center gap-3">

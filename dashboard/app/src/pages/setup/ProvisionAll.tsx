@@ -62,6 +62,8 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
   const [copied, setCopied] = useState(false);
   const configRef = useRef<EnvironmentConfig | null>(null);
 
+  // TODO(P14): wire to actual endpoint — POST /api/setup/provision-all does not exist yet.
+  // When implemented, restore the real provisioning call here.
   const handleProvision = async () => {
     if (!capacity) return;
     setProvisioning(true);
@@ -69,6 +71,13 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
     setError(null);
     setDone(false);
 
+    // Backend endpoint not yet implemented — show informational error
+    setError("Provisioning endpoint not yet available. Use deploy_from_scratch.py for environment setup.");
+    setProvisioning(false);
+    return;
+
+    // --- Dead code below kept for reference when endpoint is created ---
+    /* istanbul ignore next */
     const placeholders: ProvisionStep[] = [
       { name: "Connections: carry forward", status: "creating" },
       { name: "Workspace: INTEGRATION DATA (D)", status: "creating" },

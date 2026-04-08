@@ -246,37 +246,11 @@ export default function ControlPlane() {
 
   if (!data) return null;
 
+  // TODO(P14): wire to actual endpoints — /api/entity-digest/resync and
+  // /api/maintenance-agent/trigger do not exist yet. When implemented, restore
+  // the resync + notebook trigger calls here.
   async function runMaintenanceAgent() {
-    setMaintenanceRunning(true);
-    setMaintenanceResult(null);
-    const results: string[] = [];
-    try {
-      // First: server-side resync (fast, SQL-only)
-      const resyncRes = await fetch('/api/entity-digest/resync', { method: 'POST' });
-      if (resyncRes.ok) {
-        const resyncData = await resyncRes.json();
-        results.push(`Resync done (${resyncData.steps?.length || 0} steps)`);
-      } else {
-        results.push(`Resync: ${resyncRes.status} ${resyncRes.statusText}`);
-      }
-
-      // Second: trigger Fabric notebook (OneLake scan)
-      const agentRes = await fetch('/api/maintenance-agent/trigger', { method: 'POST' });
-      if (agentRes.ok) {
-        const agentData = await agentRes.json();
-        results.push(agentData.error ? `Notebook: ${agentData.error}` : 'Maintenance Agent triggered');
-      } else {
-        results.push(`Notebook: ${agentRes.status} ${agentRes.statusText}`);
-      }
-
-      setMaintenanceResult(results.join(' · '));
-      // Refresh data after resync
-      setRefreshKey(k => k + 1);
-    } catch (e: unknown) {
-      setMaintenanceResult(`Error: ${e instanceof Error ? e.message : 'unknown'}`);
-    } finally {
-      setMaintenanceRunning(false);
-    }
+    setMaintenanceResult("Maintenance agent not yet available — backend endpoints pending");
   }
 
   const healthCfg = HEALTH_CONFIG[data.health] || HEALTH_CONFIG.setup;
@@ -303,8 +277,10 @@ export default function ControlPlane() {
       {/* ── Header ── */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Control Plane</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
+            Control Plane
+          </h1>
+          <p style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 4 }}>
             Metadata database — the single source of truth driving all FMD pipelines
           </p>
         </div>
@@ -315,15 +291,13 @@ export default function ControlPlane() {
           </label>
           <button
             onClick={runMaintenanceAgent}
-            disabled={maintenanceRunning}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg transition-colors disabled:opacity-50"
+            disabled={true}
+            className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ background: "var(--bp-caution-light)", border: "1px solid var(--bp-caution)", color: "var(--bp-caution)" }}
-            title="Run server-side resync + trigger OneLake maintenance agent in Fabric"
+            title="Maintenance agent — backend endpoints not yet implemented"
           >
-            {maintenanceRunning
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              : <Wrench className="h-3.5 w-3.5" />}
-            {maintenanceRunning ? 'Running...' : 'Maintenance'}
+            <Wrench className="h-3.5 w-3.5" />
+            Maintenance
           </button>
           <button
             onClick={() => setRefreshKey(k => k + 1)}

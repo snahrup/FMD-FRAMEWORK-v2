@@ -208,10 +208,13 @@ class LoadOrchestrator:
             missing.append("sql_database")
 
         if missing:
-            log.error(
-                "CONFIGURATION ERROR: %d critical fields are empty: %s. "
-                "Fix via Admin → Environment → Save & Propagate.",
-                len(missing), ", ".join(missing),
+            # SHARED-ENG-005: Raise on empty GUIDs instead of logging and continuing.
+            # Previously this only logged a warning, allowing the engine to start
+            # with an invalid config and fail in confusing ways downstream.
+            raise ValueError(
+                f"CONFIGURATION ERROR: {len(missing)} critical fields are empty: "
+                f"{', '.join(missing)}. "
+                "Fix via Admin → Environment → Save & Propagate."
             )
 
     # ------------------------------------------------------------------
@@ -675,12 +678,18 @@ class LoadOrchestrator:
 
     @staticmethod
     def _cpdb_execute(sql: str, params: tuple = ()) -> None:
-        """Execute a write statement against the local SQLite control-plane DB."""
+        """Execute a write statement against the local SQLite control-plane DB.
+
+        SHARED-ENG-010: Previously swallowed all write failures silently.
+        Now logs at WARNING and re-raises so callers (watermark updates,
+        status writes) are aware the write did not persist.
+        """
         try:
             from dashboard.app.api import db as fmd_db
             fmd_db.execute(sql, params)
         except Exception as exc:
-            log.warning("SQLite execute failed: %s", exc)
+            log.warning("SQLite execute failed (will raise): %s — SQL: %s", exc, sql[:120])
+            raise
 
     def _get_completed_entity_ids(self, run_id: str, layer: str) -> set[int]:
         """Query engine_task_log for entities already succeeded in this run+layer."""
@@ -695,15 +704,20 @@ class LoadOrchestrator:
         """Write heartbeat + progress to engine_runs every 30s.
 
         Runs in a daemon thread. Stops when self.status leaves "running".
+        Heartbeat failures are non-fatal — the run continues even if the
+        dashboard DB is temporarily unavailable.
         """
         while self.status == "running" and not self._stop_requested:
-            self._cpdb_execute(
-                "UPDATE engine_runs SET "
-                "HeartbeatAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
-                "CurrentLayer = ?, CompletedUnits = ? "
-                "WHERE RunId = ?",
-                (self._current_layer, self._completed_units, run_id),
-            )
+            try:
+                self._cpdb_execute(
+                    "UPDATE engine_runs SET "
+                    "HeartbeatAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+                    "CurrentLayer = ?, CompletedUnits = ? "
+                    "WHERE RunId = ?",
+                    (self._current_layer, self._completed_units, run_id),
+                )
+            except Exception:
+                pass  # Heartbeat is best-effort; _cpdb_execute already logged the warning
             time.sleep(30)
 
     # ------------------------------------------------------------------
@@ -1206,6 +1220,15 @@ class LoadOrchestrator:
             retry_result_ids = {r.entity_id for r in retry_results}
             results = [r for r in results if r.entity_id not in retry_result_ids] + retry_results
 
+        # SHARED-ENG-004: Log failures ONCE here, after the retry sweep has had
+        # its chance.  Successes are already logged inside _try_entity (pipeline)
+        # or _try_entity_local (local).  This ensures exactly one audit entry per
+        # entity per run — no duplicates from the retry sweep re-processing.
+        entity_map = {e.id: e for e in entities}
+        for r in results:
+            if r.status == "failed" and r.entity_id in entity_map:
+                self._audit.log_entity_result(run_id, entity_map[r.entity_id], r)
+
         return results
 
     @staticmethod
@@ -1316,8 +1339,12 @@ class LoadOrchestrator:
             else:
                 break
 
-        # All retries exhausted or non-transient error
-        self._audit.log_entity_result(run_id, entity, last_result)
+        # SHARED-ENG-004: Removed duplicate audit log here. Previously, failures
+        # were logged here AND again if the retry sweep (in _run_landing_zone)
+        # re-processed the entity. Successes were already logged inside
+        # _try_entity (pipeline) or _try_entity_local (local).
+        # Failure logging now happens in _run_landing_zone after the retry sweep,
+        # ensuring each entity gets exactly one audit log entry per run.
 
         # Feed result to circuit breaker
         server_key = entity.source_server or ""
@@ -1327,6 +1354,47 @@ class LoadOrchestrator:
             self._circuit_breaker.record_failure(server_key, last_result.error or "")
 
         return last_result
+
+    def _query_source_watermark(self, entity: Entity) -> Optional[str]:
+        """Query the source database for the current MAX(watermark_column).
+
+        SHARED-ENG-003: Pipeline mode copies data via Fabric REST API, which
+        does not report the new watermark value.  After a successful pipeline
+        copy we query the source to discover what the new high-water mark is,
+        so incremental loads don't re-extract the same data forever.
+
+        Returns the new watermark string, or None if not applicable / on error.
+        """
+        if not entity.is_incremental or not entity.watermark_column:
+            return None
+
+        try:
+            schema = entity.source_schema or "dbo"
+            # Use bracket-quoted identifiers to prevent SQL injection
+            sql = (
+                f"SELECT MAX([{entity.watermark_column}]) AS MaxWM "
+                f"FROM [{schema}].[{entity.source_name.strip()}]"
+            )
+            with self._source_conn.connect(
+                entity.source_server, entity.source_database, timeout=15
+            ) as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql)
+                row = cursor.fetchone()
+                if row and row[0] is not None:
+                    wm_val = str(row[0])
+                    # Truncate microseconds to 3 decimal places for SQL Server
+                    # datetime compatibility (same logic as extractor)
+                    if "." in wm_val and len(wm_val.rsplit(".", 1)[-1]) > 3:
+                        wm_val = wm_val[:wm_val.index(".") + 4]
+                    return wm_val
+        except Exception as exc:
+            log.warning(
+                "Failed to query source watermark for %s.%s (non-fatal, "
+                "watermark will not advance this run): %s",
+                entity.source_schema, entity.source_name, exc,
+            )
+        return None
 
     def _try_entity(self, run_id: str, entity: Entity) -> RunResult:
         """Single attempt — dispatches to pipeline or local based on load method.
@@ -1343,6 +1411,21 @@ class LoadOrchestrator:
                 stop_check=lambda: self._stop_requested,
             )
             if result.succeeded:
+                # SHARED-ENG-003: Query source for the real watermark value.
+                # The Fabric pipeline API does not report what data it copied,
+                # so we ask the source for MAX(watermark_column) to advance
+                # the watermark and prevent re-extracting the same rows.
+                new_wm = self._query_source_watermark(entity)
+                if new_wm:
+                    result = RunResult(
+                        entity_id=result.entity_id,
+                        layer=result.layer,
+                        status=result.status,
+                        duration_seconds=result.duration_seconds,
+                        watermark_before=entity.last_load_value,
+                        watermark_after=new_wm,
+                    )
+
                 # Update metadata on pipeline success
                 self._audit.log_entity_result(run_id, entity, result)
                 if result.watermark_after and result.watermark_after != entity.last_load_value:

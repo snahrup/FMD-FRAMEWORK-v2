@@ -98,13 +98,18 @@ class FabricPipelineRunner:
         elapsed = round(time.time() - start, 2)
 
         if status == "Completed":
+            # SHARED-ENG-003: Set watermark_after to None instead of echoing
+            # the old value.  The orchestrator's _query_source_watermark() will
+            # query the source for MAX(watermark_column) and fill this in.
+            # Previously this echoed last_load_value, so the watermark never
+            # advanced and incremental entities re-extracted the same data.
             return RunResult(
                 entity_id=entity.id,
                 layer="landing",
                 status="succeeded",
                 duration_seconds=elapsed,
                 watermark_before=entity.last_load_value,
-                watermark_after=entity.last_load_value,  # pipeline doesn't report new watermark
+                watermark_after=None,
             )
 
         # Cancelled (engine stop requested)

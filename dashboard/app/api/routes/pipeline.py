@@ -651,14 +651,25 @@ def post_runner_prepare(params: dict) -> dict:
             "layer": layer,
             "selectedSources": ds_ids,
             "selectedEntityIds": entity_ids,
-            "deactivated": {"lz": [], "bronze": [], "silver": []},
-            "affected": {"lz": 0, "bronze": 0, "silver": 0},
-            "kept": {"lz": 0, "bronze": 0, "silver": 0},
+            # ECT-RUN-001: Entity deactivation/scoping is not implemented.
+            # Previously returned fabricated zero counts that implied scoping
+            # had occurred.  Now explicitly marks scoping as not-implemented
+            # so the UI can display an honest status.
+            "scopingImplemented": False,
             "pipelineTriggered": None,
             "jobInstanceId": None,
         }
         _save_runner_state()
-    return {"success": True, "scope": {"kept": _runner_state["kept"], "deactivated": _runner_state["affected"]}}
+    return {
+        "success": True,
+        "scopingImplemented": False,
+        "scope": {
+            "note": "Entity deactivation scoping is not yet implemented. "
+                    "All entities in selected sources will be included.",
+            "selectedSources": ds_ids,
+            "selectedEntityIds": entity_ids,
+        },
+    }
 
 
 @route("POST", "/api/runner/trigger")

@@ -582,10 +582,17 @@ def get_load_progress(params: dict) -> dict:
         "FROM engine_runs ORDER BY StartedAt DESC LIMIT 10"
     )
 
-    # Overall counts
+    # Overall counts — use latest status per (EntityId, Layer), not historical any-ever-succeeded
     status_rows = _safe_query(
-        "SELECT LOWER(Layer) AS layer, COUNT(DISTINCT EntityId) AS cnt FROM engine_task_log "
-        "WHERE Status = 'succeeded' GROUP BY LOWER(Layer)"
+        "WITH latest_task AS ("
+        "  SELECT EntityId, Layer, Status, "
+        "  ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn "
+        "  FROM engine_task_log"
+        "), latest AS ("
+        "  SELECT EntityId, Layer, Status FROM latest_task WHERE rn = 1"
+        ") "
+        "SELECT LOWER(Layer) AS layer, COUNT(DISTINCT EntityId) AS cnt "
+        "FROM latest WHERE LOWER(Status) = 'succeeded' GROUP BY LOWER(Layer)"
     )
     status_map = {r["layer"]: r["cnt"] for r in status_rows} if status_rows else {}
 
