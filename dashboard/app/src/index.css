@@ -87,6 +87,11 @@
 }
 
 :root {
+  --safe-area-inset-top: env(safe-area-inset-top);
+  --safe-area-inset-right: env(safe-area-inset-right);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom);
+  --safe-area-inset-left: env(safe-area-inset-left);
+
   --font-size-display: 24px;
   --line-height-display: 32px;
   --font-size-h1: 20px;
@@ -162,6 +167,39 @@
   font-family: var(--font-family);
   font-size: var(--font-size-caption);
   line-height: var(--line-height-caption);
+}
+
+@utility pt-safe-top {
+  padding-top: var(--safe-area-inset-top);
+}
+
+@utility pr-safe-right {
+  padding-right: var(--safe-area-inset-right);
+}
+
+@utility pb-safe-bottom {
+  padding-bottom: var(--safe-area-inset-bottom);
+}
+
+@utility pl-safe-left {
+  padding-left: var(--safe-area-inset-left);
+}
+
+@utility px-safe {
+  padding-left: var(--safe-area-inset-left);
+  padding-right: var(--safe-area-inset-right);
+}
+
+@utility py-safe {
+  padding-top: var(--safe-area-inset-top);
+  padding-bottom: var(--safe-area-inset-bottom);
+}
+
+@utility p-safe {
+  padding-top: var(--safe-area-inset-top);
+  padding-right: var(--safe-area-inset-right);
+  padding-bottom: var(--safe-area-inset-bottom);
+  padding-left: var(--safe-area-inset-left);
 }
 
 /* ============================================================
