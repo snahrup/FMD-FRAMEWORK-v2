@@ -71,6 +71,7 @@ import DatabaseExplorer from '@/pages/DatabaseExplorer'
 import DataManager from '@/pages/DataManager'
 import LoadCenter from '@/pages/LoadCenter'
 import LoadMissionControl from '@/pages/LoadMissionControl'
+import TableCardListFixture from '@/test-fixtures/TableCardListFixture'
 const SchemaValidation = lazy(() => import('@/pages/SchemaValidation'))
 const DataEstate = lazy(() => import('@/pages/DataEstate'))
 
@@ -143,12 +144,17 @@ function App() {
         <Route path="/test-swarm" element={<TestSwarm />} />
         <Route path="/mri" element={<MRI />} />
         {/* Gold Studio pages */}
-        <Route path="/gold" element={<Navigate to="/gold/ledger" replace />} />
-        <Route path="/gold/ledger" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><GoldLedger /></Suspense>} />
-        <Route path="/gold/clusters" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><GoldClusters /></Suspense>} />
+        <Route path="/gold" element={<Navigate to="/gold/intake" replace />} />
+        <Route path="/gold/intake" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><GoldLedger /></Suspense>} />
+        <Route path="/gold/ledger" element={<Navigate to="/gold/intake" replace />} />
+        <Route path="/gold/cluster" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><GoldClusters /></Suspense>} />
+        <Route path="/gold/clusters" element={<Navigate to="/gold/cluster" replace />} />
         <Route path="/gold/canonical" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><GoldCanonical /></Suspense>} />
-        <Route path="/gold/specs" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><GoldSpecs /></Suspense>} />
-        <Route path="/gold/validation" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><GoldValidation /></Suspense>} />
+        <Route path="/gold/spec" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><GoldSpecs /></Suspense>} />
+        <Route path="/gold/specs" element={<Navigate to="/gold/spec" replace />} />
+        <Route path="/gold/release" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><GoldValidation /></Suspense>} />
+        <Route path="/gold/validation" element={<Navigate to="/gold/release" replace />} />
+        <Route path="/gold/serve" element={<GoldMlvManager />} />
         {/* Governance pages */}
         <Route path="/lineage" element={<DataLineage />} />
         <Route path="/classification" element={<DataClassification />} />
@@ -158,12 +164,13 @@ function App() {
         <Route path="/data-manager" element={<DataManager />} />
         <Route path="/load-center" element={<LoadCenter />} />
         <Route path="/load-mission-control" element={<LoadMissionControl />} />
+        <Route path="/__test/table-card-list" element={<TableCardListFixture />} />
         <Route path="/schema-validation" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><SchemaValidation /></Suspense>} />
         <Route path="/estate" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><DataEstate /></Suspense>} />
         {/* Labs pages — always routed, nav visibility controlled by feature flags */}
         <Route path="/labs/cleansing" element={<CleansingRuleEditor />} />
         <Route path="/labs/scd-audit" element={<ScdAudit />} />
-        <Route path="/labs/gold-mlv" element={<GoldMlvManager />} />
+        <Route path="/labs/gold-mlv" element={<Navigate to="/gold/serve" replace />} />
         <Route path="/labs/dq-scorecard" element={<DqScorecard />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
