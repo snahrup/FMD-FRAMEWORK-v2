@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
 
-const APP_TSX_PATH = path.resolve(__dirname, "../../src/App.tsx");
+const currentFile = fileURLToPath(import.meta.url);
+const currentDir = path.dirname(currentFile);
+const APP_TSX_PATH = path.resolve(currentDir, "../../src/App.tsx");
 
 function prettifyRoute(routePath: string) {
   if (routePath === "/") return "root";
