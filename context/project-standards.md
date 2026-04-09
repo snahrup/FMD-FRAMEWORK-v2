@@ -41,3 +41,5 @@
 - Operating modes: Diagnose -> Plan -> Implement -> Review (see `CLAUDE_RULES.md`)
 
 ## Learnings
+- [2026-04-09] Mobile audit coverage should be derived from static `<Route path=\"...\" />` entries in `dashboard/app/src/App.tsx` so route coverage stays aligned with the dashboard without a hand-maintained list.
+- [2026-04-09] Mobile Playwright audits need their own Vite-backed config because the main dashboard Playwright harness assumes a different base URL and desktop-oriented test environment.
