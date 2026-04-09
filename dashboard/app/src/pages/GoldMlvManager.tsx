@@ -1,5 +1,5 @@
 // Gold MLV Manager — browse and manage Gold layer objects (MLVs, views, tables).
-// Route: /labs/gold-mlv
+// Route: /gold/serve
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
@@ -7,6 +7,8 @@ import {
   Loader2, AlertTriangle, BarChart3, Box, Grid3X3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { GoldStudioLayout } from "@/components/gold/GoldStudioLayout";
+import { GoldNextActionPanel } from "@/components/gold/GoldWorkflowCards";
 
 /* ---------- api helpers ---------- */
 const API = "/api/gold";
@@ -323,7 +325,8 @@ export default function GoldMlvManager() {
 
   /* ========== render ========== */
   return (
-    <div className="gold-fade-in space-y-6 px-8 py-8 max-w-[1400px] mx-auto">
+    <GoldStudioLayout activeTab="serve">
+    <div className="gold-fade-in space-y-6 px-2 pb-8 pt-3 max-w-[1400px] mx-auto">
 
       {/* ── Header: Hero Number ── */}
       <div className="flex items-end justify-between gap-6">
@@ -336,7 +339,7 @@ export default function GoldMlvManager() {
                 className="text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5"
                 style={{ background: "var(--bp-copper-light)", color: "var(--bp-copper)", border: "1px solid rgba(180,86,36,0.15)" }}
               >
-                Labs
+                Serve
               </span>
             </div>
             <span
@@ -385,6 +388,14 @@ export default function GoldMlvManager() {
           )}
         </div>
       </div>
+
+      <GoldNextActionPanel
+        title={total > 0 ? `Review ${total} live gold object${total === 1 ? "" : "s"}` : "Wait for the first released product to go live"}
+        description="This is the live stewardship stage. Users should be able to see what exists in production, who owns it, and whether it is healthy without hunting across the rest of the workflow."
+        whyItMatters="Release is not the end of the product story. Governance, freshness, ownership, and downstream confidence all continue here."
+        whatHappensNext="Open a live object to inspect details, ownership, and release lineage. If something looks wrong, route the issue back to the appropriate upstream stage."
+        tone={total > 0 ? "success" : "copper"}
+      />
 
       {/* ── Domain Cards ── */}
       {summary && summary.by_domain.length > 0 && (
@@ -580,6 +591,7 @@ export default function GoldMlvManager() {
         </div>
       )}
     </div>
+    </GoldStudioLayout>
   );
 }
 

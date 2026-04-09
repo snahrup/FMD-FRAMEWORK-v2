@@ -11,6 +11,9 @@ dist/
 build/
 *.tgz
 
+# Subconscious plugin state
+.subconscious/
+
 # IDE / Editor
 .windsurf/
 .vscode/
@@ -67,6 +70,8 @@ logs/security/
 
 # Runtime databases & caches
 *.db
+*.db-shm
+*.db-wal
 dashboard/app/api/lakehouse_counts_cache.json
 scripts/*_results.json
 scripts/*_results.txt
@@ -94,15 +99,22 @@ archive/
 CODEBASE.md
 CODEBASE.html
 .codebase-map-dirty
+CODEBASE_aionui_*.md
+.gitignore_aionui_*
+entity_analysis.json
 
 # Claude tooling state (local only)
 .claude-flow/
 .claude/worktrees/
 .ruflo/
 .superpowers/
+.playwright-cli/
+.letta/
 
 # DB backups
 *.db.pre-demo-seed
+.windsurf\rules\openmemory.md
+CLAUDE.md
 .windsurf\rules\openmemory.md
 CLAUDE.md
 .windsurf\rules\openmemory.md

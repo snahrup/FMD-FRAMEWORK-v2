@@ -1,10 +1,12 @@
 // Specimen Card — Two-line expandable card for Gold Ledger specimens.
-// Shows status rail, name, type badge, steward, provenance, and expands to show entities/queries.
+// Shows status rail, name, type badge, steward, provenance, and expands to show entities/queries/columns/preview.
 
-import { useState, useCallback } from "react";
-import { ChevronDown, Copy, Check } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
+import { ChevronDown, Copy, Check, Database, Table2, Columns3, Eye, Loader2, Zap, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProvenanceThread } from "./ProvenanceThread";
+
+const API = import.meta.env.VITE_API_URL || "";
 
 // ── Types ──
 
@@ -23,6 +25,24 @@ interface SpecimenQuery {
   query_text: string;
   query_type: string;
   source_database: string | null;
+}
+
+interface ColumnInfo {
+  id: number;
+  column_name: string;
+  data_type: string | null;
+  nullable: boolean;
+  is_key: boolean;
+  source_expression: string | null;
+  is_calculated: boolean;
+  ordinal: number | null;
+}
+
+interface PreviewData {
+  columns: { name: string; python_type: string }[];
+  rows: any[][];
+  row_count: number;
+  truncated: boolean;
 }
 
 export interface SpecimenCardProps {
@@ -44,6 +64,7 @@ export interface SpecimenCardProps {
   };
   expanded: boolean;
   onToggle: () => void;
+  onDelete?: (id: number) => void;
   entities?: SpecimenEntity[];
   queries?: SpecimenQuery[];
 }
@@ -111,7 +132,7 @@ function JobStateBadge({ state }: { state: string }) {
   );
 }
 
-// ── Type badge (RDL, PBIX, etc.) ──
+// ── Type badge ──
 
 function TypeBadge({ type }: { type: string }) {
   return (
@@ -134,7 +155,7 @@ function TypeBadge({ type }: { type: string }) {
 // ── Source class badge ──
 
 function SourceClassBadge({ sourceClass }: { sourceClass: string }) {
-  if (sourceClass === "structural") return null; // structural uses ProvenanceThread instead
+  if (sourceClass === "structural") return null;
   const isSupporting = sourceClass === "supporting";
   return (
     <span
@@ -190,7 +211,6 @@ function ClusterBadge({ clusterId }: { clusterId: number | null }) {
       <span style={{ fontSize: 12, color: "var(--bp-ink-muted)" }}>—</span>
     );
   }
-  // Positive cluster_id = resolved, negative or 0 = unresolved (convention)
   const resolved = clusterId > 0;
   return (
     <span
@@ -207,16 +227,301 @@ function ClusterBadge({ clusterId }: { clusterId: number | null }) {
   );
 }
 
+// ── Columns Panel ──
+
+function ColumnsPanel({ entities }: { entities: SpecimenEntity[] }) {
+  const [columns, setColumns] = useState<Record<number, ColumnInfo[]>>({});
+  const [loading, setLoading] = useState<Record<number, boolean>>({});
+  const [expandedEntity, setExpandedEntity] = useState<number | null>(entities[0]?.id ?? null);
+
+  const loadColumns = useCallback(async (entityId: number) => {
+    if (columns[entityId]) return;
+    setLoading((prev) => ({ ...prev, [entityId]: true }));
+    try {
+      const res = await fetch(`${API}/api/gold-studio/entities/${entityId}/columns`);
+      if (res.ok) {
+        const data = await res.json();
+        setColumns((prev) => ({ ...prev, [entityId]: data.items }));
+      }
+    } finally {
+      setLoading((prev) => ({ ...prev, [entityId]: false }));
+    }
+  }, [columns]);
+
+  useEffect(() => {
+    if (expandedEntity) loadColumns(expandedEntity);
+  }, [expandedEntity, loadColumns]);
+
+  return (
+    <div style={{ padding: 0 }}>
+      {entities.map((ent) => {
+        const isOpen = expandedEntity === ent.id;
+        const cols = columns[ent.id] || [];
+        const isLoading = loading[ent.id];
+
+        return (
+          <div key={ent.id}>
+            <button
+              type="button"
+              onClick={() => {
+                setExpandedEntity(isOpen ? null : ent.id);
+              }}
+              className="w-full text-left flex items-center gap-2 px-5 py-2 transition-colors hover:bg-black/[0.02]"
+              style={{ borderBottom: "1px solid var(--bp-border-subtle)" }}
+            >
+              <Table2 size={13} style={{ color: "var(--bp-copper)", flexShrink: 0 }} />
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 12, fontWeight: 500, color: "var(--bp-ink-primary)" }}>
+                {ent.entity_name}
+              </span>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 11, color: "var(--bp-ink-muted)", marginLeft: "auto" }}>
+                {ent.column_count} col{ent.column_count !== 1 ? "s" : ""}
+              </span>
+              <ChevronDown
+                size={13}
+                style={{
+                  color: "var(--bp-ink-muted)",
+                  transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: "transform 200ms",
+                }}
+              />
+            </button>
+
+            {isOpen && (
+              <div style={{ background: "var(--bp-surface-2, rgba(0,0,0,0.02))" }}>
+                {isLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-4" style={{ color: "var(--bp-ink-muted)", fontSize: 12 }}>
+                    <Loader2 size={14} className="animate-spin" /> Loading columns...
+                  </div>
+                ) : cols.length === 0 ? (
+                  <div style={{ padding: "12px 20px", fontSize: 12, color: "var(--bp-ink-muted)" }}>No columns extracted</div>
+                ) : (
+                  <table className="w-full" style={{ fontSize: 12 }}>
+                    <thead>
+                      <tr style={{
+                        borderBottom: "1px solid var(--bp-border)",
+                        color: "var(--bp-ink-muted)",
+                        fontFamily: "var(--bp-font-mono)",
+                        fontSize: 10,
+                        fontWeight: 500,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                      }}>
+                        <th className="text-left py-1.5 px-5 font-medium" style={{ width: 20 }}>#</th>
+                        <th className="text-left py-1.5 px-3 font-medium">Column</th>
+                        <th className="text-left py-1.5 px-3 font-medium">Type</th>
+                        <th className="text-center py-1.5 px-3 font-medium">Nullable</th>
+                        <th className="text-center py-1.5 px-3 font-medium">Key</th>
+                        <th className="text-left py-1.5 px-3 font-medium">Source</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cols.map((col, i) => (
+                        <tr
+                          key={col.id || i}
+                          style={{
+                            borderBottom: "1px solid var(--bp-border-subtle)",
+                            background: i % 2 === 1 ? "var(--bp-surface-inset, rgba(0,0,0,0.015))" : "transparent",
+                          }}
+                        >
+                          <td className="py-1 px-5" style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, color: "var(--bp-ink-muted)" }}>
+                            {col.ordinal ?? i + 1}
+                          </td>
+                          <td className="py-1 px-3" style={{ fontFamily: "var(--bp-font-mono)", fontWeight: 500, color: col.is_key ? "var(--bp-copper)" : "var(--bp-ink-primary)" }}>
+                            {col.column_name}
+                            {col.is_key && <span style={{ marginLeft: 4, fontSize: 9, color: "var(--bp-copper)" }}>PK</span>}
+                          </td>
+                          <td className="py-1 px-3" style={{ fontFamily: "var(--bp-font-mono)", fontSize: 11, color: "var(--bp-ink-secondary)" }}>
+                            {col.data_type || "—"}
+                          </td>
+                          <td className="py-1 px-3 text-center" style={{ fontSize: 11, color: col.nullable ? "var(--bp-ink-muted)" : "var(--bp-operational)" }}>
+                            {col.nullable ? "yes" : "no"}
+                          </td>
+                          <td className="py-1 px-3 text-center">
+                            {col.is_key && (
+                              <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: "var(--bp-copper)" }} />
+                            )}
+                          </td>
+                          <td className="py-1 px-3" style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, color: "var(--bp-ink-muted)" }}>
+                            {col.source_expression || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Data Preview Panel ──
+
+function PreviewPanel({ specimenId }: { specimenId: number }) {
+  const [preview, setPreview] = useState<PreviewData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadPreview = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`${API}/api/gold-studio/specimens/${specimenId}/preview`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        throw new Error(body.detail || body.error || `HTTP ${res.status}`);
+      }
+      setPreview(await res.json());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Preview failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [specimenId]);
+
+  return (
+    <div style={{ padding: 0 }}>
+      {!preview && !loading && !error && (
+        <div className="flex flex-col items-center gap-3 py-6">
+          <Database size={20} style={{ color: "var(--bp-ink-muted)" }} />
+          <p style={{ fontSize: 12, color: "var(--bp-ink-muted)", fontFamily: "var(--bp-font-body)" }}>
+            Run this query against the source database and preview results
+          </p>
+          <button
+            type="button"
+            onClick={loadPreview}
+            className="bp-btn-primary inline-flex items-center gap-2"
+            style={{ fontSize: 12, padding: "6px 16px" }}
+          >
+            <Zap size={13} /> Run Preview (TOP 50)
+          </button>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex items-center justify-center gap-2 py-8" style={{ color: "var(--bp-copper)", fontSize: 12 }}>
+          <Loader2 size={16} className="animate-spin" />
+          <span style={{ fontFamily: "var(--bp-font-body)" }}>Querying source database...</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex flex-col items-center gap-2 py-6">
+          <p style={{ fontSize: 12, color: "var(--bp-fault)", fontFamily: "var(--bp-font-body)" }}>{error}</p>
+          <button type="button" onClick={loadPreview} className="bp-btn-secondary" style={{ fontSize: 11, padding: "4px 12px" }}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {preview && (
+        <div>
+          <div className="flex items-center gap-3 px-5 py-2" style={{ borderBottom: "1px solid var(--bp-border)" }}>
+            <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 11, color: "var(--bp-ink-secondary)" }}>
+              {preview.row_count} row{preview.row_count !== 1 ? "s" : ""}
+              {preview.truncated && " (truncated)"}
+            </span>
+            <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 11, color: "var(--bp-ink-muted)" }}>
+              {preview.columns.length} column{preview.columns.length !== 1 ? "s" : ""}
+            </span>
+            <button
+              type="button"
+              onClick={loadPreview}
+              className="ml-auto text-xs transition-colors hover:text-[var(--bp-copper)]"
+              style={{ fontFamily: "var(--bp-font-body)", fontSize: 11, color: "var(--bp-ink-muted)" }}
+            >
+              Refresh
+            </button>
+          </div>
+          <div className="overflow-x-auto" style={{ maxHeight: 360 }}>
+            <table className="w-full" style={{ fontSize: 11 }}>
+              <thead>
+                <tr style={{
+                  position: "sticky",
+                  top: 0,
+                  background: "var(--bp-surface-inset, #faf9f7)",
+                  borderBottom: "1px solid var(--bp-border)",
+                  color: "var(--bp-ink-muted)",
+                  fontFamily: "var(--bp-font-mono)",
+                  fontSize: 10,
+                  fontWeight: 500,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  zIndex: 1,
+                }}>
+                  {preview.columns.map((col, i) => (
+                    <th key={i} className="text-left py-1.5 px-3 font-medium whitespace-nowrap">{col.name}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {preview.rows.map((row, ri) => (
+                  <tr
+                    key={ri}
+                    style={{
+                      borderBottom: "1px solid var(--bp-border-subtle)",
+                      background: ri % 2 === 1 ? "var(--bp-surface-inset, rgba(0,0,0,0.015))" : "transparent",
+                    }}
+                  >
+                    {row.map((cell, ci) => (
+                      <td
+                        key={ci}
+                        className="py-1 px-3 whitespace-nowrap"
+                        style={{
+                          fontFamily: "var(--bp-font-mono)",
+                          fontSize: 11,
+                          color: cell === null ? "var(--bp-ink-muted)" : "var(--bp-ink-primary)",
+                          maxWidth: 200,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {cell === null ? "NULL" : String(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Component ──
 
-export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }: SpecimenCardProps) {
-  const [innerTab, setInnerTab] = useState<"tables" | "queries">("tables");
+type InnerTab = "tables" | "columns" | "preview" | "queries";
+
+export function SpecimenCard({ specimen, expanded, onToggle, onDelete, entities, queries }: SpecimenCardProps) {
+  const [innerTab, setInnerTab] = useState<InnerTab>("tables");
 
   const hasTables = entities && entities.length > 0;
   const hasQueries = queries && queries.length > 0;
+  const isExtracted = ["extracted", "accepted", "parse_warning"].includes(specimen.job_state);
 
-  // Auto-select the available tab
-  const activeTab = innerTab === "tables" && !hasTables && hasQueries ? "queries" : innerTab;
+  // Auto-select the best available tab
+  const activeTab = (() => {
+    if (innerTab === "tables" && hasTables) return "tables";
+    if (innerTab === "columns" && hasTables && isExtracted) return "columns";
+    if (innerTab === "preview" && isExtracted && specimen.source_system) return "preview";
+    if (innerTab === "queries" && hasQueries) return "queries";
+    // fallback
+    if (hasTables) return "tables";
+    if (hasQueries) return "queries";
+    return innerTab;
+  })();
+
+  const tabs: { key: InnerTab; label: string; icon: typeof Table2; count?: number; show: boolean }[] = [
+    { key: "tables", label: "Tables", icon: Table2, count: entities?.length, show: !!hasTables },
+    { key: "columns", label: "Columns", icon: Columns3, count: specimen.column_count, show: !!hasTables && isExtracted },
+    { key: "preview", label: "Preview", icon: Eye, show: isExtracted && !!specimen.source_system },
+    { key: "queries", label: "SQL", icon: Database, count: queries?.length, show: !!hasQueries },
+  ];
 
   return (
     <div
@@ -226,11 +531,9 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
         border: expanded ? "1px solid var(--bp-border-strong)" : "1px solid var(--bp-border)",
       }}
     >
-      {/* Clickable header */}
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full text-left flex items-start gap-0 transition-colors hover:bg-black/[0.015]"
+      {/* Header */}
+      <div
+        className="w-full flex items-start gap-0 transition-colors hover:bg-black/[0.015]"
         style={{ position: "relative" }}
       >
         {/* Status rail */}
@@ -243,7 +546,14 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
           }}
         />
 
-        <div className="flex-1 min-w-0 px-3.5 py-2.5">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex-1 min-w-0 px-3.5 py-2.5 text-left"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Collapse" : "Expand"} specimen ${specimen.name}`}
+          style={{ background: "transparent" }}
+        >
           {/* Line 1: Name + type badge + source + steward + provenance */}
           <div className="flex items-center gap-2.5 flex-wrap">
             <span
@@ -263,13 +573,17 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
 
             {specimen.source_system && (
               <span
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5"
                 style={{
-                  fontFamily: "var(--bp-font-body)",
-                  fontSize: 12,
-                  color: "var(--bp-ink-muted)",
+                  background: "rgba(61,124,79,0.08)",
+                  fontFamily: "var(--bp-font-mono)",
+                  fontSize: 10,
+                  fontWeight: 500,
+                  color: "var(--bp-operational)",
+                  letterSpacing: "0.03em",
                 }}
               >
-                {specimen.source_system}
+                <Database size={9} /> {specimen.source_system}
               </span>
             )}
 
@@ -313,20 +627,40 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
 
             <JobStateBadge state={specimen.job_state} />
           </div>
-        </div>
+        </button>
 
-        {/* Chevron */}
-        <div className="shrink-0 p-3 self-center">
-          <ChevronDown
-            size={16}
-            className="transition-transform duration-200"
-            style={{
-              color: "var(--bp-ink-muted)",
-              transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
-            }}
-          />
+        {/* Actions */}
+        <div className="shrink-0 flex items-center gap-1 p-2 self-center">
+          {onDelete && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onDelete(specimen.id); }}
+              className="rounded-md p-1.5 transition-colors hover:bg-red-50"
+              style={{ color: "var(--bp-ink-muted)" }}
+              aria-label="Delete specimen"
+              title="Delete specimen"
+            >
+              <Trash2 size={14} className="hover:text-red-500" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded-md p-1 transition-colors hover:bg-black/[0.04]"
+            aria-label={`${expanded ? "Collapse" : "Expand"} specimen details`}
+            style={{ color: "var(--bp-ink-muted)" }}
+          >
+            <ChevronDown
+              size={16}
+              className="transition-transform duration-200"
+              style={{
+                color: "var(--bp-ink-muted)",
+                transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+              }}
+            />
+          </button>
         </div>
-      </button>
+      </div>
 
       {/* Expanded content */}
       {expanded && (
@@ -336,74 +670,56 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
             borderTop: "1px solid var(--bp-border)",
           }}
         >
-          {/* Inner tabs — only show if there's content in at least one */}
-          {(hasTables || hasQueries) && (
+          {/* Inner tabs */}
+          {tabs.some((t) => t.show) && (
             <div
               className="flex gap-0.5 px-4 pt-2.5"
               style={{ borderBottom: "1px solid var(--bp-border)" }}
             >
-              {hasTables && (
-                <button
-                  type="button"
-                  onClick={() => setInnerTab("tables")}
-                  className={cn(
-                    "pb-2 px-3 text-center transition-colors relative",
-                    activeTab === "tables"
-                      ? "text-[var(--bp-copper)]"
-                      : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-secondary)]"
-                  )}
-                  style={{
-                    fontFamily: "var(--bp-font-body)",
-                    fontWeight: 500,
-                    fontSize: 12,
-                  }}
-                >
-                  Tables ({entities!.length})
-                  {activeTab === "tables" && (
-                    <span
-                      className="absolute bottom-0 left-0 right-0"
-                      style={{
-                        height: 2,
-                        background: "var(--bp-copper)",
-                        borderRadius: "1px 1px 0 0",
-                      }}
-                    />
-                  )}
-                </button>
-              )}
-              {hasQueries && (
-                <button
-                  type="button"
-                  onClick={() => setInnerTab("queries")}
-                  className={cn(
-                    "pb-2 px-3 text-center transition-colors relative",
-                    activeTab === "queries"
-                      ? "text-[var(--bp-copper)]"
-                      : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-secondary)]"
-                  )}
-                  style={{
-                    fontFamily: "var(--bp-font-body)",
-                    fontWeight: 500,
-                    fontSize: 12,
-                  }}
-                >
-                  Queries ({queries!.length})
-                  {activeTab === "queries" && (
-                    <span
-                      className="absolute bottom-0 left-0 right-0"
-                      style={{
-                        height: 2,
-                        background: "var(--bp-copper)",
-                        borderRadius: "1px 1px 0 0",
-                      }}
-                    />
-                  )}
-                </button>
-              )}
+              {tabs.filter((t) => t.show).map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setInnerTab(tab.key)}
+                    className={cn(
+                      "pb-2 px-3 text-center transition-colors relative inline-flex items-center gap-1.5",
+                      isActive
+                        ? "text-[var(--bp-copper)]"
+                        : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-secondary)]"
+                    )}
+                    style={{
+                      fontFamily: "var(--bp-font-body)",
+                      fontWeight: isActive ? 600 : 500,
+                      fontSize: 12,
+                    }}
+                  >
+                    <Icon size={12} />
+                    {tab.label}
+                    {tab.count != null && (
+                      <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, opacity: 0.7 }}>
+                        ({tab.count})
+                      </span>
+                    )}
+                    {isActive && (
+                      <span
+                        className="absolute bottom-0 left-0 right-0"
+                        style={{
+                          height: 2.5,
+                          background: "var(--bp-copper)",
+                          borderRadius: "1px 1px 0 0",
+                        }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
 
-          {/* Tables tab content */}
+          {/* Tables tab */}
           {activeTab === "tables" && hasTables && (
             <div className="overflow-x-auto">
               <table className="w-full" style={{ fontSize: 13 }}>
@@ -435,10 +751,7 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
                         color: "var(--bp-ink-primary)",
                       }}
                     >
-                      <td
-                        className="py-1.5 px-5"
-                        style={{ fontWeight: 500 }}
-                      >
+                      <td className="py-1.5 px-5" style={{ fontWeight: 500 }}>
                         {ent.entity_name}
                       </td>
                       <td
@@ -481,7 +794,17 @@ export function SpecimenCard({ specimen, expanded, onToggle, entities, queries }
             </div>
           )}
 
-          {/* Queries tab content */}
+          {/* Columns tab */}
+          {activeTab === "columns" && hasTables && (
+            <ColumnsPanel entities={entities!} />
+          )}
+
+          {/* Preview tab */}
+          {activeTab === "preview" && (
+            <PreviewPanel specimenId={specimen.id} />
+          )}
+
+          {/* Queries tab */}
           {activeTab === "queries" && hasQueries && (
             <div className="flex flex-col gap-2.5 p-4">
               {queries!.map((q) => (

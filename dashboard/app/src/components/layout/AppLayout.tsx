@@ -109,11 +109,12 @@ const CORE_GROUPS: NavGroup[] = [
   {
     label: "Gold Studio",
     items: [
-      { icon: Crown, label: "Ledger", href: "/gold/ledger" },
-      { icon: Layers, label: "Clusters", href: "/gold/clusters" },
+      { icon: Crown, label: "Intake", href: "/gold/intake" },
+      { icon: Layers, label: "Cluster", href: "/gold/cluster" },
       { icon: Gem, label: "Canonical", href: "/gold/canonical" },
-      { icon: FileCode, label: "Specifications", href: "/gold/specs" },
-      { icon: ShieldCheck, label: "Validation", href: "/gold/validation" },
+      { icon: FileCode, label: "Spec", href: "/gold/spec" },
+      { icon: ShieldCheck, label: "Release", href: "/gold/release" },
+      { icon: Eye, label: "Serve", href: "/gold/serve" },
     ],
   },
   {
@@ -163,7 +164,6 @@ const EXTENDED_ITEMS: Record<string, NavItem[]> = {
     { icon: TestTube, label: "Test Audit", href: "/test-audit" },
     { icon: Users, label: "Test Swarm", href: "/test-swarm" },
     { icon: Activity, label: "MRI", href: "/mri" },
-    { icon: Crown, label: "Gold MLV Manager", href: "/labs/gold-mlv" },
   ],
   Governance: [
     { icon: Tag, label: "Data Classification", href: "/classification" },

@@ -3,7 +3,16 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Search } from "lucide-react";
-import { GoldStudioLayout, SlideOver, useGoldToast, GoldLoading, GoldEmpty, GoldNoResults } from "@/components/gold";
+import {
+  GoldStudioLayout,
+  SlideOver,
+  useGoldToast,
+  GoldLoading,
+  GoldEmpty,
+  GoldNoResults,
+  GoldNextActionPanel,
+  GoldAsyncStatusCard,
+} from "@/components/gold";
 import { ClusterCard } from "@/components/gold/ClusterCard";
 import type { ClusterData, ClusterMember } from "@/components/gold/ClusterCard";
 import { ColumnReconciliation } from "@/components/gold/ColumnReconciliation";
@@ -26,11 +35,19 @@ interface UnclusteredEntity {
 }
 
 interface StatsPayload {
+  updated_at?: string;
   total_clusters: number;
   unresolved: number;
   resolved: number;
   avg_confidence: number;
   not_clustered: number;
+}
+
+interface JobRow {
+  id: number;
+  job_type: string;
+  status: string;
+  started_at?: string | null;
 }
 
 interface ReconciliationColumn {
@@ -69,6 +86,7 @@ export default function GoldClusters() {
   const [clusters, setClusters] = useState<ClusterDetail[]>([]);
   const [unclustered, setUnclustered] = useState<UnclusteredEntity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeJob, setActiveJob] = useState<JobRow | null>(null);
 
   /* Filters */
   const [statusFilter, setStatusFilter] = useState("");
@@ -112,29 +130,17 @@ export default function GoldClusters() {
     const ctrl = new AbortController();
     clusterAbortRef.current = ctrl;
     try {
-      const params = new URLSearchParams({ limit: "200" });
+      const params = new URLSearchParams({ limit: "200", embed: "members" });
       if (statusFilter) params.set("status", statusFilter);
       const res = await fetch(`${API}/clusters?${params}`, { signal: ctrl.signal });
       if (!res.ok) return;
       const body = await res.json();
-      // API returns { items, total, limit, offset } — items are cluster summaries
-      const summaries: ClusterData[] = body.items ?? body;
-      // Hydrate each cluster with its members via detail endpoint
-      const details: ClusterDetail[] = await Promise.all(
-        summaries.map(async (c) => {
-          try {
-            const dRes = await fetch(`${API}/clusters/${c.id}`);
-            if (dRes.ok) {
-              const detail = await dRes.json();
-              return {
-                cluster: { ...c, member_count: detail.members?.length ?? c.member_count },
-                members: detail.members ?? [],
-              };
-            }
-          } catch { /* fallback below */ }
-          return { cluster: c, members: [] };
-        })
-      );
+      // API returns { items, total, limit, offset } — items include embedded members
+      const summaries: Array<ClusterData & { members?: ClusterMember[] }> = body.items ?? body;
+      const details: ClusterDetail[] = summaries.map((c) => ({
+        cluster: { ...c, member_count: c.members?.length ?? c.member_count },
+        members: c.members ?? [],
+      }));
       if (ctrl.signal.aborted) return;
       setClusters(details);
     } catch (e) {
@@ -154,17 +160,39 @@ export default function GoldClusters() {
     }
   }, []);
 
+  const fetchActiveJob = useCallback(async () => {
+    try {
+      const [runningRes, queuedRes] = await Promise.all([
+        fetch(`${API}/jobs?job_type=cluster_detection&status=running&limit=1`),
+        fetch(`${API}/jobs?job_type=cluster_detection&status=queued&limit=1`),
+      ]);
+      const runningBody = runningRes.ok ? await runningRes.json() : null;
+      const queuedBody = queuedRes.ok ? await queuedRes.json() : null;
+      setActiveJob((runningBody?.items?.[0] ?? queuedBody?.items?.[0] ?? null) as JobRow | null);
+    } catch {
+      setActiveJob(null);
+    }
+  }, []);
+
   useEffect(() => {
     setLoading(true);
-    Promise.all([fetchStats(), fetchClusters(), fetchUnclustered()]).finally(() =>
+    Promise.all([fetchStats(), fetchClusters(), fetchUnclustered(), fetchActiveJob()]).finally(() =>
       setLoading(false)
     );
-  }, [fetchStats, fetchClusters, fetchUnclustered]);
+  }, [fetchStats, fetchClusters, fetchUnclustered, fetchActiveJob]);
 
   // Re-fetch clusters when status filter changes
   useEffect(() => {
     fetchClusters();
   }, [fetchClusters]);
+
+  useEffect(() => {
+    if (!activeJob) return;
+    const timer = window.setInterval(() => {
+      fetchActiveJob();
+    }, 8000);
+    return () => window.clearInterval(timer);
+  }, [activeJob, fetchActiveJob]);
 
   /* ---------------------------------------------------------------- */
   /*  Filter logic                                                     */
@@ -368,8 +396,53 @@ export default function GoldClusters() {
               </span>
             ))}
           </div>
+          {stats.updated_at && (
+            <div style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, color: "var(--bp-ink-tertiary)", marginTop: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Updated {new Date(stats.updated_at).toLocaleString()}
+            </div>
+          )}
         </div>
       )}
+
+      <div className="my-4 space-y-4">
+        <GoldNextActionPanel
+          title={
+            (stats?.unresolved ?? 0) > 0
+              ? `Review ${stats?.unresolved ?? 0} unresolved cluster${(stats?.unresolved ?? 0) === 1 ? "" : "s"}`
+              : (stats?.not_clustered ?? 0) > 0
+                ? `Inspect ${stats?.not_clustered ?? 0} unclustered candidate${(stats?.not_clustered ?? 0) === 1 ? "" : "s"}`
+                : "Keep the stewardship queue clean"
+          }
+          description="This stage is where the system's guesses turn into approved business concepts. Users should not have to infer what needs review."
+          whyItMatters="Clear clustering decisions create trustworthy canonical objects and prevent weak downstream specs."
+          whatHappensNext="Approved clusters move into canonical modeling. Dismissed or standalone items stay visible instead of disappearing into an opaque background process."
+          tone={(stats?.unresolved ?? 0) > 0 ? "warning" : "copper"}
+          action={{
+            label: (stats?.unresolved ?? 0) > 0 ? "Review Unresolved" : "Open Review Queue",
+            onClick: () => {
+              if ((stats?.unresolved ?? 0) > 0) {
+                setActiveTab("clusters");
+                setStatusFilter("unresolved");
+              } else if ((stats?.not_clustered ?? 0) > 0) {
+                setActiveTab("unclustered");
+              } else {
+                setActiveTab("clusters");
+              }
+            },
+          }}
+        />
+
+        {activeJob && (
+          <GoldAsyncStatusCard
+            title="Cluster detection is still running in the background"
+            status={activeJob.status === "queued" ? "Queued" : "Running"}
+            lastUpdated={activeJob.started_at ? new Date(activeJob.started_at).toLocaleString() : "Waiting for first timestamp"}
+            latestMilestone="The system is generating candidate groupings from extracted structural entities."
+            nextMilestone="New cluster cards will appear here as soon as the detection job commits them."
+            tone="info"
+          />
+        )}
+      </div>
 
       {/* Maturity notice — clustering uses exact name matching, not fuzzy/ML */}
       <div className="flex items-center gap-2 rounded-md px-3 py-2 mt-2" style={{ background: "var(--bp-caution-light)", border: "1px solid color-mix(in srgb, var(--bp-caution-amber) 20%, transparent)" }}>
@@ -532,10 +605,10 @@ export default function GoldClusters() {
               <GoldLoading rows={4} label="Loading clusters" />
             )}
             {!loading && clusters.length > 0 && filtered.length === 0 && (
-              <GoldNoResults query={search || undefined} />
+              <GoldNoResults query={search || undefined} message="No clusters match the current review filters. Clear the search or widen the confidence range to keep reviewing candidates." />
             )}
             {!loading && clusters.length === 0 && (
-              <GoldEmpty noun="clusters" />
+              <GoldEmpty title="No clusters need review right now" message="When candidate groupings are detected, they will appear here for stewardship review before anything becomes canonical." />
             )}
             {filtered.map((c, i) => (
               <div key={c.cluster.id} className="gs-stagger-card" style={{ "--i": Math.min(i, 15) } as React.CSSProperties}>
@@ -631,9 +704,9 @@ export default function GoldClusters() {
                   <tr>
                     <td colSpan={5}>
                       {search ? (
-                        <GoldNoResults query={search} />
+                        <GoldNoResults query={search} message="No unclustered entities match the current filters. Clear the search to inspect the rest of the queue." />
                       ) : (
-                        <GoldEmpty noun="unclustered entities" />
+                        <GoldEmpty title="No unclustered entities are waiting" message="Entities without a cluster will appear here when they need manual review or when clustering has not grouped them yet." />
                       )}
                     </td>
                   </tr>

@@ -7,8 +7,18 @@
 // ============================================================================
 
 import { useState, useEffect, useMemo, useCallback, useRef, type ChangeEvent } from "react";
+import { createPortal } from "react-dom";
 import { Upload, Code2, FolderUp, ChevronDown, Search, X, FileSpreadsheet, StickyNote } from "lucide-react";
-import { GoldStudioLayout, GoldLoading, GoldEmpty, GoldNoResults } from "@/components/gold";
+import {
+  GoldStudioLayout,
+  GoldLoading,
+  GoldEmpty,
+  GoldNoResults,
+  GoldNextActionPanel,
+  GoldAsyncStatusCard,
+  GoldFailureReceipt,
+  useDomainContext,
+} from "@/components/gold";
 import { SpecimenCard } from "@/components/gold/SpecimenCard";
 
 const API = import.meta.env.VITE_API_URL || "";
@@ -16,6 +26,7 @@ const API = import.meta.env.VITE_API_URL || "";
 // ── Types ──
 
 interface GoldStats {
+  updated_at?: string;
   specimens: number;
   tables_extracted: number;
   columns_cataloged: number;
@@ -36,6 +47,7 @@ interface Specimen {
   job_state: string;
   tags: string | null;
   created_at: string;
+  updated_at?: string;
   entity_count?: number;
   column_count?: number;
   provenance_phase?: number;
@@ -261,17 +273,51 @@ function UploadFileModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
 
 // ── Paste SQL Modal ──
 
-function PasteSqlModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: () => void }) {
+function PasteSqlModal({ onClose, onSubmit, domain }: { onClose: () => void; onSubmit: () => void; domain: string | null }) {
+  const [step, setStep] = useState<1 | 2>(1);
   const [queryName, setQueryName] = useState("");
   const [queryText, setQueryText] = useState("");
   const [sourceDb, setSourceDb] = useState("");
-  const [division, setDivision] = useState("");
+  const [division, setDivision] = useState(domain || "");
   const [sourceSystem, setSourceSystem] = useState("");
   const [steward, setSteward] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  // Auto-detect state
+  const [detecting, setDetecting] = useState(false);
+  const [detectResult, setDetectResult] = useState<{
+    source_system: string; database: string; server: string;
+    column_count: number; columns: { name: string; type: string; nullable: boolean; is_identity: boolean; is_key: boolean; ordinal: number }[];
+  } | null>(null);
+  const [detectFailed, setDetectFailed] = useState(false);
+
+  const handleDetect = async (sql: string) => {
+    if (sql.trim().length < 20) return;
+    setDetecting(true);
+    setDetectResult(null);
+    setDetectFailed(false);
+    try {
+      const res = await fetch(`${API}/api/gold-studio/auto-detect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.detected) {
+          setDetectResult(data);
+          setSourceSystem(data.source_system);
+          setSourceDb(data.database);
+        } else {
+          setDetectFailed(true);
+        }
+      }
+    } catch { setDetectFailed(true); }
+    finally { setDetecting(false); }
+  };
 
   const handleSubmit = async () => {
     if (!queryName || !queryText) return;
@@ -294,7 +340,6 @@ function PasteSqlModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      // Auto-trigger extraction so specimen doesn't sit at "queued"
       const created = await res.json();
       if (created?.id) {
         fetch(`${API}/api/gold-studio/specimens/${created.id}/extract`, { method: "POST" }).catch(() => {});
@@ -307,69 +352,198 @@ function PasteSqlModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
     }
   };
 
+  // Step indicator bar
+  const StepBar = () => (
+    <div className="flex items-center gap-0 mb-5">
+      {[1, 2].map((s) => (
+        <div key={s} className="flex items-center" style={{ flex: s === 2 ? 0 : 1 }}>
+          <div className="flex items-center gap-2">
+            <div
+              className="flex items-center justify-center rounded-full"
+              style={{
+                width: 24, height: 24,
+                background: step >= s ? "var(--bp-copper)" : "var(--bp-border)",
+                color: step >= s ? "#fff" : "var(--bp-ink-muted)",
+                fontFamily: "var(--bp-font-mono)", fontSize: 11, fontWeight: 600,
+                transition: "all 300ms",
+              }}
+            >
+              {s}
+            </div>
+            <span style={{
+              fontFamily: "var(--bp-font-body)", fontSize: 12, fontWeight: step === s ? 600 : 400,
+              color: step === s ? "var(--bp-ink-primary)" : "var(--bp-ink-muted)",
+            }}>
+              {s === 1 ? "SQL & Detect" : "Details & Import"}
+            </span>
+          </div>
+          {s === 1 && (
+            <div style={{ flex: 1, height: 1, background: step >= 2 ? "var(--bp-copper)" : "var(--bp-border)", margin: "0 12px", transition: "background 300ms" }} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+
   return (
-    <ModalShell title="Paste SQL" onClose={onClose} wide>
-      <div style={{ fontSize: 11, color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-mono)", marginBottom: 12, letterSpacing: "0.03em" }}>
-        Source class: <strong style={{ color: "var(--bp-ink-secondary)" }}>Structural</strong> — SQL will be parsed for entities
-      </div>
-      {/* SQL editor area */}
-      <div className="mb-4">
-        <label
-          style={{
-            display: "block",
-            fontFamily: "var(--bp-font-body)",
-            fontSize: 12,
-            fontWeight: 500,
-            color: "var(--bp-ink-secondary)",
-            marginBottom: 4,
-          }}
-        >
-          SQL Query *
-        </label>
-        <textarea
-          value={queryText}
-          onChange={(e) => setQueryText(e.target.value)}
-          placeholder="SELECT ..."
-          className="w-full rounded-md resize-none"
-          style={{
-            background: "var(--bp-code-block)",
-            color: "var(--bp-surface-inset)",
-            fontFamily: "var(--bp-font-mono)",
-            fontSize: 13,
-            lineHeight: 1.5,
-            padding: "12px 16px",
-            border: "1px solid var(--bp-border)",
-            minHeight: 200,
-            outline: "none",
-          }}
-        />
-      </div>
+    <ModalShell title="Import SQL Query" onClose={onClose} wide>
+      <StepBar />
 
-      <div className="grid grid-cols-2 gap-3">
-        <FormField label="Query Name" value={queryName} onChange={setQueryName} required />
-        <FormField label="Source Database" value={sourceDb} onChange={setSourceDb} />
-        <FormField label="Division" value={division} onChange={setDivision} />
-        <FormField label="Source System" value={sourceSystem} onChange={setSourceSystem} />
-        <FormField label="Steward" value={steward} onChange={setSteward} />
-        <FormField label="Tags" value={tags} onChange={setTags} placeholder="Comma-separated" />
-      </div>
-      <FormField label="Description" value={description} onChange={setDescription} multiline />
+      {step === 1 && (
+        <>
+          {/* SQL editor */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-1">
+              <label style={{ fontFamily: "var(--bp-font-body)", fontSize: 12, fontWeight: 500, color: "var(--bp-ink-secondary)" }}>
+                SQL Query *
+              </label>
+              {detecting && (
+                <span className="inline-flex items-center gap-1.5" style={{ fontSize: 11, color: "var(--bp-copper)", fontFamily: "var(--bp-font-mono)" }}>
+                  <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: "var(--bp-copper)" }} />
+                  Connecting to source databases...
+                </span>
+              )}
+            </div>
+            <textarea
+              value={queryText}
+              onChange={(e) => setQueryText(e.target.value)}
+              onBlur={() => { if (queryText.trim().length >= 20 && !detectResult) handleDetect(queryText); }}
+              placeholder="Paste your SQL query here...&#10;&#10;Gold Studio will auto-detect which source system this query belongs to and extract the full schema."
+              className="w-full rounded-md resize-none"
+              style={{
+                background: "var(--bp-code-block)", color: "#E7E5E0",
+                fontFamily: "var(--bp-font-mono)", fontSize: 13, lineHeight: 1.5,
+                padding: "12px 16px", border: "1px solid var(--bp-border)",
+                minHeight: 180, outline: "none",
+              }}
+            />
+          </div>
 
-      {error && <p style={{ color: "var(--bp-fault-red)", fontSize: 12, marginTop: 8, fontFamily: "var(--bp-font-body)" }}>{error}</p>}
-      <div className="flex justify-end gap-2 mt-5">
-        <button type="button" onClick={onClose} className="bp-btn-secondary" style={{ fontSize: 13, padding: "6px 14px" }}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!queryName || !queryText || submitting}
-          className="bp-btn-primary"
-          style={{ fontSize: 13, padding: "6px 14px", opacity: (!queryName || !queryText || submitting) ? 0.5 : 1 }}
-        >
-          {submitting ? "Submitting..." : "Import SQL"}
-        </button>
-      </div>
+          {/* Detection result panel */}
+          {detectResult && (
+            <div className="rounded-lg mb-4" style={{ border: "1px solid rgba(61,124,79,0.25)", background: "rgba(61,124,79,0.04)", padding: 16 }}>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="rounded-full" style={{ width: 8, height: 8, background: "var(--bp-operational)" }} />
+                <span style={{ fontFamily: "var(--bp-font-body)", fontSize: 13, fontWeight: 600, color: "var(--bp-operational)" }}>
+                  Source Detected
+                </span>
+                <span className="rounded-full px-2 py-0.5" style={{
+                  fontFamily: "var(--bp-font-mono)", fontSize: 11, fontWeight: 500,
+                  background: "rgba(61,124,79,0.12)", color: "var(--bp-operational)",
+                }}>
+                  {detectResult.source_system}
+                </span>
+                <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 11, color: "var(--bp-ink-muted)" }}>
+                  {detectResult.server} / {detectResult.database}
+                </span>
+              </div>
+              {/* Column preview */}
+              <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                <table className="w-full" style={{ fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid rgba(61,124,79,0.15)", color: "var(--bp-ink-muted)", fontFamily: "var(--bp-font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      <th className="text-left py-1 px-2 font-medium">#</th>
+                      <th className="text-left py-1 px-2 font-medium">Column</th>
+                      <th className="text-left py-1 px-2 font-medium">Type</th>
+                      <th className="text-center py-1 px-2 font-medium">Nullable</th>
+                      <th className="text-center py-1 px-2 font-medium">Identity</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detectResult.columns.map((col, i) => (
+                      <tr key={i} style={{ borderBottom: "1px solid rgba(61,124,79,0.08)" }}>
+                        <td className="py-0.5 px-2" style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, color: "var(--bp-ink-muted)" }}>{col.ordinal}</td>
+                        <td className="py-0.5 px-2" style={{ fontFamily: "var(--bp-font-mono)", fontWeight: 500, color: col.is_key ? "var(--bp-copper)" : "var(--bp-ink-primary)" }}>
+                          {col.name}{col.is_key && <span style={{ marginLeft: 3, fontSize: 9, color: "var(--bp-copper)" }}>PK</span>}
+                        </td>
+                        <td className="py-0.5 px-2" style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-secondary)" }}>{col.type}</td>
+                        <td className="py-0.5 px-2 text-center" style={{ fontSize: 10, color: col.nullable ? "var(--bp-ink-muted)" : "var(--bp-operational)" }}>{col.nullable ? "yes" : "no"}</td>
+                        <td className="py-0.5 px-2 text-center" style={{ fontSize: 10, color: col.is_identity ? "var(--bp-copper)" : "var(--bp-ink-muted)" }}>{col.is_identity ? "yes" : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontFamily: "var(--bp-font-mono)", fontSize: 11, color: "var(--bp-ink-muted)", marginTop: 8 }}>
+                {detectResult.column_count} column{detectResult.column_count !== 1 ? "s" : ""} discovered from live schema
+              </div>
+            </div>
+          )}
+
+          {detectFailed && !detecting && (
+            <div className="rounded-lg mb-4" style={{ border: "1px solid rgba(194,122,26,0.25)", background: "rgba(194,122,26,0.04)", padding: "12px 16px" }}>
+              <span style={{ fontFamily: "var(--bp-font-body)", fontSize: 12, color: "var(--bp-caution)" }}>
+                Could not auto-detect source system. You can set it manually in the next step, or extraction will use static parsing.
+              </span>
+            </div>
+          )}
+
+          {error && <p style={{ color: "var(--bp-fault)", fontSize: 12, marginTop: 8, fontFamily: "var(--bp-font-body)" }}>{error}</p>}
+
+          <div className="flex justify-between mt-5">
+            <button type="button" onClick={onClose} className="bp-btn-secondary" style={{ fontSize: 13, padding: "6px 14px" }}>
+              Cancel
+            </button>
+            <div className="flex gap-2">
+              {!detectResult && !detecting && queryText.trim().length >= 20 && (
+                <button type="button" onClick={() => handleDetect(queryText)} className="bp-btn-secondary" style={{ fontSize: 13, padding: "6px 14px" }}>
+                  Detect Source
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                disabled={!queryText.trim() || detecting}
+                className="bp-btn-primary"
+                style={{ fontSize: 13, padding: "6px 14px", opacity: (!queryText.trim() || detecting) ? 0.5 : 1 }}
+              >
+                Next: Details
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {step === 2 && (
+        <>
+          {/* Summary of what was detected */}
+          {detectResult && (
+            <div className="flex items-center gap-3 rounded-lg mb-4" style={{ background: "rgba(61,124,79,0.04)", border: "1px solid rgba(61,124,79,0.15)", padding: "10px 14px" }}>
+              <div className="rounded-full" style={{ width: 6, height: 6, background: "var(--bp-operational)" }} />
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 12, color: "var(--bp-ink-secondary)" }}>
+                {detectResult.source_system} / {detectResult.database} — {detectResult.column_count} columns
+              </span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Query Name *" value={queryName} onChange={setQueryName} required />
+            <FormField label="Domain *" value={division} onChange={setDivision} placeholder={domain || "Select a domain in the header first"} />
+            <FormField label="Source System" value={sourceSystem} onChange={setSourceSystem} placeholder={detectResult ? detectResult.source_system : "e.g. MES, M3 ERP"} />
+            <FormField label="Source Database" value={sourceDb} onChange={setSourceDb} placeholder={detectResult ? detectResult.database : "e.g. mes, m3fdbprd"} />
+            <FormField label="Steward" value={steward} onChange={setSteward} placeholder="Who owns this query?" />
+            <FormField label="Tags" value={tags} onChange={setTags} placeholder="Comma-separated" />
+          </div>
+          <FormField label="Description" value={description} onChange={setDescription} multiline />
+
+          {error && <p style={{ color: "var(--bp-fault)", fontSize: 12, marginTop: 8, fontFamily: "var(--bp-font-body)" }}>{error}</p>}
+
+          <div className="flex justify-between mt-5">
+            <button type="button" onClick={() => setStep(1)} className="bp-btn-secondary" style={{ fontSize: 13, padding: "6px 14px" }}>
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!queryName || submitting}
+              className="bp-btn-primary"
+              style={{ fontSize: 13, padding: "6px 14px", opacity: (!queryName || submitting) ? 0.5 : 1 }}
+            >
+              {submitting ? "Importing & Extracting..." : "Import & Extract"}
+            </button>
+          </div>
+        </>
+      )}
     </ModalShell>
   );
 }
@@ -561,12 +735,15 @@ function ModalShell({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  return (
-    <>
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ zIndex: 9998 }}
+    >
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-50 gs-modal-backdrop"
-        style={{ background: "rgba(0,0,0,0.3)" }}
+        className="absolute inset-0 gs-modal-backdrop"
+        style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(2px)" }}
         aria-hidden="true"
         onClick={onClose}
       />
@@ -575,17 +752,16 @@ function ModalShell({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="fixed z-50 rounded-lg overflow-hidden gs-modal-enter"
+        className="relative rounded-lg overflow-hidden gs-modal-enter"
         style={{
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
+          zIndex: 1,
           width: wide ? 640 : 480,
           maxWidth: "90vw",
           maxHeight: "85vh",
           overflowY: "auto",
           background: "var(--bp-surface-1)",
           border: "1px solid var(--bp-border-strong, var(--bp-border))",
+          boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)",
         }}
       >
         {/* Header */}
@@ -614,7 +790,8 @@ function ModalShell({
         </div>
         <div className="px-5 py-4">{children}</div>
       </div>
-    </>
+    </div>,
+    document.body,
   );
 }
 
@@ -977,6 +1154,7 @@ function ContextualNoteModal({ onClose, onSubmit }: { onClose: () => void; onSub
 // ── Main Component ──
 
 export default function GoldLedger() {
+  const { domain } = useDomainContext();
   // Data
   const [stats, setStats] = useState<GoldStats | null>(null);
   const [specimens, setSpecimens] = useState<Specimen[]>([]);
@@ -1120,6 +1298,26 @@ export default function GoldLedger() {
     );
   }, [entities, search]);
 
+  const activeSpecimens = useMemo(
+    () => specimens.filter((s) => ["queued", "extracting"].includes((s.job_state || "").toLowerCase())),
+    [specimens]
+  );
+  const blockedSpecimens = useMemo(
+    () => specimens.filter((s) => ["parse_failed"].includes((s.job_state || "").toLowerCase())),
+    [specimens]
+  );
+  const readySpecimens = useMemo(
+    () => specimens.filter((s) => ["extracted", "parse_warning"].includes((s.job_state || "").toLowerCase())),
+    [specimens]
+  );
+
+  const formatTimestamp = useCallback((value?: string) => {
+    if (!value) return "Unknown";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
+  }, []);
+
   // ── Import callback ──
 
   const handleImportDone = () => {
@@ -1127,6 +1325,14 @@ export default function GoldLedger() {
     setLoading(true);
     fetchData();
   };
+
+  const handleDeleteSpecimen = useCallback(async (id: number) => {
+    if (!confirm("Delete this specimen and all its extracted data?")) return;
+    try {
+      await fetch(`${API}/api/gold-studio/specimens/${id}`, { method: "DELETE" });
+      fetchData();
+    } catch { /* silent */ }
+  }, [fetchData]);
 
   return (
     <GoldStudioLayout
@@ -1160,30 +1366,69 @@ export default function GoldLedger() {
             </div>
           ))}
         </div>
+        {stats?.updated_at && (
+          <div style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, color: "var(--bp-ink-tertiary)", marginTop: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Updated {formatTimestamp(stats.updated_at)}
+          </div>
+        )}
       </div>
 
-      {/* Error banner */}
-      {fetchError && (
-        <div
-          role="alert"
-          className="rounded-lg px-4 py-3 mb-4 flex items-center justify-between"
-          style={{
-            background: "var(--bp-fault-light)",
-            border: "1px solid var(--bp-fault-red)",
-            color: "var(--bp-fault-red)",
-            fontFamily: "var(--bp-font-body)",
-            fontSize: 13,
+      <div className="my-4 space-y-4">
+        <GoldNextActionPanel
+          title={
+            readySpecimens.length > 0
+              ? `Review ${readySpecimens.length} intake item${readySpecimens.length === 1 ? "" : "s"} that are ready to move forward`
+              : specimens.length === 0
+                ? "Import your first source artifact"
+                : "Keep intake moving by clearing blocked or in-flight items"
+          }
+          description={
+            readySpecimens.length > 0
+              ? "The fastest way to build trust in the workflow is to show which imported material is already usable and ready for the next stage."
+              : specimens.length === 0
+                ? "This stage is where source files, SQL, and supporting material first enter Gold Studio."
+                : "This page should tell you whether the pipeline is active, blocked, or ready for review without making you inspect raw statuses."
+          }
+          whyItMatters={
+            readySpecimens.length > 0
+              ? "Users need a clear answer to what can move into clustering right now."
+              : "A zero-context user needs one obvious starting point."
+          }
+          whatHappensNext={
+            readySpecimens.length > 0
+              ? "Once intake items are reviewed, the workflow advances into cluster review where related concepts are grouped."
+              : "After import and extraction, Gold Studio surfaces what is blocked, what is extracting, and what is ready for clustering."
+          }
+          action={{
+            label: readySpecimens.length > 0 ? "Review Ready Intake" : "Import Source Material",
+            onClick: () => {
+              setView("specimen");
+              if (readySpecimens.length === 0) setModal("upload");
+            },
           }}
-        >
-          <span>{fetchError}</span>
-          <button
-            type="button"
-            onClick={() => { setLoading(true); fetchData(); }}
-            className="bp-btn-secondary"
-            style={{ fontSize: 12, padding: "4px 10px" }}
-          >
-            Retry
-          </button>
+        />
+
+        {activeSpecimens.length > 0 && (
+          <GoldAsyncStatusCard
+            title={`${activeSpecimens.length} intake item${activeSpecimens.length === 1 ? "" : "s"} still processing`}
+            status="Running"
+            lastUpdated={formatTimestamp(activeSpecimens[0]?.updated_at ?? stats?.updated_at)}
+            latestMilestone={`${activeSpecimens[0]?.name ?? "An intake item"} is currently ${activeSpecimens[0]?.job_state ?? "processing"}.`}
+            nextMilestone="As extraction completes, schema details and extracted entities will become visible on this page."
+            tone="info"
+          />
+        )}
+      </div>
+
+      {fetchError && (
+        <div className="mb-4">
+          <GoldFailureReceipt
+            title="Intake data did not finish loading"
+            summary={fetchError}
+            preservedState={`Your imported specimens stay intact. ${blockedSpecimens.length > 0 ? `${blockedSpecimens.length} blocked item${blockedSpecimens.length === 1 ? "" : "s"} still need review.` : "No source material was deleted."}`}
+            retryScope="Retrying only refreshes the Intake page data. It does not restart the whole Gold Studio workflow."
+            action={{ label: "Reload Intake", onClick: () => { setLoading(true); fetchData(); } }}
+          />
         </div>
       )}
 
@@ -1237,8 +1482,15 @@ export default function GoldLedger() {
         ) : view === "specimen" ? (
           filtered.length === 0 ? (
             specimens.length === 0
-              ? <GoldEmpty noun="specimens" action={{ label: "Import Your First Specimen", onClick: () => setModal("upload") }} />
-              : <GoldNoResults query={search || undefined} />
+              ? <GoldEmpty
+                  title="No intake items yet"
+                  message="Import a file, SQL definition, or supporting artifact to start the Gold Studio workflow. Once extraction begins, this page will explain what is running and what is ready next."
+                  action={{ label: "Import Your First Specimen", onClick: () => setModal("upload") }}
+                />
+              : <GoldNoResults
+                  query={search || undefined}
+                  message="No intake items match the current filters. Clear the search or adjust the intake filters to see the rest of the queue."
+                />
           ) : (
             <div className="flex flex-col gap-2.5">
               {filtered.map((sp, index) => {
@@ -1249,6 +1501,7 @@ export default function GoldLedger() {
                       specimen={sp}
                       expanded={expandedId === sp.id}
                       onToggle={() => handleToggle(sp.id)}
+                      onDelete={handleDeleteSpecimen}
                       entities={detail?.entities}
                       queries={detail?.queries}
                     />
@@ -1277,7 +1530,7 @@ export default function GoldLedger() {
 
       {/* Modals */}
       {modal === "upload" && <UploadFileModal onClose={() => setModal(null)} onSubmit={handleImportDone} />}
-      {modal === "paste" && <PasteSqlModal onClose={() => setModal(null)} onSubmit={handleImportDone} />}
+      {modal === "paste" && <PasteSqlModal onClose={() => setModal(null)} onSubmit={handleImportDone} domain={domain} />}
       {modal === "bulk" && <BulkImportModal onClose={() => setModal(null)} onSubmit={handleImportDone} />}
       {modal === "supporting" && <SupportingEvidenceModal onClose={() => setModal(null)} onSubmit={handleImportDone} />}
       {modal === "contextual" && <ContextualNoteModal onClose={() => setModal(null)} onSubmit={handleImportDone} />}

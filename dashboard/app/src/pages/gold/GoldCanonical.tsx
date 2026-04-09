@@ -8,6 +8,7 @@ import { GoldStudioLayout, useGoldToast, useDomainContext } from "@/components/g
 import { SlideOver } from "@/components/gold/SlideOver";
 import { ProvenanceThread } from "@/components/gold/ProvenanceThread";
 import { GoldLoading, GoldEmpty, GoldNoResults } from "@/components/gold/GoldStates";
+import { GoldNextActionPanel, GoldFailureReceipt } from "@/components/gold/GoldWorkflowCards";
 
 /* ---------- Types ---------- */
 
@@ -32,13 +33,14 @@ interface CanonicalEntity {
   business_keys?: string;
 }
 
-interface CanonicalDetail extends CanonicalEntity { columns: ColumnDef[] | number; lineage: LineageNode[]; relationships: Relationship[] }
+interface CanonicalDetail extends Omit<CanonicalEntity, "columns"> { columns: ColumnDef[] | number; lineage: LineageNode[]; relationships: Relationship[] }
 interface ColumnDef { name: string; business_name: string; data_type: string; nullable: boolean; key: "PK" | "BK" | "FK" | "None"; classification: "PII" | "Confidential" | "Internal" | "Public"; description: string }
-interface LineageNode { id?: number; entity_name?: string; specimen_name?: string; label?: string; type?: string }
+interface LineageNode { id?: number; entity_name?: string; specimen_name?: string; label?: string; type?: string; cluster_id?: number | null }
 interface Relationship { related_entity: string; fk_column: string; cardinality: string; direction: string }
 interface Measure { name: string; expression: string; type: string; description: string }
 interface AuditEntry { action: string; created_at: string; notes?: string; object_type?: string; object_id?: number; new_value?: string }
 interface Stats {
+  updated_at?: string;
   canonical_total: number;
   canonical_approved: number;
   specimens: number;
@@ -55,6 +57,7 @@ interface Stats {
 }
 
 const API = "/api/gold-studio";
+function capitalize(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase(); }
 
 /* ---------- Style helpers ---------- */
 
@@ -141,7 +144,7 @@ function DetailSlideOver({ entityId, onClose }: { entityId: number | null; onClo
         // Fetch cluster audit for upstream clusters found in lineage
         const lineageEntities = Array.isArray(d.lineage) ? d.lineage : [];
         const clusterIds = [...new Set(
-          lineageEntities.map((e: Record<string, unknown>) => e.cluster_id).filter(Boolean)
+          lineageEntities.map((e) => e.cluster_id).filter(Boolean)
         )];
         // Fetch audit for each upstream cluster
         Promise.all(
@@ -352,7 +355,7 @@ const CLUSTER_ACTION_LABELS: Record<string, string> = {
 };
 
 function ClusterHistoryTab({ entries, lineage }: { entries: AuditEntry[]; lineage: LineageNode[] }) {
-  const clusterIds = [...new Set(lineage.map((e: Record<string, unknown>) => e.cluster_id).filter(Boolean))];
+  const clusterIds = [...new Set(lineage.map((e) => e.cluster_id).filter(Boolean))];
   if (!clusterIds.length && !entries.length) {
     return <p style={font("body", 13, "var(--bp-ink-muted)")}>No upstream clusters linked to this canonical entity.</p>;
   }
@@ -500,13 +503,51 @@ function DomainGrid({ entities, domains, onSelect }: { entities: CanonicalEntity
   );
 }
 
-/* ---------- RELATIONSHIP MAP VIEW ---------- */
+/* ---------- helpers ---------- */
+
+function humanizeName(snake: string): string {
+  return snake
+    .replace(/_tbl$/i, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\bId\b/g, "ID")
+    .replace(/\bDt\b/g, "Date")
+    .replace(/\bDesc\b/g, "Description")
+    .replace(/\bCrt\b/g, "Created")
+    .replace(/\bOrig\b/g, "Original")
+    .replace(/\bComp\b/g, "Completion");
+}
+
+const TYPE_COLORS: Record<string, { border: string; bg: string; badge: string }> = {
+  Fact:       { border: "var(--bp-copper)",          bg: "rgba(180,86,36,0.04)",  badge: "rgba(180,86,36,0.12)" },
+  Dimension:  { border: "var(--bp-operational)",     bg: "rgba(61,124,79,0.03)",  badge: "rgba(61,124,79,0.12)" },
+  Reference:  { border: "var(--bp-lz, #5B7FA3)",    bg: "rgba(91,127,163,0.03)", badge: "rgba(91,127,163,0.12)" },
+  Bridge:     { border: "var(--bp-caution)",         bg: "rgba(194,122,26,0.03)", badge: "rgba(194,122,26,0.12)" },
+  Aggregate:  { border: "var(--bp-ink-muted)",       bg: "rgba(168,162,158,0.03)", badge: "rgba(168,162,158,0.12)" },
+};
+
+/* ---------- RELATIONSHIP MAP VIEW — Star Schema ---------- */
+
+interface ColumnForNode { column_name: string; data_type: string | null; key_designation: string | null }
 
 function RelationshipMap({ entities, onSelect }: { entities: CanonicalEntity[]; onSelect: (id: number) => void }) {
   const [edges, setEdges] = useState<Edge[]>([]);
+  const [columnMap, setColumnMap] = useState<Record<number, ColumnForNode[]>>({});
 
+  // Fetch columns from canonical detail endpoint
   useEffect(() => {
-    // Relationships endpoint returns {items: [{from_root_id, to_root_id, from_entity, to_entity, column_name, ...}]}
+    entities.forEach((e) => {
+      const eid = e.root_id ?? e.id;
+      fetchJson<{ columns?: ColumnForNode[] }>(`${API}/canonical/${eid}`).then((r) => {
+        if (r?.columns && Array.isArray(r.columns)) {
+          setColumnMap((prev) => ({ ...prev, [eid]: r.columns as ColumnForNode[] }));
+        }
+      });
+    });
+  }, [entities]);
+
+  // Fetch relationships
+  useEffect(() => {
     fetchJson<{ items: Array<{ from_root_id: number; to_root_id: number; from_entity: string; to_entity: string; column_name: string }> }>(
       `${API}/canonical/relationships`
     ).then((r) => {
@@ -515,10 +556,13 @@ function RelationshipMap({ entities, onSelect }: { entities: CanonicalEntity[]; 
         id: `e-${i}`,
         source: String(rel.from_root_id),
         target: String(rel.to_root_id),
-        label: rel.column_name,
+        label: humanizeName(rel.column_name),
         type: "default",
-        style: { stroke: "var(--bp-ink-muted)" },
-        labelStyle: { fontSize: 11, fill: "var(--bp-ink-secondary)" },
+        animated: true,
+        style: { stroke: "var(--bp-copper)", strokeWidth: 1.5 },
+        labelStyle: { fontSize: 10, fill: "var(--bp-ink-secondary)", fontFamily: "var(--bp-font-mono)" },
+        labelBgStyle: { fill: "var(--bp-canvas)", fillOpacity: 0.9 },
+        labelBgPadding: [4, 2] as [number, number],
       })));
     });
   }, []);
@@ -527,28 +571,119 @@ function RelationshipMap({ entities, onSelect }: { entities: CanonicalEntity[]; 
     const facts = entities.filter((e) => e.type === "Fact");
     const dims = entities.filter((e) => e.type !== "Fact");
     const all: Node[] = [];
-    // Facts in a central column
+
+    // Build rich node content as HTML label
+    const makeLabel = (e: CanonicalEntity) => {
+      const cols = columnMap[e.root_id ?? e.id] || [];
+      const colors = TYPE_COLORS[e.type] || TYPE_COLORS.Reference;
+      const keys = cols.filter((c) => c.key_designation);
+      const nonKeys = cols.filter((c) => !c.key_designation);
+
+      return (
+        <div style={{ textAlign: "left", minWidth: 200 }}>
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <span style={{
+              fontFamily: "var(--bp-font-body)", fontSize: 13, fontWeight: 600,
+              color: "var(--bp-ink-primary)", lineHeight: 1.2,
+            }}>
+              {humanizeName(e.name)}
+            </span>
+            <span style={{
+              fontFamily: "var(--bp-font-mono)", fontSize: 9, fontWeight: 600,
+              padding: "1px 5px", borderRadius: 3, letterSpacing: "0.05em",
+              background: colors.badge, color: colors.border,
+            }}>
+              {e.type.toUpperCase()}
+            </span>
+          </div>
+          {/* Grain */}
+          {e.grain && (
+            <div style={{ fontFamily: "var(--bp-font-body)", fontSize: 10, color: "var(--bp-ink-muted)", marginBottom: 6, lineHeight: 1.3 }}>
+              {e.grain}
+            </div>
+          )}
+          {/* Divider */}
+          <div style={{ height: 1, background: "var(--bp-border)", margin: "4px 0" }} />
+          {/* Key columns */}
+          {keys.map((c, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 0" }}>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, color: "var(--bp-copper)", fontWeight: 600 }}>
+                {c.key_designation === "business_key" ? "PK" : "FK"}
+              </span>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 11, color: "var(--bp-ink-primary)", fontWeight: 500 }}>
+                {humanizeName(c.column_name)}
+              </span>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 9, color: "var(--bp-ink-muted)", marginLeft: "auto" }}>
+                {c.data_type}
+              </span>
+            </div>
+          ))}
+          {keys.length > 0 && nonKeys.length > 0 && (
+            <div style={{ height: 1, background: "var(--bp-border-subtle, rgba(0,0,0,0.05))", margin: "3px 0" }} />
+          )}
+          {/* Non-key columns */}
+          {nonKeys.slice(0, 8).map((c, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, padding: "1px 0" }}>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 11, color: "var(--bp-ink-secondary)" }}>
+                {humanizeName(c.column_name)}
+              </span>
+              <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 9, color: "var(--bp-ink-muted)", marginLeft: "auto" }}>
+                {c.data_type}
+              </span>
+            </div>
+          ))}
+          {nonKeys.length > 8 && (
+            <div style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, color: "var(--bp-ink-muted)", paddingTop: 2 }}>
+              +{nonKeys.length - 8} more columns
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // Star schema layout: facts in center, dims radially around
+    const centerX = 500;
+    const centerY = 300;
+
     facts.forEach((e, i) => {
+      const colors = TYPE_COLORS[e.type] || TYPE_COLORS.Fact;
       all.push({
         id: String(e.root_id ?? e.id),
-        position: { x: 400, y: i * 120 },
-        data: { label: e.name, entity: e },
-        style: { width: 280, background: "var(--bp-surface-1)", border: "2px solid var(--bp-copper)", borderRadius: 8, padding: 12, cursor: "pointer", fontFamily: "var(--bp-font-body)", fontSize: 13, color: "var(--bp-ink-primary)", fontWeight: 500 },
+        position: { x: centerX - 140, y: centerY + i * 320 - (facts.length - 1) * 160 },
+        data: { label: makeLabel(e), entity: e },
+        style: {
+          background: colors.bg, border: `2px solid ${colors.border}`,
+          borderRadius: 10, padding: 14, cursor: "pointer",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+        },
       });
     });
-    // Dims surrounding
+
+    // Dims in a ring around facts
+    const radius = 380;
+    const dimAngleStart = -Math.PI / 2;
+    const dimAngleStep = dims.length > 1 ? (2 * Math.PI) / dims.length : 0;
+
     dims.forEach((e, i) => {
-      const col = i % 2 === 0 ? 0 : 800;
-      const row = Math.floor(i / 2);
+      const colors = TYPE_COLORS[e.type] || TYPE_COLORS.Dimension;
+      const angle = dimAngleStart + i * dimAngleStep;
+      const x = centerX - 100 + Math.cos(angle) * radius;
+      const y = centerY - 80 + Math.sin(angle) * radius;
       all.push({
         id: String(e.root_id ?? e.id),
-        position: { x: col, y: row * 100 },
-        data: { label: e.name, entity: e },
-        style: { width: 200, background: "var(--bp-surface-1)", border: `1px solid ${e.type === "Dimension" || e.type === "Reference" ? "var(--bp-dismissed)" : "var(--bp-lz)"}`, borderRadius: 8, padding: 10, cursor: "pointer", fontFamily: "var(--bp-font-body)", fontSize: 12, color: "var(--bp-ink-primary)" },
+        position: { x, y },
+        data: { label: makeLabel(e), entity: e },
+        style: {
+          background: colors.bg, border: `1.5px solid ${colors.border}`,
+          borderRadius: 8, padding: 12, cursor: "pointer",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+        },
       });
     });
+
     return all;
-  }, [entities]);
+  }, [entities, columnMap]);
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     const entity = (node.data as { entity?: CanonicalEntity })?.entity;
@@ -556,9 +691,18 @@ function RelationshipMap({ entities, onSelect }: { entities: CanonicalEntity[]; 
   }, [onSelect]);
 
   return (
-    <div className="rounded-lg overflow-hidden mb-6" style={{ height: "calc(100vh - 280px)", border: "1px solid var(--bp-border)" }}>
-      <ReactFlow nodes={nodes} edges={edges} onNodeClick={onNodeClick} fitView proOptions={{ hideAttribution: true }}>
-        <Background color="rgba(0,0,0,0.04)" gap={20} />
+    <div className="rounded-lg overflow-hidden mb-6" style={{ height: "calc(100vh - 280px)", border: "1px solid var(--bp-border)", background: "var(--bp-canvas)" }}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodeClick={onNodeClick}
+        fitView
+        fitViewOptions={{ padding: 0.3 }}
+        proOptions={{ hideAttribution: true }}
+        minZoom={0.3}
+        maxZoom={1.5}
+      >
+        <Background color="rgba(0,0,0,0.03)" gap={24} size={1} />
         <Controls showInteractive={false} />
       </ReactFlow>
     </div>
@@ -609,7 +753,7 @@ export default function GoldCanonical() {
       // Normalize: backend uses entity_type, columns may be column_count
       setEntities(r.items.map((e) => ({
         ...e,
-        type: (e.type ?? e.entity_type ?? "Reference") as CanonicalEntity["type"],
+        type: capitalize(e.type ?? e.entity_type ?? "reference") as CanonicalEntity["type"],
         columns: e.columns ?? e.column_count ?? 0,
       })));
     });
@@ -620,6 +764,8 @@ export default function GoldCanonical() {
     const q = search.toLowerCase();
     return entities.filter((e) => e.name.toLowerCase().includes(q) || e.domain.toLowerCase().includes(q) || e.grain.toLowerCase().includes(q));
   }, [entities, search]);
+  const approvedEntities = useMemo(() => entities.filter((e) => e.status === "approved"), [entities]);
+  const draftEntities = useMemo(() => entities.filter((e) => e.status === "draft" || e.status === "pending_steward"), [entities]);
 
   // Prefer domainNames from context; fall back to locally fetched domains
   const domainOptions = domainNames.length > 0 ? domainNames : domains;
@@ -660,13 +806,41 @@ export default function GoldCanonical() {
               </div>
             ))}
           </div>
+          {stats.updated_at && (
+            <div style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, color: "var(--bp-ink-tertiary)", marginTop: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Updated {new Date(stats.updated_at).toLocaleString()}
+            </div>
+          )}
         </div>
       )}
 
+      <div className="my-4">
+        <GoldNextActionPanel
+          title={
+            approvedEntities.length > 0
+              ? `Generate specs from ${approvedEntities.length} approved canonical definition${approvedEntities.length === 1 ? "" : "s"}`
+              : `Finish ${draftEntities.length} draft canonical definition${draftEntities.length === 1 ? "" : "s"}`
+          }
+          description="This stage defines the business objects the rest of Gold Studio should trust. Users need a clear signal about what is mature enough to become a product spec."
+          whyItMatters="Weak canonical definitions create downstream churn. Strong definitions let spec generation and release review move faster."
+          whatHappensNext="Approved canonical objects can generate or refine gold product specs. Draft objects should stay visible until their ownership and relationships are clear."
+          tone={approvedEntities.length > 0 ? "success" : "warning"}
+          action={{
+            label: approvedEntities.length > 0 ? "Show Approved Definitions" : "Show Draft Definitions",
+            onClick: () => setFilterStatus(approvedEntities.length > 0 ? "approved" : "draft"),
+          }}
+        />
+      </div>
+
       {fetchError && (
-        <div role="alert" className="flex items-center justify-between rounded-lg px-4 py-3 mb-3" style={{ background: "var(--bp-copper-soft)", border: "1px solid var(--bp-copper)" }}>
-          <span style={font("body", 13, "var(--bp-copper)")}>{fetchError}</span>
-          <button type="button" onClick={loadInitialData} className="rounded-md px-3 py-1 text-sm font-medium" style={{ background: "var(--bp-copper)", color: "var(--bp-surface-1)" }}>Retry</button>
+        <div className="mb-3">
+          <GoldFailureReceipt
+            title="Canonical definitions did not finish loading"
+            summary={fetchError}
+            preservedState="Existing canonical definitions and approvals are still stored. This failure only affects what the page can currently render."
+            retryScope="Retrying reloads the canonical workspace only. It does not regenerate specs or overwrite existing canonical records."
+            action={{ label: "Reload Canonical", onClick: loadInitialData }}
+          />
         </div>
       )}
 
@@ -744,10 +918,10 @@ export default function GoldCanonical() {
 
       {/* Content */}
       {!entities.length && !loading && (
-        <GoldEmpty noun="canonical entities" />
+        <GoldEmpty title="No canonical definitions yet" message="Approved clusters will appear here as canonical definitions once stewardship decisions promote them into the shared business model." />
       )}
       {entities.length > 0 && !filtered.length && (
-        <GoldNoResults query={search || undefined} />
+        <GoldNoResults query={search || undefined} message="No canonical definitions match the current filters. Clear the search or status filters to continue modeling work." />
       )}
       {filtered.length > 0 && (
         <div style={{ animation: "gsFadeIn 200ms var(--ease-claude) both" }} key={view}>

@@ -53,12 +53,17 @@ export function GoldLoading({ rows = 4, label }: GoldLoadingProps) {
 
 interface GoldEmptyProps {
   /** e.g. "specimens", "clusters", "canonical entities" */
-  noun: string;
+  noun?: string;
+  title?: string;
+  message?: string;
   /** Optional action button */
   action?: { label: string; onClick: () => void };
 }
 
-export function GoldEmpty({ noun, action }: GoldEmptyProps) {
+export function GoldEmpty({ noun, title, message, action }: GoldEmptyProps) {
+  const resolvedTitle = title ?? `No ${noun ?? "items"} yet`;
+  const resolvedMessage =
+    message ?? `Bring in source material or adjust your filters to see ${noun ?? "results"} here.`;
   return (
     <div className="py-12 flex flex-col items-center gap-2 text-center">
       <span
@@ -68,16 +73,18 @@ export function GoldEmpty({ noun, action }: GoldEmptyProps) {
           color: "var(--bp-ink-secondary)",
         }}
       >
-        No {noun} yet
+        {resolvedTitle}
       </span>
       <span
         style={{
           fontFamily: "var(--bp-font-body)",
           fontSize: 12,
           color: "var(--bp-ink-muted)",
+          maxWidth: 420,
+          lineHeight: 1.5,
         }}
       >
-        Import data or adjust your filters to see {noun} here.
+        {resolvedMessage}
       </span>
       {action && (
         <button
@@ -167,9 +174,11 @@ export function GoldError({ message, onRetry }: GoldErrorProps) {
 
 interface GoldNoResultsProps {
   query?: string;
+  message?: string;
+  title?: string;
 }
 
-export function GoldNoResults({ query }: GoldNoResultsProps) {
+export function GoldNoResults({ query, message, title }: GoldNoResultsProps) {
   return (
     <div className="py-10 flex flex-col items-center gap-1.5 text-center">
       <span
@@ -179,16 +188,18 @@ export function GoldNoResults({ query }: GoldNoResultsProps) {
           color: "var(--bp-ink-secondary)",
         }}
       >
-        {query ? `No matches for \u201C${query}\u201D` : "No matches found"}
+        {title ?? (query ? `No matches for \u201C${query}\u201D` : "No matches found")}
       </span>
       <span
         style={{
           fontFamily: "var(--bp-font-body)",
           fontSize: 12,
           color: "var(--bp-ink-muted)",
+          maxWidth: 420,
+          lineHeight: 1.5,
         }}
       >
-        Try a different search term or clear your filters.
+        {message ?? "Try a different search term or clear your filters."}
       </span>
     </div>
   );

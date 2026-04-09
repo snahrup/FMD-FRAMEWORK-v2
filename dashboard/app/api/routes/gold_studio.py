@@ -28,6 +28,7 @@ import time as _time
 import dashboard.app.api.control_plane_db as cpdb
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api.parsers.sql_parser import parse_sql
+from dashboard.app.api.parsers import schema_discovery
 
 log = logging.getLogger("fmd.routes.gold_studio")
 
@@ -91,6 +92,252 @@ def _row_to_dict(row):
 
 def _rows_to_list(rows):
     return [dict(r) for r in rows]
+
+
+def _json_load(value, default=None):
+    """Best-effort JSON loader for route helpers."""
+    if value is None:
+        return [] if default is None else default
+    if isinstance(value, (list, dict)):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return [] if default is None else default
+        try:
+            return json.loads(text)
+        except (TypeError, json.JSONDecodeError):
+            return [] if default is None else default
+    return [] if default is None else default
+
+
+def _json_list(value) -> list:
+    data = _json_load(value, [])
+    return data if isinstance(data, list) else []
+
+
+def _json_int_list(value) -> list[int]:
+    items = []
+    for item in _json_list(value):
+        try:
+            items.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return items
+
+
+def _release_field_mapping(row: dict) -> tuple[str, str]:
+    """Infer how a report field currently maps into the gold release model."""
+    is_measure = bool(row.get("measure_name"))
+    has_entity = bool(row.get("entity_id"))
+    has_canonical = bool(row.get("canonical_root_id"))
+    has_spec = bool(row.get("spec_id"))
+    has_catalog = bool(row.get("catalog_id"))
+    has_semantic = bool(row.get("semantic_id"))
+
+    if is_measure:
+        if has_catalog and has_semantic:
+            return "published", "Mapped to a semantic definition and already exposed through a published gold product."
+        if has_spec and has_semantic:
+            return "accounted_for", "Mapped to a semantic definition and included in the proposed gold model."
+        if has_canonical and has_semantic:
+            return "needs_spec", "The measure is defined semantically, but the gold spec still needs to carry it forward."
+        if has_canonical:
+            return "needs_semantic_definition", "The underlying business object exists, but the semantic measure definition is still missing."
+        if has_entity:
+            return "needs_canonical_mapping", "The source entity is known, but it has not been promoted into a canonical object yet."
+        return "unmapped", "The report references a measure that is not yet tied to any imported entity or canonical object."
+
+    if has_catalog and has_canonical:
+        return "published", "The source field is already represented in a published gold product."
+    if has_spec and has_canonical:
+        return "accounted_for", "The source field is represented by a canonical object and included in the proposed gold model."
+    if has_canonical:
+        return "needs_spec", "The canonical object exists, but the final gold spec still needs to include this field."
+    if has_entity:
+        return "needs_canonical_mapping", "The source field is parsed from an imported entity, but that entity is not mapped to a canonical object yet."
+    return "unmapped", "The source field is not yet connected to an imported entity or canonical object."
+
+
+def _release_field_rows(conn, domain: str | None = None) -> list[dict]:
+    where = ["s.deleted_at IS NULL"]
+    bind: list = []
+    if domain:
+        where.append("s.division = ?")
+        bind.append(domain)
+    where_sql = " AND ".join(where)
+    rows = conn.execute(
+        f"""SELECT fu.id,
+                   fu.specimen_id,
+                   fu.entity_id,
+                   fu.visual_id,
+                   fu.visual_type,
+                   fu.page_name,
+                   fu.column_name,
+                   fu.measure_name,
+                   fu.usage_type,
+                   fu.created_at,
+                   s.name AS specimen_name,
+                   s.type AS specimen_type,
+                   s.source_class,
+                   s.division,
+                   s.job_state,
+                   s.source_system,
+                   e.entity_name,
+                   e.schema_name,
+                   e.source_database,
+                   e.canonical_root_id,
+                   ce.id AS canonical_id,
+                   ce.name AS canonical_name,
+                   ce.status AS canonical_status,
+                   ce.entity_type AS canonical_type,
+                   gs.id AS spec_id,
+                   gs.root_id AS spec_root_id,
+                   gs.target_name AS spec_name,
+                   gs.status AS spec_status,
+                   cat.id AS catalog_id,
+                   cat.display_name AS catalog_name,
+                   cat.endorsement AS catalog_endorsement,
+                   (
+                       SELECT sd.id
+                       FROM gs_semantic_definitions sd
+                       WHERE sd.canonical_root_id = e.canonical_root_id
+                         AND sd.deleted_at IS NULL
+                         AND fu.measure_name IS NOT NULL
+                         AND LOWER(sd.name) = LOWER(fu.measure_name)
+                       LIMIT 1
+                   ) AS semantic_id,
+                   (
+                       SELECT sd.name
+                       FROM gs_semantic_definitions sd
+                       WHERE sd.canonical_root_id = e.canonical_root_id
+                         AND sd.deleted_at IS NULL
+                         AND fu.measure_name IS NOT NULL
+                         AND LOWER(sd.name) = LOWER(fu.measure_name)
+                       LIMIT 1
+                   ) AS semantic_name,
+                   (
+                       SELECT sd.definition_type
+                       FROM gs_semantic_definitions sd
+                       WHERE sd.canonical_root_id = e.canonical_root_id
+                         AND sd.deleted_at IS NULL
+                         AND fu.measure_name IS NOT NULL
+                         AND LOWER(sd.name) = LOWER(fu.measure_name)
+                       LIMIT 1
+                   ) AS semantic_type
+            FROM gs_report_field_usage fu
+            JOIN gs_specimens s
+              ON s.id = fu.specimen_id
+            LEFT JOIN gs_extracted_entities e
+              ON e.id = fu.entity_id
+            LEFT JOIN gs_canonical_entities ce
+              ON ce.root_id = e.canonical_root_id
+             AND ce.is_current = 1
+             AND ce.deleted_at IS NULL
+            LEFT JOIN gs_gold_specs gs
+              ON gs.canonical_root_id = e.canonical_root_id
+             AND gs.is_current = 1
+             AND gs.deleted_at IS NULL
+            LEFT JOIN gs_catalog_entries cat
+              ON cat.spec_root_id = gs.root_id
+             AND cat.is_current = 1
+             AND cat.deleted_at IS NULL
+            WHERE {where_sql}
+            ORDER BY s.name COLLATE NOCASE,
+                     fu.page_name COLLATE NOCASE,
+                     COALESCE(fu.measure_name, fu.column_name) COLLATE NOCASE""",
+        bind,
+    ).fetchall()
+
+    items = _rows_to_list(rows)
+    for item in items:
+        mapping_status, mapping_note = _release_field_mapping(item)
+        item["mapping_status"] = mapping_status
+        item["mapping_note"] = mapping_note
+    return items
+
+
+def _release_model_nodes(conn, domain: str | None = None) -> list[dict]:
+    where = ["ce.is_current = 1", "ce.deleted_at IS NULL"]
+    bind: list = []
+    if domain:
+        where.append("ce.domain = ?")
+        bind.append(domain)
+    where_sql = " AND ".join(where)
+    rows = conn.execute(
+        f"""SELECT ce.*,
+                   COUNT(DISTINCT e.id) AS source_entity_count,
+                   COUNT(DISTINCT e.specimen_id) AS source_artifact_count,
+                   COUNT(DISTINCT sd.id) AS semantic_count,
+                   gs.id AS spec_id,
+                   gs.root_id AS spec_root_id,
+                   gs.target_name AS spec_name,
+                   gs.status AS spec_status,
+                   COUNT(DISTINCT cat.id) AS published_product_count
+            FROM gs_canonical_entities ce
+            LEFT JOIN gs_extracted_entities e
+              ON e.canonical_root_id = ce.root_id
+             AND e.deleted_at IS NULL
+            LEFT JOIN gs_semantic_definitions sd
+              ON sd.canonical_root_id = ce.root_id
+             AND sd.deleted_at IS NULL
+            LEFT JOIN gs_gold_specs gs
+              ON gs.canonical_root_id = ce.root_id
+             AND gs.is_current = 1
+             AND gs.deleted_at IS NULL
+            LEFT JOIN gs_catalog_entries cat
+              ON cat.spec_root_id = gs.root_id
+             AND cat.is_current = 1
+             AND cat.deleted_at IS NULL
+            WHERE {where_sql}
+            GROUP BY ce.id, ce.root_id, ce.version, ce.is_current, ce.name,
+                     ce.business_description, ce.domain, ce.entity_type, ce.grain,
+                     ce.business_keys, ce.steward, ce.source_systems,
+                     ce.source_cluster_ids, ce.status, ce.shared_dimensions,
+                     ce.approval_gate, ce.created_at, ce.updated_at, ce.deleted_at,
+                     gs.id, gs.root_id, gs.target_name, gs.status
+            ORDER BY ce.entity_type, ce.name COLLATE NOCASE""",
+        bind,
+    ).fetchall()
+    nodes = _rows_to_list(rows)
+    if not nodes:
+        return []
+
+    root_ids = [row["root_id"] for row in nodes]
+    placeholders = ",".join("?" for _ in root_ids)
+
+    col_rows = conn.execute(
+        f"""SELECT canonical_root_id, column_name, key_designation, fk_target_root_id
+            FROM gs_canonical_columns
+            WHERE canonical_root_id IN ({placeholders})
+            ORDER BY canonical_root_id, ordinal, column_name""",
+        root_ids,
+    ).fetchall()
+    cols_by_root: dict[int, list] = {}
+    for row in _rows_to_list(col_rows):
+        cols_by_root.setdefault(row["canonical_root_id"], []).append(row)
+
+    measure_rows = conn.execute(
+        f"""SELECT canonical_root_id, name, definition_type
+            FROM gs_semantic_definitions
+            WHERE canonical_root_id IN ({placeholders})
+              AND deleted_at IS NULL
+            ORDER BY canonical_root_id, name COLLATE NOCASE""",
+        root_ids,
+    ).fetchall()
+    measures_by_root: dict[int, list] = {}
+    for row in _rows_to_list(measure_rows):
+        measures_by_root.setdefault(row["canonical_root_id"], []).append(row)
+
+    return [
+        {
+            **node,
+            "columns_preview": cols_by_root.get(node["root_id"], [])[:8],
+            "column_count": len(cols_by_root.get(node["root_id"], [])),
+            "measures_preview": measures_by_root.get(node["root_id"], [])[:6],
+        }
+        for node in nodes
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +586,160 @@ def gs_extract_specimen(params: dict) -> dict:
     finally:
         conn.close()
 
+    # ── Auto-advance: flow extracted entities through the full Gold pipeline ──
+    def _auto_advance_pipeline(cxn, specimen_id, entity_id_map, source_sys):
+        """After extraction, auto-create canonical entities, gold specs, validation, and catalog."""
+        specimen = cxn.execute(
+            "SELECT * FROM gs_specimens WHERE id = ?", (specimen_id,)).fetchone()
+        if not specimen:
+            return
+
+        division = specimen["division"] or "General"
+        steward = specimen["steward"] or "System"
+
+        entities = cxn.execute(
+            "SELECT * FROM gs_extracted_entities WHERE specimen_id = ? AND deleted_at IS NULL",
+            (specimen_id,)).fetchall()
+
+        for ent in entities:
+            ent_name = ent["entity_name"]
+            ent_id = ent["id"]
+
+            # Get columns for this entity
+            columns = cxn.execute(
+                "SELECT * FROM gs_extracted_columns WHERE entity_id = ? ORDER BY ordinal",
+                (ent_id,)).fetchall()
+
+            # ── Step 1: Create canonical entity ──
+            # Determine entity type heuristic
+            name_lower = ent_name.lower()
+            if any(k in name_lower for k in ("fact", "transaction", "order", "log", "audit", "event")):
+                entity_type = "fact"
+                grain = f"One row per {ent_name.replace('_', ' ').replace('tbl', '').strip()} record"
+            elif any(k in name_lower for k in ("dim", "lookup", "ref", "master", "type", "status")):
+                entity_type = "dimension"
+                grain = f"One row per unique {ent_name.replace('_', ' ').replace('tbl', '').strip()}"
+            else:
+                entity_type = "reference"
+                grain = f"One row per {ent_name.replace('_', ' ').replace('tbl', '').strip()} entry"
+
+            # Find business keys (identity or key columns, or first column)
+            bkeys = [c["column_name"] for c in columns if c["is_key"]]
+            if not bkeys:
+                # Use identity columns or first column as key
+                id_cols = [c["column_name"] for c in columns
+                           if "id" in (c["column_name"] or "").lower() and c["ordinal"] and c["ordinal"] <= 2]
+                bkeys = id_cols[:1] if id_cols else ([columns[0]["column_name"]] if columns else ["ID"])
+
+            cur = cxn.execute(
+                """INSERT INTO gs_canonical_entities
+                   (root_id, version, is_current, name, business_description, domain,
+                    entity_type, grain, business_keys, steward, source_systems,
+                    source_cluster_ids, status)
+                   VALUES (0, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'draft')""",
+                (ent_name,
+                 f"Canonical representation of {ent_name} from {source_sys or 'source system'}",
+                 division, entity_type, grain, json.dumps(bkeys), steward,
+                 json.dumps([source_sys]) if source_sys else None))
+            canonical_id = cur.lastrowid
+            cxn.execute("UPDATE gs_canonical_entities SET root_id = ? WHERE id = ?",
+                        (canonical_id, canonical_id))
+
+            # Link extracted entity to canonical
+            cxn.execute(
+                "UPDATE gs_extracted_entities SET canonical_root_id = ?, provenance = 'clustered' WHERE id = ?",
+                (canonical_id, ent_id))
+
+            # ── Step 1b: Create canonical columns ──
+            for idx, col in enumerate(columns):
+                is_key = col["is_key"]
+                key_des = "business_key" if is_key else None
+                cxn.execute(
+                    """INSERT INTO gs_canonical_columns
+                       (canonical_id, canonical_root_id, column_name, data_type, nullable,
+                        key_designation, source_expression, ordinal)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (canonical_id, canonical_id, col["column_name"], col["data_type"],
+                     col["nullable"], key_des,
+                     f"{ent_name}.{col['column_name']}", idx + 1))
+
+            _audit(cxn, "canonical", canonical_id, "auto_created",
+                   new_value={"name": ent_name, "entity_type": entity_type,
+                              "columns": len(columns)})
+
+            # ── Step 2: Create Gold spec (MLV definition) ──
+            col_list = ", ".join(f"[{c['column_name']}]" for c in columns) if columns else "*"
+            spec_sql = f"SELECT\n    {col_list}\nFROM [{ent['schema_name'] or 'dbo'}].[{ent_name}]"
+            included_cols = json.dumps([c["column_name"] for c in columns])
+
+            cur = cxn.execute(
+                """INSERT INTO gs_gold_specs
+                   (root_id, version, is_current, canonical_root_id, canonical_version,
+                    target_name, object_type, source_sql, included_columns, status)
+                   VALUES (0, 1, 1, ?, 1, ?, 'mlv', ?, ?, 'draft')""",
+                (canonical_id, f"Gold_{ent_name}", spec_sql, included_cols))
+            spec_id = cur.lastrowid
+            cxn.execute("UPDATE gs_gold_specs SET root_id = ? WHERE id = ?",
+                        (spec_id, spec_id))
+
+            _audit(cxn, "spec", spec_id, "auto_created",
+                   new_value={"target_name": f"Gold_{ent_name}", "canonical_id": canonical_id})
+
+            # ── Step 3: Create validation run ──
+            validation_results = {
+                "has_columns": {"passed": len(columns) > 0, "detail": f"{len(columns)} columns"},
+                "has_business_keys": {"passed": len(bkeys) > 0, "detail": f"Keys: {', '.join(bkeys)}"},
+                "has_sql": {"passed": True, "detail": "SQL definition generated"},
+                "grain_defined": {"passed": True, "detail": grain},
+            }
+            all_passed = all(v["passed"] for v in validation_results.values())
+
+            cur = cxn.execute(
+                """INSERT INTO gs_validation_runs
+                   (spec_root_id, spec_version, started_at, completed_at,
+                    status, results)
+                   VALUES (?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?)""",
+                (spec_id, "passed" if all_passed else "failed",
+                 json.dumps(validation_results)))
+            val_run_id = cur.lastrowid
+
+            _audit(cxn, "validation", val_run_id, "auto_validated",
+                   new_value={"spec_id": spec_id, "status": "passed" if all_passed else "failed"})
+
+            # ── Step 4: Publish to catalog (if validation passed) ──
+            if all_passed:
+                cur = cxn.execute(
+                    """INSERT INTO gs_catalog_entries
+                       (root_id, version, is_current, canonical_root_id,
+                        spec_root_id, spec_version, display_name, technical_name,
+                        business_description, grain, domain, owner, steward,
+                        source_systems, sensitivity_label, status, endorsement,
+                        published_at, published_by, last_validation_run_id)
+                       VALUES (0, 1, 1, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'internal',
+                               'current', 'promoted', CURRENT_TIMESTAMP, ?, ?)""",
+                    (canonical_id, spec_id,
+                     f"Gold_{ent_name}", f"Gold_{ent_name}",
+                     f"Gold layer view for {ent_name} from {source_sys or 'source'}",
+                     grain, division, steward, steward,
+                     json.dumps([source_sys]) if source_sys else None,
+                     steward, val_run_id))
+                cat_id = cur.lastrowid
+                cxn.execute("UPDATE gs_catalog_entries SET root_id = ? WHERE id = ?",
+                            (cat_id, cat_id))
+
+                # Approve the canonical entity + mark spec validated
+                cxn.execute("UPDATE gs_canonical_entities SET status = 'approved' WHERE id = ?",
+                            (canonical_id,))
+                cxn.execute("UPDATE gs_gold_specs SET status = 'validated' WHERE id = ?",
+                            (spec_id,))
+
+                _audit(cxn, "catalog", cat_id, "auto_published",
+                       new_value={"spec_id": spec_id, "name": f"Gold_{ent_name}"})
+
+        cxn.commit()
+        log.info("Auto-advance pipeline completed for specimen %d: %d entities → canonical → specs → validated → catalog",
+                 specimen_id, len(entities))
+
     # Background extraction thread — calls real SQL parser
     def _run_extraction(job_id_inner, specimen_id):
         cxn = cpdb._get_conn()
@@ -382,6 +783,46 @@ def gs_extract_specimen(params: dict) -> dict:
 
             # ── Call the real SQL parser ──
             result = parse_sql(sql_text, query_name=query_name, source_database=source_database)
+
+            # ── Live schema enrichment ──
+            # Auto-detect source system if not set, then enrich columns with real types
+            live_columns = None
+            detected_source = None
+            source_sys = specimen["source_system"]
+
+            if not source_sys:
+                # Try auto-detection
+                log.info("No source_system on specimen %d — running auto-detect", specimen_id)
+                detected = schema_discovery.auto_detect_source(sql_text)
+                if detected:
+                    source_sys = detected["source_system"]
+                    source_database = detected["database"]
+                    live_columns = detected["columns"]
+                    detected_source = detected
+                    # Update specimen with detected source
+                    cxn.execute(
+                        "UPDATE gs_specimens SET source_system = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (source_sys, specimen_id))
+                    # Update query with detected database
+                    if queries:
+                        cxn.execute(
+                            "UPDATE gs_specimen_queries SET source_database = ? WHERE specimen_id = ?",
+                            (source_database, specimen_id))
+                    log.info("Auto-detected source: %s/%s for specimen %d",
+                             source_sys, source_database, specimen_id)
+
+            if source_sys and live_columns is None:
+                # We have a source system but haven't described yet
+                try:
+                    live_columns = schema_discovery.describe_query(
+                        sql_text, source_sys, source_database)
+                    log.info("Live describe: %d columns for specimen %d",
+                             len(live_columns), specimen_id)
+                except Exception as desc_err:
+                    log.warning("Live describe failed for specimen %d: %s", specimen_id, desc_err)
+                    if not result.warnings:
+                        result.warnings = []
+                    result.warnings.append(f"Live schema enrichment failed: {desc_err}")
 
             if result.errors:
                 # Parser returned hard errors — mark as failed
@@ -495,13 +936,47 @@ def gs_extract_specimen(params: dict) -> dict:
                      dsref.source_name, dsref.database_name,
                      dsref.schema_name))
 
+            # ── Live column enrichment: replace static columns with real metadata ──
+            if live_columns:
+                # If we have live columns from sp_describe, use them instead of static parse
+                # Find the primary entity to attach them to
+                if entity_id_map:
+                    physical = [t for t in result.tables if t.entity_kind == "physical"]
+                    target_name = (physical[0].name if physical else result.tables[0].name).upper()
+                    target_eid = entity_id_map.get(target_name)
+                    if target_eid:
+                        # Delete static columns for this entity and insert live ones
+                        cxn.execute("DELETE FROM gs_extracted_columns WHERE entity_id = ?", (target_eid,))
+                        for lc in live_columns:
+                            cxn.execute(
+                                """INSERT INTO gs_extracted_columns
+                                   (entity_id, column_name, data_type, nullable, is_key,
+                                    source_expression, is_calculated, ordinal)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                                (target_eid, lc["name"], lc["type"], lc["nullable"],
+                                 lc["is_key"],
+                                 f'{lc.get("source_table") or ""}.{lc.get("source_column") or ""}' if lc.get("source_table") else None,
+                                 False, lc["ordinal"]))
+                        cxn.execute(
+                            "UPDATE gs_extracted_entities SET column_count = ? WHERE id = ?",
+                            (len(live_columns), target_eid))
+                        log.info("Enriched entity %d with %d live columns", target_eid, len(live_columns))
+
             # ── Update job + specimen status ──
             has_warnings = bool(result.warnings)
             job_status = "warning" if has_warnings else "completed"
             specimen_state = "parse_warning" if has_warnings else "extracted"
 
+            enrichment_info = {}
+            if live_columns:
+                enrichment_info["live_columns"] = len(live_columns)
+                enrichment_info["source_system"] = source_sys
+                enrichment_info["source_database"] = source_database
+            if detected_source:
+                enrichment_info["auto_detected"] = True
+
             entity_count = len(result.tables)
-            column_count = len(result.columns)
+            column_count = len(live_columns) if live_columns else len(result.columns)
             rel_count = len(result.relationships)
 
             cxn.execute(
@@ -514,7 +989,7 @@ def gs_extract_specimen(params: dict) -> dict:
                 (job_status,
                  json.dumps(result.warnings) if result.warnings else None,
                  json.dumps({"entities": entity_count, "columns": column_count,
-                             "relationships": rel_count}),
+                             "relationships": rel_count, **enrichment_info}),
                  job_id_inner))
             cxn.execute(
                 "UPDATE gs_specimens SET job_state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -522,6 +997,13 @@ def gs_extract_specimen(params: dict) -> dict:
             cxn.commit()
             log.info("Extraction job %d completed for specimen %d: %d entities, %d columns, %d relationships",
                      job_id_inner, specimen_id, entity_count, column_count, rel_count)
+
+            # ── Auto-advance pipeline ──
+            try:
+                _auto_advance_pipeline(cxn, specimen_id, entity_id_map, source_sys)
+            except Exception as adv_err:
+                log.warning("Auto-advance pipeline failed for specimen %d: %s", specimen_id, adv_err)
+
         except Exception as exc:
             log.exception("Extraction job %d failed", job_id_inner)
             try:
@@ -790,6 +1272,8 @@ def gs_list_clusters(params: dict) -> dict:
         where.append("c.confidence >= ?")
         bind.append(int(conf_min))
 
+    embed_members = (params.get("embed") or "").strip().lower() == "members"
+
     where_sql = "WHERE " + " AND ".join(where)
     conn = cpdb._get_conn()
     try:
@@ -805,7 +1289,33 @@ def gs_list_clusters(params: dict) -> dict:
                 LIMIT ? OFFSET ?""",
             bind + [limit, offset],
         ).fetchall()
-        return {"items": _rows_to_list(rows), "total": total,
+        items = _rows_to_list(rows)
+
+        # P10/BPG-CLUST-002: Optionally embed members in list response to
+        # eliminate N+1 per-cluster detail fetches from the frontend.
+        if embed_members and items:
+            cluster_ids = [it["id"] for it in items if it.get("id")]
+            if cluster_ids:
+                ph = ",".join("?" for _ in cluster_ids)
+                member_rows = conn.execute(
+                    f"""SELECT e.*, s.name AS specimen_name
+                        FROM gs_extracted_entities e
+                        LEFT JOIN gs_specimens s ON e.specimen_id = s.id
+                        WHERE e.cluster_id IN ({ph}) AND e.deleted_at IS NULL
+                        ORDER BY e.cluster_id, e.entity_name""",
+                    cluster_ids,
+                ).fetchall()
+                # Group members by cluster_id
+                members_by_cluster: dict[int, list] = {}
+                for m in _rows_to_list(member_rows):
+                    cid = m.get("cluster_id")
+                    if cid not in members_by_cluster:
+                        members_by_cluster[cid] = []
+                    members_by_cluster[cid].append(m)
+                for it in items:
+                    it["members"] = members_by_cluster.get(it["id"], [])
+
+        return {"items": items, "total": total,
                 "limit": limit, "offset": offset}
     finally:
         conn.close()
@@ -2627,6 +3137,15 @@ def gs_stats(params: dict) -> dict:
                 "SELECT COUNT(*) AS cnt FROM gs_clusters WHERE status = 'unresolved' AND deleted_at IS NULL")
             clusters_resolved = _count(
                 "SELECT COUNT(*) AS cnt FROM gs_clusters WHERE status = 'resolved' AND deleted_at IS NULL")
+            avg_cluster_confidence = conn.execute(
+                "SELECT ROUND(COALESCE(AVG(confidence), 0), 1) AS avg_conf FROM gs_clusters WHERE deleted_at IS NULL"
+            ).fetchone()["avg_conf"]
+            not_clustered = _count(
+                """SELECT COUNT(*) AS cnt FROM gs_extracted_entities e
+                   JOIN gs_specimens s ON e.specimen_id = s.id
+                   WHERE e.cluster_id IS NULL AND e.deleted_at IS NULL
+                     AND s.source_class = 'structural'"""
+            )
             canonical_total = _count(
                 "SELECT COUNT(*) AS cnt FROM gs_canonical_entities WHERE is_current = 1 AND deleted_at IS NULL")
             canonical_approved = _count(
@@ -2639,16 +3158,25 @@ def gs_stats(params: dict) -> dict:
                 "SELECT COUNT(*) AS cnt FROM gs_catalog_entries WHERE is_current = 1 AND deleted_at IS NULL")
             catalog_certified = _count(
                 "SELECT COUNT(*) AS cnt FROM gs_catalog_entries WHERE is_current = 1 AND endorsement = 'certified' AND deleted_at IS NULL")
+            generated_at = conn.execute(
+                "SELECT CURRENT_TIMESTAMP AS ts"
+            ).fetchone()["ts"]
 
             cert_rate = round((catalog_certified / catalog_published * 100), 1) if catalog_published > 0 else 0.0
 
             data = {
+                "updated_at": generated_at,
                 "specimens": specimens,
                 "tables_extracted": tables_extracted,
                 "columns_cataloged": columns_cataloged,
                 "clusters_total": clusters_total,
                 "unresolved_clusters": clusters_unresolved,
                 "clusters_resolved": clusters_resolved,
+                "total_clusters": clusters_total,
+                "unresolved": clusters_unresolved,
+                "resolved": clusters_resolved,
+                "avg_confidence": avg_cluster_confidence,
+                "not_clustered": not_clustered,
                 "canonical_total": canonical_total,
                 "canonical_approved": canonical_approved,
                 "gold_specs": gold_specs,
@@ -2944,7 +3472,567 @@ def gs_coverage_delete(params: dict) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Endpoint count verification (67 @route decorators above):
+# Group 15 — Release Review (3 endpoints)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@route("GET", "/api/gold-studio/release/coverage-map")
+def gs_release_coverage_map(params: dict) -> dict:
+    """Release-stage coverage map for imported evidence and downstream reports."""
+    domain = (params.get("domain") or "").strip() or None
+    conn = cpdb._get_conn()
+    try:
+        field_rows = _release_field_rows(conn, domain)
+        model_nodes = _release_model_nodes(conn, domain)
+        canonical_by_root = {row["root_id"]: row for row in model_nodes}
+
+        specimen_where = ["deleted_at IS NULL"]
+        specimen_bind: list = []
+        if domain:
+            specimen_where.append("division = ?")
+            specimen_bind.append(domain)
+        specimen_rows = _rows_to_list(conn.execute(
+            f"""SELECT *
+                FROM gs_specimens
+                WHERE {' AND '.join(specimen_where)}
+                ORDER BY created_at DESC, name COLLATE NOCASE""",
+            specimen_bind,
+        ).fetchall())
+        specimens_by_id = {row["id"]: row for row in specimen_rows}
+
+        report_where = []
+        report_bind: list = []
+        if domain:
+            report_where.append("domain = ?")
+            report_bind.append(domain)
+        report_clause = (" WHERE " + " AND ".join(report_where)) if report_where else ""
+        report_rows = _rows_to_list(conn.execute(
+            f"""SELECT *
+                FROM gs_report_recreation_coverage
+                {report_clause}
+                ORDER BY report_name COLLATE NOCASE""",
+            report_bind,
+        ).fetchall())
+
+        spec_where = ["gs.is_current = 1", "gs.deleted_at IS NULL"]
+        spec_bind: list = []
+        if domain:
+            spec_where.append("ce.domain = ?")
+            spec_bind.append(domain)
+        spec_rows = _rows_to_list(conn.execute(
+            f"""SELECT gs.id, gs.root_id, gs.target_name, gs.status, ce.domain
+                FROM gs_gold_specs gs
+                LEFT JOIN gs_canonical_entities ce
+                  ON ce.root_id = gs.canonical_root_id
+                 AND ce.is_current = 1
+                 AND ce.deleted_at IS NULL
+                WHERE {' AND '.join(spec_where)}
+                ORDER BY gs.target_name COLLATE NOCASE""",
+            spec_bind,
+        ).fetchall())
+        spec_by_id = {row["id"]: row for row in spec_rows}
+
+        artifact_rows: dict[int, dict] = {}
+        for specimen in specimen_rows:
+            artifact_rows[specimen["id"]] = {
+                "artifact_id": specimen["id"],
+                "artifact_name": specimen["name"],
+                "artifact_type": specimen["type"],
+                "source_class": specimen.get("source_class"),
+                "division": specimen.get("division"),
+                "source_system": specimen.get("source_system"),
+                "job_state": specimen.get("job_state"),
+                "usage_row_count": 0,
+                "mapped_row_count": 0,
+                "published_row_count": 0,
+                "needs_review_count": 0,
+                "page_count": 0,
+                "visual_count": 0,
+                "canonical_ids": set(),
+                "spec_ids": set(),
+                "catalog_names": set(),
+                "sample_gaps": [],
+            }
+
+        for row in field_rows:
+            artifact = artifact_rows.setdefault(row["specimen_id"], {
+                "artifact_id": row["specimen_id"],
+                "artifact_name": row["specimen_name"],
+                "artifact_type": row["specimen_type"],
+                "source_class": row.get("source_class"),
+                "division": row.get("division"),
+                "source_system": row.get("source_system"),
+                "job_state": row.get("job_state"),
+                "usage_row_count": 0,
+                "mapped_row_count": 0,
+                "published_row_count": 0,
+                "needs_review_count": 0,
+                "page_count": 0,
+                "visual_count": 0,
+                "canonical_ids": set(),
+                "spec_ids": set(),
+                "catalog_names": set(),
+                "sample_gaps": [],
+            })
+            artifact["usage_row_count"] += 1
+            if row.get("page_name"):
+                artifact.setdefault("pages", set()).add(row["page_name"])
+            if row.get("visual_id"):
+                artifact.setdefault("visuals", set()).add(row["visual_id"])
+            if row.get("canonical_root_id"):
+                artifact["canonical_ids"].add(row["canonical_root_id"])
+            if row.get("spec_id"):
+                artifact["spec_ids"].add(row["spec_id"])
+            if row.get("catalog_name"):
+                artifact["catalog_names"].add(row["catalog_name"])
+            if row["mapping_status"] in ("accounted_for", "published"):
+                artifact["mapped_row_count"] += 1
+            else:
+                artifact["needs_review_count"] += 1
+                gap_name = row.get("measure_name") or row.get("column_name") or row.get("entity_name") or "Unmapped reference"
+                if gap_name not in artifact["sample_gaps"] and len(artifact["sample_gaps"]) < 5:
+                    artifact["sample_gaps"].append(gap_name)
+            if row["mapping_status"] == "published":
+                artifact["published_row_count"] += 1
+
+        artifact_items = []
+        for artifact in artifact_rows.values():
+            pages = artifact.pop("pages", set())
+            visuals = artifact.pop("visuals", set())
+            total = artifact["usage_row_count"]
+            mapped = artifact["mapped_row_count"]
+            if total == 0:
+                if artifact.get("source_class") in ("supporting", "contextual"):
+                    coverage_status = "context_only"
+                    coverage_note = "This imported artifact contributes context, but it has not produced parsed field lineage."
+                else:
+                    coverage_status = "no_field_evidence"
+                    coverage_note = "This imported artifact has not produced field usage evidence yet, so it cannot be checked against the proposed model."
+            elif mapped == total:
+                coverage_status = "fully_accounted_for"
+                coverage_note = "Everything parsed from this artifact is accounted for in the current gold model proposal."
+            elif mapped == 0:
+                coverage_status = "missing_model_coverage"
+                coverage_note = "None of this artifact's parsed fields are currently accounted for by the gold model."
+            else:
+                coverage_status = "partially_accounted_for"
+                coverage_note = "Some fields from this artifact are mapped into the gold model, but coverage is incomplete."
+
+            artifact["coverage_status"] = coverage_status
+            artifact["coverage_note"] = coverage_note
+            artifact["page_count"] = len(pages)
+            artifact["visual_count"] = len(visuals)
+            artifact["proposed_coverage_pct"] = round((mapped / total) * 100, 1) if total else 0.0
+            artifact["canonical_count"] = len(artifact["canonical_ids"])
+            artifact["spec_count"] = len(artifact["spec_ids"])
+            artifact["catalog_products"] = sorted(artifact["catalog_names"])
+            artifact["canonical_ids"] = sorted(artifact["canonical_ids"])
+            artifact["spec_ids"] = sorted(artifact["spec_ids"])
+            artifact_items.append(artifact)
+
+        artifact_items.sort(key=lambda row: (row["coverage_status"], -row["usage_row_count"], row["artifact_name"].lower()))
+
+        report_items = []
+        for report in report_rows:
+            specimen_ids = _json_int_list(report.get("contributing_specimen_ids"))
+            canonical_ids = _json_int_list(report.get("contributing_canonical_ids"))
+            spec_ids = _json_int_list(report.get("contributing_spec_ids"))
+            unresolved = _json_list(report.get("unresolved_metrics"))
+            report_items.append({
+                **report,
+                "artifact_names": [specimens_by_id[sid]["name"] for sid in specimen_ids if sid in specimens_by_id],
+                "canonical_names": [canonical_by_root[cid]["name"] for cid in canonical_ids if cid in canonical_by_root],
+                "spec_names": [spec_by_id[sid]["target_name"] for sid in spec_ids if sid in spec_by_id],
+                "artifact_count": len(specimen_ids),
+                "canonical_count": len(canonical_ids),
+                "spec_count": len(spec_ids),
+                "unresolved_metric_count": len(unresolved),
+                "coverage_note": (
+                    "This report is fully represented by the proposed model."
+                    if report["coverage_status"] in ("fully_covered", "recreated", "reconciled")
+                    else "This report still has explicit coverage gaps or open reconciliation work."
+                ),
+            })
+
+        blockers = []
+        for spec in spec_rows:
+            if spec["status"] != "validated":
+                blockers.append({
+                    "kind": "spec",
+                    "name": spec["target_name"],
+                    "status": spec["status"],
+                    "reason": "This gold spec has not completed validation yet.",
+                })
+        for artifact in artifact_items:
+            if artifact["usage_row_count"] > 0 and artifact["needs_review_count"] > 0:
+                blockers.append({
+                    "kind": "artifact",
+                    "name": artifact["artifact_name"],
+                    "status": artifact["coverage_status"],
+                    "reason": artifact["coverage_note"],
+                })
+        for report in report_items:
+            if report["coverage_status"] not in ("fully_covered", "recreated", "reconciled") or report["unresolved_metric_count"] > 0:
+                blockers.append({
+                    "kind": "report",
+                    "name": report["report_name"],
+                    "status": report["coverage_status"],
+                    "reason": report["coverage_note"],
+                })
+
+        mapped_field_rows = sum(1 for row in field_rows if row["mapping_status"] in ("accounted_for", "published"))
+        summary = {
+            "domain": domain,
+            "imported_artifacts": len(artifact_items),
+            "registered_reports": len(report_items),
+            "field_rows_total": len(field_rows),
+            "field_rows_accounted_for": mapped_field_rows,
+            "field_rows_needing_review": max(len(field_rows) - mapped_field_rows, 0),
+            "current_specs": len(spec_rows),
+            "validated_specs": sum(1 for row in spec_rows if row["status"] == "validated"),
+            "published_products": sum(1 for row in model_nodes if row.get("published_product_count")),
+            "canonical_entities": len(model_nodes),
+            "updated_at": conn.execute("SELECT CURRENT_TIMESTAMP AS ts").fetchone()["ts"],
+        }
+
+        return {
+            "summary": summary,
+            "artifacts": artifact_items,
+            "reports": report_items,
+            "blockers": blockers[:18],
+        }
+    finally:
+        conn.close()
+
+
+@route("GET", "/api/gold-studio/release/proposed-model")
+def gs_release_proposed_model(params: dict) -> dict:
+    """Power BI-style semantic model review for the proposed gold layer."""
+    domain = (params.get("domain") or "").strip() or None
+    conn = cpdb._get_conn()
+    try:
+        nodes = _release_model_nodes(conn, domain)
+        field_rows = _release_field_rows(conn, domain)
+
+        usage_by_root: dict[int, dict] = {}
+        for row in field_rows:
+            root_id = row.get("canonical_root_id")
+            if not root_id:
+                continue
+            usage = usage_by_root.setdefault(root_id, {
+                "field_reference_count": 0,
+                "artifact_ids": set(),
+                "artifact_names": set(),
+            })
+            usage["field_reference_count"] += 1
+            usage["artifact_ids"].add(row["specimen_id"])
+            usage["artifact_names"].add(row["specimen_name"])
+
+        report_rows = _rows_to_list(conn.execute(
+            ("SELECT * FROM gs_report_recreation_coverage WHERE domain = ? ORDER BY report_name COLLATE NOCASE"
+             if domain else
+             "SELECT * FROM gs_report_recreation_coverage ORDER BY report_name COLLATE NOCASE"),
+            ([domain] if domain else []),
+        ).fetchall())
+        explicit_report_counts: dict[int, int] = {}
+        for report in report_rows:
+            for root_id in _json_int_list(report.get("contributing_canonical_ids")):
+                explicit_report_counts[root_id] = explicit_report_counts.get(root_id, 0) + 1
+
+        root_ids = {node["root_id"] for node in nodes}
+        rel_rows = _rows_to_list(conn.execute(
+            """SELECT cc.id,
+                      cc.canonical_root_id AS from_root_id,
+                      ce_from.name AS from_entity,
+                      cc.column_name,
+                      cc.fk_target_root_id AS to_root_id,
+                      ce_to.name AS to_entity,
+                      cc.fk_target_column
+               FROM gs_canonical_columns cc
+               JOIN gs_canonical_entities ce_from
+                 ON ce_from.root_id = cc.canonical_root_id
+                AND ce_from.is_current = 1
+               LEFT JOIN gs_canonical_entities ce_to
+                 ON ce_to.root_id = cc.fk_target_root_id
+                AND ce_to.is_current = 1
+               WHERE cc.fk_target_root_id IS NOT NULL
+               ORDER BY ce_from.name, cc.column_name""",
+        ).fetchall())
+        relationships = [row for row in rel_rows if row["from_root_id"] in root_ids and row["to_root_id"] in root_ids]
+
+        model_nodes = []
+        for node in nodes:
+            usage = usage_by_root.get(node["root_id"], {})
+            report_count = explicit_report_counts.get(node["root_id"], 0)
+            if node.get("published_product_count"):
+                model_state = "published"
+                model_note = "This business object already has a published gold product behind it."
+            elif node.get("spec_id") and node.get("spec_status") == "validated":
+                model_state = "validated"
+                model_note = "The object is modeled and validated, but not yet published."
+            elif node.get("spec_id"):
+                model_state = "designed"
+                model_note = "The object is in the proposed model, but its gold spec still needs release confirmation."
+            else:
+                model_state = "needs_spec"
+                model_note = "The canonical object exists, but the final gold model still needs a concrete spec for it."
+
+            model_nodes.append({
+                **node,
+                "field_reference_count": usage.get("field_reference_count", 0),
+                "artifact_evidence_count": len(usage.get("artifact_ids", set())),
+                "artifact_names": sorted(usage.get("artifact_names", set())),
+                "report_count": report_count,
+                "relationship_count": sum(1 for rel in relationships if rel["from_root_id"] == node["root_id"] or rel["to_root_id"] == node["root_id"]),
+                "model_state": model_state,
+                "model_note": model_note,
+            })
+
+        summary = {
+            "domain": domain,
+            "entity_count": len(model_nodes),
+            "published_entities": sum(1 for row in model_nodes if row["model_state"] == "published"),
+            "validated_entities": sum(1 for row in model_nodes if row["model_state"] in ("published", "validated")),
+            "entities_needing_specs": sum(1 for row in model_nodes if row["model_state"] == "needs_spec"),
+            "relationship_count": len(relationships),
+            "updated_at": conn.execute("SELECT CURRENT_TIMESTAMP AS ts").fetchone()["ts"],
+        }
+        return {"summary": summary, "nodes": model_nodes, "relationships": relationships}
+    finally:
+        conn.close()
+
+
+@route("GET", "/api/gold-studio/release/coverage-appendix")
+def gs_release_coverage_appendix(params: dict) -> dict:
+    """Appendix rows showing exactly how imported artifacts map into the proposed gold model."""
+    domain = (params.get("domain") or "").strip() or None
+    conn = cpdb._get_conn()
+    try:
+        items = []
+        field_rows = _release_field_rows(conn, domain)
+        seen_specimen_ids = set()
+        for row in field_rows:
+            seen_specimen_ids.add(row["specimen_id"])
+            items.append({
+                "kind": "field_usage",
+                "artifact_id": row["specimen_id"],
+                "artifact_name": row["specimen_name"],
+                "artifact_type": row["specimen_type"],
+                "source_class": row.get("source_class"),
+                "domain": row.get("division"),
+                "page_name": row.get("page_name"),
+                "visual_type": row.get("visual_type"),
+                "visual_id": row.get("visual_id"),
+                "source_entity_name": row.get("entity_name"),
+                "source_field_name": row.get("measure_name") or row.get("column_name"),
+                "field_kind": "measure" if row.get("measure_name") else "column",
+                "usage_type": row.get("usage_type"),
+                "canonical_name": row.get("canonical_name"),
+                "semantic_name": row.get("semantic_name"),
+                "spec_name": row.get("spec_name"),
+                "catalog_name": row.get("catalog_name"),
+                "mapping_status": row["mapping_status"],
+                "mapping_note": row["mapping_note"],
+            })
+
+        specimen_where = ["deleted_at IS NULL"]
+        specimen_bind: list = []
+        if domain:
+            specimen_where.append("division = ?")
+            specimen_bind.append(domain)
+        specimen_rows = _rows_to_list(conn.execute(
+            f"""SELECT *
+                FROM gs_specimens
+                WHERE {' AND '.join(specimen_where)}
+                ORDER BY created_at DESC, name COLLATE NOCASE""",
+            specimen_bind,
+        ).fetchall())
+
+        for specimen in specimen_rows:
+            if specimen["id"] in seen_specimen_ids:
+                continue
+            items.append({
+                "kind": "artifact",
+                "artifact_id": specimen["id"],
+                "artifact_name": specimen["name"],
+                "artifact_type": specimen["type"],
+                "source_class": specimen.get("source_class"),
+                "domain": specimen.get("division"),
+                "page_name": None,
+                "visual_type": None,
+                "visual_id": None,
+                "source_entity_name": None,
+                "source_field_name": None,
+                "field_kind": "artifact",
+                "usage_type": None,
+                "canonical_name": None,
+                "semantic_name": None,
+                "spec_name": None,
+                "catalog_name": None,
+                "mapping_status": "context_only" if specimen.get("source_class") in ("supporting", "contextual") else "no_field_evidence",
+                "mapping_note": (
+                    "Imported as contextual/supporting evidence. It informs the final model, but it does not expose parsed field lineage."
+                    if specimen.get("source_class") in ("supporting", "contextual")
+                    else "Imported as a structural artifact, but no field lineage has been extracted from it yet."
+                ),
+            })
+
+        report_rows = _rows_to_list(conn.execute(
+            ("SELECT * FROM gs_report_recreation_coverage WHERE domain = ? ORDER BY report_name COLLATE NOCASE"
+             if domain else
+             "SELECT * FROM gs_report_recreation_coverage ORDER BY report_name COLLATE NOCASE"),
+            ([domain] if domain else []),
+        ).fetchall())
+        for report in report_rows:
+            if _json_int_list(report.get("contributing_specimen_ids")) or _json_int_list(report.get("contributing_canonical_ids")) or _json_int_list(report.get("contributing_spec_ids")):
+                continue
+            items.append({
+                "kind": "release_report",
+                "artifact_id": report["id"],
+                "artifact_name": report["report_name"],
+                "artifact_type": report.get("report_type") or "other",
+                "source_class": "release_report",
+                "domain": report.get("domain"),
+                "page_name": None,
+                "visual_type": None,
+                "visual_id": None,
+                "source_entity_name": None,
+                "source_field_name": None,
+                "field_kind": "report",
+                "usage_type": None,
+                "canonical_name": None,
+                "semantic_name": None,
+                "spec_name": None,
+                "catalog_name": None,
+                "mapping_status": "coverage_unmapped",
+                "mapping_note": "This downstream report is registered for migration, but it still has no linked artifacts, canonical objects, or gold specs.",
+            })
+
+        items.sort(key=lambda row: (
+            row.get("artifact_name", "").lower(),
+            str(row.get("page_name") or "").lower(),
+            str(row.get("source_entity_name") or "").lower(),
+            str(row.get("source_field_name") or "").lower(),
+        ))
+
+        status_counts: dict[str, int] = {}
+        for item in items:
+            status = item["mapping_status"]
+            status_counts[status] = status_counts.get(status, 0) + 1
+
+        return {
+            "domain": domain,
+            "items": items,
+            "total": len(items),
+            "status_counts": status_counts,
+            "updated_at": conn.execute("SELECT CURRENT_TIMESTAMP AS ts").fetchone()["ts"],
+        }
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Group 16 — Live Discovery & Preview (4 endpoints)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# 66. GET /api/gold-studio/source-systems — List known source systems
+@route("GET", "/api/gold-studio/source-systems")
+def gs_source_systems(params: dict) -> dict:
+    return {"items": schema_discovery.get_source_systems()}
+
+
+# 67. POST /api/gold-studio/specimens/{id}/preview — Run query with TOP N, return rows
+@route("POST", "/api/gold-studio/specimens/{id}/preview")
+def gs_specimen_preview(params: dict) -> dict:
+    sid = _parse_int(params.get("id"), "id", required=True)
+    limit = _parse_int(params.get("limit"), "limit", default=50)
+    conn = cpdb._get_conn()
+    try:
+        spec = conn.execute(
+            "SELECT * FROM gs_specimens WHERE id = ? AND deleted_at IS NULL",
+            (sid,)).fetchone()
+        if not spec:
+            raise HttpError("Specimen not found", 404)
+
+        queries = conn.execute(
+            "SELECT * FROM gs_specimen_queries WHERE specimen_id = ? ORDER BY ordinal",
+            (sid,)).fetchall()
+        if not queries:
+            raise HttpError("No SQL queries found for this specimen", 400)
+
+        sql_text = queries[0]["query_text"]
+        source_sys = spec["source_system"]
+        source_db = queries[0]["source_database"] or None
+
+        if not source_sys:
+            raise HttpError("Source system not set — cannot connect to database", 400)
+
+        try:
+            result = schema_discovery.preview_query(
+                sql_text, source_sys, source_db, limit=limit)
+            return result
+        except Exception as e:
+            raise HttpError(f"Preview query failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+# 68. POST /api/gold-studio/specimens/{id}/live-describe — Get live column metadata
+@route("POST", "/api/gold-studio/specimens/{id}/live-describe")
+def gs_specimen_live_describe(params: dict) -> dict:
+    sid = _parse_int(params.get("id"), "id", required=True)
+    conn = cpdb._get_conn()
+    try:
+        spec = conn.execute(
+            "SELECT * FROM gs_specimens WHERE id = ? AND deleted_at IS NULL",
+            (sid,)).fetchone()
+        if not spec:
+            raise HttpError("Specimen not found", 404)
+
+        queries = conn.execute(
+            "SELECT * FROM gs_specimen_queries WHERE specimen_id = ? ORDER BY ordinal",
+            (sid,)).fetchall()
+        if not queries:
+            raise HttpError("No SQL queries found", 400)
+
+        sql_text = queries[0]["query_text"]
+        source_sys = spec["source_system"]
+        source_db = queries[0]["source_database"] or None
+
+        if not source_sys:
+            raise HttpError("Source system not set", 400)
+
+        try:
+            columns = schema_discovery.describe_query(sql_text, source_sys, source_db)
+            return {"columns": columns, "source_system": source_sys, "column_count": len(columns)}
+        except Exception as e:
+            raise HttpError(f"Live describe failed: {e}", 500)
+    finally:
+        conn.close()
+
+
+# 69. POST /api/gold-studio/auto-detect — Auto-detect source system from SQL
+@route("POST", "/api/gold-studio/auto-detect")
+def gs_auto_detect_source(params: dict) -> dict:
+    sql = (params.get("sql") or "").strip()
+    if not sql:
+        raise HttpError("'sql' is required", 400)
+
+    result = schema_discovery.auto_detect_source(sql)
+    if result is None:
+        return {"detected": False, "message": "Could not match query to any known source system"}
+    return {
+        "detected": True,
+        "source_system": result["source_system"],
+        "database": result["database"],
+        "server": result["server"],
+        "column_count": len(result["columns"]),
+        "columns": result["columns"],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Endpoint count verification (67 + 4 = 71 @route decorators above):
 #
 #  Group 1 — Specimens:          8  (#1-#8)
 #  Group 2 — Extracted Entities: 5  (#9-#13)

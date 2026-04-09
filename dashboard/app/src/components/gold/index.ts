@@ -6,3 +6,9 @@ export { ClusterCard } from "./ClusterCard";
 export { ColumnReconciliation } from "./ColumnReconciliation";
 export { SpecimenCard } from "./SpecimenCard";
 export { GoldLoading, GoldEmpty, GoldError, GoldNoResults } from "./GoldStates";
+export {
+  GoldNextActionPanel,
+  GoldAsyncStatusCard,
+  GoldCompletionReceipt,
+  GoldFailureReceipt,
+} from "./GoldWorkflowCards";

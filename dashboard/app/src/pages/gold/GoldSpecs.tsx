@@ -7,7 +7,7 @@ import { GoldStudioLayout, useDomainContext } from "@/components/gold/GoldStudio
 
 import { SlideOver } from "@/components/gold/SlideOver";
 import { ProvenanceThread } from "@/components/gold/ProvenanceThread";
-import { GoldLoading, GoldNoResults } from "@/components/gold";
+import { GoldLoading, GoldNoResults, GoldNextActionPanel, GoldFailureReceipt } from "@/components/gold";
 
 const API = "/api/gold-studio";
 
@@ -70,12 +70,13 @@ interface ValidationRun { id?: number; started_at?: string; date?: string; statu
 
 /* Backend gs_stats returns these field names */
 interface BackendStats {
+  updated_at?: string;
   gold_specs?: number;
   specs_validated?: number;
   [key: string]: unknown;
 }
 
-interface Stats { total: number; ready: number; pending: number; needs_reval: number; deprecated: number; }
+interface Stats { total: number; ready: number; pending: number; needs_reval: number; deprecated: number; updated_at?: string; }
 
 /* ---------- constants ---------- */
 const STATUS_RAIL: Record<string, string> = {
@@ -106,10 +107,19 @@ const body = (sz: number) => ({ fontFamily: "var(--bp-font-body)", fontSize: sz 
 const display = (sz: number) => ({ fontFamily: "var(--bp-font-display)", fontSize: sz } as const);
 
 /** Map backend gs_stats shape to our Stats interface */
-function mapStats(raw: BackendStats): Stats {
+function mapStats(raw: BackendStats, specs: GoldSpec[]): Stats {
   const total = raw.gold_specs ?? 0;
   const ready = raw.specs_validated ?? 0;
-  return { total, ready, pending: total - ready, needs_reval: 0, deprecated: 0 };
+  const needsReval = specs.filter((s) => s.status === "needs_revalidation").length;
+  const deprecated = specs.filter((s) => s.status === "deprecated").length;
+  return {
+    total,
+    ready,
+    pending: Math.max(total - ready, 0),
+    needs_reval: needsReval,
+    deprecated,
+    updated_at: raw.updated_at,
+  };
 }
 
 /* ========== component ========== */
@@ -145,13 +155,14 @@ export default function GoldSpecs() {
     if (status !== "All") qs.set("status", status);
     // List returns {items, total}
     f<{ items: GoldSpec[] }>(`${API}/specs?${qs}`).then((r) => {
-      setSpecs((r?.items ?? []).map((s) => ({
+      const normalized = (r?.items ?? []).map((s) => ({
         ...s,
         name: s.name ?? s.target_name ?? "Unnamed",
         type: s.type ?? s.entity_type ?? "MLV",
-      })));
+      }));
+      setSpecs(normalized);
+      f<BackendStats>(`${API}/stats`).then((raw) => setStats(mapStats(raw, normalized))).catch(() => {});
     }).catch((err) => { setFetchError(err?.message ?? "Failed to load specs"); }).finally(() => setLoading(false));
-    f<BackendStats>(`${API}/stats`).then((raw) => setStats(mapStats(raw))).catch(() => {});
   }, [domain, status]);
 
   useEffect(load, [load]);
@@ -205,6 +216,29 @@ export default function GoldSpecs() {
             </div>
           ))}
         </div>
+        {stats.updated_at && (
+          <div style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, color: "var(--bp-ink-tertiary)", marginTop: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Updated {new Date(stats.updated_at).toLocaleString()}
+          </div>
+        )}
+      </div>
+
+      <div className="my-4">
+        <GoldNextActionPanel
+          title={
+            stats.ready > 0
+              ? `Submit ${stats.ready} validated spec${stats.ready === 1 ? "" : "s"} into the release gate`
+              : `Resolve ${stats.pending} spec${stats.pending === 1 ? "" : "s"} that still need review`
+          }
+          description="This stage turns canonical definitions into product-ready specifications. The page should make it obvious which specs are ready for release and which still need revision."
+          whyItMatters="A spec is the contract for how the gold product will be built, validated, and published. Ambiguity here creates release risk."
+          whatHappensNext="Validated specs move into the release gate. Draft or revalidation candidates should stay here until their structure and intent are clear."
+          tone={stats.ready > 0 ? "success" : "warning"}
+          action={{
+            label: stats.ready > 0 ? "Show Validated Specs" : "Show Pending Specs",
+            onClick: () => setStatus(stats.ready > 0 ? "validated" : "draft"),
+          }}
+        />
       </div>
 
       {/* Filter bar */}
@@ -224,11 +258,14 @@ export default function GoldSpecs() {
 
       {/* Error banner */}
       {fetchError && (
-        <div className="mx-6 mt-3 rounded-md px-4 py-3 flex items-center gap-3" role="alert"
-          style={{ background: "var(--bp-fault-light)", border: "1px solid var(--bp-fault-red)" }}>
-          <span style={{ ...body(13), color: "var(--bp-fault-red)" }}>{fetchError}</span>
-          <button type="button" onClick={load} className="rounded px-2 py-1 text-xs"
-            style={{ background: "var(--bp-fault-red)", color: "var(--bp-surface-1)" }}>Retry</button>
+        <div className="mx-6 mt-3">
+          <GoldFailureReceipt
+            title="Spec data did not finish loading"
+            summary={fetchError}
+            preservedState="Existing spec drafts and history remain intact. This failure only affects what the page can currently show."
+            retryScope="Retrying reloads the spec workspace only. It does not regenerate or publish specs."
+            action={{ label: "Reload Specs", onClick: load }}
+          />
         </div>
       )}
 
@@ -270,7 +307,7 @@ export default function GoldSpecs() {
             </button>
           );
         })}
-        {filtered.length === 0 && !loading && <GoldNoResults message="No specs match your filters." />}
+        {filtered.length === 0 && !loading && <GoldNoResults message="No specs match the current filters. Clear the search or widen the status filter to keep moving through the product definition queue." />}
       </div>
 
       {/* Detail SlideOver */}

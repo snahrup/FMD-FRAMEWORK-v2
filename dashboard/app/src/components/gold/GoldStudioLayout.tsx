@@ -29,17 +29,74 @@ export function useGoldToast() { return useContext(ToastContext); }
 
 /* ---------- constants ---------- */
 interface GoldStudioLayoutProps {
-  activeTab: "ledger" | "clusters" | "canonical" | "specs" | "validation";
+  activeTab: "ledger" | "clusters" | "canonical" | "specs" | "validation" | "serve";
   children: ReactNode;
   actions?: ReactNode;
 }
 
-const TABS = [
-  { id: "ledger", label: "Ledger", path: "/gold/ledger" },
-  { id: "clusters", label: "Clusters", path: "/gold/clusters" },
-  { id: "canonical", label: "Canonical", path: "/gold/canonical" },
-  { id: "specs", label: "Specifications", path: "/gold/specs" },
-  { id: "validation", label: "Validation", path: "/gold/validation" },
+interface AuditItem {
+  id: number;
+  object_type: string;
+  object_id: number;
+  action: string;
+  created_at: string;
+}
+
+const STAGES = [
+  {
+    id: "ledger",
+    label: "Intake",
+    path: "/gold/intake",
+    hint: "Qualify source material",
+    title: "Intake",
+    purpose: "Import, inspect, and qualify source material before it enters gold design.",
+    whatNext: "Move clean, review-ready items forward into clustering.",
+  },
+  {
+    id: "clusters",
+    label: "Cluster",
+    path: "/gold/cluster",
+    hint: "Review candidate groupings",
+    title: "Cluster Review",
+    purpose: "Group related items, discard noise, and identify concepts ready for promotion.",
+    whatNext: "Promote stable concepts into canonical business objects.",
+  },
+  {
+    id: "canonical",
+    label: "Canonical",
+    path: "/gold/canonical",
+    hint: "Define shared business objects",
+    title: "Canonical Definitions",
+    purpose: "Define the shared business objects that downstream gold products should build from.",
+    whatNext: "Generate or refine product specs once the definition is complete.",
+  },
+  {
+    id: "specs",
+    label: "Spec",
+    path: "/gold/spec",
+    hint: "Shape the product definition",
+    title: "Product Specs",
+    purpose: "Design and review the gold-layer product definition before release review.",
+    whatNext: "Submit ready specs into the release gate for validation and publishing.",
+  },
+  {
+    id: "validation",
+    label: "Release",
+    path: "/gold/release",
+    hint: "Resolve blockers and publish",
+    title: "Release Gate",
+    purpose: "Resolve quality blockers, confirm release readiness, and publish approved products.",
+    whatNext: "Move published products into live stewardship and governance.",
+  },
+  {
+    id: "serve",
+    label: "Serve",
+    path: "/gold/serve",
+    hint: "Monitor live products",
+    title: "Serve and Governance",
+    purpose: "Monitor live gold products, ownership, and governance after release.",
+    whatNext: "Investigate live issues or open the product for downstream stewardship work.",
+  },
 ] as const;
 
 const API = "/api/gold-studio";
@@ -63,6 +120,7 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
   const [domainDetail, setDomainDetail] = useState<DomainWorkspace | null>(null);
   const [showPanel, setShowPanel] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
+  const [recentActivity, setRecentActivity] = useState<AuditItem[]>([]);
 
   const showToast = useCallback((message: string, type: ToastType = "info") => {
     setToast({ message, type });
@@ -75,6 +133,26 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
       .then(r => r.json())
       .then(d => setDomains(d.domains ?? []))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadActivity = () => {
+      fetch(`${API}/audit/log?limit=4`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => {
+          if (!cancelled) setRecentActivity((d?.items ?? []) as AuditItem[]);
+        })
+        .catch(() => {
+          if (!cancelled) setRecentActivity([]);
+        });
+    };
+    loadActivity();
+    const timer = window.setInterval(loadActivity, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, []);
 
   // Fetch domain detail when selected
@@ -91,6 +169,8 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
   }, [domains]);
 
   const domainNames = domains.map(d => d.name);
+  const currentStage = STAGES.find((stage) => stage.id === activeTab) ?? STAGES[0];
+  const currentStageIndex = STAGES.findIndex((stage) => stage.id === currentStage.id);
 
   return (
     <DomainContext.Provider value={{ domain: selectedDomain, setDomain: selectDomain, domainNames }}>
@@ -98,13 +178,38 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
       <div className="min-h-screen" style={{ background: "var(--bp-canvas)" }}>
         {/* Sticky header */}
         <div className="sticky top-0 z-10" style={{ background: "var(--bp-canvas)" }}>
-          {/* Title bar + domain selector */}
-          <div className="flex items-center justify-between px-6 pt-4 pb-2">
-            <div className="flex items-center gap-4">
-              <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: 20, letterSpacing: "-0.02em", color: "var(--bp-ink-primary)" }}>
-                GOLD STUDIO
+          {/* Page identity + controls */}
+          <div className="flex flex-col gap-4 px-6 pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span style={{ ...mono, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  Gold Studio Workflow
+                </span>
+                <span
+                  className="rounded-full px-2 py-0.5"
+                  style={{
+                    ...bf,
+                    fontSize: 11,
+                    color: "var(--bp-copper)",
+                    background: "rgba(180,86,36,0.08)",
+                    border: "1px solid rgba(180,86,36,0.16)",
+                  }}
+                >
+                  Stage {currentStageIndex + 1} of {STAGES.length}
+                </span>
+              </div>
+              <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
+                {currentStage.title}
               </h1>
-              {/* Domain selector */}
+              <p style={{ fontSize: 13, color: "var(--bp-ink-secondary)", marginTop: 6, maxWidth: 760 }}>
+                {currentStage.purpose}
+              </p>
+              <p style={{ fontSize: 12, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
+                <span style={{ ...mono, color: "var(--bp-copper)", marginRight: 6 }}>NEXT</span>
+                {currentStage.whatNext}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               {domains.length > 0 && (
                 <div className="flex items-center gap-1.5">
                   <span style={{ fontFamily: "var(--bp-font-mono)", fontSize: 10, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Domain</span>
@@ -119,29 +224,87 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
                   </select>
                 </div>
               )}
+              <span
+                className="rounded-full px-2 py-1"
+                style={{
+                  ...bf,
+                  fontSize: 11,
+                  color: "var(--bp-ink-secondary)",
+                  background: "var(--bp-surface-inset)",
+                  border: "1px solid var(--bp-border)",
+                }}
+              >
+                Current stage
+              </span>
+              {actions && <div className="flex items-center gap-2">{actions}</div>}
             </div>
-            {actions && <div className="flex items-center gap-2">{actions}</div>}
           </div>
 
           {/* Domain summary strip (when domain selected) */}
           {showPanel && domainDetail && <DomainSummaryStrip domain={domainDetail} onClose={() => setShowPanel(false)} />}
 
-          {/* Tab strip — premium treatment */}
-          <nav className="flex px-6 gap-1" style={{ borderBottom: "1px solid var(--bp-border)" }}>
-            {TABS.map((tab) => {
-              const isActive = tab.id === activeTab || location.pathname === tab.path;
+          {/* Stage rail */}
+          <nav className="grid gap-2 px-6 pb-3 sm:grid-cols-2 xl:grid-cols-6" style={{ borderBottom: "1px solid var(--bp-border)" }}>
+            {STAGES.map((tab, index) => {
+              const isActive = tab.id === activeTab || location.pathname === tab.path || location.pathname.startsWith(`${tab.path}/`);
               return (
                 <Link
                   key={tab.id} to={tab.path}
-                  className={cn("pb-2.5 px-3 text-center transition-all relative", isActive ? "text-[var(--bp-copper)]" : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-secondary)]")}
-                  style={{ ...bf, fontWeight: isActive ? 700 : 500, fontSize: 14 }}
+                  className={cn("rounded-lg px-3 py-3 transition-all relative", isActive ? "text-[var(--bp-copper)]" : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-secondary)]")}
+                  style={{
+                    ...bf,
+                    border: `1px solid ${isActive ? "rgba(180,86,36,0.22)" : "var(--bp-border)"}`,
+                    background: isActive ? "rgba(180,86,36,0.05)" : "var(--bp-surface-1)",
+                  }}
                 >
-                  {tab.label}
-                  {isActive && <span className="absolute bottom-0 left-0 right-0" style={{ height: 2.5, background: "var(--bp-copper)", borderRadius: "1.5px 1.5px 0 0", transition: "all 200ms var(--ease-claude)" }} />}
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span style={{ ...mono, color: isActive ? "var(--bp-copper)" : "var(--bp-ink-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <span
+                      className="rounded-full px-2 py-0.5"
+                      style={{
+                        ...bf,
+                        fontSize: 10,
+                        color: isActive ? "var(--bp-copper)" : "var(--bp-ink-tertiary)",
+                        background: isActive ? "rgba(180,86,36,0.10)" : "var(--bp-surface-inset)",
+                      }}
+                    >
+                      {isActive ? "Current" : "Stage"}
+                    </span>
+                  </div>
+                  <div style={{ fontWeight: isActive ? 700 : 600, fontSize: 14, color: isActive ? "var(--bp-ink-primary)" : "var(--bp-ink-secondary)" }}>
+                    {tab.label}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--bp-ink-tertiary)", marginTop: 4, lineHeight: 1.35 }}>
+                    {tab.hint}
+                  </div>
                 </Link>
               );
             })}
           </nav>
+          {recentActivity.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 px-6 py-3" style={{ borderBottom: "1px solid var(--bp-border)" }}>
+              <span style={{ ...mono, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Recent Activity
+              </span>
+              {recentActivity.map((item) => (
+                <span
+                  key={item.id}
+                  className="rounded-full px-2.5 py-1"
+                  style={{
+                    ...bf,
+                    fontSize: 11,
+                    color: "var(--bp-ink-secondary)",
+                    background: "var(--bp-surface-1)",
+                    border: "1px solid var(--bp-border)",
+                  }}
+                >
+                  {formatAuditActivity(item)}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Page content */}
@@ -194,6 +357,15 @@ function Stat({ label, value }: { label: string; value: string | number }) {
       <div style={{ fontFamily: "var(--bp-font-display)", fontSize: 14, color: "var(--bp-ink-primary)", marginTop: 1 }}>{value}</div>
     </div>
   );
+}
+
+function formatAuditActivity(item: AuditItem) {
+  const object = item.object_type.replace(/_/g, " ");
+  const action = item.action.replace(/[:_]/g, " ");
+  const when = Number.isNaN(new Date(item.created_at).getTime())
+    ? item.created_at
+    : new Date(item.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `${object} #${item.object_id} ${action} at ${when}`;
 }
 
 /* ---------- Toast ---------- */

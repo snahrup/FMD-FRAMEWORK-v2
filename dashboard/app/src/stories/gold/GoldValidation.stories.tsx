@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import type { ReactElement } from "react";
 import { action } from "storybook/actions";
 import {
   CheckCircle2,
@@ -14,7 +15,7 @@ import {
 
 /* ── helpers ── */
 
-const wrap = (Story: () => JSX.Element) => (
+const wrap = (Story: () => ReactElement) => (
   <div style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
     <Story />
   </div>
