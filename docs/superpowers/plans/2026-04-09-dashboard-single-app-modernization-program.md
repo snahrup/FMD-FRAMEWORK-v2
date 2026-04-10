@@ -20,6 +20,118 @@ This document applies that same approach across the rest of the dashboard so FMD
 - local `interface-design` skill guidance at `C:\Users\snahrup\.claude\skills\interface-design\SKILL.md`
 - current route and page inventory from [App.tsx](C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/dashboard/app/src/App.tsx) and [AppLayout.tsx](C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/dashboard/app/src/components/layout/AppLayout.tsx)
 
+## Research Standard
+Every major destination redesign should be backed by current feature and interaction research before implementation starts.
+
+The rule is:
+
+- do not redesign from taste alone
+- do not modernize a page without understanding the best current feature patterns for that job
+- do not copy other products blindly; extract the pattern, then adapt it to FMD
+- prefer official platform and product documentation first, then category references
+
+### Source priority
+1. Official Microsoft Fabric and Power BI documentation for platform-native behavior
+2. Official Microsoft Purview documentation for lineage, impact, and asset traceability
+3. Official OpenMetadata documentation for lineage, graph, and stewardship interaction patterns
+4. Official dbt documentation and product docs for catalog, semantic, and analytics workflow patterns
+5. Internal FMD product truth, existing capabilities, and the Gold Studio reference design
+
+### What “cutting edge” means here
+It does not mean trendy for its own sake.
+
+It means:
+
+- current platform-aware interaction models
+- strong semantic-model and lineage awareness
+- explicit impact analysis and discoverability patterns
+- guided async and recovery UX
+- fewer, more capable destinations instead of thin page sprawl
+- coherent cross-page primitives that feel technologically current and operationally trustworthy
+
+## Current External Reference Set
+These are the baseline references already informing this program.
+
+- Microsoft Fabric medallion architecture:
+  https://learn.microsoft.com/en-us/fabric/onelake/onelake-medallion-lakehouse-architecture
+- Power BI Model view:
+  https://learn.microsoft.com/en-us/power-bi/transform-model/desktop-relationship-view
+- Power BI Model explorer:
+  https://learn.microsoft.com/en-us/power-bi/transform-model/model-explorer
+- Power BI semantic model impact analysis:
+  https://learn.microsoft.com/en-us/power-bi/collaborate-share/service-dataset-impact-analysis
+- Power BI semantic model discoverability:
+  https://learn.microsoft.com/en-us/power-bi/collaborate-share/service-discovery
+- Power BI XMLA connectivity and semantic model management:
+  https://learn.microsoft.com/en-us/power-bi/enterprise/service-premium-connect-tools
+- Microsoft Purview lineage for Power BI:
+  https://learn.microsoft.com/purview/how-to-lineage-powerbi
+- OpenMetadata lineage graph and lineage API:
+  https://docs.open-metadata.org/how-to-guides/data-lineage/explore
+  https://docs.open-metadata.org/v1.12.x/api-reference/lineage/index
+- dbt Catalog and Semantic Layer:
+  https://www.getdbt.com/product/dbt-catalog
+  https://docs.getdbt.com/
+
+## Research Tracks By Destination
+
+### Overview
+Research:
+- operational overview patterns
+- discoverability and trusted asset patterns
+- what summary metrics actually drive a next action
+
+### Pipeline Operations
+Research:
+- current run-control and async status patterns
+- impact of stop, retry, resume, and preserved-work messaging
+- live timeline and milestone UX
+
+### Monitor and Recovery
+Research:
+- incident triage patterns
+- recovery guidance and anomaly surfacing
+- matrix, logs, and counts coexistence without page fragmentation
+
+### Data Stewardship
+Research:
+- catalog browsing
+- lineage and dependency exploration
+- ownership and governance presentation
+- asset discoverability and trust signaling
+
+### Investigation Workbench
+Research:
+- expert workbench layouts
+- evidence review patterns
+- query/result/lineage/replay interaction models
+
+### Quality Studio
+Research:
+- readiness gates
+- rule editor interaction
+- validation evidence presentation
+- scorecard and audit storytelling
+
+### Gold Studio
+Research:
+- semantic model composition
+- model view and explorer patterns
+- downstream impact analysis
+- coverage and lineage mapping
+
+### Business Portal
+Research:
+- discoverable trusted data-product patterns
+- low-context help and request flows
+- explainability patterns for non-technical consumers
+
+### Platform Admin
+Research:
+- setup wizard patterns
+- admin preflight and post-action receipts
+- runtime diagnostics presentation without overwhelming the operator
+
 ## Product Thesis
 FMD is not a collection of dashboards. It is a data operating workbench.
 
