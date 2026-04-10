@@ -37,6 +37,15 @@ The rule is:
 4. Official dbt documentation and product docs for catalog, semantic, and analytics workflow patterns
 5. Internal FMD product truth, existing capabilities, and the Gold Studio reference design
 
+### Integration-first research rule
+If a future capability depends on an external system, that integration must be researched before the page structure is finalized.
+
+This matters especially for:
+
+- Microsoft Purview
+- Salesforce
+- future semantic-model and governance connectors
+
 ### What “cutting edge” means here
 It does not mean trendy for its own sake.
 
@@ -131,6 +140,48 @@ Research:
 - setup wizard patterns
 - admin preflight and post-action receipts
 - runtime diagnostics presentation without overwhelming the operator
+
+## Integration Mandates
+
+### Microsoft Purview
+Purview should be treated as a first-class metadata and governance spine, not a side panel.
+
+Implications:
+
+- `Data Stewardship` should have a clear Purview-aware catalog, ownership, and lineage mode
+- `Gold Studio` should be able to reference Purview lineage and impact context during release review
+- `Business Portal` should eventually benefit from the same trusted metadata and asset discoverability
+- FMD should expose what lineage is automatic versus what lineage is inferred or manually supplemented
+
+Important current constraints from official Microsoft documentation:
+
+- Purview can scan Fabric and Power BI metadata and lineage, including workspaces, dashboards, reports, datasets, dataflows, and datamarts
+- Purview can register and scan Salesforce metadata, including objects and fields
+- Power BI external lineage support in Purview is not universal; documented support is limited for certain external source types, and column-level transformation visibility is narrower still
+
+Design implication:
+- do not design the UI as if Purview gives perfect end-to-end lineage for every source
+- design for visible trust levels: `native lineage`, `partial lineage`, `manual linkage`, `not yet mapped`
+
+### Salesforce
+Salesforce should be treated as a first-class upstream source pattern, not a one-off connector.
+
+Implications:
+
+- `Pipeline Operations` must support clearly scoped Salesforce ingestion choices where relevant
+- `Data Stewardship` must model Salesforce objects, fields, and relationships in a way that feels native
+- `Gold Studio` should treat imported Salesforce reporting and object evidence as valid input to semantic-model coverage design
+- source-specific limitations such as API versioning, concurrency, and object/report connector differences must be made visible to operators
+
+Important current constraints from official Microsoft documentation:
+
+- Microsoft Fabric Data Factory currently supports Salesforce objects and copy-activity patterns
+- Power Query and Power BI support Salesforce object connectivity with API-version requirements and connector-specific limitations
+- Salesforce reports connectivity exists, but support differs by host experience and is not equivalent to object ingestion everywhere
+
+Design implication:
+- model Salesforce ingestion as a source family with explicit sub-modes like `Objects`, `Reports`, and `Imported Artifacts`
+- do not collapse all Salesforce interactions into one generic connector screen
 
 ## Product Thesis
 FMD is not a collection of dashboards. It is a data operating workbench.
@@ -283,6 +334,28 @@ For every merge or demotion:
 - document what becomes easier for the user after the merge
 
 If a page exists today for a real job, that job must still exist afterward. The goal is fewer surfaces, not less capability.
+
+## Rewrite Rule
+If a page is structurally wrong, a full rewrite is allowed and preferred.
+
+That means we do not need to preserve:
+
+- the current layout
+- the current component structure
+- the current navigation label
+- the current page boundary
+
+We do need to preserve:
+
+- the user job
+- the capability set
+- the underlying truth and action scope
+- the discoverability of the function afterward
+
+In practice:
+- if modernization can rescue the page, modernize it
+- if the page boundary itself is the problem, merge it
+- if the page concept is correct but the implementation is broken, rewrite it from scratch
 
 ## Proposed Top-Level Destination Model
 This is the target information architecture after consolidation.
