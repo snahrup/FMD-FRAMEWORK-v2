@@ -74,13 +74,23 @@ These are the baseline references already informing this program.
 - Power BI XMLA connectivity and semantic model management:
   https://learn.microsoft.com/en-us/power-bi/enterprise/service-premium-connect-tools
 - Microsoft Purview lineage for Power BI:
-  https://learn.microsoft.com/purview/how-to-lineage-powerbi
+  https://learn.microsoft.com/en-us/purview/data-map-lineage-power-bi
+- Microsoft Purview Power BI and Fabric scanning:
+  https://learn.microsoft.com/en-us/purview/register-scan-power-bi-tenant
+- Microsoft Purview Salesforce scanning:
+  https://learn.microsoft.com/en-us/purview/register-scan-salesforce
 - OpenMetadata lineage graph and lineage API:
   https://docs.open-metadata.org/how-to-guides/data-lineage/explore
   https://docs.open-metadata.org/v1.12.x/api-reference/lineage/index
 - dbt Catalog and Semantic Layer:
   https://www.getdbt.com/product/dbt-catalog
   https://docs.getdbt.com/
+- Power Query Salesforce connectors:
+  https://learn.microsoft.com/en-us/power-query/connectors/salesforce-objects
+  https://learn.microsoft.com/en-us/power-query/connectors/salesforce-reports
+- Microsoft Fabric Salesforce connectors:
+  https://learn.microsoft.com/en-us/fabric/data-factory/connector-salesforce-objects-overview
+  https://learn.microsoft.com/en-us/fabric/data-factory/connector-salesforce-copy-activity
 
 ## Research Tracks By Destination
 
