@@ -3,6 +3,13 @@
 ## Direction & Feel
 **Manufacturing control room meets editorial authority.** Warm paper surfaces, industrial copper accent, zero shadows (borders only). The dashboard monitors enterprise data pipelines across 1,666 entities — density over whitespace, precision over decoration.
 
+Do not treat modernization as a rebrand. Preserve the current visual language that already works:
+- current typography direction
+- current warm paper and copper palette
+- current motion vocabulary and pacing
+
+The work is to make the product feel more coherent, intentional, and authored for IP Corporation, not to replace the aesthetic with something unrelated.
+
 ## Signature Element
 **Status Rail** — 3px left-edge color bar on every card, table row, and panel. Colors map to semantic status: green (operational/success), amber (caution/warning), red (fault/failure), copper (accent/active), gold/silver/bronze (tier/layer), gray (muted/inactive). Defined in CSS as `.bp-rail` with variants.
 
@@ -94,6 +101,7 @@ The dashboard is one operating workbench, not a set of disconnected tools. All p
 8. Administer
 
 Assume zero user context by default. The interface must teach the workflow, narrate the current state, and explain the consequence of actions without relying on insider terminology.
+It must also feel custom-built for IP Corporation's real operating environment: multi-company manufacturing, M3 as system of record, MES-backed traceability, Batch ID cross-system workflows, company isolation rules, and Fabric migration realities.
 
 Every major page should include:
 - a plain-language intent header explaining what the page is, why it matters, and what happens next

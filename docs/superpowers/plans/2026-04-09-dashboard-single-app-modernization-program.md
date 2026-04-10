@@ -30,6 +30,8 @@ The rule is:
 - do not copy other products blindly; extract the pattern, then adapt it to FMD
 - prefer official platform and product documentation first, then category references
 
+This research standard does not authorize a visual reset by default. The current FMD aesthetic is a strength and should be preserved unless there is a specific reason to change a visual behavior.
+
 ### Source priority
 1. Official Microsoft Fabric and Power BI documentation for platform-native behavior
 2. Official Microsoft Purview documentation for lineage, impact, and asset traceability
@@ -57,6 +59,13 @@ It means:
 - guided async and recovery UX
 - fewer, more capable destinations instead of thin page sprawl
 - coherent cross-page primitives that feel technologically current and operationally trustworthy
+
+It also means domain fidelity:
+
+- terminology should respect IP Corp language and sensitivities
+- page logic should reflect actual source-system realities
+- workflows should mirror the real migration path from fragmented reporting to governed Fabric semantic models
+- the product should look like it belongs to a manufacturing conglomerate modernizing into Fabric, not a generic SaaS admin kit
 
 ## Current External Reference Set
 These are the baseline references already informing this program.
@@ -196,6 +205,14 @@ Design implication:
 ## Product Thesis
 FMD is not a collection of dashboards. It is a data operating workbench.
 
+It is not a blank-slate rebrand. The current visual language already has strong raw materials:
+
+- the fonts work
+- the warm neutral and copper color world works
+- the motion language works
+
+The modernization goal is to preserve that aesthetic while making the product feel far more deliberate, coherent, and specific to IP Corporation.
+
 The product should teach a user to think in this sequence:
 
 1. `Orient` to the estate and what needs attention.
@@ -219,6 +236,15 @@ That means:
 - if work continues in the background, the UI must narrate that work in plain language
 - if a page exists, it must be obvious how it fits into the larger objective
 - if a distinction between pages is too subtle to explain quickly, those pages should probably be merged
+
+At the same time, the UI should reflect IP Corporation's real operating context from the repo knowledge base, including:
+
+- multi-company manufacturing operations
+- M3 as the system of record
+- MES, ANV, and OATES manufacturing traceability
+- Batch ID as the universal cross-system key
+- Fabric medallion migration and Purview governance goals
+- company-isolation constraints, especially around financial visibility
 
 ## Single-App UX Contract
 
