@@ -80,3 +80,49 @@ Use `bp-badge` CSS classes exclusively — never Tailwind color classes or hardc
 - Gold MLV Manager: Gold accent (#8B6914), catalog/library feel
 - Cleansing Rules: Workbench feel, tool-like rule cards, dark JSON preview
 - SCD Audit: Silver accent (#475569), audit ledger feel, timeline connectors
+
+## Cross-App Product Rules
+The dashboard is one operating workbench, not a set of disconnected tools. All pages should reinforce this lifecycle:
+
+1. Orient
+2. Launch
+3. Observe
+4. Diagnose
+5. Shape
+6. Publish
+7. Serve
+8. Administer
+
+Assume zero user context by default. The interface must teach the workflow, narrate the current state, and explain the consequence of actions without relying on insider terminology.
+
+Every major page should include:
+- a plain-language intent header explaining what the page is, why it matters, and what happens next
+- an action rail with one clear primary action and scoped secondary actions
+- a recent-activity or latest-change strip
+- a tiered KPI strip when metrics matter
+- clear receipts for running, completed, failed, partial, and preserved-work states
+
+If two pages serve the same user job with only minor differences, merge them into one destination with tabs or detail panels instead of keeping extra top-level pages.
+
+## Shared Async Contract
+If a page launches or observes background work, it must show:
+- current state
+- last update time
+- latest milestone
+- next expected change
+- whether user action is required
+- what work is preserved if the process stops or fails
+
+Silent waiting is not allowed.
+
+## Modernization Base Layers
+Apply the modernization treatment consistently across page families:
+- `gs-page-enter` on page wrappers
+- tiered KPI strips instead of flat metric rows
+- `gs-stagger-row` and status rails on data tables
+- `gs-stagger-card` on card grids and lists
+- upgraded tab bars with stronger active-state emphasis
+- `gs-modal-backdrop` and `gs-modal-enter` on modal flows
+- guided empty states with a next step
+
+The motion layer should support clarity, not decoration. Use stagger to reveal hierarchy and progress, not to show off.
