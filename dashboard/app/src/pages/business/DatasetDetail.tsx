@@ -13,6 +13,7 @@ import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { resolveSourceLabel, getSourceColor } from "@/hooks/useSourceConfig";
 import {
+  BusinessIntentHeader,
   StatusRail,
   toRailStatus,
   SourceBadge,
@@ -260,11 +261,33 @@ export default function DatasetDetail() {
         <BackLink />
         <Breadcrumb items={[goldModel.domain || "Model", goldModel.name]} />
 
-        <div style={{ marginBottom: 24 }}>
-          <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
-            {goldModel.name}
-          </h1>
-        </div>
+        <BusinessIntentHeader
+          title={goldModel.name}
+          meta={goldModel.domain ? `${goldModel.domain} collection` : "Collection detail"}
+          summary="This page explains a single business-facing collection or model so a non-technical user can understand what it represents before depending on it."
+          items={[
+            {
+              label: "What This Page Is",
+              value: "Single collection detail",
+              detail: "Use this page to understand what this collection contains, how it should be interpreted, and where it fits inside the broader catalog.",
+            },
+            {
+              label: "Why It Matters",
+              value: "Trust depends on context",
+              detail: "A dataset name alone is not enough. Business users need description, domain context, and confidence about what the asset is supposed to answer.",
+            },
+            {
+              label: "What Happens Next",
+              value: "Use it, verify it, or raise the gap",
+              detail: "Confirm the collection fits the business need, then keep using it, inspect supporting source coverage in the catalog, or submit a request if this asset still leaves a coverage gap.",
+            },
+          ]}
+          links={[
+            { label: "Return to Catalog", to: "/catalog-portal" },
+            { label: "Submit a Request", to: "/requests" },
+            { label: "Open Help", to: "/help" },
+          ]}
+        />
 
         <div className="bp-card p-6">
           <div className="bp-panel-header mb-0">
@@ -350,22 +373,39 @@ export default function DatasetDetail() {
         ]}
       />
 
-      {/* Hero */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
-          {displayName}
-        </h1>
-        <div className="flex items-center gap-3">
-          <SourceBadge source={entity.SourceName} />
-          {qualityScore != null && <QualityTierBadge tier={tier} />}
-          <span
-            className="bp-mono text-[12px]"
-            style={{ color: "var(--bp-ink-muted)" }}
-          >
-            Last refreshed {relativeTime(lastLoad)}
-          </span>
-        </div>
-      </div>
+      <BusinessIntentHeader
+        title={displayName}
+        meta={`Source ${resolveSourceLabel(entity.SourceName)} · Last refreshed ${relativeTime(lastLoad)}`}
+        summary="This page explains a single data asset in business terms while still preserving the technical receipts behind freshness, source ownership, and layer progression."
+        items={[
+          {
+            label: "What This Page Is",
+            value: "Single data asset detail",
+            detail: "Use this page to understand what this table represents, how current it is, and which source system it comes from before you rely on it in analysis.",
+          },
+          {
+            label: "Why It Matters",
+            value: "Dataset trust is local",
+            detail: "Even if the broader platform looks healthy, a single table can still be stale, poorly described, or incomplete. This page surfaces that asset-level truth.",
+          },
+          {
+            label: "What Happens Next",
+            value: "Decide whether to use or escalate",
+            detail: "If the asset looks healthy, keep using it. If freshness, quality, or scope is weak, return to catalog, inspect the source, or submit a request for the missing business need.",
+          },
+        ]}
+        links={[
+          { label: "Return to Catalog", to: "/catalog-portal" },
+          { label: "Browse Sources", to: "/sources-portal" },
+          { label: "Submit a Request", to: "/requests" },
+        ]}
+        actions={
+          <div className="flex items-center gap-3 flex-wrap">
+            <SourceBadge source={entity.SourceName} />
+            {qualityScore != null ? <QualityTierBadge tier={tier} /> : null}
+          </div>
+        }
+      />
 
       {/* Two-column layout */}
       <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: "20px", alignItems: "start" }}>

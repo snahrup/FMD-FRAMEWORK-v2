@@ -7,6 +7,7 @@ import {
   GoldStudioLayout,
   SlideOver,
   useGoldToast,
+  useDomainContext,
   GoldLoading,
   GoldEmpty,
   GoldNoResults,
@@ -80,6 +81,7 @@ const API = "/api/gold-studio";
 
 export default function GoldClusters() {
   const { showToast } = useGoldToast();
+  const { domain, setDomain } = useDomainContext();
 
   /* State */
   const [stats, setStats] = useState<StatsPayload | null>(null);
@@ -93,13 +95,14 @@ export default function GoldClusters() {
   const [search, setSearch] = useState("");
   const [minConf, setMinConf] = useState(0);
   const [maxConf, setMaxConf] = useState(100);
-  const [divisionFilter, setDivisionFilter] = useState("");
+  const [divisionFilter, setDivisionFilter] = useState(domain ?? "");
 
   /* Active tab */
   const [activeTab, setActiveTab] = useState<"clusters" | "unclustered">("clusters");
 
-  /* Abort controller for cluster fetches */
-  const clusterAbortRef = useRef<AbortController | null>(null);
+  /* Request tracking for cluster fetches */
+  const clusterRequestRef = useRef(0);
+  const mountedRef = useRef(true);
 
   /* Dismiss notes modal */
   const [dismissTarget, setDismissTarget] = useState<number | null>(null);
@@ -118,21 +121,21 @@ export default function GoldClusters() {
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/stats`);
+      const statsPath = divisionFilter ? `${API}/stats?domain=${encodeURIComponent(divisionFilter)}` : `${API}/stats`;
+      const res = await fetch(statsPath);
       if (res.ok) setStats(await res.json());
     } catch {
       /* silent */
     }
-  }, []);
+  }, [divisionFilter]);
 
   const fetchClusters = useCallback(async () => {
-    clusterAbortRef.current?.abort();
-    const ctrl = new AbortController();
-    clusterAbortRef.current = ctrl;
+    const requestId = ++clusterRequestRef.current;
     try {
       const params = new URLSearchParams({ limit: "200", embed: "members" });
       if (statusFilter) params.set("status", statusFilter);
-      const res = await fetch(`${API}/clusters?${params}`, { signal: ctrl.signal });
+      if (divisionFilter) params.set("division", divisionFilter);
+      const res = await fetch(`${API}/clusters?${params}`);
       if (!res.ok) return;
       const body = await res.json();
       // API returns { items, total, limit, offset } — items include embedded members
@@ -141,26 +144,31 @@ export default function GoldClusters() {
         cluster: { ...c, member_count: c.members?.length ?? c.member_count },
         members: c.members ?? [],
       }));
-      if (ctrl.signal.aborted) return;
+      if (!mountedRef.current || requestId !== clusterRequestRef.current) return;
       setClusters(details);
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") return;
+    } catch {
       /* silent */
     }
-  }, [statusFilter]);
+  }, [divisionFilter, statusFilter]);
 
   const fetchUnclustered = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/clusters/unclustered?limit=500`);
+      const params = new URLSearchParams({ limit: "500" });
+      if (divisionFilter) params.set("division", divisionFilter);
+      const res = await fetch(`${API}/clusters/unclustered?${params}`);
       if (!res.ok) return;
       const body = await res.json();
       setUnclustered(body.items ?? body);
     } catch {
       /* silent */
     }
-  }, []);
+  }, [divisionFilter]);
 
   const fetchActiveJob = useCallback(async () => {
+    if (divisionFilter) {
+      setActiveJob(null);
+      return;
+    }
     try {
       const [runningRes, queuedRes] = await Promise.all([
         fetch(`${API}/jobs?job_type=cluster_detection&status=running&limit=1`),
@@ -172,7 +180,7 @@ export default function GoldClusters() {
     } catch {
       setActiveJob(null);
     }
-  }, []);
+  }, [divisionFilter]);
 
   useEffect(() => {
     setLoading(true);
@@ -180,11 +188,13 @@ export default function GoldClusters() {
       setLoading(false)
     );
   }, [fetchStats, fetchClusters, fetchUnclustered, fetchActiveJob]);
-
-  // Re-fetch clusters when status filter changes
+  useEffect(() => { setDivisionFilter(domain ?? ""); }, [domain]);
   useEffect(() => {
-    fetchClusters();
-  }, [fetchClusters]);
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -478,7 +488,11 @@ export default function GoldClusters() {
           {divisions.length > 1 && (
             <select
               value={divisionFilter}
-              onChange={(e) => setDivisionFilter(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setDivisionFilter(next);
+                setDomain(next || null);
+              }}
               className="rounded-md px-2.5 py-1.5 text-sm outline-none"
               style={{
                 fontFamily: "var(--bp-font-body)",

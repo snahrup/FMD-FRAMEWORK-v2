@@ -1157,7 +1157,7 @@ def get_load_config(params: dict) -> list:
             "LEFT JOIN bronze_entities be ON le.LandingzoneEntityId = be.LandingzoneEntityId "
             "LEFT JOIN silver_entities se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId "
             "LEFT JOIN watermarks wm ON le.LandingzoneEntityId = wm.LandingzoneEntityId "
-            "WHERE le.DataSourceId = ? "
+            "WHERE le.DataSourceId = ? AND COALESCE(le.IsActive, 1) = 1 "
             "ORDER BY ds.Name, le.SourceSchema, le.SourceName",
             (int(ds_id_str),),
         )
@@ -1174,6 +1174,7 @@ def get_load_config(params: dict) -> list:
         "LEFT JOIN bronze_entities be ON le.LandingzoneEntityId = be.LandingzoneEntityId "
         "LEFT JOIN silver_entities se ON be.BronzeLayerEntityId = se.BronzeLayerEntityId "
         "LEFT JOIN watermarks wm ON le.LandingzoneEntityId = wm.LandingzoneEntityId "
+        "WHERE COALESCE(le.IsActive, 1) = 1 "
         "ORDER BY ds.Name, le.SourceSchema, le.SourceName"
     )
 

@@ -27,7 +27,21 @@ import {
   Columns3,
   AlertTriangle,
   Beaker,
+  Eye,
+  ScanSearch,
 } from "lucide-react";
+import { ExploreWorkbenchHeader } from "@/components/explore/ExploreWorkbenchHeader";
+import {
+  buildEntityCatalogUrl,
+  buildEntityEvolutionUrl,
+  buildEntityLineageUrl,
+  buildEntityMicroscopeUrl,
+  buildEntityProfileUrl,
+  buildEntityReplayUrl,
+  findEntityById,
+  getEntityRecommendedAction,
+  getLoadedLayerCount,
+} from "@/lib/exploreWorksurface";
 
 // ============================================================================
 // CONSTANTS — BP palette for medallion layers
@@ -480,43 +494,154 @@ export default function DataJourney() {
   }, [dropdownOpen]);
 
   // Find selected entity for display
-  const selectedEntity = entities.find((e) => String(e.id) === entityIdParam);
+  const selectedEntity = findEntityById(entities, entityIdParam);
+  const recommendedAction = selectedEntity ? getEntityRecommendedAction(selectedEntity) : null;
+  const currentStage = journey ? getMaxLayer(journey) : null;
+  const currentStageLabel = currentStage
+    ? LAYERS.find((layer) => layer.key === currentStage)?.label || currentStage
+    : null;
+  const headerFacts = selectedEntity
+    ? [
+        {
+          label: "Active entity",
+          value: selectedEntity.businessName || selectedEntity.tableName,
+          detail: `${selectedEntity.source}.${selectedEntity.tableName}`,
+          tone: "accent" as const,
+        },
+        {
+          label: "Lifecycle coverage",
+          value: `${getLoadedLayerCount(selectedEntity)} of 3 downstream layers loaded`,
+          detail: selectedEntity.diagnosis || "Journey coverage reflects where the entity is currently materialized.",
+          tone: selectedEntity.lastError ? "warning" as const : "neutral" as const,
+        },
+        {
+          label: "Current stop",
+          value: currentStageLabel || "Landing Zone",
+          detail: rowDelta != null
+            ? `Silver rows ${rowDelta >= 0 ? "+" : ""}${fmt(rowDelta)} versus bronze.`
+            : "The journey view shows which handoff currently owns the entity.",
+          tone: currentStage === "silver" ? "positive" as const : "neutral" as const,
+        },
+        {
+          label: "Next move",
+          value: recommendedAction?.label || "Review lineage",
+          detail: recommendedAction?.detail || "Use lineage to inspect the next dependency boundary.",
+          tone: "positive" as const,
+        },
+      ]
+    : [
+        {
+          label: "Scope",
+          value: `${entities.length.toLocaleString("en-US")} registered entities`,
+          detail: "Pick one entity to see where it comes from, what changes across layers, and which tool should take over next.",
+          tone: "accent" as const,
+        },
+        {
+          label: "Purpose",
+          value: "Single-entity handoff map",
+          detail: "This page follows one entity from source through silver and keeps the downstream tools one click away.",
+          tone: "neutral" as const,
+        },
+      ];
+  const headerActions = selectedEntity
+    ? [
+        {
+          label: recommendedAction?.label || "Review lineage",
+          to: recommendedAction?.to || buildEntityLineageUrl(selectedEntity),
+          tone: "primary" as const,
+        },
+        {
+          label: "Column evolution",
+          to: buildEntityEvolutionUrl(selectedEntity),
+          icon: Columns3,
+          tone: "secondary" as const,
+        },
+        {
+          label: "Microscope",
+          to: buildEntityMicroscopeUrl(selectedEntity),
+          icon: ScanSearch,
+          tone: "secondary" as const,
+        },
+        {
+          label: "Replay",
+          to: buildEntityReplayUrl(selectedEntity),
+          icon: Eye,
+          tone: "quiet" as const,
+        },
+      ]
+    : [];
 
   return (
     <div className="h-full flex flex-col gs-page-enter" style={{ backgroundColor: "var(--bp-canvas)" }}>
       {/* Header */}
-      <div className="flex-shrink-0 px-6 py-4" style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", zIndex: 100, position: "relative" }}>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <GitBranch className="w-5 h-5" style={{ color: "var(--bp-copper)" }} />
-            <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Data Journey</h1>
-            {journey && (
-              <span className="text-sm" style={{ color: "var(--bp-ink-secondary)" }}>
-                — {journey.source.namespace || journey.source.dataSourceName}: {journey.landing.fileName || journey.source.name}
-              </span>
-            )}
-          </div>
-          {journey && (
+      <div className="flex-shrink-0 px-6 py-4 space-y-4" style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", zIndex: 100, position: "relative" }}>
+        <ExploreWorkbenchHeader
+          eyebrow="Explore"
+          meta={journey ? `${journey.source.namespace || journey.source.dataSourceName} • ${journey.landing.fileName || journey.source.name}` : `${entities.length.toLocaleString("en-US")} entities available`}
+          title="Data Journey"
+          summary="Trace one entity from source to silver, see exactly where it changes, and hand off into the next diagnostic tool without rebuilding context."
+          facts={headerFacts}
+          guideItems={[
+            {
+              label: "What this page is",
+              value: "A single-entity handoff map",
+              detail: "Use it to understand where an entity originates, which layer currently owns it, and what changed between stops.",
+            },
+            {
+              label: "Why it matters",
+              value: "It collapses multi-tool tracing into one view",
+              detail: "Instead of hunting through lineage, profiler, and SQL surfaces separately, this page shows the active handoff and the next best investigation path.",
+            },
+            {
+              label: "What happens next",
+              value: selectedEntity ? (recommendedAction?.label || "Follow the next handoff") : "Select an entity to start",
+              detail: selectedEntity ? (recommendedAction?.detail || "Continue into the next diagnostic tool with context preserved.") : "Choose an entity, then use the timeline and transition cards to move into profiler, lineage, replay, or microscope.",
+            },
+          ]}
+          guideLinks={selectedEntity ? [
+            { label: "Catalog", to: buildEntityCatalogUrl(selectedEntity) },
+            { label: "Lineage", to: buildEntityLineageUrl(selectedEntity) },
+            { label: "Profile", to: buildEntityProfileUrl(selectedEntity, selectedEntity.silverId ? "silver" : "bronze") },
+          ] : []}
+          actions={headerActions}
+          aside={journey ? (
             <button
+              type="button"
               onClick={() => loadJourney(journey.entityId)}
               aria-label="Refresh entity journey data"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors"
-              style={{ border: "1px solid var(--bp-border)", color: "var(--bp-ink-secondary)" }}
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5"
+              style={{ border: "1px solid var(--bp-border)", color: "var(--bp-ink-secondary)", background: "rgba(255,255,255,0.72)", fontSize: 12, fontWeight: 600 }}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </button>
-          )}
-        </div>
+          ) : null}
+        />
 
+        <div className="bp-card" style={{ padding: 14, background: "rgba(255,255,255,0.76)" }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "var(--bp-ink-tertiary)",
+              marginBottom: 10,
+            }}
+          >
+            Select the entity you want to trace
+          </div>
+          {/*
+                — {journey.source.namespace || journey.source.dataSourceName}: {journey.landing.fileName || journey.source.name}
+
+          */}
         {/* Entity Selector */}
         <div ref={selectorRef} className="relative max-w-2xl" role="combobox" aria-expanded={dropdownOpen} aria-label="Entity selector">
           <div
             className="flex items-center rounded-lg transition-colors cursor-pointer"
             style={{
               border: dropdownOpen ? "1px solid var(--bp-copper)" : "1px solid var(--bp-border)",
-              backgroundColor: dropdownOpen ? "var(--bp-surface-1)" : "var(--bp-surface-1)",
-              ...(dropdownOpen ? { boxShadow: "0 0 0 1px rgba(180,86,36,0.2)" } : {}),
+              backgroundColor: "var(--bp-surface-1)",
             }}
             onClick={() => !dropdownOpen && setDropdownOpen(true)}
           >
@@ -566,7 +691,7 @@ export default function DataJourney() {
 
           {/* Dropdown list */}
           {dropdownOpen && !listLoading && (
-            <div className="absolute z-[200] mt-1 w-full max-h-[60vh] overflow-y-auto rounded-lg shadow-2xl" style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
+            <div className="absolute z-[200] mt-1 w-full max-h-[60vh] overflow-y-auto rounded-lg" style={{ border: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
               {Object.entries(groupedEntities).map(([source, items]) => (
                 <div key={source}>
                   <div className="sticky top-0 px-3 py-2 backdrop-blur-sm flex items-center justify-between" style={{ backgroundColor: "var(--bp-surface-inset)", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
@@ -609,6 +734,7 @@ export default function DataJourney() {
               )}
             </div>
           )}
+        </div>
         </div>
       </div>
 

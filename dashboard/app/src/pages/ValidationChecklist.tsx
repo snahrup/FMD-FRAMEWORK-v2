@@ -5,10 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Loader2, CheckCircle2, XCircle, AlertTriangle, RefreshCw,
-  Database, Layers, ClipboardCheck, ChevronDown, ChevronUp,
+  ClipboardCheck, ChevronDown, ChevronUp,
   Play, Search, Filter,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import CompactPageHeader from "@/components/layout/CompactPageHeader";
+import TableCardList from "@/components/ui/TableCardList";
 
 // ── Types ──
 
@@ -128,6 +130,15 @@ function layerCellStatus(v: number): CheckStatus {
   return "fail";
 }
 
+function entityRowKey(entity: EntityRow): string {
+  return [
+    num(entity.EntityId),
+    entity.DataSource || "unknown",
+    entity.SourceSchema || "schema",
+    entity.SourceName || "table",
+  ].join(":");
+}
+
 type LayerFilter = "all" | "missing_lz" | "missing_bronze" | "missing_silver" | "missing_any" | "complete";
 
 // ── Component ──
@@ -147,6 +158,7 @@ export default function ValidationChecklist() {
   const [launching, setLaunching] = useState(false);
   const [launchResult, setLaunchResult] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [mobileExpandedEntityId, setMobileExpandedEntityId] = useState<string | null>(null);
   const hasLoadedOnce = useRef(false);
 
   const fetchData = useCallback(async () => {
@@ -243,6 +255,15 @@ export default function ValidationChecklist() {
     return data.overview.map(r => r.DataSource as string).sort();
   }, [data]);
 
+  const visibleEntities = useMemo(
+    () =>
+      filteredEntities.slice(0, 200).map((entity, index) => ({
+        entity,
+        rowKey: `${entityRowKey(entity)}:${index}`,
+      })),
+    [filteredEntities]
+  );
+
   // Selection helpers
   const toggleSelect = (id: number) => {
     setSelected(prev => {
@@ -275,24 +296,28 @@ export default function ValidationChecklist() {
     setSelected(new Set(ids));
   };
 
-  // Launch engine run for selected entities
-  const handleLaunchSelected = async () => {
-    if (selected.size === 0) return;
+  const launchEntities = useCallback(async (entityIds: number[]) => {
+    if (entityIds.length === 0) return;
     setLaunching(true);
     setLaunchResult(null);
     try {
       const result = await postJson<{ run_id: string; status: string }>("/engine/start", {
         layers: ["landing", "bronze", "silver"],
         mode: "run",
-        entity_ids: Array.from(selected),
+        entity_ids: entityIds,
       });
-      setLaunchResult(`Run started: ${result.run_id} (${selected.size} entities)`);
+      setLaunchResult(`Run started: ${result.run_id} (${entityIds.length} entities)`);
       setSelected(new Set());
     } catch (err) {
       setLaunchResult(`Failed: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setLaunching(false);
     }
+  }, []);
+
+  // Launch engine run for selected entities
+  const handleLaunchSelected = async () => {
+    await launchEntities(Array.from(selected));
   };
 
   // Overall health
@@ -323,30 +348,13 @@ export default function ValidationChecklist() {
   }
 
   return (
-    <div className="space-y-6 max-w-[1280px] mx-auto px-8 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1
-            className="flex items-center gap-2.5 font-semibold"
-            style={{ fontFamily: "var(--bp-font-display)", fontSize: 32, color: "var(--bp-ink-primary)" }}
-          >
-            <ClipboardCheck className="h-7 w-7" style={{ color: "var(--bp-operational)" }} />
-            Validation Checklist
-          </h1>
-          <p className="text-sm mt-0.5" style={{ color: "var(--bp-ink-secondary)" }}>
-            Real-time entity load status across all layers — select missing entities and run them
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {refreshing && (
-            <RefreshCw className="h-3.5 w-3.5 animate-spin" style={{ color: "var(--bp-ink-muted)" }} />
-          )}
-          {lastUpdated && (
-            <span className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>
-              {lastUpdated.toLocaleTimeString()}
-            </span>
-          )}
+    <div className="bp-page-shell space-y-6">
+      <CompactPageHeader
+        eyebrow="Quality"
+        title="Validation Checklist"
+        summary="See exactly which staged entities are still missing a layer, then launch only the unresolved work instead of hunting through multiple run surfaces."
+        meta={lastUpdated ? `last refreshed ${lastUpdated.toLocaleTimeString()}` : "live validation posture"}
+        status={
           <Badge
             variant={overallStatus === "pass" ? "default" : overallStatus === "warn" ? "secondary" : "destructive"}
             className="text-xs"
@@ -365,52 +373,54 @@ export default function ValidationChecklist() {
               : overallStatus === "fail" ? "Not Started"
               : "Loading..."}
           </Badge>
-        </div>
-      </div>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            {refreshing ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" style={{ color: "var(--bp-ink-muted)" }} />
+            ) : null}
+            <Button variant="outline" size="sm" onClick={fetchData} disabled={refreshing}>
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              Refresh
+            </Button>
+          </div>
+        }
+        facts={totals ? [
+          { label: "Active", value: `${totals.active} of ${totals.entities} registered`, tone: "accent" },
+          { label: "Landing", value: `${totals.lzLoaded} loaded`, tone: totals.lzLoaded === totals.active ? "positive" : "warning" },
+          { label: "Bronze", value: `${totals.bronzeLoaded} loaded`, tone: totals.bronzeLoaded === totals.active ? "positive" : "warning" },
+          { label: "Silver", value: `${totals.silverLoaded} loaded`, tone: totals.silverLoaded === totals.active ? "positive" : "warning" },
+        ] : []}
+      />
 
-      {/* ── Summary Cards ── */}
-      {totals && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <SummaryCard
-            label="Total Active"
-            value={totals.active}
-            sub={`of ${totals.entities} registered`}
-            icon={<Database className="h-4 w-4" style={{ color: "var(--bp-copper)" }} />}
-          />
-          <SummaryCard
-            label="Landing Zone"
-            value={totals.lzLoaded}
-            sub={pct(totals.lzLoaded, totals.active) + " loaded"}
-            status={layerCheck(totals.lzLoaded, totals.active)}
-            icon={<Layers className="h-4 w-4" style={{ color: "var(--bp-ink-tertiary)" }} />}
-          />
-          <SummaryCard
-            label="Bronze"
-            value={totals.bronzeLoaded}
-            sub={pct(totals.bronzeLoaded, totals.active) + " loaded"}
-            status={layerCheck(totals.bronzeLoaded, totals.active)}
-            icon={<Layers className="h-4 w-4" style={{ color: "var(--bp-caution)" }} />}
-          />
-          <SummaryCard
-            label="Silver"
-            value={totals.silverLoaded}
-            sub={pct(totals.silverLoaded, totals.active) + " loaded"}
-            status={layerCheck(totals.silverLoaded, totals.active)}
-            icon={<Layers className="h-4 w-4" style={{ color: "var(--bp-ink-muted)" }} />}
-          />
-        </div>
-      )}
-
-      {/* ── Overall Progress Bar ── */}
       {totals && totals.active > 0 && (
         <Card>
           <CardContent className="py-4">
-            <div className="flex items-center gap-4 mb-2">
-              <span className="text-sm font-medium" style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, color: "var(--bp-ink-primary)" }}>Overall Progress</span>
-              <span className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>
-                {totals.digestComplete} complete / {totals.digestPartial} partial / {totals.digestNotStarted} not started
-              </span>
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-1">
+                <span className="text-sm font-medium" style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, color: "var(--bp-ink-primary)" }}>
+                  Validation posture
+                </span>
+                <p className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>
+                  One read on what is production-usable, partially staged, or still unresolved.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-[11px]">
+                <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                  Complete: <strong>{totals.digestComplete}</strong>
+                </span>
+                <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                  Partial: <strong>{totals.digestPartial}</strong>
+                </span>
+                <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                  Unresolved: <strong>{totals.digestNotStarted}</strong>
+                </span>
+                <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                  Stuck at landing: <strong>{totals.stuckAtLz}</strong>
+                </span>
+              </div>
             </div>
+            <div className="mt-4 space-y-2">
             <div className="w-full h-4 rounded-full overflow-hidden flex" style={{ background: "var(--bp-surface-inset)" }}>
               {totals.digestComplete > 0 && (
                 <div
@@ -438,6 +448,7 @@ export default function ValidationChecklist() {
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "var(--bp-operational)" }} /> Complete</span>
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "var(--bp-caution)" }} /> Partial</span>
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "var(--bp-fault)", opacity: 0.6 }} /> Not Started</span>
+            </div>
             </div>
           </CardContent>
         </Card>
@@ -495,7 +506,7 @@ export default function ValidationChecklist() {
                     </button>
                     {isExpanded && (
                       <div className="pb-4 pl-10 pr-4 space-y-3">
-                        <div className="grid grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                           <LayerDetail layer="Landing Zone" loaded={lzLoaded} failed={num(lz?.LzFailed)} neverAttempted={num(lz?.LzNeverAttempted)} total={active} />
                           <LayerDetail layer="Bronze" loaded={brLoaded} failed={num(br?.BronzeFailed)} neverAttempted={num(br?.BronzeNeverAttempted)} total={active} />
                           <LayerDetail layer="Silver" loaded={svLoaded} failed={num(sv?.SilverFailed)} neverAttempted={num(sv?.SilverNeverAttempted)} total={active} />
@@ -590,7 +601,7 @@ export default function ValidationChecklist() {
                 <option value="complete">Complete</option>
               </select>
 
-              <div className="flex items-center gap-1 ml-auto">
+              <div className="flex w-full flex-wrap items-center gap-1 md:ml-auto md:w-auto md:justify-end">
                 <Button variant="outline" size="sm" className="text-xs h-7" onClick={selectAllFiltered}>
                   Select Filtered
                 </Button>
@@ -631,8 +642,75 @@ export default function ValidationChecklist() {
               </div>
             )}
 
+            <div className="lg:hidden">
+              <TableCardList
+                items={visibleEntities}
+                getId={(row) => row.rowKey}
+                getTitle={(row) => row.entity.SourceName || "(empty)"}
+                getSubtitle={(row) => `${row.entity.SourceSchema || "—"} · ${row.entity.DataSource}`}
+                getStats={(row) => [
+                  { label: "LZ", value: layerCellStatus(num(row.entity.LzStatus)) === "pass" ? "Ready" : "Missing" },
+                  { label: "Bronze", value: layerCellStatus(num(row.entity.BronzeStatus)) === "pass" ? "Ready" : "Missing" },
+                  { label: "Silver", value: layerCellStatus(num(row.entity.SilverStatus)) === "pass" ? "Ready" : "Missing" },
+                  { label: "Selected", value: selected.has(num(row.entity.EntityId)) ? "Yes" : "No" },
+                ]}
+                onCardClick={(row) => toggleSelect(num(row.entity.EntityId))}
+                expandedItemId={mobileExpandedEntityId}
+                onExpandedItemChange={(itemId) => setMobileExpandedEntityId(itemId)}
+                renderExpanded={(row) => {
+                  const id = num(row.entity.EntityId);
+                  const missingLayers: string[] = [];
+                  if (num(row.entity.LzStatus) !== 1) missingLayers.push("Landing");
+                  if (num(row.entity.BronzeStatus) !== 1) missingLayers.push("Bronze");
+                  if (num(row.entity.SilverStatus) !== 1) missingLayers.push("Silver");
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2 text-[11px]">
+                        <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                          Entity ID: <strong>{id}</strong>
+                        </span>
+                        <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                          Load Type: <strong>{num(row.entity.IsIncremental) ? "Incremental" : "Full"}</strong>
+                        </span>
+                        <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                          Missing: <strong>{missingLayers.length ? missingLayers.join(", ") : "None"}</strong>
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" onClick={() => toggleSelect(id)}>
+                          {selected.has(id) ? "Deselect entity" : "Select entity"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setSelected(new Set([id]));
+                            void launchEntities([id]);
+                          }}
+                          disabled={launching}
+                        >
+                          {launching ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Play className="mr-1.5 h-3 w-3" />}
+                          Run this entity
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                }}
+                emptyState={
+                  <div className="rounded-xl border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-4 py-10 text-center">
+                    <ClipboardCheck className="mx-auto mb-3 h-10 w-10 text-[var(--bp-ink-muted)]/20" />
+                    <p className="text-sm text-[var(--bp-ink-muted)]">No entities match the current filters</p>
+                  </div>
+                }
+              />
+              {filteredEntities.length > 200 && (
+                <div className="mt-3 text-center text-xs" style={{ color: "var(--bp-ink-muted)" }}>
+                  Showing 200 of {filteredEntities.length}. Use filters to narrow the list before acting.
+                </div>
+              )}
+            </div>
+
             {/* Table */}
-            <div className="rounded-md overflow-hidden" style={{ border: "1px solid var(--bp-border)" }}>
+            <div className="hidden rounded-md overflow-hidden lg:block" style={{ border: "1px solid var(--bp-border)" }}>
               <div className="max-h-[500px] overflow-auto">
                 <table className="w-full text-xs">
                   <thead className="sticky top-0" style={{ background: "var(--bp-surface-2)" }}>
@@ -664,12 +742,12 @@ export default function ValidationChecklist() {
                     </tr>
                   </thead>
                   <tbody className="divide-y" style={{ borderColor: "var(--bp-border-subtle)" }}>
-                    {filteredEntities.slice(0, 200).map((e) => {
+                    {visibleEntities.map(({ entity: e, rowKey }) => {
                       const id = num(e.EntityId);
                       const isSelected = selected.has(id);
                       return (
                         <tr
-                          key={id}
+                          key={rowKey}
                           onClick={() => toggleSelect(id)}
                           className="cursor-pointer transition-colors"
                           style={isSelected ? { background: "var(--bp-copper-light)" } : {}}
@@ -716,82 +794,11 @@ export default function ValidationChecklist() {
         </Card>
       )}
 
-      {/* ── Pre-Run Checklist ── */}
-      {totals && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, fontSize: 18, color: "var(--bp-ink-primary)" }}>Checklist</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="divide-y" style={{ borderColor: "var(--bp-border)" }}>
-              <CheckItem
-                status={totals.active > 0 ? "pass" : "fail"}
-                label="Entity registration"
-                detail={`${totals.active} active entities across ${data?.overview.length || 0} sources`}
-              />
-              <CheckItem
-                status={totals.lzNever === 0 && totals.lzFailed === 0 ? "pass" : totals.lzLoaded > 0 ? "warn" : "fail"}
-                label="Landing Zone loads"
-                detail={`${totals.lzLoaded} loaded, ${totals.lzFailed} failed, ${totals.lzNever} never attempted`}
-              />
-              <CheckItem
-                status={totals.stuckAtLz === 0 ? "pass" : "warn"}
-                label="LZ to Bronze pipeline"
-                detail={totals.stuckAtLz === 0
-                  ? "All LZ entities processed through Bronze"
-                  : `${totals.stuckAtLz} stuck at LZ`
-                }
-              />
-              <CheckItem
-                status={totals.bronzeLoaded === totals.active ? "pass" : totals.bronzeLoaded > 0 ? "warn" : "fail"}
-                label="Bronze layer"
-                detail={`${totals.bronzeLoaded}/${totals.active} entities`}
-              />
-              <CheckItem
-                status={totals.silverLoaded === totals.active ? "pass" : totals.silverLoaded > 0 ? "warn" : "fail"}
-                label="Silver layer"
-                detail={`${totals.silverLoaded}/${totals.active} entities`}
-              />
-              <CheckItem
-                status={totals.digestComplete === totals.active ? "pass" : totals.digestComplete > 0 ? "warn" : "fail"}
-                label="End-to-end complete"
-                detail={`${totals.digestComplete}/${totals.active} entities`}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
 
 // ── Sub-components ──
-
-function SummaryCard({ label, value, sub, icon, status }: {
-  label: string; value: number; sub: string; icon: React.ReactNode; status?: CheckStatus;
-}) {
-  return (
-    <Card
-      className="transition-colors"
-      style={
-        status === "pass" ? { borderColor: "rgba(61,124,79,0.3)" }
-        : status === "fail" ? { borderColor: "rgba(185,58,42,0.3)" }
-        : {}
-      }
-    >
-      <CardContent className="py-3 px-4">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5" style={{ color: "var(--bp-ink-tertiary)" }}>
-            {icon} {label}
-          </span>
-          {status && statusIcon(status)}
-        </div>
-        <div className="text-2xl font-bold" style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-ink-primary)" }}>{value.toLocaleString()}</div>
-        <div className="text-xs mt-0.5" style={{ color: "var(--bp-ink-muted)" }}>{sub}</div>
-      </CardContent>
-    </Card>
-  );
-}
 
 function VLayerBadge({ label, loaded, total }: { label: string; loaded: number; total: number }) {
   const ratio = total > 0 ? loaded / total : 0;
@@ -829,19 +836,3 @@ function LayerDetail({ layer, loaded, failed, neverAttempted, total }: {
   );
 }
 
-function CheckItem({ status, label, detail }: { status: CheckStatus; label: string; detail: string }) {
-  return (
-    <div className="flex items-center gap-3 py-2.5">
-      {statusIcon(status)}
-      <div className="flex-1 min-w-0"><span className="text-sm font-medium" style={{ color: "var(--bp-ink-primary)" }}>{label}</span></div>
-      <span
-        className="text-xs"
-        style={{
-          color: status === "pass" ? "var(--bp-ink-muted)" : status === "warn" ? "var(--bp-caution)" : "var(--bp-fault)",
-        }}
-      >
-        {detail}
-      </span>
-    </div>
-  );
-}

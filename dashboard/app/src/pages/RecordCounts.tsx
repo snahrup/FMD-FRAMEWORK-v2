@@ -22,6 +22,8 @@ import { useEntityDigest } from "../hooks/useEntityDigest";
 import { useSourceConfig } from "../hooks/useSourceConfig";
 import StrataBar from "../components/data/StrataBar";
 import LayerStatusDot, { normalizeStatus } from "../components/data/LayerStatusDot";
+import TableCardList from "../components/ui/TableCardList";
+import CompactPageHeader from "../components/layout/CompactPageHeader";
 
 // ============================================================================
 // TYPES
@@ -80,6 +82,14 @@ async function fetchJson<T>(path: string): Promise<T> {
 
 function fmt(n: number): string {
   return n.toLocaleString("en-US");
+}
+
+function countStatusLabel(status: CountRow["status"]): string {
+  if (status === "bronze-only") return "Bronze only";
+  if (status === "silver-only") return "Silver only";
+  if (status === "match") return "Matched";
+  if (status === "mismatch") return "Mismatch";
+  return "Pending";
 }
 
 type SortKey = "tableName" | "schema" | "dataSource" | "lzCount" | "bronzeCount" | "silverCount" | "delta" | "status";
@@ -682,28 +692,55 @@ export default function RecordCounts() {
   );
 
   return (
-    <div className="gs-page-enter" style={{ padding: 32, maxWidth: 1400 }}>
-      {/* ── Header ── */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
-          Record Counts
-        </h1>
-        <p style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 4 }}>
-          Cross-layer row count comparison — spot-check data migration accuracy across the medallion architecture
-        </p>
-      </div>
+    <div className="bp-page-shell gs-page-enter">
+      <CompactPageHeader
+        eyebrow="Explore"
+        title="Record Counts"
+        summary="Compare staged row posture across landing, bronze, and silver without forcing operators to inspect three separate surfaces."
+        meta={countsMeta?.source ? `evidence from ${countsMeta.source}` : "OneLake staged evidence"}
+        facts={[
+          { label: "Scope", value: `${fmt(rows.length)} staged tables`, tone: "accent" },
+          { label: "Matched", value: `${stats.matchRate}% bronze-to-silver parity`, tone: stats.matchRate >= 90 ? "positive" : "warning" },
+          { label: "Scan", value: scanning ? "running now" : countsMeta?.newestScan ? `last ${new Date(countsMeta.newestScan).toLocaleTimeString()}` : "not started", tone: scanning ? "warning" : "neutral" },
+          { label: "Filter", value: activeSource ? resolveLabel(activeSource) : "all core sources", tone: activeSource ? "accent" : "neutral" },
+        ]}
+        actions={
+          <>
+            <button onClick={() => loadCounts()} disabled={countsLoading} className="bp-btn-primary" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              {countsLoading ? <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" /> : <Hash style={{ width: 14, height: 14 }} />}
+              {counts ? "Reload" : "Load Counts"}
+            </button>
+            <button onClick={triggerScan} disabled={scanning} className="bp-btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              {scanning ? <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" /> : <RefreshCw style={{ width: 14, height: 14 }} />}
+              {scanning ? "Scanning..." : "Scan Files"}
+            </button>
+            {counts && displayed.length > 0 ? (
+              <button onClick={exportCsv} className="bp-btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <Download style={{ width: 14, height: 14 }} />
+                Export CSV
+              </button>
+            ) : null}
+          </>
+        }
+      />
 
-      {/* ── Action Bar ── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button onClick={() => loadCounts()} disabled={countsLoading} className="bp-btn-primary" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {countsLoading ? <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" /> : <Hash style={{ width: 14, height: 14 }} />}
-            {counts ? "Reload" : "Load Counts"}
-          </button>
-          <button onClick={triggerScan} disabled={scanning} className="bp-btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {scanning ? <Loader2 style={{ width: 14, height: 14 }} className="animate-spin" /> : <RefreshCw style={{ width: 14, height: 14 }} />}
-            {scanning ? "Scanning..." : "Scan Files"}
-          </button>
+      <div
+        className="bp-card"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+          marginTop: 16,
+          marginBottom: 20,
+          padding: "12px 14px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--bp-ink-secondary)" }}>
+            Current scan posture
+          </span>
           {scanning && countsMeta?.scanProgress && (
             <span style={{ fontSize: 10, color: "var(--bp-ink-muted)", fontFamily: "var(--bp-font-mono)" }}>
               {countsMeta.scanProgress.scanned} scanned &middot; {countsMeta.scanProgress.layer}
@@ -715,13 +752,9 @@ export default function RecordCounts() {
             </span>
           )}
         </div>
-
-        {counts && displayed.length > 0 && (
-          <button onClick={exportCsv} className="bp-btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <Download style={{ width: 14, height: 14 }} />
-            Export CSV
-          </button>
-        )}
+        <span style={{ fontSize: 10, color: "var(--bp-ink-muted)" }}>
+          Count parity relies on staged lakehouse evidence, not remote source systems.
+        </span>
       </div>
 
       {/* ── Error ── */}
@@ -758,7 +791,7 @@ export default function RecordCounts() {
       {counts && (
         <>
           {/* Hero row: Match Rate Ring + Source Cards */}
-          <div style={{ display: "flex", gap: 24, alignItems: "flex-start", marginBottom: 24 }}>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start" style={{ marginBottom: 24 }}>
             {/* Match Rate Ring */}
             <div className="bp-card gs-hero-enter" style={{ '--i': 0, padding: "20px 24px", flexShrink: 0 } as React.CSSProperties}>
               <MatchRateRing rate={stats.matchRate} total={stats.matchableTotal} matched={stats.matched} />
@@ -814,7 +847,7 @@ export default function RecordCounts() {
           </div>
 
           {/* Search, filters, and group toggle */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <div className="bp-card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16, padding: 14 }}>
             <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
               <Search style={{
                 position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
@@ -885,7 +918,53 @@ export default function RecordCounts() {
           </div>
 
           {/* ── Data Table ── */}
-          <div className="bp-card" style={{ overflow: "hidden" }}>
+          <div className="lg:hidden" style={{ marginBottom: 16 }}>
+            <TableCardList
+              items={displayed}
+              getId={(row) => row.id}
+              getTitle={(row) => row.tableName}
+              getSubtitle={(row) => `${row.schema} · ${resolveLabel(row.dataSource)}`}
+              getStats={(row) => [
+                { label: "Status", value: countStatusLabel(row.status) },
+                { label: "Landing", value: row.lzCount !== null ? fmt(row.lzCount) : "—" },
+                { label: "Bronze", value: row.bronzeCount !== null ? fmt(row.bronzeCount) : "—" },
+                { label: "Silver", value: row.silverCount !== null ? fmt(row.silverCount) : "—" },
+              ]}
+              renderExpanded={(row) => (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2 text-[11px]">
+                    <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                      Load Type: <strong>{row.loadType}</strong>
+                    </span>
+                    <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                      Delta: <strong>{fmt(Math.abs(row.delta))}</strong>
+                    </span>
+                    <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                      Source: <strong>{resolveLabel(row.dataSource)}</strong>
+                    </span>
+                  </div>
+                  <div className="bp-card" style={{ padding: 12 }}>
+                    <StrataBar
+                      lz={row.lzCount}
+                      bronze={row.bronzeCount}
+                      silver={row.silverCount}
+                      mode="count"
+                      size="lg"
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              )}
+              emptyState={
+                <div className="rounded-xl border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-4 py-10 text-center">
+                  <Layers className="mx-auto mb-3 h-10 w-10 text-[var(--bp-ink-muted)]/20" />
+                  <p className="text-sm text-[var(--bp-ink-muted)]">No tables match your filters</p>
+                </div>
+              }
+            />
+          </div>
+
+          <div className="bp-card hidden lg:block" style={{ overflow: "hidden" }}>
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>{tableHeaders}</thead>

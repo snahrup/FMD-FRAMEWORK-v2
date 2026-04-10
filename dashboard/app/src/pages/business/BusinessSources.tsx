@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { useTerminology } from "@/hooks/useTerminology";
 import { useSourceConfig, resolveSourceLabel, getSourceColor } from "@/hooks/useSourceConfig";
 import {
+  BusinessIntentHeader,
   KpiCard,
   ProgressRing,
   SourceBadge,
@@ -299,26 +300,52 @@ export default function BusinessSources() {
 
   return (
     <div className="p-8 max-w-[1280px]">
-      {/* Header */}
-      <div className="flex items-baseline gap-4 mb-8">
-        <h1
-          className="bp-display text-[32px] leading-none"
-          style={{ color: "var(--bp-ink-primary)" }}
-        >
-          Sources
-        </h1>
-        <button
-          onClick={fetchAll}
-          className="ml-auto flex items-center gap-1.5 text-[12px] transition-colors"
-          style={{ color: "var(--bp-ink-muted)" }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--bp-copper)")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--bp-ink-muted)")}
-          aria-label="Refresh"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </button>
-      </div>
+      <BusinessIntentHeader
+        title="Sources"
+        meta={
+          kpis
+            ? `${kpis.sources_online} of ${kpis.sources_total} sources connected`
+            : loading
+            ? "Loading source health…"
+            : `${sources.length} sources in scope`
+        }
+        summary="This page explains which operational systems are feeding the platform, whether they are healthy, and how much table coverage each source contributes. It is the quickest way to separate platform issues from source-system issues."
+        items={[
+          {
+            label: "What This Page Is",
+            value: "Source connectivity and coverage view",
+            detail: "Use this page to understand which source systems are online, how recently they refreshed, and which tables each source contributes to the broader estate.",
+          },
+          {
+            label: "Why It Matters",
+            value: "Bad source health becomes bad business trust",
+            detail: "When a source is offline or stale, downstream dashboards can look incomplete or contradictory even if the transformation layer is working correctly.",
+          },
+          {
+            label: "What Happens Next",
+            value: "Move from source health into table detail",
+            detail: "Inspect table-level coverage below, open the engineering source manager when a connector needs work, or return to overview if you need the higher-level operating picture first.",
+          },
+        ]}
+        links={[
+          { label: "Open Overview", to: "/overview" },
+          { label: "Inspect Data Estate", to: "/estate" },
+          { label: "Open Source Manager", to: "/sources" },
+        ]}
+        actions={
+          <button
+            onClick={fetchAll}
+            className="ml-auto flex items-center gap-1.5 text-[12px] transition-colors"
+            style={{ color: "var(--bp-ink-muted)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--bp-copper)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--bp-ink-muted)")}
+            aria-label="Refresh"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+        }
+      />
 
       {/* Error banner */}
       {error && (

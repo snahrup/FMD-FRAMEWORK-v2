@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
+from dashboard.app.api.routes.load_center import _build_canonical_pipeline_truth
 
 log = logging.getLogger("fmd.routes.monitoring")
 
@@ -504,18 +505,18 @@ def get_error_intelligence(params: dict) -> dict:
 def get_dashboard_stats(params: dict) -> dict:
     """KPI summary for the dashboard overview cards."""
     try:
+        pipeline_truth = _build_canonical_pipeline_truth()
         lz = db.query("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive=1")
         brz = db.query("SELECT COUNT(*) AS cnt FROM bronze_entities WHERE IsActive=1")
         slv = db.query("SELECT COUNT(*) AS cnt FROM silver_entities WHERE IsActive=1")
         conn = db.query("SELECT COUNT(*) AS cnt FROM connections WHERE IsActive=1")
-        ds = db.query("SELECT COUNT(*) AS cnt FROM datasources WHERE IsActive=1")
         lh = db.query("SELECT COUNT(*) AS cnt FROM lakehouses")
 
         lz_count = lz[0]["cnt"] if lz else 0
         brz_count = brz[0]["cnt"] if brz else 0
         slv_count = slv[0]["cnt"] if slv else 0
         conn_count = conn[0]["cnt"] if conn else 0
-        ds_count = ds[0]["cnt"] if ds else 0
+        ds_count = len(pipeline_truth.get("sourceStats", {}))
         lh_count = lh[0]["cnt"] if lh else 0
 
         return {
@@ -623,6 +624,7 @@ def get_executive_dashboard(params: dict) -> dict:
     health, overview, sources, pipelineHealth, recentActivity, issues, trends.
     """
     now = _utcnow_iso()
+    pipeline_truth = _build_canonical_pipeline_truth()
 
     # --- Entity totals per layer ---
     lz_total = _safe_query("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive=1")
@@ -654,8 +656,7 @@ def get_executive_dashboard(params: dict) -> dict:
     landing_rows = sum(v for k, v in rc_map.items() if "landing" in k.lower() or "lz" in k.lower())
 
     # --- Data source count ---
-    ds_count_row = _safe_query("SELECT COUNT(*) AS cnt FROM datasources WHERE IsActive=1")
-    ds_count = ds_count_row[0]["cnt"] if ds_count_row else 0
+    ds_count = len(pipeline_truth.get("sourceStats", {}))
 
     # --- Per-source breakdown ---
     source_rows = _safe_query(
@@ -666,7 +667,7 @@ def get_executive_dashboard(params: dict) -> dict:
         "), latest AS ("
         "  SELECT EntityId, Layer, Status FROM latest_task WHERE rn = 1"
         ") "
-        "SELECT ds.Name AS name, ds.Namespace AS namespace, "
+        "SELECT ds.Name AS name, ds.DisplayName AS displayName, ds.Namespace AS namespace, "
         "COUNT(DISTINCT le.LandingzoneEntityId) AS entityCount, "
         "COUNT(DISTINCT CASE WHEN le.IsActive=1 THEN le.LandingzoneEntityId END) AS activeLz, "
         "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_lz.Status,'')) = 'succeeded' "
@@ -675,17 +676,17 @@ def get_executive_dashboard(params: dict) -> dict:
         "  THEN le.LandingzoneEntityId END) AS brzLoaded, "
         "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_sv.Status,'')) = 'succeeded' "
         "  THEN le.LandingzoneEntityId END) AS slvLoaded "
-        "FROM datasources ds "
-        "LEFT JOIN lz_entities le ON le.DataSourceId = ds.DataSourceId AND le.IsActive=1 "
+        "FROM lz_entities le "
+        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
         "LEFT JOIN latest es_lz ON le.LandingzoneEntityId = es_lz.EntityId "
         "  AND LOWER(es_lz.Layer) IN ('landing','landingzone') "
         "LEFT JOIN latest es_br ON le.LandingzoneEntityId = es_br.EntityId "
         "  AND LOWER(es_br.Layer) = 'bronze' "
         "LEFT JOIN latest es_sv ON le.LandingzoneEntityId = es_sv.EntityId "
         "  AND LOWER(es_sv.Layer) = 'silver' "
-        "WHERE ds.IsActive=1 "
-        "GROUP BY ds.DataSourceId, ds.Name, ds.Namespace "
-        "ORDER BY ds.Name"
+        "WHERE ds.IsActive=1 AND le.IsActive=1 "
+        "GROUP BY ds.DataSourceId, ds.Name, ds.DisplayName, ds.Namespace "
+        "ORDER BY COALESCE(ds.DisplayName, ds.Name)"
     )
     sources = []
     for s in source_rows:
@@ -695,7 +696,7 @@ def get_executive_dashboard(params: dict) -> dict:
         bl = int(s.get("brzLoaded") or 0)
         sl = int(s.get("slvLoaded") or 0)
         sources.append({
-            "name": s.get("name") or "",
+            "name": s.get("displayName") or s.get("name") or "",
             "namespace": s.get("namespace") or "",
             "entityCount": ec,
             "layers": {

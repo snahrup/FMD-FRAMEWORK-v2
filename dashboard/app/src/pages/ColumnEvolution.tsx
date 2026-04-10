@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
 import { motion, AnimatePresence } from "framer-motion";
+import { ExploreWorkbenchHeader } from "@/components/explore/ExploreWorkbenchHeader";
 import {
   Search,
   Loader2,
@@ -27,8 +28,20 @@ import {
   Type,
   CircleDot,
   Info,
+  Eye,
+  GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  buildEntityCatalogUrl,
+  buildEntityJourneyUrl,
+  buildEntityLineageUrl,
+  buildEntityMicroscopeUrl,
+  buildEntityReplayUrl,
+  findEntityById,
+  getEntityRecommendedAction,
+  getLoadedLayerCount,
+} from "@/lib/exploreWorksurface";
 
 // ============================================================================
 // CONSTANTS
@@ -859,12 +872,114 @@ export default function ColumnEvolution() {
   const hasColumnData = journey?.bronze?.columns && journey.bronze.columns.length > 0;
   const isSourceOrLanding = activeLayer <= 1;
   const isGold = activeLayer === 4;
+  const selectedEntity = findEntityById(entities, entityIdParam);
+  const recommendedAction = selectedEntity ? getEntityRecommendedAction(selectedEntity) : null;
+  const headerFacts = selectedEntity
+    ? [
+        {
+          label: "Active entity",
+          value: selectedEntity.businessName || selectedEntity.tableName,
+          detail: `${selectedEntity.source}.${selectedEntity.tableName}`,
+          tone: "accent" as const,
+        },
+        {
+          label: "Lifecycle coverage",
+          value: `${getLoadedLayerCount(selectedEntity)} of 3 downstream layers loaded`,
+          detail: selectedEntity.diagnosis || "Column evolution becomes available once bronze schema exists.",
+          tone: selectedEntity.lastError ? "warning" as const : "neutral" as const,
+        },
+        {
+          label: "Current layer focus",
+          value: LAYERS[activeLayer].label,
+          detail: currentColumns.length > 0
+            ? `${currentColumns.filter((col) => col.diffStatus !== "removed").length} visible columns in this step.`
+            : "Choose a layer to inspect how the schema changed.",
+          tone: activeLayer >= 2 ? "positive" as const : "neutral" as const,
+        },
+      ]
+    : [
+        {
+          label: "Purpose",
+          value: "Schema change walkthrough",
+          detail: "Track how columns are sanitized, added, removed, or typed differently as an entity moves downstream.",
+          tone: "accent" as const,
+        },
+      ];
+  const headerActions = selectedEntity
+    ? [
+        {
+          label: recommendedAction?.label || "Review lineage",
+          to: recommendedAction?.to || buildEntityLineageUrl(selectedEntity),
+          tone: "primary" as const,
+        },
+        {
+          label: "Journey",
+          to: buildEntityJourneyUrl(selectedEntity),
+          icon: GitBranch,
+          tone: "secondary" as const,
+        },
+        {
+          label: "Microscope",
+          to: buildEntityMicroscopeUrl(selectedEntity),
+          icon: Eye,
+          tone: "secondary" as const,
+        },
+        {
+          label: "Replay",
+          to: buildEntityReplayUrl(selectedEntity),
+          icon: Eye,
+          tone: "quiet" as const,
+        },
+      ]
+    : [];
 
   return (
     <div className="h-full flex flex-col gs-page-enter" style={{ background: 'var(--bp-canvas)' }}>
       {/* ── Header ── */}
       <div className="flex-shrink-0 px-6 py-4" style={{ zIndex: 100, position: "relative", borderBottom: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
-        <div className="flex items-center justify-between mb-3">
+        <ExploreWorkbenchHeader
+          eyebrow="Explore"
+          meta={journey ? `${journey.source.namespace || journey.source.dataSourceName} • ${journey.source.name}` : `${entities.length.toLocaleString("en-US")} entities available`}
+          title="Column Evolution"
+          summary="Walk the schema layer by layer to see which columns were preserved, introduced, removed, or transformed before the data reached downstream use."
+          facts={headerFacts}
+          guideItems={[
+            {
+              label: "What this page is",
+              value: "A schema evolution walkthrough",
+              detail: "Use it to see how column names, types, and system fields change as one entity moves from source through silver.",
+            },
+            {
+              label: "Why it matters",
+              value: "It shows structural changes, not just row counts",
+              detail: "This is the right page when a downstream issue is caused by a renamed field, new system column, or changed datatype.",
+            },
+            {
+              label: "What happens next",
+              value: selectedEntity ? (recommendedAction?.label || "Continue into the next diagnostic step") : "Select an entity to start",
+              detail: selectedEntity ? (recommendedAction?.detail || "Use the schema stepper, diff summary, and related tools to finish the investigation.") : "Choose an entity, then use the layer stepper to inspect how the schema changed at each stop.",
+            },
+          ]}
+          guideLinks={selectedEntity ? [
+            { label: "Catalog", to: buildEntityCatalogUrl(selectedEntity) },
+            { label: "Journey", to: buildEntityJourneyUrl(selectedEntity) },
+            { label: "Lineage", to: buildEntityLineageUrl(selectedEntity) },
+          ] : []}
+          actions={headerActions}
+          aside={journey ? (
+            <button
+              type="button"
+              onClick={() => loadJourney(journey.entityId)}
+              aria-label="Refresh column schema data"
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5"
+              style={{ border: '1px solid var(--bp-border)', color: 'var(--bp-ink-tertiary)', background: 'rgba(255,255,255,0.72)', fontSize: 12, fontWeight: 600 }}
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+              Refresh
+            </button>
+          ) : null}
+        />
+        <div style={{ display: "none" }}>
           <div className="flex items-center gap-3">
             <Columns3 className="w-5 h-5" style={{ color: 'var(--bp-copper)' }} />
             <h1 className="gs-hero-enter" style={{ '--i': 0, fontFamily: 'var(--bp-font-display)', fontSize: 36, color: 'var(--bp-ink-primary)', fontWeight: 400 } as React.CSSProperties}>Column Evolution</h1>

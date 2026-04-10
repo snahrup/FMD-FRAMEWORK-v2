@@ -34,6 +34,7 @@ import EngineControl from '@/pages/EngineControl'
 import ErrorIntelligence from '@/pages/ErrorIntelligence'
 import AdminGateway from '@/pages/AdminGateway'
 import FlowExplorer from '@/pages/FlowExplorer'
+import ExploreHub from '@/pages/ExploreHub'
 import SourceManager from '@/pages/SourceManager'
 import DataBlender from '@/pages/DataBlender'
 import ControlPlane from '@/pages/ControlPlane'
@@ -47,7 +48,6 @@ import DqScorecard from '@/pages/DqScorecard'
 import DataJourney from '@/pages/DataJourney'
 import ConfigManager from '@/pages/ConfigManager'
 import NotebookConfig from '@/pages/NotebookConfig'
-import PipelineRunner from '@/pages/PipelineRunner'
 import ValidationChecklist from '@/pages/ValidationChecklist'
 import NotebookDebug from '@/pages/NotebookDebug'
 import LiveMonitor from '@/pages/LiveMonitor'
@@ -120,13 +120,14 @@ function App() {
         <Route path="/errors" element={<ErrorIntelligence />} />
         <Route path="/admin" element={<AdminGateway />} />
         <Route path="/flow" element={<FlowExplorer />} />
+        <Route path="/explore" element={<ExploreHub />} />
         <Route path="/sources" element={<SourceManager />} />
         <Route path="/blender" element={<DataBlender />} />
         <Route path="/counts" element={<RecordCounts />} />
         <Route path="/journey" element={<DataJourney />} />
         <Route path="/config" element={<ConfigManager />} />
         <Route path="/notebook-config" element={<NotebookConfig />} />
-        <Route path="/runner" element={<PipelineRunner />} />
+        <Route path="/runner" element={<Navigate to="/load-center" replace />} />
         <Route path="/validation" element={<ValidationChecklist />} />
         <Route path="/notebook-debug" element={<NotebookDebug />} />
         <Route path="/live" element={<LiveMonitor />} />

@@ -1154,7 +1154,7 @@ function ContextualNoteModal({ onClose, onSubmit }: { onClose: () => void; onSub
 // ── Main Component ──
 
 export default function GoldLedger() {
-  const { domain } = useDomainContext();
+  const { domain, setDomain } = useDomainContext();
   // Data
   const [stats, setStats] = useState<GoldStats | null>(null);
   const [specimens, setSpecimens] = useState<Specimen[]>([]);
@@ -1171,7 +1171,7 @@ export default function GoldLedger() {
 
   // Filters
   const [search, setSearch] = useState("");
-  const [divisionFilter, setDivisionFilter] = useState("");
+  const [divisionFilter, setDivisionFilter] = useState(domain ?? "");
   const [typeFilter, setTypeFilter] = useState("");
   const [jobStateFilter, setJobStateFilter] = useState("");
 
@@ -1183,9 +1183,12 @@ export default function GoldLedger() {
   const fetchData = useCallback(async () => {
     setFetchError(null);
     try {
+      const statsPath = divisionFilter ? `${API}/api/gold-studio/stats?domain=${encodeURIComponent(divisionFilter)}` : `${API}/api/gold-studio/stats`;
+      const specimenParams = new URLSearchParams({ limit: "200" });
+      if (divisionFilter) specimenParams.set("division", divisionFilter);
       const [statsRes, specRes] = await Promise.all([
-        fetch(`${API}/api/gold-studio/stats`),
-        fetch(`${API}/api/gold-studio/specimens?limit=200`),
+        fetch(statsPath),
+        fetch(`${API}/api/gold-studio/specimens?${specimenParams}`),
       ]);
 
       if (statsRes.ok) {
@@ -1214,21 +1217,23 @@ export default function GoldLedger() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [divisionFilter]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+  useEffect(() => { setDivisionFilter(domain ?? ""); }, [domain]);
 
   // Fetch entity list for "By Entity" view if not embedded
   useEffect(() => {
-    if (view === "entity" && entities.length === 0) {
-      fetch(`${API}/api/gold-studio/entities?limit=500`)
-        .then((r) => r.ok ? r.json() : null)
-        .then((d) => { if (d) setEntities(d.items || d || []); })
-        .catch(() => {});
-    }
-  }, [view, entities.length]);
+    if (view !== "entity") return;
+    const entityParams = new URLSearchParams({ limit: "500" });
+    if (divisionFilter) entityParams.set("division", divisionFilter);
+    fetch(`${API}/api/gold-studio/entities?${entityParams}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setEntities(d.items || d || []); })
+      .catch(() => {});
+  }, [divisionFilter, view]);
 
   // ── Expand specimen → fetch details ──
 
@@ -1466,7 +1471,10 @@ export default function GoldLedger() {
             search={search}
             onSearch={setSearch}
             division={divisionFilter}
-            onDivision={setDivisionFilter}
+            onDivision={(value) => {
+              setDivisionFilter(value);
+              setDomain(value || null);
+            }}
             type={typeFilter}
             onType={setTypeFilter}
             jobState={jobStateFilter}

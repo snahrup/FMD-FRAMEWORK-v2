@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { Globe, RefreshCw, Loader2, AlertTriangle, ArrowDown, ChevronRight } from "lucide-react";
 import { SourceNode } from "@/components/estate/SourceNode";
 import { LayerZone } from "@/components/estate/LayerZone";
 import { GovernancePanel } from "@/components/estate/GovernancePanel";
 import { PipelineFlow } from "@/components/estate/PipelineFlow";
+import { BusinessIntentHeader } from "@/components/business";
 
 // ============================================================================
 // TYPES
@@ -85,211 +87,256 @@ export default function DataEstate() {
     const timer = setInterval(fetchData, 30_000);
     return () => clearInterval(timer);
   }, [fetchData]);
-
-  // ── Loading ──────────────────────────────────────────────────────
-  if (loading && !data) {
-    return (
-      <div className="flex items-center justify-center h-[calc(100vh-4rem)] gap-2" style={{ color: "var(--bp-ink-muted)" }}>
-        <Loader2 className="animate-spin" size={18} />
-        <span className="text-sm">Loading estate…</span>
-      </div>
-    );
-  }
-
-  // ── Error ────────────────────────────────────────────────────────
-  if (error && !data) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] gap-3">
-        <AlertTriangle size={24} style={{ color: "var(--bp-fault)" }} />
-        <p className="text-sm" style={{ color: "var(--bp-ink-secondary)" }}>{error}</p>
-        <button
-          onClick={fetchData}
-          className="text-[11px] px-3 py-1.5 rounded-lg border transition-colors hover:bg-[var(--bp-surface-inset)]"
-          style={{ borderColor: "var(--bp-border)", color: "var(--bp-ink-tertiary)" }}
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  // ── Empty (no sources) ───────────────────────────────────────────
-  if (data && data.sources.length === 0) {
-    return <EmptyEstate onRefresh={fetchData} />;
-  }
-
-  const d = data!;
+  const d = data;
+  const sourceCount = d?.sources.length ?? 0;
+  const hasPopulatedEstate = !!d && d.sources.length > 0;
 
   // Derived metrics
-  const totalEntities = d.sources.reduce((sum, s) => sum + s.entityCount, 0);
-  const totalLoaded = d.sources.reduce((sum, s) => sum + s.loadedCount, 0);
-  const totalErrors = d.sources.reduce((sum, s) => sum + s.errorCount, 0);
-  const healthySources = d.sources.filter((s) => s.status === "operational").length;
+  const totalEntities = hasPopulatedEstate ? d.sources.reduce((sum, s) => sum + s.entityCount, 0) : 0;
+  const totalLoaded = hasPopulatedEstate ? d.sources.reduce((sum, s) => sum + s.loadedCount, 0) : 0;
+  const totalBlockers = hasPopulatedEstate ? d.sources.reduce((sum, s) => sum + s.errorCount, 0) : 0;
+  const healthySources = hasPopulatedEstate ? d.sources.filter((s) => s.status === "operational").length : 0;
 
   // Flow activity flags
-  const sourcesActive = d.sources.some((s) => s.loadedCount > 0);
+  const sourcesActive = hasPopulatedEstate ? d.sources.some((s) => s.loadedCount > 0) : false;
   const layersActive = {
-    landing: d.layers[0]?.loaded > 0,
-    bronze: d.layers[1]?.loaded > 0,
-    silver: d.layers[2]?.loaded > 0,
-    gold: d.layers[3]?.loaded > 0,
+    landing: hasPopulatedEstate ? (d.layers[0]?.loaded ?? 0) > 0 : false,
+    bronze: hasPopulatedEstate ? (d.layers[1]?.loaded ?? 0) > 0 : false,
+    silver: hasPopulatedEstate ? (d.layers[2]?.loaded ?? 0) > 0 : false,
+    gold: hasPopulatedEstate ? (d.layers[3]?.loaded ?? 0) > 0 : false,
   };
-  const governanceActive = d.classification.classifiedColumns > 0;
+  const governanceActive = hasPopulatedEstate ? d.classification.classifiedColumns > 0 : false;
+  const estateLinks = totalBlockers > 0 || healthySources < sourceCount
+    ? [
+        { label: "Open Load Center", to: "/load-center" },
+        { label: "Open Source Manager", to: "/sources" },
+        { label: "Back to Overview", to: "/overview" },
+      ]
+    : [
+        { label: "Open Load Center", to: "/load-center" },
+        { label: "Open Source Manager", to: "/sources" },
+        { label: "Back to Overview", to: "/overview" },
+      ];
 
   return (
     <div className="estate-page" style={{ animation: "fadeIn 400ms var(--ease-claude) both" }}>
-
-      {/* ── Header ────────────────────────────────────────────────── */}
-      <div className="px-6 pt-5 pb-2 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{ background: "var(--bp-copper-soft)", color: "var(--bp-copper)" }}
-          >
-            <Globe size={18} />
-          </div>
-          <div>
-            <h1
-              className="text-[17px] font-semibold leading-tight"
-              style={{ color: "var(--bp-ink-primary)", fontFamily: "var(--bp-font-display)" }}
+      <div className="px-6 pt-5 pb-4">
+        <BusinessIntentHeader
+          eyebrow="Orient"
+          title="Data Estate"
+          meta={
+            hasPopulatedEstate
+              ? `Pipeline health across ${d.sources.length} source systems`
+              : loading
+                ? "Loading estate…"
+                : "Waiting for estate activity"
+          }
+          summary="This page shows how source systems, medallion layers, and governance signals are behaving together. It is the operating map for whether the estate is healthy enough to support downstream load, quality, and gold work."
+          items={[
+            {
+              label: "What This Page Is",
+              value: "Source-to-layer operating map",
+              detail: `Track ${sourceCount} scoped source systems, layer movement, and governance coverage in one place instead of bouncing across separate admin views.`,
+            },
+            {
+              label: "Why It Matters",
+              value: "Estate trust before workflow trust",
+              detail: "If source health, medallion movement, or governance coverage are weak here, every downstream dashboard will look inconsistent or unreliable.",
+            },
+            {
+              label: "What Happens Next",
+              value: "Move into the right workspace",
+              detail: "Use this page to decide whether the next stop should be mission control for active runs, source management for connector issues, or lineage/governance work.",
+            },
+          ]}
+          links={estateLinks}
+          actions={
+            <button
+              onClick={fetchData}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded-lg border transition-colors hover:bg-[var(--bp-surface-inset)]"
+              style={{ borderColor: "var(--bp-border)", color: "var(--bp-ink-tertiary)" }}
+              disabled={loading}
             >
-              Data Estate
-            </h1>
-            <p className="text-[10px]" style={{ color: "var(--bp-ink-tertiary)" }}>
-              Pipeline health across {d.sources.length} source systems
-            </p>
-          </div>
+              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          }
+        />
+      </div>
+      {loading && !d ? (
+        <div className="flex items-center justify-center h-[calc(100vh-4rem)] gap-2" style={{ color: "var(--bp-ink-muted)" }}>
+          <Loader2 className="animate-spin" size={18} />
+          <span className="text-sm">Loading estate…</span>
         </div>
-
-        <div className="flex items-center gap-3">
-          {d.freshness.lastSuccessfulLoad && (
-            <span className="text-[10px] tabular-nums" style={{ color: "var(--bp-ink-muted)" }}>
-              Last load{" "}
-              {new Date(d.freshness.lastSuccessfulLoad).toLocaleDateString(undefined, {
-                month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-              })}
-            </span>
-          )}
+      ) : error && !d ? (
+        <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] gap-3">
+          <AlertTriangle size={24} style={{ color: "var(--bp-fault)" }} />
+          <p className="text-sm" style={{ color: "var(--bp-ink-secondary)" }}>{error}</p>
           <button
             onClick={fetchData}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded-lg border transition-colors hover:bg-[var(--bp-surface-inset)]"
+            className="text-[11px] px-3 py-1.5 rounded-lg border transition-colors hover:bg-[var(--bp-surface-inset)]"
             style={{ borderColor: "var(--bp-border)", color: "var(--bp-ink-tertiary)" }}
-            disabled={loading}
           >
-            <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-            Refresh
+            Retry
           </button>
         </div>
-      </div>
+      ) : d && d.sources.length === 0 ? (
+        <EmptyEstate onRefresh={fetchData} />
+      ) : d ? (
+        <>
+          {/* ── Header ────────────────────────────────────────────────── */}
+          <div className="px-6 pt-0 pb-2 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center"
+                style={{ background: "var(--bp-copper-soft)", color: "var(--bp-copper)" }}
+              >
+                <Globe size={18} />
+              </div>
+              <div>
+                <h1
+                  className="text-[17px] font-semibold leading-tight"
+                  style={{ color: "var(--bp-ink-primary)", fontFamily: "var(--bp-font-display)" }}
+                >
+                  Current Estate Snapshot
+                </h1>
+                <p className="text-[10px]" style={{ color: "var(--bp-ink-tertiary)" }}>
+                  Pipeline health across {d.sources.length} source systems
+                </p>
+              </div>
+            </div>
 
-      {/* ── Hero KPI Strip ────────────────────────────────────────── */}
-      <div className="px-6 pb-4">
-        <div className="grid grid-cols-4 gap-3">
-          <KpiCard
-            label="Entities"
-            value={totalEntities.toLocaleString()}
-            sub={`${totalLoaded.toLocaleString()} loaded`}
-            index={0}
-          />
-          <KpiCard
-            label="Sources"
-            value={`${healthySources}/${d.sources.length}`}
-            sub="operational"
-            color={healthySources === d.sources.length ? "var(--bp-operational)" : "var(--bp-caution)"}
-            index={1}
-          />
-          <KpiCard
-            label="Governance"
-            value={`${d.classification.coveragePct}%`}
-            sub="classified"
-            color={d.classification.coveragePct >= 80 ? "var(--bp-operational)" : "var(--bp-caution)"}
-            index={2}
-          />
-          <KpiCard
-            label="Errors"
-            value={totalErrors.toLocaleString()}
-            sub={d.schemaValidation.failed > 0 ? `${d.schemaValidation.failed} validation` : "pipeline"}
-            color={totalErrors > 0 ? "var(--bp-fault)" : "var(--bp-operational)"}
-            index={3}
-          />
-        </div>
-      </div>
-
-      {/* ── Three-Zone Pipeline Layout ────────────────────────────── */}
-      <div className="px-6 pb-6">
-        <div className="relative grid grid-cols-[minmax(200px,260px)_1fr_minmax(220px,280px)] gap-6 min-h-[480px]">
-
-          {/* SVG flow connectors (behind everything) */}
-          <PipelineFlow
-            sourcesActive={sourcesActive}
-            layersActive={layersActive}
-            governanceActive={governanceActive}
-          />
-
-          {/* ─── Zone 1: Source Systems ─────────────────────── */}
-          <div className="relative z-10">
-            <ZoneLabel label="Source Systems" count={d.sources.length} />
-            <div className="space-y-2">
-              {d.sources.map((src, i) => (
-                <SourceNode
-                  key={src.name}
-                  {...src}
-                  index={i}
-                  isGhost={src.loadedCount === 0}
-                />
-              ))}
+            <div className="flex items-center gap-3">
+              {d.freshness.lastSuccessfulLoad && (
+                <span className="text-[10px] tabular-nums" style={{ color: "var(--bp-ink-muted)" }}>
+                  Last load{" "}
+                  {new Date(d.freshness.lastSuccessfulLoad).toLocaleDateString(undefined, {
+                    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+                  })}
+                </span>
+              )}
+              <button
+                onClick={fetchData}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded-lg border transition-colors hover:bg-[var(--bp-surface-inset)]"
+                style={{ borderColor: "var(--bp-border)", color: "var(--bp-ink-tertiary)" }}
+                disabled={loading}
+              >
+                <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+                Refresh
+              </button>
             </div>
           </div>
 
-          {/* ─── Zone 2: Pipeline Layers ────────────────────── */}
-          <div className="relative z-10 flex flex-col">
-            <ZoneLabel label="Pipeline Layers" />
+          {/* ── Hero KPI Strip ────────────────────────────────────────── */}
+          <div className="px-6 pb-4">
+            <div className="grid grid-cols-4 gap-3">
+              <KpiCard
+                label="Entities"
+                value={totalEntities.toLocaleString()}
+                sub={`${totalLoaded.toLocaleString()} loaded`}
+                index={0}
+              />
+              <KpiCard
+                label="Sources"
+                value={`${healthySources}/${d.sources.length}`}
+                sub="operational"
+                color={healthySources === d.sources.length ? "var(--bp-operational)" : "var(--bp-caution)"}
+                index={1}
+              />
+              <KpiCard
+                label="Governance"
+                value={`${d.classification.coveragePct}%`}
+                sub="classified"
+                color={d.classification.coveragePct >= 80 ? "var(--bp-operational)" : "var(--bp-caution)"}
+                index={2}
+              />
+              <KpiCard
+        label="Blockers"
+        value={totalBlockers.toLocaleString()}
+        sub={d.schemaValidation.failed > 0 ? `${d.schemaValidation.failed} validation` : "completion"}
+        color={totalBlockers > 0 ? "var(--bp-fault)" : "var(--bp-operational)"}
+                index={3}
+              />
+            </div>
+          </div>
 
-            <div className="flex-1 flex flex-col justify-center gap-2">
-              {d.layers.map((layer, i) => (
-                <div key={layer.key}>
-                  <LayerZone
-                    name={layer.name}
-                    layerKey={layer.key}
-                    registered={layer.registered}
-                    loaded={layer.loaded}
-                    failed={layer.failed}
-                    coveragePct={layer.coveragePct}
-                    lastLoad={layer.lastLoad}
-                    index={i}
-                  />
+          {/* ── Three-Zone Pipeline Layout ────────────────────────────── */}
+          <div className="px-6 pb-6">
+            <div className="relative grid grid-cols-[minmax(200px,260px)_1fr_minmax(220px,280px)] gap-6 min-h-[480px]">
 
-                  {/* Flow connector between layers */}
-                  {i < d.layers.length - 1 && (
-                    <div className="flex justify-center py-1">
-                      <ArrowDown
-                        size={14}
-                        style={{
-                          color: (d.layers[i]?.loaded > 0 && d.layers[i + 1]?.loaded > 0)
-                            ? "var(--bp-copper)"
-                            : "var(--bp-border)",
-                          transition: "color 0.4s var(--ease-claude)",
-                          opacity: 0.5,
-                        }}
-                      />
-                    </div>
-                  )}
+              {/* SVG flow connectors (behind everything) */}
+              <PipelineFlow
+                sourcesActive={sourcesActive}
+                layersActive={layersActive}
+                governanceActive={governanceActive}
+              />
+
+              {/* ─── Zone 1: Source Systems ─────────────────────── */}
+              <div className="relative z-10">
+                <ZoneLabel label="Source Systems" count={d.sources.length} />
+                <div className="space-y-2">
+                  {d.sources.map((src, i) => (
+                    <SourceNode
+                      key={src.name}
+                      {...src}
+                      index={i}
+                      isGhost={src.loadedCount === 0}
+                    />
+                  ))}
                 </div>
-              ))}
+              </div>
+
+              {/* ─── Zone 2: Pipeline Layers ────────────────────── */}
+              <div className="relative z-10 flex flex-col">
+                <ZoneLabel label="Pipeline Layers" />
+
+                <div className="flex-1 flex flex-col justify-center gap-2">
+                  {d.layers.map((layer, i) => (
+                    <div key={layer.key}>
+                      <LayerZone
+                        name={layer.name}
+                        layerKey={layer.key}
+                        registered={layer.registered}
+                        loaded={layer.loaded}
+                        failed={layer.failed}
+                        coveragePct={layer.coveragePct}
+                        lastLoad={layer.lastLoad}
+                        index={i}
+                      />
+
+                      {/* Flow connector between layers */}
+                      {i < d.layers.length - 1 && (
+                        <div className="flex justify-center py-1">
+                          <ArrowDown
+                            size={14}
+                            style={{
+                              color: (d.layers[i]?.loaded > 0 && d.layers[i + 1]?.loaded > 0)
+                                ? "var(--bp-copper)"
+                                : "var(--bp-border)",
+                              transition: "color 0.4s var(--ease-claude)",
+                              opacity: 0.5,
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ─── Zone 3: Governance ─────────────────────────── */}
+              <div className="relative z-10">
+                <ZoneLabel label="Governance" />
+                <GovernancePanel
+                  classification={d.classification}
+                  schemaValidation={d.schemaValidation}
+                  purview={d.purview}
+                />
+              </div>
             </div>
           </div>
-
-          {/* ─── Zone 3: Governance ─────────────────────────── */}
-          <div className="relative z-10">
-            <ZoneLabel label="Governance" />
-            <GovernancePanel
-              classification={d.classification}
-              schemaValidation={d.schemaValidation}
-              purview={d.purview}
-            />
-          </div>
-        </div>
-      </div>
+        </>
+      ) : null}
     </div>
   );
 }

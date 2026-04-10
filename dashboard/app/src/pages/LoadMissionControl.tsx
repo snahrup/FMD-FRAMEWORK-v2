@@ -811,34 +811,17 @@ function CommandBand({
             }}>
               <Square size={12} /> Stop
           </button>
-        ) : (
-          <button onClick={() => setLaunchOpen(!launchOpen)} style={{
-            ...S.badge, cursor: "pointer", border: "1px solid var(--bp-operational)",
-            background: launchOpen ? "var(--bp-operational)" : "var(--bp-operational)" + "12",
-            color: launchOpen ? "#fff" : "var(--bp-operational)",
-            padding: "6px 14px", fontSize: 12,
-          }}>
-            <Play size={12} /> Run Pipeline
+          ) : null}
+          <button
+            onClick={() => window.location.assign(`/load-center${scope.selectedRunId ? `?run=${scope.selectedRunId}` : ""}`)}
+            style={{
+              ...S.badge, cursor: "pointer", border: "1px solid var(--bp-operational)",
+              background: "var(--bp-operational)" + "12", color: "var(--bp-operational)",
+              padding: "6px 14px", fontSize: 12,
+            }}
+          >
+            <Play size={12} /> Open Load Center
           </button>
-        )}
-        {canResume && (
-          <button onClick={onResume} style={{
-            ...S.badge, cursor: "pointer", border: "1px solid var(--bp-caution)",
-            background: "var(--bp-caution)" + "12", color: "var(--bp-caution)",
-            padding: "6px 14px", fontSize: 12,
-          }}>
-            <RotateCcw size={12} /> Resume
-          </button>
-        )}
-        {canRetry && (
-          <button onClick={onRetry} style={{
-            ...S.badge, cursor: "pointer", border: "1px solid var(--bp-copper)",
-            background: "var(--bp-copper-soft)", color: "var(--bp-copper)",
-            padding: "6px 14px", fontSize: 12,
-          }}>
-            <RefreshCw size={12} /> Retry Failed
-          </button>
-        )}
       </div>
     </div>
 
@@ -3153,15 +3136,15 @@ function LoadMissionControlInner() {
               Ready to Go
             </div>
             <div style={{ ...S.sans, fontSize: 15, color: "var(--bp-ink-secondary)", lineHeight: 1.6, marginBottom: 20 }}>
-              Hit "Run Pipeline" to start loading your data. You'll see each table move through three stages — Landing, Bronze, and Silver — with live updates the whole way.
+              Use Load Center to start or finish imports. Mission Control stays here as the place to watch the run, inspect failures, and understand what happened after execution starts.
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
               <div style={{ ...S.cardInset, padding: "12px 16px", textAlign: "left" }}>
                 <div style={{ ...S.sans, fontSize: 11, fontWeight: 600, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 4 }}>
-                  How to Start
+                  Execution Ownership
                 </div>
                 <div style={{ ...S.sans, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
-                  Click "Run Pipeline" at the top, pick your layers, and go
+                  Start and finish imports in Load Center, then come back here to monitor and triage the run
                 </div>
               </div>
             </div>

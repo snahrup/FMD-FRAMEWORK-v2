@@ -36,6 +36,8 @@ import { SourceOnboardingWizard } from '@/components/sources/SourceOnboardingWiz
 import { useEntityDigest, invalidateDigestCache } from '@/hooks/useEntityDigest';
 import type { DigestEntity } from '@/hooks/useEntityDigest';
 import { resolveSourceLabel } from '@/hooks/useSourceConfig';
+import CompactPageHeader from '@/components/layout/CompactPageHeader';
+import TableCardList from '@/components/ui/TableCardList';
 
 // ── Types matching API responses ──
 
@@ -704,23 +706,28 @@ export default function SourceManager() {
   }
 
   return (
-    <div className="space-y-6 px-8 py-8 max-w-[1280px] mx-auto">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="font-semibold tracking-tight" style={{ fontFamily: "var(--bp-font-display)", fontSize: 32, color: "var(--bp-ink-primary)" }}>Source Manager</h1>
-          <p className="mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
-            Register gateway connections, configure data sources, and manage landing zone entities
-          </p>
-        </div>
-        <button
-          onClick={() => setShowOnboarding(true)}
-          className="flex items-center gap-2 px-4 py-2.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium shrink-0"
-        >
-          <Plus className="h-4 w-4" />
-          New Data Source
-        </button>
-      </div>
+    <div className="bp-page-shell space-y-6">
+      <CompactPageHeader
+        eyebrow="Load"
+        title="Source Manager"
+        summary="Own connection setup, entity registration, and load configuration from one place instead of scattering onboarding and optimization across separate tools."
+        meta={digestLoading ? "refreshing source registry" : "source onboarding and configuration"}
+        actions={
+          <button
+            onClick={() => setShowOnboarding(true)}
+            className="flex items-center gap-2 px-4 py-2.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium shrink-0"
+          >
+            <Plus className="h-4 w-4" />
+            New Data Source
+          </button>
+        }
+        facts={[
+          { label: "Sources", value: `${registeredDataSources.length} registered`, tone: "accent" },
+          { label: "Entities", value: `${registeredEntities.length} total`, tone: "neutral" },
+          { label: "Incremental", value: `${incrementalCount} optimized`, tone: incrementalCount > 0 ? "positive" : "warning" },
+          { label: "Connections", value: `${registeredCount}/${gatewayConnections.length} registered`, tone: registeredCount === gatewayConnections.length ? "positive" : "warning" },
+        ]}
+      />
 
       {/* Action Status Banner */}
       {actionStatus && (
@@ -962,7 +969,61 @@ export default function SourceManager() {
 
                   {/* Expanded entity table */}
                   {isExpanded && (
-                    <div className="overflow-x-auto">
+                    <div>
+                      <div className="p-3 lg:hidden">
+                        <TableCardList
+                          items={entities}
+                          getId={(entity) => entity.LandingzoneEntityId}
+                          getTitle={(entity) => `${entity.SourceSchema}.${entity.SourceName}`}
+                          getSubtitle={(entity) => `${entity.FileName}.${entity.FileType} · ${entity.FilePath}`}
+                          getStats={(entity) => [
+                            { label: "Load", value: entity.IsIncremental === 'True' ? 'Incremental' : 'Full' },
+                            { label: "Status", value: entity.IsActive === 'True' ? 'Active' : 'Inactive' },
+                            { label: "Source", value: friendlyLabel(entity.DataSourceName || sourceName) },
+                            { label: "Selected", value: selectedIds.has(entity.LandingzoneEntityId) ? 'Yes' : 'No' },
+                          ]}
+                          onCardClick={(entity) => toggleEntity(entity.LandingzoneEntityId)}
+                          renderExpanded={(entity) => (
+                            <div className="space-y-3">
+                              <div className="flex flex-wrap gap-2 text-[11px]">
+                                <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                                  Output: <strong>{entity.FileName}.{entity.FileType}</strong>
+                                </span>
+                                <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                                  Path: <strong>{entity.FilePath}</strong>
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Link
+                                  to={`/journey?entity=${encodeURIComponent(String(entity.LandingzoneEntityId))}`}
+                                  className="bp-btn-secondary"
+                                  style={{ textDecoration: "none" }}
+                                >
+                                  <Route className="mr-1.5 h-3.5 w-3.5" />
+                                  Open journey
+                                </Link>
+                                <Link
+                                  to={`/flow-explorer?source=${encodeURIComponent(entity.DataSourceName || '')}&table=${encodeURIComponent(entity.SourceName)}`}
+                                  className="bp-btn-secondary"
+                                  style={{ textDecoration: "none" }}
+                                >
+                                  <GitBranch className="mr-1.5 h-3.5 w-3.5" />
+                                  Open flow
+                                </Link>
+                                <button
+                                  onClick={() => openDeleteModal(entity)}
+                                  className="bp-btn-secondary"
+                                  style={{ color: "var(--bp-fault)", borderColor: "rgba(185,58,42,0.2)" }}
+                                >
+                                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        />
+                      </div>
+                      <div className="hidden overflow-x-auto lg:block">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-t border-border bg-muted">
@@ -1045,6 +1106,7 @@ export default function SourceManager() {
                           })}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1145,7 +1207,66 @@ export default function SourceManager() {
                           </span>
                         </div>
                       </div>
-                      <div className="overflow-x-auto">
+                      <div className="p-3 lg:hidden">
+                        <TableCardList
+                          items={entities}
+                          getId={(entity) => String(entity.entityId)}
+                          getTitle={(entity) => `${entity.schema}.${entity.table}`}
+                          getSubtitle={() => friendlyLabel(sourceName)}
+                          getStats={(entity) => {
+                            const pending = pendingUpdates.get(entity.entityId);
+                            const isIncr = pending?.isIncremental ?? isEntityIncremental(entity);
+                            const wmCol = pending?.column ?? entity.watermarkColumn ?? '';
+                            return [
+                              { label: "Load", value: isIncr ? 'Incremental' : 'Full' },
+                              { label: "Watermark", value: wmCol || '—' },
+                              { label: "Bronze", value: entity.bronzeEntityId != null ? 'Ready' : 'Missing' },
+                              { label: "Silver", value: entity.silverEntityId != null ? 'Ready' : 'Missing' },
+                            ];
+                          }}
+                          renderExpanded={(entity) => {
+                            const pending = pendingUpdates.get(entity.entityId);
+                            const isIncr = pending?.isIncremental ?? isEntityIncremental(entity);
+                            const wmCol = pending?.column ?? entity.watermarkColumn ?? '';
+                            return (
+                              <div className="space-y-3">
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <label className="space-y-1 text-xs text-muted-foreground">
+                                    <span>Load type</span>
+                                    <select
+                                      value={isIncr ? 'incremental' : 'full'}
+                                      onChange={(e) => updatePending(entity.entityId, 'isIncremental', e.target.value === 'incremental')}
+                                      className="w-full rounded-md border border-border bg-background px-2 py-2 text-sm text-foreground"
+                                    >
+                                      <option value="full">Full</option>
+                                      <option value="incremental">Incremental</option>
+                                    </select>
+                                  </label>
+                                  <label className="space-y-1 text-xs text-muted-foreground">
+                                    <span>Watermark column</span>
+                                    <input
+                                      type="text"
+                                      value={wmCol}
+                                      onChange={(e) => updatePending(entity.entityId, 'column', e.target.value)}
+                                      placeholder={entity.watermarkColumn || '—'}
+                                      className="w-full rounded-md border border-border bg-background px-2 py-2 text-sm text-foreground"
+                                    />
+                                  </label>
+                                </div>
+                                <div className="flex flex-wrap gap-2 text-[11px]">
+                                  <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                                    PKs: <strong>{entity.primaryKeys || '—'}</strong>
+                                  </span>
+                                  <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                                    Last value: <strong>{entity.lastWatermarkValue || '—'}</strong>
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          }}
+                        />
+                      </div>
+                      <div className="hidden overflow-x-auto lg:block">
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-t border-border bg-muted">

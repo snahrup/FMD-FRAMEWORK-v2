@@ -45,6 +45,7 @@ import {
   FolderOpen,
   BookOpen,
   Radar,
+  Search,
   Globe,
   ClipboardCheck,
   type LucideIcon,
@@ -84,13 +85,13 @@ const CORE_GROUPS: NavGroup[] = [
     label: "Load",
     items: [
       { icon: Play, label: "Load Center", href: "/load-center" },
-      { icon: Radar, label: "Mission Control", href: "/load-mission-control" },
       { icon: Cable, label: "Source Manager", href: "/sources" },
     ],
   },
   {
     label: "Monitor",
     items: [
+      { icon: Radar, label: "Mission Control", href: "/load-mission-control" },
       { icon: Grid3X3, label: "Execution Matrix", href: "/matrix" },
       { icon: Activity, label: "Error Intelligence", href: "/errors" },
       { icon: ScrollText, label: "Execution Log", href: "/logs" },
@@ -99,6 +100,7 @@ const CORE_GROUPS: NavGroup[] = [
   {
     label: "Explore",
     items: [
+      { icon: Search, label: "Explore Hub", href: "/explore" },
       { icon: DatabaseZap, label: "SQL Explorer", href: "/sql-explorer" },
       { icon: FlaskConical, label: "Data Blender", href: "/blender" },
       { icon: Network, label: "Data Lineage", href: "/lineage" },
@@ -146,7 +148,6 @@ const EXTENDED_ITEMS: Record<string, NavItem[]> = {
     { icon: Cog, label: "Control Plane", href: "/control" },
     { icon: Radio, label: "Live Monitor", href: "/live" },
     { icon: CheckSquare, label: "Validation", href: "/validation" },
-    { icon: Play, label: "Pipeline Runner", href: "/runner" },
     { icon: Bug, label: "Pipeline Testing", href: "/notebook-debug" },
   ],
   Explore: [
@@ -584,7 +585,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Main Content */}
-      <main className={cn("flex-1 flex flex-col min-h-screen transition-all duration-200", mainMargin)}>
+      <main className={cn("flex min-h-screen w-full min-w-0 flex-col transition-all duration-200 md:w-[calc(100%-16rem)]", mainMargin)}>
         {/* Mobile hamburger — both personas */}
         <div className="md:hidden sticky top-0 z-40 h-12 flex items-center px-4" style={{ background: "var(--bp-canvas)" }}>
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsMobileOpen(true)}>

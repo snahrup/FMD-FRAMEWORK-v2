@@ -14,7 +14,6 @@ from dashboard.app.api.parsers.pbip_parser import parse_pbip  # noqa: F401
 from dashboard.app.api.parsers.pbix_parser import parse_pbix  # noqa: F401
 from dashboard.app.api.parsers.rdl_parser import parse_rdl  # noqa: F401
 from dashboard.app.api.parsers.schema_discovery import (  # noqa: F401
-    discover_batch,
     discover_table_schema,
     is_available,
 )

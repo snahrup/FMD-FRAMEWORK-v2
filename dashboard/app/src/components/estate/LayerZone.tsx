@@ -20,8 +20,8 @@ const LAYER_COLORS: Record<string, { accent: string; bg: string; label: string }
 
 const NAV_MAP: Record<string, string> = {
   landing: "/load-center",
-  bronze: "/load-mission-control",
-  silver: "/load-mission-control",
+  bronze: "/load-center",
+  silver: "/load-center",
   gold: "/gold/ledger",
 };
 
@@ -112,7 +112,7 @@ export function LayerZone({
               </span>
               {failed > 0 && (
                 <span className="tabular-nums">
-                  <strong style={{ color: "var(--bp-fault)" }}>{failed}</strong> failed
+                  <strong style={{ color: "var(--bp-fault)" }}>{failed}</strong> missing
                 </span>
               )}
               {lastLoad && (

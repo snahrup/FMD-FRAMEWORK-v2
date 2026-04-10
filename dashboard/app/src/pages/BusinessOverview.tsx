@@ -9,9 +9,18 @@
 
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import {
+  Crown,
+  Globe,
+  Network,
+  Radar,
+  RefreshCw,
+  Play,
+} from "lucide-react";
 import { useTerminology } from "@/hooks/useTerminology";
 import { resolveSourceLabel, getSourceColor } from "@/hooks/useSourceConfig";
 import { ProgressRing, StatusRail, toRailStatus, SourceBadge, SeverityBadge, toSeverity } from "@/components/business";
+import { LaunchTile } from "@/components/navigation/LaunchTile";
 
 const API = import.meta.env.VITE_API_URL || "";
 
@@ -98,7 +107,6 @@ export default function BusinessOverview() {
   const [sources, setSources] = useState<SourceHealth[]>([]);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function fetchAll() {
@@ -121,7 +129,6 @@ export default function BusinessOverview() {
       } else {
         setError(null);
       }
-      setLastRefreshed(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load overview data");
     } finally {
@@ -142,33 +149,144 @@ export default function BusinessOverview() {
   const recentActivity = activity
     .filter((a) => a.status === "success" || a.status === "running" || a.status === "pending")
     .slice(0, 8);
+  const sourceCount = sources.length;
+  const totalEntities = sourceCount > 0 ? sources.reduce((sum, source) => sum + source.entityCount, 0) : 0;
+  const totalLoaded = kpis?.loaded_entities ?? 0;
+  const totalErrors = alerts.length;
+  const healthySources = sourceCount > 0 ? sources.filter((source) => source.status === "operational").length : 0;
+  const outstandingLoads = Math.max((kpis?.total_entities || 0) - (kpis?.loaded_entities || 0), 0);
+  const launchCards = [
+    {
+      to: "/load-center",
+      icon: Play,
+      eyebrow: "Finish the pipeline",
+      title: "Load Center",
+      summary: "Start and finish imports in one place, see missing layers clearly, and stop guessing what still has not landed in the managed path.",
+      ctaLabel: "Open Load Center",
+      accent: "var(--bp-copper)",
+      statLabel: "Outstanding",
+      statValue: outstandingLoads.toLocaleString("en-US"),
+      features: ["Completion plan", "Gap queue", "Single entry point"],
+    },
+    {
+      to: "/explore",
+      icon: Network,
+      eyebrow: "Choose the right tool",
+      title: "Explore",
+      summary: "Start here when the question is which investigative surface to use, then jump into catalog, lineage, profiler, blender, or SQL Explorer with less explanation on each page.",
+      ctaLabel: "Open Explore",
+      accent: "var(--bp-operational)",
+      statLabel: "Usable now",
+      statValue: (kpis?.loaded_entities || 0).toLocaleString("en-US"),
+      features: ["Tool previews", "Direct launch", "Lower page clutter"],
+    },
+    {
+      to: "/load-mission-control",
+      icon: Radar,
+      eyebrow: "Watch active work",
+      title: "Mission Control",
+      summary: "Use the monitoring workspace after execution starts to watch run state, inspect failures, and understand what happened during the load.",
+      ctaLabel: "Open Mission Control",
+      accent: "var(--bp-silver)",
+      statLabel: "Blockers",
+      statValue: (kpis?.open_alerts || 0).toLocaleString("en-US"),
+      features: ["Run telemetry", "Failure triage", "Execution evidence"],
+    },
+    {
+      to: "/estate",
+      icon: Globe,
+      eyebrow: "See the whole map",
+      title: "Data Estate",
+      summary: "Use the estate map when the question is coverage, source posture, or whether a weak zone upstream is making every downstream tool feel inconsistent.",
+      ctaLabel: "Open Estate",
+      accent: "var(--bp-ink-primary)",
+      statLabel: "Healthy sources",
+      statValue: `${healthySources.toLocaleString("en-US")}/${sourceCount.toLocaleString("en-US")}`,
+      features: ["Source posture", "Layer coverage", "Governance map"],
+    },
+    {
+      to: "/gold/intake",
+      icon: Crown,
+      eyebrow: "Build the publish path",
+      title: "Gold Studio",
+      summary: "Open the guided gold workflow when the question is how to take a curated asset from intake through release and serving without losing context.",
+      ctaLabel: "Open Gold Studio",
+      accent: "var(--bp-copper-hover)",
+      statLabel: "Quality avg",
+      statValue: kpis ? `${kpis.quality_avg.toFixed(0)}%` : "—",
+      features: ["Guided stages", "Context carry-forward", "Release evidence"],
+    },
+  ];
 
   return (
     <div style={{ padding: 32, maxWidth: 1280 }}>
-      {/* ── Page Header ── */}
-      <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginBottom: 24 }}>
-        <h1
-          style={{
-            fontFamily: "var(--bp-font-display)",
-            fontSize: 32,
-            color: "var(--bp-ink-primary)",
-            lineHeight: 1.1,
-            fontWeight: 400,
-            letterSpacing: "-0.01em",
-          }}
+      <div
+        className="bp-card"
+        style={{
+          padding: 22,
+          marginBottom: 20,
+          background: "linear-gradient(135deg, rgba(180,86,36,0.05) 0%, rgba(255,255,255,0.98) 44%, rgba(244,242,237,0.98) 100%)",
+        }}
+      >
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div style={{ maxWidth: 860 }}>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--bp-copper)",
+              }}
+            >
+              Front Door
+            </div>
+            <h1
+              className="bp-display"
+              style={{
+                margin: "10px 0 0",
+                fontSize: 34,
+                lineHeight: 1.06,
+                color: "var(--bp-ink-primary)",
+              }}
+            >
+              Start here, then move into the right workspace
+            </h1>
+            <p
+              style={{
+                margin: "10px 0 0",
+                fontSize: 14,
+                lineHeight: 1.6,
+                color: "var(--bp-ink-secondary)",
+              }}
+            >
+              Use Overview to see what needs attention, understand what each major section is for, and jump directly into the next surface without every page carrying a giant instructional billboard.
+            </p>
+          </div>
+          <button
+            onClick={fetchAll}
+            className="inline-flex items-center gap-2 rounded-full px-4 py-2.5 transition-transform hover:-translate-y-0.5"
+            style={{
+              border: "1px solid var(--bp-border)",
+              background: "rgba(255,255,255,0.82)",
+              color: "var(--bp-ink-secondary)",
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            Refresh overview
+          </button>
+        </div>
+
+        <div
+          className="grid gap-4"
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", marginTop: 18 }}
         >
-          Overview
-        </h1>
-        <span
-          style={{
-            fontSize: 13,
-            color: "var(--bp-ink-muted)",
-          }}
-        >
-          {lastRefreshed
-            ? `Last refreshed: ${relativeTime(lastRefreshed.toISOString())}`
-            : "Loading…"}
-        </span>
+          {launchCards.map((card) => (
+            <LaunchTile key={card.to} {...card} />
+          ))}
+        </div>
       </div>
 
       {/* ── Error banner ── */}
@@ -263,7 +381,7 @@ export default function BusinessOverview() {
             </div>
           </div>
 
-          {/* Open Alerts */}
+          {/* Open Blockers */}
           <div className="bp-card" style={{ padding: 20 }}>
             <div
               style={{
@@ -275,7 +393,7 @@ export default function BusinessOverview() {
                 marginBottom: 8,
               }}
             >
-              Open Alerts
+              Open Blockers
             </div>
             <div
               className="bp-mono"
@@ -291,7 +409,7 @@ export default function BusinessOverview() {
             <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
               {kpis?.open_alerts === 0
                 ? "All clear"
-                : `${kpis?.open_alerts} need${kpis?.open_alerts === 1 ? "s" : ""} attention`}
+                : `${kpis?.open_alerts} outstanding in the chain`}
             </div>
           </div>
 

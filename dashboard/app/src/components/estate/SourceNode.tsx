@@ -125,7 +125,7 @@ export function SourceNode({
           )}
           {errorCount > 0 && (
             <span className="tabular-nums" style={{ color: "var(--bp-fault)" }}>
-              {errorCount} err
+              {errorCount} blocked
             </span>
           )}
         </div>

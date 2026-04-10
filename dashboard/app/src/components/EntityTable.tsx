@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { DigestEntity } from "@/hooks/useEntityDigest";
 import type { EngineLog } from "@/hooks/useEngineStatus";
+import TableCardList from "@/components/ui/TableCardList";
 
 // ── Types ──
 
@@ -96,6 +97,14 @@ function humanDuration(seconds: number | null | undefined): string {
   return `${Math.floor(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`;
 }
 
+function getLastLoadTime(entity: DigestEntity): string | null {
+  const times = [entity.lzLastLoad, entity.bronzeLastLoad, entity.silverLastLoad].filter(
+    Boolean
+  ) as string[];
+  if (!times.length) return null;
+  return times.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+}
+
 // The entity_status.Status column may contain values beyond the canonical
 // "loaded"/"pending"/"not_started" — e.g., "Succeeded", "complete", "Failed",
 // "error", "InProgress". We bucket them for display.
@@ -137,6 +146,200 @@ function overallStatusCls(overall: string): string {
   if (overall === "partial") return "text-[var(--bp-caution)]";
   if (overall === "pending") return "text-[var(--bp-copper)]";
   return "text-[var(--bp-ink-muted)]";
+}
+
+interface EntityDetailPanelProps {
+  entity: DigestEntity;
+  logs: EngineLog[];
+  logsLoading: boolean;
+  resetConfirm: number | null;
+  setResetConfirm: (id: number | null) => void;
+  onReset: (id: number) => void;
+}
+
+function EntityDetailPanel({
+  entity,
+  logs,
+  logsLoading,
+  resetConfirm,
+  setResetConfirm,
+  onReset,
+}: EntityDetailPanelProps) {
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap gap-2 text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>
+          <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-2 py-1">
+            Watermark:{" "}
+            <strong
+              className="text-[var(--bp-ink-primary)]"
+              style={{ fontFamily: "var(--bp-font-mono)" }}
+            >
+              {entity.watermarkColumn || "none"}
+            </strong>
+          </span>
+          <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-2 py-1">
+            Incremental: <strong className="text-[var(--bp-ink-primary)]">{entity.isIncremental ? "Yes" : "No"}</strong>
+          </span>
+          <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-2 py-1">
+            Bronze ID:{" "}
+            <strong
+              className="text-[var(--bp-ink-primary)]"
+              style={{ fontFamily: "var(--bp-font-mono)" }}
+            >
+              {entity.bronzeId ?? "\u2014"}
+            </strong>
+          </span>
+          <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-2 py-1">
+            Silver ID:{" "}
+            <strong
+              className="text-[var(--bp-ink-primary)]"
+              style={{ fontFamily: "var(--bp-font-mono)" }}
+            >
+              {entity.silverId ?? "\u2014"}
+            </strong>
+          </span>
+          {entity.bronzePKs ? (
+            <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-2 py-1">
+              PKs:{" "}
+              <strong
+                className="text-[var(--bp-ink-primary)]"
+                style={{ fontFamily: "var(--bp-font-mono)" }}
+              >
+                {entity.bronzePKs}
+              </strong>
+            </span>
+          ) : null}
+        </div>
+
+        <div>
+          {resetConfirm === entity.id ? (
+            <div className="inline-flex items-center gap-1">
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-7 px-2 text-[10px]"
+                onClick={() => onReset(entity.id)}
+              >
+                Confirm reset
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-[10px]"
+                onClick={() => setResetConfirm(null)}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-[10px] text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-primary)]"
+              onClick={() => setResetConfirm(entity.id)}
+              title="Reset watermark"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Reset watermark
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {entity.lastError ? (
+        <div className="flex items-start gap-2 rounded-md border border-[var(--bp-fault)]/20 bg-[var(--bp-fault-light)] px-3 py-2">
+          <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--bp-fault)]" />
+          <div>
+            <span className="text-[10px] font-medium text-[var(--bp-fault)]">
+              {entity.lastError.layer} layer error
+            </span>
+            <span className="ml-2 text-[10px] text-[var(--bp-ink-muted)]">
+              {timeAgo(entity.lastError.time)}
+            </span>
+            <p className="mt-0.5 text-[10px] text-[var(--bp-ink-muted)]" style={{ fontFamily: "var(--bp-font-mono)" }}>
+              {entity.lastError.message}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {entity.diagnosis ? (
+        <div className="rounded-md border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-2 text-[10px] italic text-[var(--bp-ink-muted)]">
+          {entity.diagnosis}
+        </div>
+      ) : null}
+
+      {logsLoading ? (
+        <div className="flex items-center justify-center gap-2 py-4">
+          <Loader2 className="h-4 w-4 animate-spin text-[var(--bp-ink-muted)]" />
+          <span className="text-xs text-[var(--bp-ink-muted)]">Loading task logs...</span>
+        </div>
+      ) : logs.length === 0 ? (
+        <p className="py-2 text-center text-[10px] text-[var(--bp-ink-muted)]/60">
+          No engine task logs available for this entity
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {logs.map((log, index) => (
+            <div
+              key={`${log.run_id || "run"}-${log.layer || "layer"}-${index}`}
+              className="rounded-md border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-2"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={cn(
+                      "bp-badge bp-badge-sm",
+                      layerStatusCls(log.status || "not_started")
+                    )}
+                  >
+                    {layerStatusIcon(log.status || "not_started")}
+                    {layerStatusLabel(log.status || "not_started")}
+                  </span>
+                  {log.layer ? (
+                    <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--bp-ink-tertiary)]">
+                      {log.layer}
+                    </span>
+                  ) : null}
+                  {log.run_id ? (
+                    <span
+                      className="text-[10px] text-[var(--bp-ink-muted)]"
+                      style={{ fontFamily: "var(--bp-font-mono)" }}
+                    >
+                      #{log.run_id}
+                    </span>
+                  ) : null}
+                </div>
+                <span className="text-[10px] text-[var(--bp-ink-muted)]">
+                  {formatTimestamp(log.ended_at || log.started_at)}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-[var(--bp-ink-muted)]">
+                <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-inset)] px-2 py-1">
+                  Rows:{" "}
+                  <strong className="text-[var(--bp-ink-primary)]">
+                    {log.rows_read != null ? fmt(log.rows_read) : "\u2014"}
+                  </strong>
+                </span>
+                <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-inset)] px-2 py-1">
+                  Duration:{" "}
+                  <strong className="text-[var(--bp-ink-primary)]">
+                    {humanDuration(log.duration_seconds)}
+                  </strong>
+                </span>
+              </div>
+              {log.error_message ? (
+                <p className="mt-2 text-[10px] text-[var(--bp-fault)]" style={{ fontFamily: "var(--bp-font-mono)" }}>
+                  {log.error_message}
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Component ──
@@ -271,13 +474,12 @@ export function EntityTable({
 
   return (
     <div className={className} data-testid="entity-table">
-      {/* Table header bar */}
-      <div className="flex items-center justify-between mb-2">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-xs text-[var(--bp-ink-muted)]">
           Showing {fmt(pagedEntities.length)} of {fmt(sortedEntities.length)} entities
           {sortedEntities.length !== totalCount && ` (${fmt(totalCount)} total)`}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -308,8 +510,50 @@ export function EntityTable({
         </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-lg border border-[rgba(0,0,0,0.08)] overflow-hidden" style={{ background: "var(--bp-surface-1)" }}>
+      <div className="lg:hidden">
+        <TableCardList
+          items={pagedEntities}
+          getId={(entity) => String(entity.id)}
+          getTitle={(entity) => entity.tableName}
+          getSubtitle={(entity) => `${entity.sourceSchema} · ${entity.dataSourceName || entity.source}`}
+          getStats={(entity) => [
+            { label: "Landing", value: layerStatusLabel(entity.lzStatus) },
+            { label: "Bronze", value: layerStatusLabel(entity.bronzeStatus) },
+            { label: "Silver", value: layerStatusLabel(entity.silverStatus) },
+            { label: "Last", value: timeAgo(getLastLoadTime(entity)) },
+          ]}
+          expandedItemId={expandedEntity != null ? String(expandedEntity) : null}
+          onExpandedItemChange={(itemId) => {
+            if (!itemId) {
+              setExpandedEntity(null);
+              setEntityLogs([]);
+              return;
+            }
+            void toggleExpand(Number(itemId));
+          }}
+          renderExpanded={(entity) => (
+            <EntityDetailPanel
+              entity={entity}
+              logs={expandedEntity === entity.id ? entityLogs : []}
+              logsLoading={expandedEntity === entity.id && entityLogsLoading}
+              resetConfirm={resetConfirm}
+              setResetConfirm={setResetConfirm}
+              onReset={handleReset}
+            />
+          )}
+          emptyState={
+            <div className="rounded-xl border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-4 py-10 text-center">
+              <Database className="mx-auto mb-3 h-10 w-10 text-[var(--bp-ink-muted)]/20" />
+              <p className="text-sm text-[var(--bp-ink-muted)]">No entities match your filters</p>
+            </div>
+          }
+        />
+      </div>
+
+      <div
+        className="hidden rounded-lg border border-[rgba(0,0,0,0.08)] overflow-hidden lg:block"
+        style={{ background: "var(--bp-surface-1)" }}
+      >
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -418,7 +662,7 @@ export function EntityTable({
 
       {/* Bottom pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-1 mt-3">
+        <div className="mt-3 flex items-center justify-center gap-1">
           <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
             Prev
           </Button>
@@ -463,13 +707,7 @@ function EntityRow({
   onReset,
 }: EntityRowProps) {
   const e = entity;
-
-  // Most recent load time across all layers
-  const lastLoadTime = useMemo(() => {
-    const times = [e.lzLastLoad, e.bronzeLastLoad, e.silverLastLoad].filter(Boolean);
-    if (!times.length) return null;
-    return times.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
-  }, [e.lzLastLoad, e.bronzeLastLoad, e.silverLastLoad]);
+  const lastLoadTime = useMemo(() => getLastLoadTime(e), [e]);
 
   return (
     <>
@@ -600,126 +838,14 @@ function EntityRow({
       {isExpanded && (
         <tr style={{ background: "var(--bp-surface-inset)" }} data-testid={`entity-detail-${e.id}`}>
           <td colSpan={10} className="px-6 py-3">
-            <div className="space-y-2">
-              {/* Entity metadata summary */}
-              <div className="flex items-center gap-4 text-[10px] mb-2 flex-wrap" style={{ color: "var(--bp-ink-muted)" }}>
-                <span>
-                  Watermark:{" "}
-                  <strong className="text-[var(--bp-ink-primary)]" style={{ fontFamily: "var(--bp-font-mono)" }}>{e.watermarkColumn || "none"}</strong>
-                </span>
-                <span>
-                  Incremental: <strong className="text-[var(--bp-ink-primary)]">{e.isIncremental ? "Yes" : "No"}</strong>
-                </span>
-                <span>
-                  Bronze ID: <strong className="text-[var(--bp-ink-primary)]" style={{ fontFamily: "var(--bp-font-mono)" }}>{e.bronzeId ?? "\u2014"}</strong>
-                </span>
-                <span>
-                  Silver ID: <strong className="text-[var(--bp-ink-primary)]" style={{ fontFamily: "var(--bp-font-mono)" }}>{e.silverId ?? "\u2014"}</strong>
-                </span>
-                {e.bronzePKs && (
-                  <span>
-                    PKs: <strong className="text-[var(--bp-ink-primary)]" style={{ fontFamily: "var(--bp-font-mono)" }}>{e.bronzePKs}</strong>
-                  </span>
-                )}
-              </div>
-
-              {/* Last error */}
-              {e.lastError && (
-                <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-[var(--bp-fault)]/20 bg-[var(--bp-fault-light)]">
-                  <XCircle className="w-3.5 h-3.5 text-[var(--bp-fault)] mt-0.5 flex-shrink-0" />
-                  <div>
-                    <span className="text-[10px] text-[var(--bp-fault)] font-medium">{e.lastError.layer} layer error</span>
-                    <span className="text-[10px] text-[var(--bp-ink-muted)] ml-2">{timeAgo(e.lastError.time)}</span>
-                    <p className="text-[10px] text-[var(--bp-ink-muted)] font-mono mt-0.5">{e.lastError.message}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Diagnosis */}
-              {e.diagnosis && (
-                <div className="text-[10px] text-[var(--bp-ink-muted)] italic px-1">{e.diagnosis}</div>
-              )}
-
-              {/* Recent task logs from engine */}
-              {logsLoading && (
-                <div className="flex items-center gap-2 py-4 justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-[var(--bp-ink-muted)]" />
-                  <span className="text-xs text-[var(--bp-ink-muted)]">Loading task logs...</span>
-                </div>
-              )}
-
-              {!logsLoading && logs.length === 0 && (
-                <p className="text-[10px] text-[var(--bp-ink-muted)]/60 py-2 text-center">
-                  No engine task logs available for this entity
-                </p>
-              )}
-
-              {!logsLoading && logs.length > 0 && (
-                <div className="rounded-md border border-[rgba(0,0,0,0.08)] overflow-hidden">
-                  <table className="w-full text-[10px]">
-                    <thead>
-                      <tr style={{ background: "var(--bp-surface-inset)", borderBottom: "1px solid var(--bp-border)" }}>
-                        <th className="px-2 py-1.5 text-left font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
-                          Run
-                        </th>
-                        <th className="px-2 py-1.5 text-left font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
-                          Layer
-                        </th>
-                        <th className="px-2 py-1.5 text-left font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
-                          Status
-                        </th>
-                        <th className="px-2 py-1.5 text-right font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
-                          Rows
-                        </th>
-                        <th className="px-2 py-1.5 text-right font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
-                          Duration
-                        </th>
-                        <th className="px-2 py-1.5 text-right font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
-                          Time
-                        </th>
-                        <th className="px-2 py-1.5 text-left font-semibold uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)" }}>
-                          Error
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {logs.map((log) => (
-                        <tr key={log.log_id} style={{ borderBottom: "1px solid var(--bp-border-subtle, var(--bp-border))" }}>
-                          <td className="px-2 py-1.5" style={{ color: "var(--bp-ink-muted)", fontFamily: "var(--bp-font-mono)" }}>#{log.run_id}</td>
-                          <td className="px-2 py-1.5 uppercase" style={{ color: "var(--bp-ink-muted)" }}>{log.layer}</td>
-                          <td className="px-2 py-1.5">
-                            <span
-                              className={cn(
-                                "bp-badge bp-badge-sm",
-                                log.status === "succeeded"
-                                  ? "bp-badge-operational"
-                                  : log.status === "failed"
-                                    ? "bp-badge-critical"
-                                    : "bp-badge-warning"
-                              )}
-                            >
-                              {log.status}
-                            </span>
-                          </td>
-                          <td className="px-2 py-1.5 text-right" style={{ color: "var(--bp-ink-primary)", fontFamily: "var(--bp-font-mono)", fontFeatureSettings: "'tnum'" }}>
-                            {log.rows_read > 0 ? fmt(log.rows_read) : "\u2014"}
-                          </td>
-                          <td className="px-2 py-1.5 text-right" style={{ color: "var(--bp-ink-muted)", fontFamily: "var(--bp-font-mono)", fontFeatureSettings: "'tnum'" }}>
-                            {humanDuration(log.duration_seconds)}
-                          </td>
-                          <td className="px-2 py-1.5 text-right" style={{ color: "var(--bp-ink-muted)" }}>
-                            {formatTimestamp(log.ended_at || log.started_at)}
-                          </td>
-                          <td className="px-2 py-1.5 truncate max-w-[200px]" style={{ color: "var(--bp-fault)", fontFamily: "var(--bp-font-mono)" }}>
-                            {log.error_message || "\u2014"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+            <EntityDetailPanel
+              entity={e}
+              logs={logs}
+              logsLoading={logsLoading}
+              resetConfirm={resetConfirm}
+              setResetConfirm={setResetConfirm}
+              onReset={onReset}
+            />
           </td>
         </tr>
       )}

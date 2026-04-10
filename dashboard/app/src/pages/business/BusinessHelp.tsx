@@ -8,6 +8,7 @@
 
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
+import { BusinessIntentHeader } from "@/components/business";
 import {
   Search,
   ChevronDown,
@@ -293,15 +294,33 @@ export default function BusinessHelp() {
 
   return (
     <div className="p-8 max-w-[1280px]">
-      {/* Header */}
-      <div className="mb-8">
-        <h1
-          className="bp-display text-[32px] leading-none"
-          style={{ color: "var(--bp-ink-primary)" }}
-        >
-          Help
-        </h1>
-      </div>
+      <BusinessIntentHeader
+        title="Help"
+        meta={`${filteredGlossary.length.toLocaleString()} terms visible`}
+        summary="This page explains the platform in plain language for a zero-context business user. It translates technical terms, points people to the right starting routes, and reduces the need for side-channel explanation."
+        items={[
+          {
+            label: "What This Page Is",
+            value: "Glossary and guided orientation",
+            detail: "Use this page to understand the language of the platform and to find the right workspace before asking someone else what a term means.",
+          },
+          {
+            label: "Why It Matters",
+            value: "Shared language reduces friction",
+            detail: "If users cannot decode terms like source, collection, quality score, or gold layer, they will avoid the product or misread what they are seeing.",
+          },
+          {
+            label: "What Happens Next",
+            value: "Translate first, then navigate with confidence",
+            detail: "Read the glossary, use the getting-started guides on the right, and then move into overview, catalog, requests, or sources with a clearer mental model.",
+          },
+        ]}
+        links={[
+          { label: "Open Overview", to: "/overview" },
+          { label: "Open Catalog", to: "/catalog-portal" },
+          { label: "Open Requests", to: "/requests" },
+        ]}
+      />
 
       {/* Two-column layout */}
       <div className="grid gap-8" style={{ gridTemplateColumns: "3fr 2fr" }}>

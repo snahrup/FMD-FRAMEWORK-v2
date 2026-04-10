@@ -15,7 +15,7 @@ export interface ClusterMember {
   specimen_name: string;
   source_system?: string | null;
   column_count: number;
-  match_type: string;
+  match_type?: string | null;
 }
 
 export interface ClusterData {
@@ -85,7 +85,8 @@ function parseBreakdown(raw: string | null): string {
   }
 }
 
-function columnOverlapPercent(matchType: string): number | null {
+function columnOverlapPercent(matchType?: string | null): number | null {
+  if (!matchType) return null;
   const match = matchType.match(/(\d+)%/);
   return match ? parseInt(match[1], 10) : null;
 }
@@ -291,6 +292,7 @@ export function ClusterCard({
               <tbody>
                 {members.map((m) => {
                   const overlap = columnOverlapPercent(m.match_type);
+                  const matchLabel = m.match_type || "Candidate grouping";
                   return (
                     <tr
                       key={m.id}
@@ -326,7 +328,7 @@ export function ClusterCard({
                               minWidth: 70,
                             }}
                           >
-                            {m.match_type}
+                            {matchLabel}
                           </span>
                           {overlap !== null && (
                             <div

@@ -340,6 +340,343 @@ def _release_model_nodes(conn, domain: str | None = None) -> list[dict]:
     ]
 
 
+def _pluralize(count: int, singular: str, plural: str | None = None) -> str:
+    return singular if count == 1 else (plural or singular + "s")
+
+
+def _build_stats(conn, domain: str | None = None) -> dict:
+    def _count(sql, bind=()):
+        row = conn.execute(sql, bind).fetchone()
+        if row is None:
+            return 0
+        return row["cnt"] if "cnt" in row.keys() else row[0]
+
+    specimen_where = ["deleted_at IS NULL"]
+    specimen_bind: list = []
+    if domain:
+        specimen_where.append("division = ?")
+        specimen_bind.append(domain)
+    specimen_clause = "WHERE " + " AND ".join(specimen_where)
+
+    entity_where = ["e.deleted_at IS NULL"]
+    entity_bind: list = []
+    if domain:
+        entity_where.append("s.division = ?")
+        entity_bind.append(domain)
+    entity_clause = "WHERE " + " AND ".join(entity_where)
+
+    cluster_where = ["deleted_at IS NULL"]
+    cluster_bind: list = []
+    if domain:
+        cluster_where.append("division = ?")
+        cluster_bind.append(domain)
+    cluster_clause = "WHERE " + " AND ".join(cluster_where)
+
+    canonical_where = ["is_current = 1", "deleted_at IS NULL"]
+    canonical_bind: list = []
+    if domain:
+        canonical_where.append("domain = ?")
+        canonical_bind.append(domain)
+    canonical_clause = "WHERE " + " AND ".join(canonical_where)
+
+    spec_where = ["gs.is_current = 1", "gs.deleted_at IS NULL"]
+    spec_bind: list = []
+    if domain:
+        spec_where.append("ce.domain = ?")
+        spec_bind.append(domain)
+    spec_clause = "WHERE " + " AND ".join(spec_where)
+
+    catalog_where = ["is_current = 1", "deleted_at IS NULL"]
+    catalog_bind: list = []
+    if domain:
+        catalog_where.append("domain = ?")
+        catalog_bind.append(domain)
+    catalog_clause = "WHERE " + " AND ".join(catalog_where)
+
+    specimens = _count(
+        f"SELECT COUNT(*) AS cnt FROM gs_specimens {specimen_clause}",
+        specimen_bind,
+    )
+    tables_extracted = _count(
+        f"""SELECT COUNT(*) AS cnt
+            FROM gs_extracted_entities e
+            JOIN gs_specimens s ON s.id = e.specimen_id
+            {entity_clause}""",
+        entity_bind,
+    )
+    columns_cataloged = _count(
+        f"""SELECT COUNT(*) AS cnt
+            FROM gs_extracted_columns ec
+            JOIN gs_extracted_entities e ON e.id = ec.entity_id
+            JOIN gs_specimens s ON s.id = e.specimen_id
+            {entity_clause}""",
+        entity_bind,
+    )
+    clusters_total = _count(
+        f"SELECT COUNT(*) AS cnt FROM gs_clusters {cluster_clause}",
+        cluster_bind,
+    )
+    clusters_unresolved = _count(
+        f"""SELECT COUNT(*) AS cnt
+            FROM gs_clusters
+            {cluster_clause} AND status = 'unresolved'""",
+        cluster_bind,
+    )
+    clusters_resolved = _count(
+        f"""SELECT COUNT(*) AS cnt
+            FROM gs_clusters
+            {cluster_clause} AND status = 'resolved'""",
+        cluster_bind,
+    )
+    avg_cluster_confidence = conn.execute(
+        f"""SELECT ROUND(COALESCE(AVG(confidence), 0), 1) AS avg_conf
+            FROM gs_clusters
+            {cluster_clause}""",
+        cluster_bind,
+    ).fetchone()["avg_conf"]
+    not_clustered = _count(
+        f"""SELECT COUNT(*) AS cnt
+            FROM gs_extracted_entities e
+            JOIN gs_specimens s ON e.specimen_id = s.id
+            {entity_clause}
+              AND e.cluster_id IS NULL
+              AND s.source_class = 'structural'""",
+        entity_bind,
+    )
+    canonical_total = _count(
+        f"SELECT COUNT(*) AS cnt FROM gs_canonical_entities {canonical_clause}",
+        canonical_bind,
+    )
+    canonical_approved = _count(
+        f"""SELECT COUNT(*) AS cnt
+            FROM gs_canonical_entities
+            {canonical_clause} AND status = 'approved'""",
+        canonical_bind,
+    )
+    gold_specs = _count(
+        f"""SELECT COUNT(*) AS cnt
+            FROM gs_gold_specs gs
+            LEFT JOIN gs_canonical_entities ce
+              ON ce.root_id = gs.canonical_root_id
+             AND ce.is_current = 1
+             AND ce.deleted_at IS NULL
+            {spec_clause}""",
+        spec_bind,
+    )
+    specs_validated = _count(
+        f"""SELECT COUNT(*) AS cnt
+            FROM gs_gold_specs gs
+            LEFT JOIN gs_canonical_entities ce
+              ON ce.root_id = gs.canonical_root_id
+             AND ce.is_current = 1
+             AND ce.deleted_at IS NULL
+            {spec_clause} AND gs.status = 'validated'""",
+        spec_bind,
+    )
+    catalog_published = _count(
+        f"SELECT COUNT(*) AS cnt FROM gs_catalog_entries {catalog_clause}",
+        catalog_bind,
+    )
+    catalog_certified = _count(
+        f"""SELECT COUNT(*) AS cnt
+            FROM gs_catalog_entries
+            {catalog_clause} AND endorsement = 'certified'""",
+        catalog_bind,
+    )
+    generated_at = conn.execute(
+        "SELECT CURRENT_TIMESTAMP AS ts"
+    ).fetchone()["ts"]
+
+    cert_rate = round((catalog_certified / catalog_published * 100), 1) if catalog_published > 0 else 0.0
+
+    return {
+        "updated_at": generated_at,
+        "specimens": specimens,
+        "tables_extracted": tables_extracted,
+        "columns_cataloged": columns_cataloged,
+        "clusters_total": clusters_total,
+        "unresolved_clusters": clusters_unresolved,
+        "clusters_resolved": clusters_resolved,
+        "total_clusters": clusters_total,
+        "unresolved": clusters_unresolved,
+        "resolved": clusters_resolved,
+        "avg_confidence": avg_cluster_confidence,
+        "not_clustered": not_clustered,
+        "canonical_total": canonical_total,
+        "canonical_approved": canonical_approved,
+        "gold_specs": gold_specs,
+        "specs_validated": specs_validated,
+        "catalog_published": catalog_published,
+        "catalog_certified": catalog_certified,
+        "certification_rate": cert_rate,
+    }
+
+
+def _workflow_focus(conn, domain: str | None = None) -> dict:
+    domain_sql = ""
+    domain_bind: list = []
+    if domain:
+        domain_sql = " AND ce.domain = ?"
+        domain_bind.append(domain)
+
+    spec = conn.execute(
+        f"""SELECT gs.target_name AS focus_label,
+                   ce.steward AS steward,
+                   ce.domain AS domain_name
+            FROM gs_gold_specs gs
+            JOIN gs_canonical_entities ce
+              ON ce.root_id = gs.canonical_root_id
+             AND ce.is_current = 1
+             AND ce.deleted_at IS NULL
+            WHERE gs.is_current = 1
+              AND gs.deleted_at IS NULL
+              AND gs.status = 'validated'
+              {domain_sql}
+            ORDER BY COALESCE(gs.updated_at, gs.created_at) DESC
+            LIMIT 1""",
+        domain_bind,
+    ).fetchone()
+    if spec:
+        steward = spec["steward"] or "Steward not assigned"
+        return {
+            "focus_label": spec["focus_label"],
+            "focus_kind": "Validated spec",
+            "focus_note": "Ready for release confirmation or immediate publishing once coverage blockers are closed.",
+            "owner_label": steward,
+            "owner_note": "This steward is accountable for release quality and final product shape.",
+        }
+
+    canonical = conn.execute(
+        f"""SELECT name, steward
+            FROM gs_canonical_entities ce
+            WHERE ce.is_current = 1
+              AND ce.deleted_at IS NULL
+              AND ce.status = 'approved'
+              {domain_sql}
+            ORDER BY COALESCE(ce.updated_at, ce.created_at) DESC
+            LIMIT 1""",
+        domain_bind,
+    ).fetchone()
+    if canonical:
+        steward = canonical["steward"] or "Steward not assigned"
+        return {
+            "focus_label": canonical["name"],
+            "focus_kind": "Approved canonical object",
+            "focus_note": "Ready to become a gold product spec, but still needs downstream product definition work.",
+            "owner_label": steward,
+            "owner_note": "This steward owns the shared business definition that downstream specs will inherit.",
+        }
+
+    cluster_sql = ""
+    cluster_bind: list = []
+    if domain:
+        cluster_sql = " AND division = ?"
+        cluster_bind.append(domain)
+    cluster = conn.execute(
+        f"""SELECT COALESCE(label, dominant_name, 'Cluster') AS cluster_name
+            FROM gs_clusters
+            WHERE deleted_at IS NULL
+              AND status = 'unresolved'
+              {cluster_sql}
+            ORDER BY created_at DESC
+            LIMIT 1""",
+        cluster_bind,
+    ).fetchone()
+    if cluster:
+        return {
+            "focus_label": cluster["cluster_name"],
+            "focus_kind": "Unresolved cluster",
+            "focus_note": "This candidate grouping still needs a stewardship decision before it can become a trusted definition.",
+            "owner_label": "Cluster steward needed",
+            "owner_note": "Resolve, dismiss, or promote the cluster so downstream stages do not carry ambiguity forward.",
+        }
+
+    specimen_sql = ""
+    specimen_bind: list = []
+    if domain:
+        specimen_sql = " AND division = ?"
+        specimen_bind.append(domain)
+    specimen = conn.execute(
+        f"""SELECT name, steward, source_system
+            FROM gs_specimens
+            WHERE deleted_at IS NULL
+              {specimen_sql}
+            ORDER BY COALESCE(updated_at, created_at) DESC
+            LIMIT 1""",
+        specimen_bind,
+    ).fetchone()
+    if specimen:
+        steward = specimen["steward"] or "Steward not assigned"
+        source_system = specimen["source_system"] or "Source system not recorded"
+        return {
+            "focus_label": specimen["name"],
+            "focus_kind": "Imported artifact",
+            "focus_note": f"Newest scoped intake item from {source_system}. Extraction and review need to complete before the workflow can progress.",
+            "owner_label": steward,
+            "owner_note": "This steward is responsible for validating the intake artifact and its business context.",
+        }
+
+    return {
+        "focus_label": "No scoped work yet",
+        "focus_kind": "Workflow not started",
+        "focus_note": "Import evidence or choose a populated domain to begin the gold lifecycle.",
+        "owner_label": "No steward assigned",
+        "owner_note": "The workflow has no active owner yet because there is no scoped work in the selected view.",
+    }
+
+
+def _workflow_activity(conn, domain: str | None = None, limit: int = 6) -> list[dict]:
+    where = []
+    bind: list = []
+    if domain:
+        where.append("""(
+            (a.object_type = 'specimen' AND a.object_id IN
+                (SELECT id FROM gs_specimens WHERE division = ?))
+            OR (a.object_type = 'entity' AND a.object_id IN
+                (SELECT e.id FROM gs_extracted_entities e
+                 JOIN gs_specimens s ON e.specimen_id = s.id
+                 WHERE s.division = ?))
+            OR (a.object_type = 'cluster' AND a.object_id IN
+                (SELECT id FROM gs_clusters WHERE division = ?))
+            OR (a.object_type = 'canonical' AND a.object_id IN
+                (SELECT id FROM gs_canonical_entities WHERE domain = ?))
+            OR (a.object_type = 'spec' AND a.object_id IN
+                (SELECT gs.id FROM gs_gold_specs gs
+                 JOIN gs_canonical_entities ce
+                   ON ce.root_id = gs.canonical_root_id AND ce.is_current = 1
+                 WHERE ce.domain = ?))
+            OR (a.object_type = 'catalog' AND a.object_id IN
+                (SELECT id FROM gs_catalog_entries WHERE domain = ?))
+        )""")
+        bind.extend([domain, domain, domain, domain, domain, domain])
+
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    rows = conn.execute(
+        f"""SELECT a.id,
+                   REPLACE(a.action, '_', ' ') AS action,
+                   a.performed_at AS created_at,
+                   COALESCE(
+                     CASE a.object_type
+                       WHEN 'specimen' THEN (SELECT name FROM gs_specimens WHERE id = a.object_id)
+                       WHEN 'entity' THEN (SELECT entity_name FROM gs_extracted_entities WHERE id = a.object_id)
+                       WHEN 'cluster' THEN (SELECT COALESCE(label, dominant_name) FROM gs_clusters WHERE id = a.object_id)
+                       WHEN 'canonical' THEN (SELECT name FROM gs_canonical_entities WHERE id = a.object_id)
+                       WHEN 'spec' THEN (SELECT target_name FROM gs_gold_specs WHERE id = a.object_id)
+                       WHEN 'catalog' THEN (SELECT display_name FROM gs_catalog_entries WHERE id = a.object_id)
+                       WHEN 'validation' THEN ('Validation run #' || a.object_id)
+                       ELSE NULL
+                     END,
+                     a.object_type || ' #' || COALESCE(CAST(a.object_id AS TEXT), '?')
+                   ) AS object_label
+            FROM gs_audit_log a
+            {where_sql}
+            ORDER BY a.performed_at DESC
+            LIMIT ?""",
+        bind + [limit],
+    ).fetchall()
+    return _rows_to_list(rows)
+
+
 # ---------------------------------------------------------------------------
 # Stats cache
 # ---------------------------------------------------------------------------
@@ -1638,14 +1975,22 @@ def gs_detect_clusters(params: dict) -> dict:
 @route("GET", "/api/gold-studio/clusters/unclustered")
 def gs_unclustered_entities(params: dict) -> dict:
     limit, offset = _paginate(params)
+    division = (params.get("division") or "").strip()
     conn = cpdb._get_conn()
     try:
+        bind: list = []
+        division_clause = ""
+        if division:
+            division_clause = " AND s.division = ?"
+            bind.append(division)
         # Only structural entities appear as unclustered candidates
         total = conn.execute(
             """SELECT COUNT(*) AS cnt FROM gs_extracted_entities e
                JOIN gs_specimens s ON e.specimen_id = s.id
                WHERE e.cluster_id IS NULL AND e.deleted_at IS NULL
                  AND s.source_class = 'structural'"""
+            + division_clause,
+            bind,
         ).fetchone()["cnt"]
         rows = conn.execute(
             """SELECT e.*, s.name AS specimen_name, s.division, s.source_system AS specimen_source
@@ -1654,8 +1999,10 @@ def gs_unclustered_entities(params: dict) -> dict:
                WHERE e.cluster_id IS NULL AND e.deleted_at IS NULL
                  AND s.source_class = 'structural'
                ORDER BY e.entity_name COLLATE NOCASE
-               LIMIT ? OFFSET ?""",
-            (limit, offset)).fetchall()
+            """
+            + division_clause +
+            """ LIMIT ? OFFSET ?""",
+            bind + [limit, offset]).fetchall()
         return {"items": _rows_to_list(rows), "total": total,
                 "limit": limit, "offset": offset}
     finally:
@@ -3115,6 +3462,14 @@ def gs_audit_log(params: dict) -> dict:
 # 54. GET /api/gold-studio/stats — Aggregate stats (30s cache)
 @route("GET", "/api/gold-studio/stats")
 def gs_stats(params: dict) -> dict:
+    domain = (params.get("domain") or "").strip() or None
+    if domain:
+        conn = cpdb._get_conn()
+        try:
+            return _build_stats(conn, domain)
+        finally:
+            conn.close()
+
     with _stats_lock:
         now = _time.time()
         if _stats_cache["data"] and (now - _stats_cache["ts"]) < _STATS_TTL:
@@ -3122,75 +3477,333 @@ def gs_stats(params: dict) -> dict:
 
         conn = cpdb._get_conn()
         try:
-            def _count(sql, bind=()):
-                return conn.execute(sql, bind).fetchone()["cnt"]
-
-            specimens = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_specimens WHERE deleted_at IS NULL")
-            tables_extracted = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_extracted_entities WHERE deleted_at IS NULL")
-            columns_cataloged = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_extracted_columns")
-            clusters_total = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_clusters WHERE deleted_at IS NULL")
-            clusters_unresolved = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_clusters WHERE status = 'unresolved' AND deleted_at IS NULL")
-            clusters_resolved = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_clusters WHERE status = 'resolved' AND deleted_at IS NULL")
-            avg_cluster_confidence = conn.execute(
-                "SELECT ROUND(COALESCE(AVG(confidence), 0), 1) AS avg_conf FROM gs_clusters WHERE deleted_at IS NULL"
-            ).fetchone()["avg_conf"]
-            not_clustered = _count(
-                """SELECT COUNT(*) AS cnt FROM gs_extracted_entities e
-                   JOIN gs_specimens s ON e.specimen_id = s.id
-                   WHERE e.cluster_id IS NULL AND e.deleted_at IS NULL
-                     AND s.source_class = 'structural'"""
-            )
-            canonical_total = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_canonical_entities WHERE is_current = 1 AND deleted_at IS NULL")
-            canonical_approved = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_canonical_entities WHERE is_current = 1 AND status = 'approved' AND deleted_at IS NULL")
-            gold_specs = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_gold_specs WHERE is_current = 1 AND deleted_at IS NULL")
-            specs_validated = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_gold_specs WHERE is_current = 1 AND status = 'validated' AND deleted_at IS NULL")
-            catalog_published = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_catalog_entries WHERE is_current = 1 AND deleted_at IS NULL")
-            catalog_certified = _count(
-                "SELECT COUNT(*) AS cnt FROM gs_catalog_entries WHERE is_current = 1 AND endorsement = 'certified' AND deleted_at IS NULL")
-            generated_at = conn.execute(
-                "SELECT CURRENT_TIMESTAMP AS ts"
-            ).fetchone()["ts"]
-
-            cert_rate = round((catalog_certified / catalog_published * 100), 1) if catalog_published > 0 else 0.0
-
-            data = {
-                "updated_at": generated_at,
-                "specimens": specimens,
-                "tables_extracted": tables_extracted,
-                "columns_cataloged": columns_cataloged,
-                "clusters_total": clusters_total,
-                "unresolved_clusters": clusters_unresolved,
-                "clusters_resolved": clusters_resolved,
-                "total_clusters": clusters_total,
-                "unresolved": clusters_unresolved,
-                "resolved": clusters_resolved,
-                "avg_confidence": avg_cluster_confidence,
-                "not_clustered": not_clustered,
-                "canonical_total": canonical_total,
-                "canonical_approved": canonical_approved,
-                "gold_specs": gold_specs,
-                "specs_validated": specs_validated,
-                "catalog_published": catalog_published,
-                "catalog_certified": catalog_certified,
-                "certification_rate": cert_rate,
-            }
+            data = _build_stats(conn)
 
             _stats_cache["data"] = data
             _stats_cache["ts"] = now
             return data
         finally:
             conn.close()
+
+
+@route("GET", "/api/gold-studio/workflow-shell")
+def gs_workflow_shell(params: dict) -> dict:
+    domain = (params.get("domain") or "").strip() or None
+    conn = cpdb._get_conn()
+    try:
+        stats = _build_stats(conn, domain)
+
+        workspace = None
+        if domain:
+            workspace = conn.execute(
+                "SELECT * FROM gs_domain_workspaces WHERE name = ?",
+                (domain,),
+            ).fetchone()
+
+        specimen_where = ["deleted_at IS NULL"]
+        specimen_bind: list = []
+        if domain:
+            specimen_where.append("division = ?")
+            specimen_bind.append(domain)
+        specimen_clause = "WHERE " + " AND ".join(specimen_where)
+
+        canonical_where = ["is_current = 1", "deleted_at IS NULL"]
+        canonical_bind: list = []
+        if domain:
+            canonical_where.append("domain = ?")
+            canonical_bind.append(domain)
+        canonical_clause = "WHERE " + " AND ".join(canonical_where)
+
+        spec_where = ["gs.is_current = 1", "gs.deleted_at IS NULL"]
+        spec_bind: list = []
+        if domain:
+            spec_where.append("ce.domain = ?")
+            spec_bind.append(domain)
+        spec_clause = "WHERE " + " AND ".join(spec_where)
+
+        catalog_where = ["is_current = 1", "deleted_at IS NULL"]
+        catalog_bind: list = []
+        if domain:
+            catalog_where.append("domain = ?")
+            catalog_bind.append(domain)
+        catalog_clause = "WHERE " + " AND ".join(catalog_where)
+
+        processing_specimens = conn.execute(
+            f"""SELECT COUNT(*) AS cnt
+                FROM gs_specimens
+                {specimen_clause}
+                  AND job_state IN ('queued', 'extracting')""",
+            specimen_bind,
+        ).fetchone()["cnt"]
+        failed_specimens = conn.execute(
+            f"""SELECT COUNT(*) AS cnt
+                FROM gs_specimens
+                {specimen_clause}
+                  AND job_state = 'parse_failed'""",
+            specimen_bind,
+        ).fetchone()["cnt"]
+        structural_specimens = conn.execute(
+            f"""SELECT COUNT(*) AS cnt
+                FROM gs_specimens
+                {specimen_clause}
+                  AND source_class = 'structural'""",
+            specimen_bind,
+        ).fetchone()["cnt"]
+        supporting_specimens = conn.execute(
+            f"""SELECT COUNT(*) AS cnt
+                FROM gs_specimens
+                {specimen_clause}
+                  AND source_class IN ('supporting', 'contextual')""",
+            specimen_bind,
+        ).fetchone()["cnt"]
+        cluster_detection_jobs = 0
+        if not domain:
+            cluster_detection_jobs = conn.execute(
+                """SELECT COUNT(*) AS cnt
+                    FROM gs_jobs
+                    WHERE job_type = 'cluster_detection'
+                      AND status IN ('queued', 'running')"""
+            ).fetchone()["cnt"]
+        canonical_draft = conn.execute(
+            f"""SELECT COUNT(*) AS cnt
+                FROM gs_canonical_entities
+                {canonical_clause}
+                  AND status IN ('draft', 'pending_steward')""",
+            canonical_bind,
+        ).fetchone()["cnt"]
+        spec_draft = conn.execute(
+            f"""SELECT COUNT(*) AS cnt
+                FROM gs_gold_specs gs
+                LEFT JOIN gs_canonical_entities ce
+                  ON ce.root_id = gs.canonical_root_id
+                 AND ce.is_current = 1
+                 AND ce.deleted_at IS NULL
+                {spec_clause}
+                  AND gs.status = 'draft'""",
+            spec_bind,
+        ).fetchone()["cnt"]
+        spec_revalidation = conn.execute(
+            f"""SELECT COUNT(*) AS cnt
+                FROM gs_gold_specs gs
+                LEFT JOIN gs_canonical_entities ce
+                  ON ce.root_id = gs.canonical_root_id
+                 AND ce.is_current = 1
+                 AND ce.deleted_at IS NULL
+                {spec_clause}
+                  AND gs.status = 'needs_revalidation'""",
+            spec_bind,
+        ).fetchone()["cnt"]
+        active_validation_runs = conn.execute(
+            f"""SELECT COUNT(*) AS cnt
+                FROM gs_validation_runs vr
+                JOIN gs_gold_specs gs
+                  ON gs.root_id = vr.spec_root_id
+                 AND gs.is_current = 1
+                 AND gs.deleted_at IS NULL
+                LEFT JOIN gs_canonical_entities ce
+                  ON ce.root_id = gs.canonical_root_id
+                 AND ce.is_current = 1
+                 AND ce.deleted_at IS NULL
+                {spec_clause}
+                  AND vr.status IN ('queued', 'running')""",
+            spec_bind,
+        ).fetchone()["cnt"]
+        reports_total = conn.execute(
+            ("SELECT COUNT(*) AS cnt FROM gs_report_recreation_coverage WHERE domain = ?"
+             if domain else
+             "SELECT COUNT(*) AS cnt FROM gs_report_recreation_coverage"),
+            ([domain] if domain else []),
+        ).fetchone()["cnt"]
+        reports_ready = conn.execute(
+            ("SELECT COUNT(*) AS cnt FROM gs_report_recreation_coverage WHERE domain = ? AND coverage_status IN ('fully_covered', 'recreated', 'reconciled')"
+             if domain else
+             "SELECT COUNT(*) AS cnt FROM gs_report_recreation_coverage WHERE coverage_status IN ('fully_covered', 'recreated', 'reconciled')"),
+            ([domain] if domain else []),
+        ).fetchone()["cnt"]
+        catalog_waiting_stewardship = conn.execute(
+            f"""SELECT COUNT(*) AS cnt
+                FROM gs_catalog_entries
+                {catalog_clause}
+                  AND COALESCE(endorsement, 'none') != 'certified'""",
+            catalog_bind,
+        ).fetchone()["cnt"]
+
+        reports_open = max(reports_total - reports_ready, 0)
+        spec_blockers = spec_draft + spec_revalidation + max(stats["gold_specs"] - stats["specs_validated"] - spec_draft - spec_revalidation, 0)
+        release_blockers = spec_blockers + reports_open
+        unresolved_issues = failed_specimens + stats["unresolved_clusters"] + stats["not_clustered"] + canonical_draft + spec_draft + spec_revalidation + reports_open
+
+        if stats["specimens"] == 0:
+            ledger_status = "not_started"
+        elif failed_specimens > 0:
+            ledger_status = "needs_attention"
+        elif processing_specimens > 0:
+            ledger_status = "in_progress"
+        elif stats["tables_extracted"] > 0:
+            ledger_status = "completed"
+        else:
+            ledger_status = "ready"
+
+        if stats["clusters_total"] == 0 and stats["tables_extracted"] == 0:
+            cluster_status = "not_started"
+        elif stats["unresolved_clusters"] > 0 or stats["not_clustered"] > 0:
+            cluster_status = "needs_attention"
+        elif cluster_detection_jobs > 0:
+            cluster_status = "in_progress"
+        elif stats["clusters_total"] > 0:
+            cluster_status = "completed"
+        else:
+            cluster_status = "ready"
+
+        if stats["canonical_total"] == 0 and stats["clusters_total"] == 0:
+            canonical_status = "not_started"
+        elif canonical_draft > 0:
+            canonical_status = "needs_attention"
+        elif stats["canonical_total"] == 0 and stats["clusters_total"] > 0:
+            canonical_status = "ready"
+        elif stats["canonical_total"] > 0:
+            canonical_status = "completed"
+        else:
+            canonical_status = "in_progress"
+
+        if stats["gold_specs"] == 0 and stats["canonical_approved"] == 0:
+            spec_status = "not_started"
+        elif active_validation_runs > 0:
+            spec_status = "in_progress"
+        elif spec_draft > 0 or spec_revalidation > 0:
+            spec_status = "needs_attention"
+        elif stats["gold_specs"] > 0 and stats["specs_validated"] == stats["gold_specs"]:
+            spec_status = "completed"
+        elif stats["canonical_approved"] > stats["gold_specs"]:
+            spec_status = "ready"
+        else:
+            spec_status = "in_progress"
+
+        if reports_total == 0 and stats["gold_specs"] == 0:
+            validation_status = "not_started"
+        elif active_validation_runs > 0:
+            validation_status = "in_progress"
+        elif release_blockers > 0:
+            validation_status = "needs_attention"
+        elif stats["catalog_published"] > 0 and reports_open == 0:
+            validation_status = "completed"
+        elif stats["specs_validated"] > 0:
+            validation_status = "ready"
+        else:
+            validation_status = "in_progress"
+
+        if stats["catalog_published"] == 0:
+            serve_status = "not_started"
+        elif catalog_waiting_stewardship > 0:
+            serve_status = "in_progress"
+        else:
+            serve_status = "completed"
+
+        display_name = workspace["display_name"] if workspace else (domain or "All domains")
+        workspace_description = ""
+        if workspace:
+            workspace_description = (workspace["description"] or "").strip()
+        base_scope_note = (
+            workspace_description
+            if workspace_description
+            else (
+                "Cross-domain view of the full gold lifecycle."
+                if not domain
+                else "Scoped to one business domain across intake, modeling, release, and live stewardship."
+            )
+        )
+        scope_note = (
+            f"{base_scope_note} "
+            f"{stats['specimens']} imported {_pluralize(stats['specimens'], 'artifact')}, "
+            f"{stats['canonical_total']} canonical {_pluralize(stats['canonical_total'], 'object')}, "
+            f"and {stats['catalog_published']} live {_pluralize(stats['catalog_published'], 'product')} are currently in scope."
+        )
+
+        focus = _workflow_focus(conn, domain)
+        activity = _workflow_activity(conn, domain)
+
+        return {
+            "context": {
+                "domain_display_name": display_name,
+                "scope_note": scope_note,
+                "focus_label": focus["focus_label"],
+                "focus_kind": focus["focus_kind"],
+                "focus_note": focus["focus_note"],
+                "owner_label": focus["owner_label"],
+                "owner_note": focus["owner_note"],
+                "unresolved_issues": unresolved_issues,
+                "last_updated": stats["updated_at"],
+            },
+            "stages": [
+                {
+                    "id": "ledger",
+                    "status": ledger_status,
+                    "summary": (
+                        "No imported artifacts yet"
+                        if stats["specimens"] == 0
+                        else f"{stats['specimens']} imported {_pluralize(stats['specimens'], 'artifact')}"
+                    ),
+                    "detail": (
+                        f"{processing_specimens} processing • {failed_specimens} failed"
+                        if failed_specimens > 0 or processing_specimens > 0
+                        else f"{stats['tables_extracted']} extracted {_pluralize(stats['tables_extracted'], 'entity', 'entities')} • {supporting_specimens} supporting/contextual"
+                    ),
+                },
+                {
+                    "id": "clusters",
+                    "status": cluster_status,
+                    "summary": (
+                        "No cluster candidates yet"
+                        if stats["clusters_total"] == 0
+                        else f"{stats['clusters_total']} candidate {_pluralize(stats['clusters_total'], 'cluster')}"
+                    ),
+                    "detail": f"{stats['unresolved_clusters']} unresolved • {stats['not_clustered']} not clustered",
+                },
+                {
+                    "id": "canonical",
+                    "status": canonical_status,
+                    "summary": (
+                        "No canonical objects yet"
+                        if stats["canonical_total"] == 0
+                        else f"{stats['canonical_total']} canonical {_pluralize(stats['canonical_total'], 'object')}"
+                    ),
+                    "detail": f"{stats['canonical_approved']} approved • {canonical_draft} drafting",
+                },
+                {
+                    "id": "specs",
+                    "status": spec_status,
+                    "summary": (
+                        "No product specs yet"
+                        if stats["gold_specs"] == 0
+                        else f"{stats['gold_specs']} product {_pluralize(stats['gold_specs'], 'spec')}"
+                    ),
+                    "detail": f"{stats['specs_validated']} validated • {spec_draft + spec_revalidation} need review",
+                },
+                {
+                    "id": "validation",
+                    "status": validation_status,
+                    "summary": (
+                        f"{reports_total} downstream {_pluralize(reports_total, 'report')}"
+                        if reports_total > 0
+                        else f"{stats['specs_validated']} validated {_pluralize(stats['specs_validated'], 'spec')}"
+                    ),
+                    "detail": f"{release_blockers} release blockers • {stats['catalog_published']} published",
+                },
+                {
+                    "id": "serve",
+                    "status": serve_status,
+                    "summary": (
+                        "No live products yet"
+                        if stats["catalog_published"] == 0
+                        else f"{stats['catalog_published']} live {_pluralize(stats['catalog_published'], 'product')}"
+                    ),
+                    "detail": f"{stats['catalog_certified']} certified • {catalog_waiting_stewardship} still stewarding",
+                },
+            ],
+            "activity": activity,
+        }
+    finally:
+        conn.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════════

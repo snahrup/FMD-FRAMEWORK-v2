@@ -680,6 +680,24 @@
   font-feature-settings: "tnum" 0;
 }
 
+.bp-page-shell {
+  width: min(1280px, 100%);
+  margin: 0 auto;
+  padding: 16px;
+}
+
+@media (min-width: 768px) {
+  .bp-page-shell {
+    padding: 24px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .bp-page-shell {
+    padding: 32px;
+  }
+}
+
 /* BP Typography utilities */
 .bp-display {
   font-family: var(--bp-font-display);

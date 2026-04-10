@@ -16,6 +16,7 @@ import { KPICard } from "@/components/KPICard";
 import { StatusPieChart } from "@/components/PieChart";
 import { TimeRangeSelector } from "@/components/TimeRangeSelector";
 import { EntityTable } from "@/components/EntityTable";
+import CompactPageHeader from "@/components/layout/CompactPageHeader";
 
 // ============================================================================
 // HELPERS
@@ -316,21 +317,53 @@ export default function ExecutionMatrix() {
   const isInitialLoading = digestLoading && engineLoading && !digestData;
 
   return (
-    <div className="space-y-6" style={{ padding: "32px", maxWidth: "1280px" }} data-testid="execution-matrix">
-      {/* ================================================================ */}
-      {/* HEADER BAR */}
-      {/* ================================================================ */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Execution Matrix</h1>
-          {engineBadge()}
-        </div>
+    <div className="bp-page-shell space-y-6" data-testid="execution-matrix">
+      <CompactPageHeader
+        eyebrow="Monitor"
+        title="Execution Matrix"
+        summary="Track run posture, isolate failing entities, and drill directly into the evidence without bouncing between log, monitor, and recovery pages."
+        meta={`time window ${timeRange}`}
+        status={engineBadge()}
+        actions={
+          <>
+            <Button
+              variant={autoRefresh ? "default" : "outline"}
+              size="sm"
+              onClick={() => setAutoRefresh((a) => !a)}
+              className="gap-1.5"
+              aria-label={autoRefresh ? "Disable auto-refresh" : "Enable auto-refresh"}
+              data-testid="auto-refresh-toggle"
+            >
+              {autoRefresh ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+              {autoRefresh ? "Live" : "Auto"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refreshAll}
+              disabled={digestLoading || engineLoading}
+              aria-label="Refresh data"
+              data-testid="refresh-button"
+            >
+              {digestLoading || engineLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+            </Button>
+          </>
+        }
+        facts={[
+          { label: "Entities", value: fmt(totalSummary.total), tone: "accent" },
+          { label: "Success", value: `${successRate}%`, tone: successRate >= 90 ? "positive" : "warning" },
+          { label: "Errors", value: fmt(totalSummary.error), tone: totalSummary.error === 0 ? "positive" : "warning" },
+          { label: "Sources", value: `${sourceNames.length} core systems`, tone: "neutral" },
+        ]}
+      />
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Time range */}
+      <div className="bp-card" style={{ padding: 14 }}>
+        <div className="flex flex-wrap items-center gap-2">
           <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
-
-          {/* Source filter */}
           <select
             value={sourceFilter}
             onChange={(e) => setSourceFilter(e.target.value)}
@@ -345,8 +378,6 @@ export default function ExecutionMatrix() {
               </option>
             ))}
           </select>
-
-          {/* Status filter */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
@@ -360,13 +391,11 @@ export default function ExecutionMatrix() {
             <option value="pending">Pending</option>
             <option value="never-run">Never Run</option>
           </select>
-
-          {/* Search */}
-          <div className="relative">
+          <div className="relative min-w-[220px] flex-1 sm:flex-none">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <input
               type="text"
-              className="w-48 pl-8 pr-3 py-1.5 rounded-md border border-border bg-card text-foreground text-xs outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 placeholder:text-muted-foreground"
+              className="w-full sm:w-48 pl-8 pr-3 py-1.5 rounded-md border border-border bg-card text-foreground text-xs outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 placeholder:text-muted-foreground"
               placeholder="Search entities..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -374,35 +403,6 @@ export default function ExecutionMatrix() {
               data-testid="search-input"
             />
           </div>
-
-          {/* Auto-refresh toggle */}
-          <Button
-            variant={autoRefresh ? "default" : "outline"}
-            size="sm"
-            onClick={() => setAutoRefresh((a) => !a)}
-            className="gap-1.5"
-            aria-label={autoRefresh ? "Disable auto-refresh" : "Enable auto-refresh"}
-            data-testid="auto-refresh-toggle"
-          >
-            {autoRefresh ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-            {autoRefresh ? "Live" : "Auto"}
-          </Button>
-
-          {/* Refresh */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={refreshAll}
-            disabled={digestLoading || engineLoading}
-            aria-label="Refresh data"
-            data-testid="refresh-button"
-          >
-            {digestLoading || engineLoading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="w-3.5 h-3.5" />
-            )}
-          </Button>
         </div>
       </div>
 
@@ -546,7 +546,10 @@ export default function ExecutionMatrix() {
               valueColor={totalSummary.error > 0 ? "text-[var(--bp-fault)]" : undefined}
               detail={
                 engineMetrics?.top_errors && engineMetrics.top_errors.length > 0 ? (
-                  <span className="truncate">
+                  <span
+                    className="block max-w-full truncate"
+                    title={engineMetrics.top_errors[0].error_message || "Unknown"}
+                  >
                     Top: {engineMetrics.top_errors[0].error_message?.slice(0, 60) || "Unknown"}
                   </span>
                 ) : totalSummary.error === 0 ? (

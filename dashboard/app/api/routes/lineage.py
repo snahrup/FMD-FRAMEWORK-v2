@@ -294,6 +294,7 @@ def get_lineage_columns(params: dict) -> dict:
     lz = lz_rows[0]
 
     schema = lz.get("SourceSchema") or "dbo"
+    onelake_schema = lz.get("FilePath") or schema
     table = lz.get("SourceName") or ""
     entity_name = f"{schema}.{table}"
 
@@ -342,9 +343,9 @@ def get_lineage_columns(params: dict) -> dict:
 
     # Bronze/Silver use their own Schema_/Name which may differ from source
     # (e.g., bronze uses datasource Namespace as schema: "mes.MITMAS" not "dbo.MITMAS")
-    bronze_schema = (bronze.get("Schema_") or lz.get("SourceSchema") or "dbo") if bronze else "dbo"
+    bronze_schema = (lz.get("FilePath") or bronze.get("Schema_") or lz.get("SourceSchema") or "dbo") if bronze else onelake_schema
     bronze_table = (bronze.get("Name") or lz.get("SourceName") or table) if bronze else table
-    silver_schema = (silver.get("Schema_") or lz.get("SourceSchema") or "dbo") if silver else "dbo"
+    silver_schema = (lz.get("FilePath") or silver.get("Schema_") or lz.get("SourceSchema") or "dbo") if silver else onelake_schema
     silver_table = (silver.get("Name") or lz.get("SourceName") or table) if silver else table
 
     # 5. Fetch columns per layer
@@ -363,7 +364,7 @@ def get_lineage_columns(params: dict) -> dict:
             (entity_id,),
         )
         lz_lh_name = lz_lh_rows[0]["Name"] if lz_lh_rows else ""
-        lz_cols = _get_columns_for_layer(entity_id, "landing", lz_lh_name, schema, table)
+        lz_cols = _get_columns_for_layer(entity_id, "landing", lz_lh_name, onelake_schema, table)
         landing_result = {"columns": lz_cols, "status": "loaded"}
     else:
         landing_result = not_loaded.copy()

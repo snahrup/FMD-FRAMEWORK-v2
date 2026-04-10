@@ -10,6 +10,7 @@ import {
   type DigestSource,
 } from "@/hooks/useEntityDigest";
 import { LAYERS, getSourceColor } from "@/lib/layers";
+import { isSuccessStatus } from "@/lib/exploreWorksurface";
 import {
   Loader2,
   AlertCircle,
@@ -294,9 +295,9 @@ export default function SankeyFlow() {
 
     for (const src of sourceList) {
       for (const entity of src.entities) {
-        if (entity.lzStatus === "loaded") layerCounts.landing++;
-        if (entity.bronzeStatus === "loaded") layerCounts.bronze++;
-        if (entity.silverStatus === "loaded") layerCounts.silver++;
+        if (isSuccessStatus(entity.lzStatus)) layerCounts.landing++;
+        if (isSuccessStatus(entity.bronzeStatus)) layerCounts.bronze++;
+        if (isSuccessStatus(entity.silverStatus)) layerCounts.silver++;
         // Gold: none yet, but keep the node for visual completeness
       }
     }
@@ -367,14 +368,6 @@ export default function SankeyFlow() {
     const innerWidth = dimensions.width - SANKEY_PADDING.left - SANKEY_PADDING.right;
     const innerHeight = dimensions.height - SANKEY_PADDING.top - SANKEY_PADDING.bottom;
 
-    // Create index-based links for d3-sankey (it needs numeric source/target indices)
-    const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]));
-    const indexedLinks = linkList.map((l) => ({
-      ...l,
-      source: nodeIndex.get(l.source) ?? 0,
-      target: nodeIndex.get(l.target) ?? 0,
-    }));
-
     const generator = d3Sankey<SankeyNodeDatum, SankeyLinkDatum>()
       .nodeId((d) => d.id)
       .nodeWidth(NODE_WIDTH)
@@ -396,7 +389,7 @@ export default function SankeyFlow() {
 
     const result = generator({
       nodes: nodes.map((n) => ({ ...n })),
-      links: indexedLinks as unknown as SankeyLinkDatum[],
+      links: linkList.map((link) => ({ ...link })) as unknown as SankeyLinkDatum[],
     });
 
     return {

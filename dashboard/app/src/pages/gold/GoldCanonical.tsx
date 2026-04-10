@@ -721,10 +721,10 @@ export default function GoldCanonical() {
   const [domains, setDomains] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const { domainNames } = useDomainContext();
+  const { domain, setDomain, domainNames } = useDomainContext();
 
   // Filters
-  const [filterDomain, setFilterDomain] = useState("");
+  const [filterDomain, setFilterDomain] = useState(domain ?? "");
   const [filterType, setFilterType] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
@@ -732,15 +732,17 @@ export default function GoldCanonical() {
   const loadInitialData = useCallback(() => {
     setLoading(true);
     setFetchError(null);
+    const statsPath = domain ? `${API}/stats?domain=${encodeURIComponent(domain)}` : `${API}/stats`;
     Promise.all([
-      fetchJson<Stats>(`${API}/stats`).then((s) => s && setStats(s)),
+      fetchJson<Stats>(statsPath).then((s) => s && setStats(s)),
       fetchJson<{ items: Array<{ domain: string; entity_count: number }> }>(`${API}/canonical/domains`)
         .then((r) => r?.items && setDomains(r.items.map((d) => d.domain))),
     ]).catch(() => setFetchError("Failed to load canonical data. Check your connection and try again."))
       .finally(() => setLoading(false));
-  }, []);
+  }, [domain]);
 
   useEffect(() => { loadInitialData(); }, [loadInitialData]);
+  useEffect(() => { setFilterDomain(domain ?? ""); }, [domain]);
 
   useEffect(() => {
     const p = new URLSearchParams({ limit: "200" });
@@ -870,7 +872,11 @@ export default function GoldCanonical() {
         <div className="flex items-center gap-3 flex-wrap">
           <select
             value={filterDomain}
-            onChange={(e) => setFilterDomain(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              setFilterDomain(next);
+              setDomain(next || null);
+            }}
             aria-label="Filter by domain"
             className="rounded-md px-3 py-1.5"
             style={{ border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)", ...font("body", 12, "var(--bp-ink-primary)") }}

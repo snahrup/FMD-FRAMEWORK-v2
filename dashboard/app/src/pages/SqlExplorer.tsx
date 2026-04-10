@@ -3,14 +3,25 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { ObjectTree } from '@/components/sql-explorer/ObjectTree';
 import type { CheckedTable } from '@/components/sql-explorer/ObjectTree';
 import { TableDetail } from '@/components/sql-explorer/TableDetail';
+import { ExploreWorkbenchHeader } from '@/components/explore/ExploreWorkbenchHeader';
+import { useEntityDigest } from '@/hooks/useEntityDigest';
 import {
   Database, Server, Table2, ArrowRight, Loader2, X,
-  CheckCircle2, Rocket, AlertTriangle,
+  CheckCircle2, Rocket, AlertTriangle, Orbit, BookOpen, Sparkles,
 } from 'lucide-react';
 import type { SelectedTable } from '@/types/sqlExplorer';
+import {
+  buildEntityCatalogUrl,
+  buildEntityLineageUrl,
+  buildEntityProfileUrl,
+  findEntityFromParams,
+  getLoadedLayerCount,
+  isSuccessStatus,
+} from '@/lib/exploreWorksurface';
 
 export default function SqlExplorer() {
   const [searchParams] = useSearchParams();
+  const { allEntities } = useEntityDigest();
   const navigate = useNavigate();
   const [selectedTable, setSelectedTable] = useState<SelectedTable | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(300);
@@ -143,11 +154,11 @@ export default function SqlExplorer() {
         throw new Error(startData.error || `Load failed: ${startResp.status}`);
       }
 
-      // Step 3: Redirect to Load Mission Control to watch progress
+      // Step 3: Redirect to Load Center — the single place that owns import completion
       const runId = startData.run_id;
       setShowConfirmDialog(false);
       setCheckedTables([]);
-      navigate(`/load-mission-control${runId ? `?run=${runId}` : ''}`);
+      navigate(`/load-center${runId ? `?run=${runId}` : ''}`);
     } catch (err: any) {
       setLoadResult({ count: 0, errors: [err.message] });
     } finally {
@@ -175,8 +186,50 @@ export default function SqlExplorer() {
     return groups;
   }, [checkedTables]);
 
+  const matchedEntity = useMemo(() => {
+    if (!selectedTable) return null;
+    return findEntityFromParams(allEntities, {
+      table: selectedTable.table,
+      schema: selectedTable.schema,
+    });
+  }, [allEntities, selectedTable]);
+
   return (
     <div className="gs-page-enter flex flex-col h-[calc(100vh-3rem)]" style={{ backgroundColor: "var(--bp-canvas)" }}>
+      <div className="px-4 pt-4 pb-3">
+        <ExploreWorkbenchHeader
+          title="SQL Explorer"
+          summary="Inspect connected source and lakehouse objects, stage the right tables for load, and jump directly into downstream tools when the platform already knows the entity."
+          meta={selectedTable ? `${selectedTable.type === 'lakehouse' ? 'Lakehouse' : 'Source'} object selected` : 'No object selected'}
+          facts={[
+            {
+              label: "Selected Object",
+              value: selectedTable ? `${selectedTable.schema}.${selectedTable.table}` : "Pick a table or lakehouse object",
+              detail: selectedTable ? selectedTable.database : "Use the object tree to choose your focus.",
+              tone: selectedTable ? "accent" : "neutral",
+            },
+            {
+              label: "Staged For Load",
+              value: `${checkedTables.length}`,
+              detail: checkedTables.length ? "Ready to register and send into managed layers." : "Nothing queued right now.",
+              tone: checkedTables.length ? "positive" : "neutral",
+            },
+            {
+              label: "Pipeline Coverage",
+              value: matchedEntity ? `${getLoadedLayerCount(matchedEntity)}/3 layers` : "Not registered",
+              detail: matchedEntity ? matchedEntity.diagnosis || "Known downstream coverage." : "This object has no matched digest entity yet.",
+              tone: matchedEntity && isSuccessStatus(matchedEntity.silverStatus) ? "positive" : matchedEntity ? "accent" : "neutral",
+            },
+          ]}
+          actions={[
+            { label: "Explore hub", to: "/explore", tone: "quiet", icon: Orbit },
+            checkedTables.length > 0 ? { label: "Load staged tables", onClick: () => setShowConfirmDialog(true), tone: "primary", icon: Rocket } : undefined,
+            matchedEntity ? { label: "Open lineage", to: buildEntityLineageUrl(matchedEntity), tone: "secondary", icon: Orbit } : undefined,
+            matchedEntity ? { label: "Open catalog", to: buildEntityCatalogUrl(matchedEntity), tone: "secondary", icon: BookOpen } : undefined,
+            matchedEntity && isSuccessStatus(matchedEntity.silverStatus) ? { label: "Profile silver", to: buildEntityProfileUrl(matchedEntity, 'silver'), tone: "secondary", icon: Sparkles } : undefined,
+          ].filter(Boolean) as never[]}
+        />
+      </div>
       <div className="flex flex-1 overflow-hidden relative">
         {/* Sidebar */}
         <div

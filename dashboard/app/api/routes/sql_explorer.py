@@ -801,30 +801,29 @@ def get_sql_explorer_lakehouse_columns(params: dict) -> dict:
     s = _sanitize(schema)
     t = _sanitize(table)
     try:
-        col_rows = _query_lakehouse(
-            lakehouse,
-            "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, "
-            "CAST(CHARACTER_MAXIMUM_LENGTH AS VARCHAR) AS CHARACTER_MAXIMUM_LENGTH, "
-            "CAST(NUMERIC_PRECISION AS VARCHAR) AS NUMERIC_PRECISION, "
-            "CAST(NUMERIC_SCALE AS VARCHAR) AS NUMERIC_SCALE, "
-            "CAST(ORDINAL_POSITION AS VARCHAR) AS ORDINAL_POSITION, "
-            "COLUMN_DEFAULT, '0' AS IS_PK "
-            "FROM INFORMATION_SCHEMA.COLUMNS "
-            "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
-            (s, t),
-        )
-        row_count = -1
+        import polars as pl
+        from dashboard.app.api.routes.data_access import _polars_dtype_to_sql, _scan_onelake_table
+
+        lf = _scan_onelake_table(lakehouse, s, t)
+        col_rows = []
+        for ordinal, (col_name, dtype) in enumerate(lf.schema.items(), start=1):
+            col_rows.append({
+                "COLUMN_NAME": col_name,
+                "DATA_TYPE": _polars_dtype_to_sql(dtype),
+                "IS_NULLABLE": "YES",
+                "CHARACTER_MAXIMUM_LENGTH": None,
+                "NUMERIC_PRECISION": None,
+                "NUMERIC_SCALE": None,
+                "ORDINAL_POSITION": str(ordinal),
+                "COLUMN_DEFAULT": None,
+                "IS_PK": "0",
+            })
+
         try:
-            # NOTE: identifiers cannot be parameterized in SQL Server —
-            # bracket-quoting sanitized values is standard practice.
-            rc = _query_lakehouse(
-                lakehouse,
-                "SELECT COUNT(*) AS cnt FROM [" + s + "].[" + t + "]",
-            )
-            if rc:
-                row_count = int(rc[0].get("cnt", -1))
+            row_count = int(lf.select(pl.len()).collect().item())
         except Exception as e:
-            log.debug("Failed to get lakehouse row count for %s.%s.%s: %s", lakehouse, s, t, e)
+            log.debug("Failed to get local lakehouse row count for %s.%s.%s: %s", lakehouse, s, t, e)
+            row_count = -1
         return {"server": lakehouse, "database": lakehouse, "schema": schema, "table": table,
                 "rowCount": row_count, "columns": col_rows}
     except HttpError:
@@ -848,17 +847,18 @@ def get_sql_explorer_lakehouse_preview(params: dict) -> dict:
     s = _sanitize(schema)
     t = _sanitize(table)
     try:
-        # NOTE: TOP and identifiers cannot be fully parameterized via _query_lakehouse
-        # since it wraps pyodbc — bracket-quoting sanitized values is standard practice.
-        rows = _query_lakehouse(lakehouse, "SELECT TOP (?) * FROM [" + s + "].[" + t + "]", (limit,))
-        col_names = list(rows[0].keys()) if rows else []
-        row_count = len(rows)
+        import polars as pl
+        from dashboard.app.api.routes.data_access import _scan_onelake_table
+
+        lf = _scan_onelake_table(lakehouse, s, t)
+        frame = lf.head(limit).collect()
+        rows = frame.to_dicts()
+        col_names = frame.columns
         try:
-            rc = _query_lakehouse(lakehouse, "SELECT COUNT(*) AS cnt FROM [" + s + "].[" + t + "]")
-            if rc:
-                row_count = int(rc[0].get("cnt", len(rows)))
+            row_count = int(lf.select(pl.len()).collect().item())
         except Exception as e:
-            log.debug("Failed to get lakehouse row count for %s.%s.%s: %s", lakehouse, s, t, e)
+            log.debug("Failed to get local lakehouse row count for %s.%s.%s: %s", lakehouse, s, t, e)
+            row_count = len(rows)
         return {"server": lakehouse, "database": lakehouse, "schema": schema, "table": table,
                 "limit": limit, "rowCount": row_count, "columns": col_names, "rows": rows}
     except HttpError:

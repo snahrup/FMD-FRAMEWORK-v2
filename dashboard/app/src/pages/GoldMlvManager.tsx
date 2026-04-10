@@ -7,7 +7,7 @@ import {
   Loader2, AlertTriangle, BarChart3, Box, Grid3X3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { GoldStudioLayout } from "@/components/gold/GoldStudioLayout";
+import { GoldStudioLayout, useDomainContext } from "@/components/gold/GoldStudioLayout";
 import { GoldNextActionPanel } from "@/components/gold/GoldWorkflowCards";
 
 /* ---------- api helpers ---------- */
@@ -235,6 +235,7 @@ function SelectFilter({
 
 /* ---------- main component ---------- */
 export default function GoldMlvManager() {
+  const { domain, setDomain } = useDomainContext();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [items, setItems] = useState<MlvItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -242,7 +243,7 @@ export default function GoldMlvManager() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters
-  const [domainFilter, setDomainFilter] = useState("All");
+  const [domainFilter, setDomainFilter] = useState(domain ?? "All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
@@ -270,10 +271,11 @@ export default function GoldMlvManager() {
 
   /* --- load summary --- */
   const loadSummary = useCallback(() => {
-    fetchJSON<Summary>(`${API}/mlvs/summary`)
+    const summaryPath = domainFilter !== "All" ? `${API}/mlvs/summary?domain=${encodeURIComponent(domainFilter)}` : `${API}/mlvs/summary`;
+    fetchJSON<Summary>(summaryPath)
       .then(setSummary)
       .catch(() => {});
-  }, []);
+  }, [domainFilter]);
 
   /* --- load list --- */
   const loadList = useCallback(() => {
@@ -296,6 +298,7 @@ export default function GoldMlvManager() {
 
   useEffect(() => { loadSummary(); }, [loadSummary]);
   useEffect(() => { loadList(); }, [loadList]);
+  useEffect(() => { setDomainFilter(domain ?? "All"); }, [domain]);
 
   /* --- load detail on expand --- */
   const toggleExpand = useCallback((id: number) => {
@@ -314,10 +317,12 @@ export default function GoldMlvManager() {
   }, [expandedId]);
 
   /* --- domain card click --- */
-  const handleDomainClick = useCallback((domain: string) => {
-    setDomainFilter((prev) => prev === domain ? "All" : domain);
+  const handleDomainClick = useCallback((clickedDomain: string) => {
+    const next = domainFilter === clickedDomain ? "All" : clickedDomain;
+    setDomainFilter(next);
+    setDomain(next === "All" ? null : next);
     setPage(0);
-  }, []);
+  }, [domainFilter, setDomain]);
 
   const totalPages = Math.ceil(total / pageSize);
   const showFrom = page * pageSize + 1;
@@ -432,7 +437,10 @@ export default function GoldMlvManager() {
             <Badge label={domainFilter} bg="var(--bp-gold-light)" color="var(--bp-gold)" />
             <button
               type="button"
-              onClick={() => setDomainFilter("All")}
+              onClick={() => {
+                setDomainFilter("All");
+                setDomain(null);
+              }}
               className="text-xs hover:underline"
               style={{ color: "var(--bp-ink-muted)" }}
               aria-label="Clear domain filter"

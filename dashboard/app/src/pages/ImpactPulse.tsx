@@ -42,6 +42,7 @@ import {
 import { getSourceColor } from "@/lib/layers";
 import LayerNodeComponent, { type LayerNodeData } from "@/components/impact-pulse/LayerNode";
 import AnimatedEdgeComponent, { type AnimatedEdgeData } from "@/components/impact-pulse/AnimatedEdge";
+import { isErrorStatus, isSuccessStatus } from "@/lib/exploreWorksurface";
 
 // ── Constants ──
 
@@ -152,23 +153,23 @@ function computeLayerStats(allEntities: DigestEntity[]): Record<string, LayerSta
   for (const e of allEntities) {
     // Landing Zone
     stats.lz.total++;
-    if (e.lzStatus === "loaded") stats.lz.loaded++;
-    else if (e.lzStatus === "pending") stats.lz.pending++;
+    if (isSuccessStatus(e.lzStatus)) stats.lz.loaded++;
+    else if (!isErrorStatus(e.lzStatus)) stats.lz.pending++;
     if (e.lastError?.layer === "landing") stats.lz.error++;
 
     // Bronze
     if (e.bronzeId !== null) {
       stats.bronze.total++;
-      if (e.bronzeStatus === "loaded") stats.bronze.loaded++;
-      else if (e.bronzeStatus === "pending") stats.bronze.pending++;
+      if (isSuccessStatus(e.bronzeStatus)) stats.bronze.loaded++;
+      else if (!isErrorStatus(e.bronzeStatus)) stats.bronze.pending++;
       if (e.lastError?.layer === "bronze") stats.bronze.error++;
     }
 
     // Silver
     if (e.silverId !== null) {
       stats.silver.total++;
-      if (e.silverStatus === "loaded") stats.silver.loaded++;
-      else if (e.silverStatus === "pending") stats.silver.pending++;
+      if (isSuccessStatus(e.silverStatus)) stats.silver.loaded++;
+      else if (!isErrorStatus(e.silverStatus)) stats.silver.pending++;
       if (e.lastError?.layer === "silver") stats.silver.error++;
     }
   }

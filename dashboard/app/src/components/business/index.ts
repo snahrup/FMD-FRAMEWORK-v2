@@ -6,3 +6,4 @@ export { SourceBadge } from "./SourceBadge";
 export { SeverityBadge, toSeverity, type Severity } from "./SeverityBadge";
 export { QualityTierBadge, scoreToTier, type QualityTier } from "./QualityTierBadge";
 export { ProgressRing } from "./ProgressRing";
+export { BusinessIntentHeader } from "./BusinessIntentHeader";

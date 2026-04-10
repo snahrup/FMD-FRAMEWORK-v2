@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 import dashboard.app.api.control_plane_db as cpdb
 from dashboard.app.api.router import route, HttpError
+from dashboard.app.api.routes.load_center import _build_canonical_pipeline_truth
 
 log = logging.getLogger("fmd.routes.control_plane")
 
@@ -40,6 +41,11 @@ def _build_control_plane() -> dict:
     workspaces = cpdb.get_workspaces()
     pipelines = cpdb.get_pipelines()
     pipeline_runs_raw = cpdb.get_pipeline_runs_grouped()
+    pipeline_truth = _build_canonical_pipeline_truth()
+    core_namespaces = {
+        (entity.get("namespace") or "Unknown") for entity in pipeline_truth.get("registered", [])
+        if (entity.get("namespace") or "").strip()
+    }
 
     log.info("Control plane (SQLite): 9 reads in %.2fs", time.time() - t0)
 
@@ -94,6 +100,8 @@ def _build_control_plane() -> dict:
     source_systems: dict = {}
     for ds in datasources:
         ns = ds.get("Namespace", "Unknown") or "Unknown"
+        if ns not in core_namespaces:
+            continue
         if ns not in source_systems:
             source_systems[ns] = {
                 "namespace": ns,
@@ -112,9 +120,14 @@ def _build_control_plane() -> dict:
     # Link connections to source systems
     conn_to_ns: dict = {}
     for ds in datasources:
-        conn_to_ns[ds.get("ConnectionName", "")] = ds.get("Namespace", "Unknown") or "Unknown"
+        ns = ds.get("Namespace", "Unknown") or "Unknown"
+        if ns not in core_namespaces:
+            continue
+        conn_to_ns[ds.get("ConnectionName", "")] = ns
     for conn in connections:
         ns = conn_to_ns.get(conn.get("Name", ""), "Unlinked")
+        if ns == "Unlinked":
+            continue
         if ns not in source_systems:
             source_systems[ns] = {
                 "namespace": ns, "connections": [], "dataSources": [],
@@ -147,7 +160,7 @@ def _build_control_plane() -> dict:
                 source_systems[ns]["activeEntities"]["silver"] += 1
 
     active_conn = sum(1 for c in connections if _is_active(c.get("IsActive", "")))
-    active_ds = sum(1 for d in datasources if _is_active(d.get("IsActive", "")))
+    active_ds = len(source_systems)
     active_lz = sum(1 for e in lz_entities if _is_active(e.get("IsActive", "")))
     active_br = sum(1 for e in bronze_entities if _is_active(e.get("IsActive", "")))
     active_sv = sum(1 for e in silver_entities if _is_active(e.get("IsActive", "")))
@@ -193,7 +206,7 @@ def _build_control_plane() -> dict:
         "_source": "sqlite",
         "summary": {
             "connections": {"total": len(connections), "active": active_conn},
-            "dataSources": {"total": len(datasources), "active": active_ds},
+            "dataSources": {"total": active_ds, "active": active_ds},
             "entities": {
                 "landing": {"total": len(lz_entities), "active": active_lz},
                 "bronze": {"total": len(bronze_entities), "active": active_br},
@@ -364,6 +377,11 @@ def _build_sources() -> list[dict]:
     lz = cpdb.get_lz_entities()
     bronze = cpdb.get_bronze_entities()
     silver = cpdb.get_silver_entities()
+    pipeline_truth = _build_canonical_pipeline_truth()
+    core_namespaces = {
+        (entity.get("namespace") or "Unknown") for entity in pipeline_truth.get("registered", [])
+        if (entity.get("namespace") or "").strip()
+    }
 
     lz_by_ns: dict = {}
     for e in lz:
@@ -384,6 +402,8 @@ def _build_sources() -> list[dict]:
     results = []
     for ds in datasources:
         ns = ds.get("Namespace", "Unknown") or "Unknown"
+        if ns not in core_namespaces:
+            continue
         if ns in seen:
             continue
         seen.add(ns)

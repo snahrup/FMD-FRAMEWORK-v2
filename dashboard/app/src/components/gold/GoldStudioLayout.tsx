@@ -1,8 +1,11 @@
-// Gold Studio Layout — Shared wrapper with title bar, domain context, and tab navigation.
+// Gold Studio Layout — Shared wrapper with title bar, workflow context, and lifecycle rail.
 
 import { useState, useEffect, useCallback, createContext, useContext, type ReactNode } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { cn } from "@/lib/utils";
+import { useSearchParams } from "react-router-dom";
+import { GoldActivityFeed } from "@/components/gold/GoldActivityFeed";
+import { GoldContextBar } from "@/components/gold/GoldContextBar";
+import { GoldStageRail } from "@/components/gold/GoldStageRail";
+import { IntentGuidePopover } from "@/components/guidance/IntentGuide";
 
 /* ---------- types ---------- */
 interface DomainWorkspace {
@@ -36,10 +39,34 @@ interface GoldStudioLayoutProps {
 
 interface AuditItem {
   id: number;
-  object_type: string;
-  object_id: number;
+  object_label: string;
   action: string;
   created_at: string;
+}
+
+interface WorkflowStageSummary {
+  id: "ledger" | "clusters" | "canonical" | "specs" | "validation" | "serve";
+  status: "not_started" | "in_progress" | "needs_attention" | "ready" | "completed";
+  summary: string;
+  detail: string;
+}
+
+interface WorkflowContextSummary {
+  domain_display_name: string;
+  scope_note: string;
+  focus_label: string;
+  focus_kind: string;
+  focus_note: string;
+  owner_label: string;
+  owner_note: string;
+  unresolved_issues: number;
+  last_updated: string;
+}
+
+interface WorkflowShellPayload {
+  context: WorkflowContextSummary;
+  stages: WorkflowStageSummary[];
+  activity: AuditItem[];
 }
 
 const STAGES = [
@@ -50,6 +77,7 @@ const STAGES = [
     hint: "Qualify source material",
     title: "Intake",
     purpose: "Import, inspect, and qualify source material before it enters gold design.",
+    whyItMatters: "Weak intake creates blind spots and rework downstream. Clear intake makes the rest of the lifecycle trustworthy.",
     whatNext: "Move clean, review-ready items forward into clustering.",
   },
   {
@@ -59,6 +87,7 @@ const STAGES = [
     hint: "Review candidate groupings",
     title: "Cluster Review",
     purpose: "Group related items, discard noise, and identify concepts ready for promotion.",
+    whyItMatters: "This is where the system's guesses become real stewardship decisions instead of hidden background logic.",
     whatNext: "Promote stable concepts into canonical business objects.",
   },
   {
@@ -68,6 +97,7 @@ const STAGES = [
     hint: "Define shared business objects",
     title: "Canonical Definitions",
     purpose: "Define the shared business objects that downstream gold products should build from.",
+    whyItMatters: "Canonical definitions are the contract every spec, release review, and live product inherits.",
     whatNext: "Generate or refine product specs once the definition is complete.",
   },
   {
@@ -77,6 +107,7 @@ const STAGES = [
     hint: "Shape the product definition",
     title: "Product Specs",
     purpose: "Design and review the gold-layer product definition before release review.",
+    whyItMatters: "A spec is the implementation contract for the product. Ambiguity here becomes release risk later.",
     whatNext: "Submit ready specs into the release gate for validation and publishing.",
   },
   {
@@ -86,6 +117,7 @@ const STAGES = [
     hint: "Resolve blockers and publish",
     title: "Release Gate",
     purpose: "Resolve quality blockers, confirm release readiness, and publish approved products.",
+    whyItMatters: "Release is where coverage gaps, unresolved metrics, and missing validation become explicit instead of surprising live users.",
     whatNext: "Move published products into live stewardship and governance.",
   },
   {
@@ -95,6 +127,7 @@ const STAGES = [
     hint: "Monitor live products",
     title: "Serve and Governance",
     purpose: "Monitor live gold products, ownership, and governance after release.",
+    whyItMatters: "Publishing is not the finish line. Live ownership, certification, and issue routing all continue here.",
     whatNext: "Investigate live issues or open the product for downstream stewardship work.",
   },
 ] as const;
@@ -102,25 +135,21 @@ const STAGES = [
 const API = "/api/gold-studio";
 const bf: React.CSSProperties = { fontFamily: "var(--bp-font-body)" };
 const mono: React.CSSProperties = { fontFamily: "var(--bp-font-mono)", fontSize: 9 };
-
-const READINESS_CFG: Record<string, { label: string; color: string; bg: string }> = {
-  not_started:        { label: "Not Started",        color: "var(--bp-ink-muted)",         bg: "rgba(168,162,158,0.10)" },
-  in_progress:        { label: "In Progress",        color: "var(--bp-copper)",            bg: "rgba(180,86,36,0.10)" },
-  partially_covered:  { label: "Partially Covered",  color: "var(--bp-caution-amber)",     bg: "rgba(194,122,26,0.10)" },
-  ready_for_recreation: { label: "Ready for Recreation", color: "#3B82F6",                 bg: "rgba(59,130,246,0.10)" },
-  recreated:          { label: "Recreated",           color: "var(--bp-operational-green)", bg: "rgba(61,124,79,0.10)" },
-  reconciled:         { label: "Reconciled",          color: "var(--bp-operational-green)", bg: "rgba(61,124,79,0.15)" },
+const STAGE_STATUS_LABELS: Record<WorkflowStageSummary["status"], string> = {
+  not_started: "Not Started",
+  in_progress: "In Progress",
+  needs_attention: "Needs Attention",
+  ready: "Ready",
+  completed: "Completed",
 };
 
 /* ---------- component ---------- */
 export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLayoutProps) {
-  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [domains, setDomains] = useState<DomainWorkspace[]>([]);
-  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
-  const [domainDetail, setDomainDetail] = useState<DomainWorkspace | null>(null);
-  const [showPanel, setShowPanel] = useState(false);
+  const [shellData, setShellData] = useState<WorkflowShellPayload | null>(null);
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
-  const [recentActivity, setRecentActivity] = useState<AuditItem[]>([]);
+  const selectedDomain = searchParams.get("domain");
 
   const showToast = useCallback((message: string, type: ToastType = "info") => {
     setToast({ message, type });
@@ -137,40 +166,67 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
 
   useEffect(() => {
     let cancelled = false;
-    const loadActivity = () => {
-      fetch(`${API}/audit/log?limit=4`)
+    const loadShell = () => {
+      const qs = selectedDomain ? `?domain=${encodeURIComponent(selectedDomain)}` : "";
+      fetch(`${API}/workflow-shell${qs}`)
         .then((r) => r.ok ? r.json() : null)
-        .then((d) => {
-          if (!cancelled) setRecentActivity((d?.items ?? []) as AuditItem[]);
+        .then((payload) => {
+          if (!cancelled) setShellData((payload ?? null) as WorkflowShellPayload | null);
         })
         .catch(() => {
-          if (!cancelled) setRecentActivity([]);
+          if (!cancelled) setShellData(null);
         });
     };
-    loadActivity();
-    const timer = window.setInterval(loadActivity, 15000);
+    loadShell();
+    const timer = window.setInterval(loadShell, 15000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [selectedDomain]);
 
-  // Fetch domain detail when selected
   const selectDomain = useCallback((name: string | null) => {
-    setSelectedDomain(name);
-    if (!name) { setDomainDetail(null); setShowPanel(false); return; }
-    const d = domains.find(d => d.name === name);
-    if (d) {
-      fetch(`${API}/domains/${d.id}`)
-        .then(r => r.json())
-        .then(detail => { setDomainDetail(detail); setShowPanel(true); })
-        .catch(() => { setDomainDetail(null); setShowPanel(true); });
-    }
-  }, [domains]);
+    const next = new URLSearchParams(searchParams);
+    if (name) next.set("domain", name);
+    else next.delete("domain");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const domainNames = domains.map(d => d.name);
   const currentStage = STAGES.find((stage) => stage.id === activeTab) ?? STAGES[0];
   const currentStageIndex = STAGES.findIndex((stage) => stage.id === currentStage.id);
+  const currentStageSummary = shellData?.stages.find((stage) => stage.id === activeTab);
+  const currentStatusLabel = currentStageSummary ? STAGE_STATUS_LABELS[currentStageSummary.status] : "Current Stage";
+  const stageSearch = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const stageGuideItems = [
+    {
+      label: "What This Page Is",
+      value: currentStage.hint,
+      detail: currentStage.purpose,
+    },
+    {
+      label: "Why It Matters",
+      value: currentStageSummary?.summary ?? currentStatusLabel,
+      detail: currentStage.whyItMatters,
+    },
+    {
+      label: "What Happens Next",
+      value:
+        currentStageIndex < STAGES.length - 1
+          ? `Continue to ${STAGES[currentStageIndex + 1].label}`
+          : "Stay with live stewardship",
+      detail: currentStage.whatNext,
+    },
+  ];
+  const stageItems = STAGES.map((stage) => {
+    const summary = shellData?.stages.find((item) => item.id === stage.id);
+    return {
+      ...stage,
+      summary: summary?.summary,
+      detail: summary?.detail,
+      status: summary?.status,
+    };
+  });
 
   return (
     <DomainContext.Provider value={{ domain: selectedDomain, setDomain: selectDomain, domainNames }}>
@@ -197,17 +253,67 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
                 >
                   Stage {currentStageIndex + 1} of {STAGES.length}
                 </span>
+                <span
+                  className="rounded-full px-2 py-0.5"
+                  style={{
+                    ...bf,
+                    fontSize: 11,
+                    color: currentStageSummary?.status === "needs_attention" ? "var(--bp-caution-amber)" : currentStageSummary?.status === "completed" ? "var(--bp-operational-green)" : currentStageSummary?.status === "ready" ? "var(--bp-info, #2563eb)" : "var(--bp-ink-secondary)",
+                    background: currentStageSummary?.status === "needs_attention" ? "rgba(194,122,26,0.10)" : currentStageSummary?.status === "completed" ? "rgba(61,124,79,0.10)" : currentStageSummary?.status === "ready" ? "rgba(59,130,246,0.10)" : "var(--bp-surface-inset)",
+                    border: "1px solid var(--bp-border)",
+                  }}
+                >
+                  {currentStatusLabel}
+                </span>
               </div>
               <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
                 {currentStage.title}
               </h1>
-              <p style={{ fontSize: 13, color: "var(--bp-ink-secondary)", marginTop: 6, maxWidth: 760 }}>
+              <p style={{ margin: "10px 0 0", fontSize: 14, color: "var(--bp-ink-secondary)", lineHeight: 1.6, maxWidth: 860 }}>
                 {currentStage.purpose}
               </p>
-              <p style={{ fontSize: 12, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
-                <span style={{ ...mono, color: "var(--bp-copper)", marginRight: 6 }}>NEXT</span>
-                {currentStage.whatNext}
-              </p>
+              <div className="flex flex-wrap gap-2" style={{ marginTop: 14 }}>
+                <span
+                  className="rounded-full px-3 py-2"
+                  style={{
+                    ...bf,
+                    fontSize: 12,
+                    color: "var(--bp-ink-primary)",
+                    background: "rgba(180,86,36,0.08)",
+                    border: "1px solid rgba(180,86,36,0.16)",
+                  }}
+                >
+                  Focus: {currentStage.hint}
+                </span>
+                {shellData?.context?.focus_label ? (
+                  <span
+                    className="rounded-full px-3 py-2"
+                    style={{
+                      ...bf,
+                      fontSize: 12,
+                      color: "var(--bp-ink-primary)",
+                      background: "var(--bp-surface-inset)",
+                      border: "1px solid var(--bp-border)",
+                    }}
+                  >
+                    In play: {shellData.context.focus_label}
+                  </span>
+                ) : null}
+                {selectedDomain ? (
+                  <span
+                    className="rounded-full px-3 py-2"
+                    style={{
+                      ...bf,
+                      fontSize: 12,
+                      color: "var(--bp-ink-primary)",
+                      background: "var(--bp-surface-inset)",
+                      border: "1px solid var(--bp-border)",
+                    }}
+                  >
+                    Domain: {shellData?.context?.domain_display_name ?? selectedDomain}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {domains.length > 0 && (
@@ -236,75 +342,15 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
               >
                 Current stage
               </span>
+              <IntentGuidePopover title={currentStage.title} items={stageGuideItems} label="Stage Guide" />
               {actions && <div className="flex items-center gap-2">{actions}</div>}
             </div>
           </div>
 
-          {/* Domain summary strip (when domain selected) */}
-          {showPanel && domainDetail && <DomainSummaryStrip domain={domainDetail} onClose={() => setShowPanel(false)} />}
-
           {/* Stage rail */}
-          <nav className="grid gap-2 px-6 pb-3 sm:grid-cols-2 xl:grid-cols-6" style={{ borderBottom: "1px solid var(--bp-border)" }}>
-            {STAGES.map((tab, index) => {
-              const isActive = tab.id === activeTab || location.pathname === tab.path || location.pathname.startsWith(`${tab.path}/`);
-              return (
-                <Link
-                  key={tab.id} to={tab.path}
-                  className={cn("rounded-lg px-3 py-3 transition-all relative", isActive ? "text-[var(--bp-copper)]" : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-secondary)]")}
-                  style={{
-                    ...bf,
-                    border: `1px solid ${isActive ? "rgba(180,86,36,0.22)" : "var(--bp-border)"}`,
-                    background: isActive ? "rgba(180,86,36,0.05)" : "var(--bp-surface-1)",
-                  }}
-                >
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <span style={{ ...mono, color: isActive ? "var(--bp-copper)" : "var(--bp-ink-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <span
-                      className="rounded-full px-2 py-0.5"
-                      style={{
-                        ...bf,
-                        fontSize: 10,
-                        color: isActive ? "var(--bp-copper)" : "var(--bp-ink-tertiary)",
-                        background: isActive ? "rgba(180,86,36,0.10)" : "var(--bp-surface-inset)",
-                      }}
-                    >
-                      {isActive ? "Current" : "Stage"}
-                    </span>
-                  </div>
-                  <div style={{ fontWeight: isActive ? 700 : 600, fontSize: 14, color: isActive ? "var(--bp-ink-primary)" : "var(--bp-ink-secondary)" }}>
-                    {tab.label}
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--bp-ink-tertiary)", marginTop: 4, lineHeight: 1.35 }}>
-                    {tab.hint}
-                  </div>
-                </Link>
-              );
-            })}
-          </nav>
-          {recentActivity.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 px-6 py-3" style={{ borderBottom: "1px solid var(--bp-border)" }}>
-              <span style={{ ...mono, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Recent Activity
-              </span>
-              {recentActivity.map((item) => (
-                <span
-                  key={item.id}
-                  className="rounded-full px-2.5 py-1"
-                  style={{
-                    ...bf,
-                    fontSize: 11,
-                    color: "var(--bp-ink-secondary)",
-                    background: "var(--bp-surface-1)",
-                    border: "1px solid var(--bp-border)",
-                  }}
-                >
-                  {formatAuditActivity(item)}
-                </span>
-              ))}
-            </div>
-          )}
+          <GoldStageRail items={stageItems} activeId={activeTab} search={stageSearch} />
+          <GoldContextBar context={shellData?.context ?? null} />
+          <GoldActivityFeed items={shellData?.activity ?? []} />
         </div>
 
         {/* Page content */}
@@ -316,56 +362,6 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
     </ToastContext.Provider>
     </DomainContext.Provider>
   );
-}
-
-/* ---------- Domain Summary Strip ---------- */
-function DomainSummaryStrip({ domain, onClose }: { domain: DomainWorkspace; onClose: () => void }) {
-  const readiness = READINESS_CFG[domain.readiness_state] ?? READINESS_CFG.not_started;
-  const reports = domain.report_coverage ?? [];
-  const coveredReports = reports.filter(r => ["fully_covered", "recreated", "reconciled"].includes(r.coverage_status)).length;
-
-  return (
-    <div className="mx-6 mb-1.5 rounded-md px-3 py-2 flex items-center gap-5" style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)" }}>
-      {/* Domain name + description */}
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span style={{ fontFamily: "var(--bp-font-display)", fontSize: 13, color: "var(--bp-ink-primary)" }}>{domain.display_name}</span>
-          <span className="rounded-full px-2 py-0.5" style={{ fontSize: 10, color: readiness.color, background: readiness.bg, ...bf }}>{readiness.label}</span>
-        </div>
-        {domain.description && <p className="mt-0.5 truncate" style={{ ...bf, fontSize: 11, color: "var(--bp-ink-muted)", maxWidth: 320 }}>{domain.description}</p>}
-      </div>
-
-      {/* Stats */}
-      <div className="flex items-center gap-4 ml-auto shrink-0">
-        <Stat label="Specimens" value={domain.specimen_count ?? 0} />
-        <Stat label="Canonical" value={domain.canonical_count ?? 0} />
-        <Stat label="Reports" value={`${coveredReports}/${reports.length}`} />
-      </div>
-
-      {/* Close */}
-      <button type="button" onClick={onClose} className="shrink-0 rounded p-1 hover:bg-black/[0.05] transition-colors" style={{ color: "var(--bp-ink-muted)" }}>
-        <span style={{ fontSize: 14 }}>{"\u2715"}</span>
-      </button>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="text-center">
-      <div style={{ ...mono, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
-      <div style={{ fontFamily: "var(--bp-font-display)", fontSize: 14, color: "var(--bp-ink-primary)", marginTop: 1 }}>{value}</div>
-    </div>
-  );
-}
-
-function formatAuditActivity(item: AuditItem) {
-  const object = item.object_type.replace(/_/g, " ");
-  const action = item.action.replace(/[:_]/g, " ");
-  const when = Number.isNaN(new Date(item.created_at).getTime())
-    ? item.created_at
-    : new Date(item.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return `${object} #${item.object_id} ${action} at ${when}`;
 }
 
 /* ---------- Toast ---------- */

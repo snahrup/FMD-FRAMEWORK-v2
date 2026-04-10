@@ -124,12 +124,12 @@ function mapStats(raw: BackendStats, specs: GoldSpec[]): Stats {
 
 /* ========== component ========== */
 export default function GoldSpecs() {
-  const { domainNames } = useDomainContext();
+  const { domain, setDomain, domainNames } = useDomainContext();
   const [stats, setStats] = useState<Stats>({ total: 0, ready: 0, pending: 0, needs_reval: 0, deprecated: 0 });
   const [specs, setSpecs] = useState<GoldSpec[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [domain, setDomain] = useState("All");
+  const [domainFilter, setDomainFilter] = useState(domain ?? "All");
   const [status, setStatus] = useState("All");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<SpecDetail | null>(null);
@@ -151,7 +151,7 @@ export default function GoldSpecs() {
     setLoading(true);
     setFetchError(null);
     const qs = new URLSearchParams({ limit: "200" });
-    if (domain !== "All") qs.set("domain", domain);
+    if (domainFilter !== "All") qs.set("domain", domainFilter);
     if (status !== "All") qs.set("status", status);
     // List returns {items, total}
     f<{ items: GoldSpec[] }>(`${API}/specs?${qs}`).then((r) => {
@@ -161,11 +161,13 @@ export default function GoldSpecs() {
         type: s.type ?? s.entity_type ?? "MLV",
       }));
       setSpecs(normalized);
-      f<BackendStats>(`${API}/stats`).then((raw) => setStats(mapStats(raw, normalized))).catch(() => {});
+      const statsPath = domainFilter !== "All" ? `${API}/stats?domain=${encodeURIComponent(domainFilter)}` : `${API}/stats`;
+      f<BackendStats>(statsPath).then((raw) => setStats(mapStats(raw, normalized))).catch(() => {});
     }).catch((err) => { setFetchError(err?.message ?? "Failed to load specs"); }).finally(() => setLoading(false));
-  }, [domain, status]);
+  }, [domainFilter, status]);
 
   useEffect(load, [load]);
+  useEffect(() => { setDomainFilter(domain ?? "All"); }, [domain]);
 
   /* fetch detail */
   const openDetail = useCallback((id: number) => {
@@ -243,7 +245,15 @@ export default function GoldSpecs() {
 
       {/* Filter bar */}
       <div className="flex items-center gap-2.5 px-6 py-2.5" style={{ borderBottom: "1px solid var(--bp-border)" }}>
-        <Select label="Domain" value={domain} options={domainOptions} onChange={setDomain} />
+        <Select
+          label="Domain"
+          value={domainFilter}
+          options={domainOptions}
+          onChange={(value) => {
+            setDomainFilter(value);
+            setDomain(value === "All" ? null : value);
+          }}
+        />
         <Select label="Status" value={status} options={STATUSES} onChange={setStatus} />
         <div className="relative ml-auto" style={{ width: 220 }}>
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--bp-ink-muted)" }} aria-hidden="true" />

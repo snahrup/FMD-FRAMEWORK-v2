@@ -48,46 +48,65 @@ def _rows_to_list(rows):
 @route("GET", "/api/gold/mlvs/summary")
 def gold_mlvs_summary(params: dict) -> dict:
     """Aggregate summary: totals by object_type, domain, and status."""
+    domain = (params.get("domain") or "").strip()
     conn = cpdb._get_conn()
     try:
+        where = ["gs.is_current = 1", "gs.deleted_at IS NULL"]
+        bind: list = []
+        if domain:
+            where.append("ce.domain = ?")
+            bind.append(domain)
+        where_sql = "WHERE " + " AND ".join(where)
+
         # Total current, non-deleted specs
         total = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM gs_gold_specs "
-            "WHERE is_current = 1 AND deleted_at IS NULL"
+            f"""SELECT COUNT(*) AS cnt
+                FROM gs_gold_specs gs
+                LEFT JOIN gs_canonical_entities ce
+                  ON ce.root_id = gs.canonical_root_id AND ce.is_current = 1
+                {where_sql}""",
+            bind,
         ).fetchone()["cnt"]
 
         # By object_type
         by_type_rows = conn.execute(
-            "SELECT COALESCE(object_type, 'mlv') AS object_type, COUNT(*) AS cnt "
-            "FROM gs_gold_specs "
-            "WHERE is_current = 1 AND deleted_at IS NULL "
-            "GROUP BY COALESCE(object_type, 'mlv') "
-            "ORDER BY object_type"
+            f"""SELECT COALESCE(gs.object_type, 'mlv') AS object_type, COUNT(*) AS cnt
+                FROM gs_gold_specs gs
+                LEFT JOIN gs_canonical_entities ce
+                  ON ce.root_id = gs.canonical_root_id AND ce.is_current = 1
+                {where_sql}
+                GROUP BY COALESCE(gs.object_type, 'mlv')
+                ORDER BY object_type""",
+            bind,
         ).fetchall()
         by_type = {r["object_type"]: r["cnt"] for r in by_type_rows}
 
         # By status
         by_status_rows = conn.execute(
-            "SELECT COALESCE(status, 'draft') AS status, COUNT(*) AS cnt "
-            "FROM gs_gold_specs "
-            "WHERE is_current = 1 AND deleted_at IS NULL "
-            "GROUP BY COALESCE(status, 'draft') "
-            "ORDER BY status"
+            f"""SELECT COALESCE(gs.status, 'draft') AS status, COUNT(*) AS cnt
+                FROM gs_gold_specs gs
+                LEFT JOIN gs_canonical_entities ce
+                  ON ce.root_id = gs.canonical_root_id AND ce.is_current = 1
+                {where_sql}
+                GROUP BY COALESCE(gs.status, 'draft')
+                ORDER BY status""",
+            bind,
         ).fetchall()
         by_status = {r["status"]: r["cnt"] for r in by_status_rows}
 
         # By domain (via canonical entity join)
         by_domain_rows = conn.execute(
-            "SELECT COALESCE(ce.domain, 'Unassigned') AS domain, "
-            "       COUNT(*) AS cnt, "
-            "       SUM(CASE WHEN ce.entity_type = 'fact' THEN 1 ELSE 0 END) AS facts, "
-            "       SUM(CASE WHEN ce.entity_type = 'dimension' THEN 1 ELSE 0 END) AS dimensions "
-            "FROM gs_gold_specs gs "
-            "LEFT JOIN gs_canonical_entities ce "
-            "    ON ce.root_id = gs.canonical_root_id AND ce.is_current = 1 "
-            "WHERE gs.is_current = 1 AND gs.deleted_at IS NULL "
-            "GROUP BY COALESCE(ce.domain, 'Unassigned') "
-            "ORDER BY domain COLLATE NOCASE"
+            f"""SELECT COALESCE(ce.domain, 'Unassigned') AS domain,
+                       COUNT(*) AS cnt,
+                       SUM(CASE WHEN ce.entity_type = 'fact' THEN 1 ELSE 0 END) AS facts,
+                       SUM(CASE WHEN ce.entity_type = 'dimension' THEN 1 ELSE 0 END) AS dimensions
+                FROM gs_gold_specs gs
+                LEFT JOIN gs_canonical_entities ce
+                    ON ce.root_id = gs.canonical_root_id AND ce.is_current = 1
+                {where_sql}
+                GROUP BY COALESCE(ce.domain, 'Unassigned')
+                ORDER BY domain COLLATE NOCASE""",
+            bind,
         ).fetchall()
         by_domain = [
             {

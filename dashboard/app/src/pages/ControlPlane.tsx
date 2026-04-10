@@ -21,6 +21,8 @@ import {
   GitBranch,
   Wrench,
 } from 'lucide-react';
+import CompactPageHeader from '@/components/layout/CompactPageHeader';
+import TableCardList from '@/components/ui/TableCardList';
 
 // ── Types ──
 
@@ -257,6 +259,10 @@ export default function ControlPlane() {
   const s = data.summary;
   const ph = data.pipelineHealth;
   const successRate = ph.recentRuns > 0 ? Math.round(ph.succeeded / ph.recentRuns * 100) : 0;
+  const coreSourceKeys = new Set(
+    data.sourceSystems.map((source) => (source.namespace || "").toLowerCase()).filter(Boolean)
+  );
+  const coreEntities = entities.filter((entity) => coreSourceKeys.has((entity.dataSource || "").toLowerCase()));
 
   const toggleNs = (ns: string) => {
     setExpandedNs(prev => {
@@ -273,41 +279,44 @@ export default function ControlPlane() {
   );
 
   return (
-    <div className="space-y-4" style={{ padding: "32px", maxWidth: "1280px" }}>
-      {/* ── Header ── */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
-            Control Plane
-          </h1>
-          <p style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 4 }}>
-            Metadata database — the single source of truth driving all FMD pipelines
-          </p>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-            <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="rounded" aria-label="Toggle auto-refresh" />
-            Auto
-          </label>
-          <button
-            onClick={runMaintenanceAgent}
-            disabled={true}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: "var(--bp-caution-light)", border: "1px solid var(--bp-caution)", color: "var(--bp-caution)" }}
-            title="Maintenance agent — backend endpoints not yet implemented"
-          >
-            <Wrench className="h-3.5 w-3.5" />
-            Maintenance
-          </button>
-          <button
-            onClick={() => setRefreshKey(k => k + 1)}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Updating...' : 'Refresh'}
-          </button>
-        </div>
-      </div>
+    <div className="bp-page-shell space-y-4">
+      <CompactPageHeader
+        eyebrow="Admin"
+        title="Control Plane"
+        summary="Use one canonical metadata and runtime surface for source registration, execution evidence, and infrastructure truth instead of cross-checking several admin pages."
+        meta={data._fromSnapshot ? "showing cached snapshot" : "live canonical metadata"}
+        actions={
+          <>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+              <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} className="rounded" aria-label="Toggle auto-refresh" />
+              Auto
+            </label>
+            <button
+              onClick={runMaintenanceAgent}
+              disabled={true}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: "var(--bp-caution-light)", border: "1px solid var(--bp-caution)", color: "var(--bp-caution)" }}
+              title="Maintenance agent — backend endpoints not yet implemented"
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              Maintenance
+            </button>
+            <button
+              onClick={() => setRefreshKey(k => k + 1)}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? 'Updating...' : 'Refresh'}
+            </button>
+          </>
+        }
+        facts={[
+          { label: "Sources", value: `${s.dataSources.active} core systems`, tone: "accent" },
+          { label: "Entities", value: `${s.entities.landing.active} staged rows`, tone: "neutral" },
+          { label: "Runs", value: `${ph.recentRuns} recent`, tone: ph.failed > 0 ? "warning" : "positive" },
+          { label: "Health", value: healthCfg.label, tone: data.health === 'healthy' ? "positive" : "warning" },
+        ]}
+      />
 
       {/* ── Maintenance Result Banner ── */}
       {maintenanceResult && (
@@ -378,7 +387,7 @@ export default function ControlPlane() {
 
       {/* ── Tab Navigation ── */}
       <div className="flex gap-1 border-b border-border overflow-x-auto">
-        <TabBtn active={activeTab === 'metadata'} onClick={() => setActiveTab('metadata')} icon={<Database className="h-3.5 w-3.5" />} label="Entity Metadata" count={entities.length} />
+        <TabBtn active={activeTab === 'metadata'} onClick={() => setActiveTab('metadata')} icon={<Database className="h-3.5 w-3.5" />} label="Entity Metadata" count={coreEntities.length} />
         <TabBtn active={activeTab === 'execution'} onClick={() => setActiveTab('execution')} icon={<Activity className="h-3.5 w-3.5" />} label="Execution Log" count={ph.recentRuns} />
         <TabBtn active={activeTab === 'connections'} onClick={() => setActiveTab('connections')} icon={<Cable className="h-3.5 w-3.5" />} label="Sources" count={activeSources.length} />
         <TabBtn active={activeTab === 'infrastructure'} onClick={() => setActiveTab('infrastructure')} icon={<Server className="h-3.5 w-3.5" />} label="Infrastructure" />
@@ -390,8 +399,8 @@ export default function ControlPlane() {
       {activeTab === 'metadata' && (() => {
         const q = entityFilter.toLowerCase();
         const dsFilter = entityDsFilter;
-        const dataSources = [...new Set(entities.map(e => e.dataSource))].sort();
-        const filtered = entities.filter(e => {
+        const dataSources = [...new Set(coreEntities.map(e => e.dataSource))].sort();
+        const filtered = coreEntities.filter(e => {
           if (dsFilter && e.dataSource !== dsFilter) return false;
           if (q && !(e.table || '').toLowerCase().includes(q) && !(e.FileName || '').toLowerCase().includes(q) && !(e.schema || '').toLowerCase().includes(q)) return false;
           return true;
@@ -421,16 +430,61 @@ export default function ControlPlane() {
                 aria-label="Filter by data source"
                 className="px-3 py-1.5 text-xs bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               >
-                <option value="">All Sources ({entities.length})</option>
+                <option value="">All Sources ({coreEntities.length})</option>
                 {dataSources.map(ds => (
-                  <option key={ds} value={ds}>{ds} ({entities.filter(e => e.dataSource === ds).length})</option>
+                  <option key={ds} value={ds}>{ds} ({coreEntities.filter(e => e.dataSource === ds).length})</option>
                 ))}
               </select>
-              <span className="text-[10px] text-muted-foreground ml-auto">{filtered.length} of {entities.length} entities</span>
+              <span className="text-[10px] text-muted-foreground ml-auto">{filtered.length} of {coreEntities.length} entities</span>
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+            <div className="lg:hidden px-4 py-4">
+              <TableCardList
+                items={filtered.slice(0, 200)}
+                getId={(entity) => entity.entityId}
+                getTitle={(entity) => entity.table}
+                getSubtitle={(entity) => `${entity.schema} · ${entity.dataSource}`}
+                getStats={(entity) => [
+                  { label: "Load", value: String(entity.IsIncremental) === '1' || String(entity.IsIncremental).toLowerCase() === 'true' ? 'Incremental' : 'Full' },
+                  { label: "Watermark", value: entity.watermarkColumn || '—' },
+                  { label: "Bronze", value: entity.bronzeEntityId ? 'Ready' : 'Missing' },
+                  { label: "Silver", value: entity.silverEntityId ? 'Ready' : 'Missing' },
+                ]}
+                renderExpanded={(entity) => (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap gap-2 text-[11px]">
+                      <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                        File: <strong>{entity.FileName}</strong>
+                      </span>
+                      <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                        Bronze ID: <strong>{entity.bronzeEntityId || '—'}</strong>
+                      </span>
+                      <span className="rounded-full border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-1.5">
+                        Silver ID: <strong>{entity.silverEntityId || '—'}</strong>
+                      </span>
+                    </div>
+                    <div className="rounded-md border border-[var(--bp-border)] bg-[var(--bp-surface-1)] px-3 py-2 text-[11px] text-[var(--bp-ink-secondary)]">
+                      Primary keys: <strong className="text-[var(--bp-ink-primary)]">{entity.primaryKeys || '—'}</strong>
+                    </div>
+                  </div>
+                )}
+                emptyState={
+                  <div className="p-10 text-center">
+                    <Database className="mx-auto mb-3 h-8 w-8 text-muted-foreground/30" />
+                    <p className="text-sm text-muted-foreground">
+                      {coreEntities.length === 0 ? 'No entity metadata loaded.' : 'No entities match the current filters.'}
+                    </p>
+                  </div>
+                }
+              />
+              {filtered.length > 200 ? (
+                <div className="mt-3 text-center text-[10px] text-muted-foreground">
+                  Showing 200 of {filtered.length}. Narrow filters for a smaller working set.
+                </div>
+              ) : null}
+            </div>
+
+            <div className="hidden overflow-x-auto max-h-[600px] overflow-y-auto lg:block">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-muted/60 text-left">
@@ -480,14 +534,14 @@ export default function ControlPlane() {
                   })}
                 </tbody>
               </table>
-              {filtered.length === 0 && entities.length === 0 && !entityError && (
+              {filtered.length === 0 && coreEntities.length === 0 && !entityError && (
                 <div className="p-12 text-center">
                   <Database className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
                   <p className="text-sm text-muted-foreground">No entity metadata loaded.</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">Entities appear here once sources are registered and the metadata DB is synced.</p>
                 </div>
               )}
-              {filtered.length === 0 && entities.length > 0 && (
+              {filtered.length === 0 && coreEntities.length > 0 && (
                 <div className="p-8 text-center">
                   <p className="text-sm text-muted-foreground">No entities match the current filters.</p>
                 </div>
@@ -511,8 +565,23 @@ export default function ControlPlane() {
               <p className="text-xs text-muted-foreground/60 mt-1">Runs will appear here once PL_FMD_LOAD_ALL is triggered.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <>
+              <div className="lg:hidden p-4">
+                <TableCardList
+                  items={data.recentRuns}
+                  getId={(run) => run.RunGuid || `${run.PipelineName}-${run.StartTime || "start"}`}
+                  getTitle={(run) => run.PipelineName}
+                  getSubtitle={(run) => `${run.EntityLayer || '—'} · ${run.TriggerType || 'manual'}`}
+                  getStats={(run) => [
+                    { label: "Status", value: run.Status },
+                    { label: "Started", value: run.StartTime ? formatTimestamp(run.StartTime) : '—' },
+                    { label: "Duration", value: run.Duration || (run.Status === 'InProgress' ? 'running…' : '—') },
+                    { label: "GUID", value: run.RunGuid ? run.RunGuid.slice(0, 8) : '—' },
+                  ]}
+                />
+              </div>
+              <div className="hidden overflow-x-auto lg:block">
+                <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted/40 text-left">
                     <th className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
@@ -557,8 +626,9 @@ export default function ControlPlane() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}

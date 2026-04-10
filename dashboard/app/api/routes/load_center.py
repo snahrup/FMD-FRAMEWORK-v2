@@ -192,6 +192,110 @@ def _get_all_registered() -> list[dict]:
     """)
 
 
+def _build_canonical_pipeline_truth() -> dict:
+    """Return the shared pipeline-completion truth used across the dashboard.
+
+    Canonical rules:
+    - only active registered LZ entities are counted
+    - success is determined from the latest successful load that maps to the
+      active registered (schema, table) pair
+    - layer coverage and full-chain completion are based on those same keys
+
+    This intentionally matches the user-facing "is this registered asset
+    actually usable through landing, bronze, and silver?" question.
+    """
+    registered = _get_all_registered()
+
+    reg_lookup: dict[tuple[str, str], dict] = {}
+    for entity in registered:
+        schema = (entity.get("schema") or "").lower()
+        table = (entity.get("table_name") or "").lower()
+        reg_lookup[(schema, table)] = entity
+
+    def _max_iso(current: str | None, candidate: str | None) -> str | None:
+        if not candidate:
+            return current
+        if not current:
+            return candidate
+        return candidate if candidate > current else current
+
+    log_lookup: dict[tuple[str, str, str], dict] = {}
+    layer_last_success = {"lz": None, "bronze": None, "silver": None}
+
+    for row in _get_counts_from_log():
+        raw_layer = (row.get("Layer") or "landing").lower()
+        layer_key = "lz" if raw_layer == "landing" else raw_layer
+        if layer_key not in layer_last_success:
+            continue
+
+        schema = (row.get("SourceSchema") or "").lower()
+        table = (row.get("SourceName") or row.get("SourceTable") or "").lower()
+        if "." in table:
+            table = table.split(".")[-1]
+        if (schema, table) not in reg_lookup:
+            continue
+
+        key = (layer_key, schema, table)
+        current = log_lookup.get(key)
+        current_created = (current or {}).get("created_at") or ""
+        candidate_created = row.get("created_at") or ""
+        if current is None or candidate_created > current_created:
+            log_lookup[key] = row
+            layer_last_success[layer_key] = _max_iso(layer_last_success[layer_key], candidate_created)
+
+    source_stats: dict[str, dict] = {}
+    layer_loaded = {"lz": 0, "bronze": 0, "silver": 0}
+    complete_count = 0
+    outstanding_count = 0
+
+    for entity in registered:
+        source = entity.get("source_display") or entity.get("source_name") or ""
+        schema = (entity.get("schema") or "").lower()
+        table = (entity.get("table_name") or "").lower()
+        last_refreshed = None
+
+        layer_presence = {}
+        for layer_key in ("lz", "bronze", "silver"):
+            present = (layer_key, schema, table) in log_lookup
+            layer_presence[layer_key] = present
+            if present:
+                layer_loaded[layer_key] += 1
+                last_refreshed = _max_iso(last_refreshed, log_lookup[(layer_key, schema, table)].get("created_at"))
+
+        is_complete = layer_presence["lz"] and layer_presence["bronze"] and layer_presence["silver"]
+        if is_complete:
+            complete_count += 1
+        else:
+            outstanding_count += 1
+
+        bucket = source_stats.setdefault(source, {
+            "name": source,
+            "displayName": source,
+            "entityCount": 0,
+            "loadedCount": 0,
+            "blockedCount": 0,
+            "lastRefreshed": None,
+        })
+        bucket["entityCount"] += 1
+        if is_complete:
+            bucket["loadedCount"] += 1
+        else:
+            bucket["blockedCount"] += 1
+        bucket["lastRefreshed"] = _max_iso(bucket["lastRefreshed"], last_refreshed)
+
+    return {
+        "registered": registered,
+        "regLookup": reg_lookup,
+        "logLookup": log_lookup,
+        "layerLoaded": layer_loaded,
+        "layerLastSuccess": layer_last_success,
+        "sourceStats": source_stats,
+        "totalRegistered": len(registered),
+        "completeCount": complete_count,
+        "outstandingCount": outstanding_count,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -207,8 +311,10 @@ def get_load_center_status(params: dict) -> dict:
     """
     t_start = time.time()
 
-    # 1. PRIMARY: engine_task_log — latest successful load per entity per layer
-    log_rows = _get_counts_from_log()
+    truth = _build_canonical_pipeline_truth()
+    registered = truth["registered"]
+    reg_lookup = truth["regLookup"]
+    log_lookup = truth["logLookup"]
 
     # 2. OPTIONAL: physical scan cache (may be empty — that's OK)
     physical = db.query(
@@ -237,27 +343,7 @@ def get_load_center_status(params: dict) -> dict:
             continue
         phys_lookup[(lk, schema, table)] = int(p.get("row_count", -1))
 
-    # 3. Index engine log by (layer_key, schema, table)
-    #    Layer values in engine_task_log: "landing", "bronze", "silver"
-    log_lookup: dict[tuple, dict] = {}
-    for r in log_rows:
-        raw_layer = (r.get("Layer") or "landing").lower()
-        layer_key = "lz" if raw_layer == "landing" else raw_layer
-        schema = (r.get("SourceSchema") or "").lower()
-        table = (r.get("SourceName") or r.get("SourceTable") or "").lower()
-        if "." in table:
-            table = table.split(".")[-1]
-        log_lookup[(layer_key, schema, table)] = r
-
-    # 4. Registration lookup
-    registered = _get_all_registered()
-    reg_lookup: dict[tuple, dict] = {}
-    for e in registered:
-        schema = (e.get("schema") or "").lower()
-        table = (e.get("table_name") or "").lower()
-        reg_lookup[(schema, table)] = e
-
-    # 5. Build source-level summary from REGISTERED entities,
+    # 3. Build source-level summary from REGISTERED entities,
     #    using engine log as primary, physical scan as enrichment.
     sources_map: dict[str, dict] = {}
 
@@ -303,7 +389,7 @@ def get_load_center_status(params: dict) -> dict:
                         src[layer_key]["fullLoadTables"] += 1
                         src[layer_key]["fullLoadRows"] += row_val
 
-    # 6. Gap detection: entities with LZ success but missing Bronze/Silver success
+    # 4. Gap detection: entities with LZ success but missing Bronze/Silver success
     gaps: list[dict] = []
     for e in registered:
         schema = (e.get("schema") or "").lower()
@@ -322,7 +408,7 @@ def get_load_center_status(params: dict) -> dict:
                 missing.append("silver")
             gaps.append({"source": source, "schema": schema, "table": table, "missingIn": missing})
 
-    # 7. Detect orphan physical tables (in lakehouse but not registered)
+    # 5. Detect orphan physical tables (in lakehouse but not registered)
     unmatched: list[dict] = []
     for p in physical:
         lh = p.get("lakehouse", "")
@@ -332,7 +418,7 @@ def get_load_center_status(params: dict) -> dict:
             lk = "lz" if "LANDING" in lh.upper() else "bronze" if "BRONZE" in lh.upper() else "silver"
             unmatched.append({"layer": lk, "schema": schema, "table": table})
 
-    # 8. Build response
+    # 6. Build response
     sources_summary = sorted(sources_map.values(), key=lambda s: s["name"])
 
     totals = {}
@@ -702,6 +788,7 @@ def _execute_smart_load(plan: dict, state: dict):
 
     # Trigger the engine via internal HTTP call to /api/engine/start
     try:
+        dashboard_base_url = os.environ.get("FMD_DASHBOARD_URL", "http://127.0.0.1:8787").rstrip("/")
         import urllib.request
         body = json.dumps({
             "mode": "run",
@@ -710,7 +797,7 @@ def _execute_smart_load(plan: dict, state: dict):
             "triggered_by": "load_center",
         }).encode()
         req = urllib.request.Request(
-            "http://127.0.0.1:8787/api/engine/start",
+            f"{dashboard_base_url}/api/engine/start",
             data=body,
             headers={"Content-Type": "application/json"},
             method="POST",

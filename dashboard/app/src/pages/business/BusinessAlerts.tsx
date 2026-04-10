@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { RefreshCw, AlertTriangle, ShieldAlert, CheckCircle2, Filter } from "lucide-react";
 import {
+  BusinessIntentHeader,
   StatusRail,
   KpiCard,
   SeverityBadge,
@@ -361,40 +362,47 @@ export default function BusinessAlerts() {
       className="p-6 lg:p-8 min-h-screen"
       style={{ background: "var(--bp-canvas)" }}
     >
-      {/* ---- Header ---- */}
-      <div className="flex items-start justify-between mb-8 flex-wrap gap-4">
-        <div>
-          <h1
-            className="bp-display text-[32px] mb-1"
-            style={{ color: "var(--bp-ink-primary)" }}
+      <BusinessIntentHeader
+        title="Alerts"
+        meta={lastRefreshed ? `Last refreshed ${relativeTime(lastRefreshed.toISOString())}` : "Loading…"}
+        summary="This page translates freshness breaches, pending source onboarding, and connector outages into a business-readable attention list. It is the place to understand what looks risky before users trust downstream data."
+        items={[
+          {
+            label: "What This Page Is",
+            value: "Attention queue for trust issues",
+            detail: "Use this page to review the issues most likely to break confidence in reports, requests, or day-to-day business use.",
+          },
+          {
+            label: "Why It Matters",
+            value: "Alert truth before escalation",
+            detail: "A business user should be able to see what is wrong, how severe it is, and whether the issue is source, freshness, or onboarding related without reading technical logs.",
+          },
+          {
+            label: "What Happens Next",
+            value: "Route into the right fix path",
+            detail: "Open source coverage when a system is offline, move into the data estate when the wider platform looks unhealthy, or submit a request when the gap is missing access rather than broken data.",
+          },
+        ]}
+        links={[
+          { label: "Open Overview", to: "/overview" },
+          { label: "Browse Sources", to: "/sources-portal" },
+          { label: "Submit a Request", to: "/requests" },
+        ]}
+        actions={
+          <button
+            onClick={() => fetchAlerts()}
+            disabled={refreshing}
+            className="bp-btn-secondary inline-flex items-center gap-2 text-[13px]"
+            style={{ fontFamily: "var(--bp-font-body)" }}
           >
-            Alerts
-          </h1>
-          <p
-            className="text-[13px]"
-            style={{
-              color: "var(--bp-ink-muted)",
-              fontFamily: "var(--bp-font-body)",
-            }}
-          >
-            {lastRefreshed
-              ? `Last refreshed ${relativeTime(lastRefreshed.toISOString())}`
-              : "Loading\u2026"}
-          </p>
-        </div>
-        <button
-          onClick={() => fetchAlerts()}
-          disabled={refreshing}
-          className="bp-btn-secondary inline-flex items-center gap-2 text-[13px]"
-          style={{ fontFamily: "var(--bp-font-body)" }}
-        >
-          <RefreshCw
-            size={14}
-            className={refreshing ? "animate-spin" : ""}
-          />
-          Refresh
-        </button>
-      </div>
+            <RefreshCw
+              size={14}
+              className={refreshing ? "animate-spin" : ""}
+            />
+            Refresh
+          </button>
+        }
+      />
 
       {/* ---- Error banner ---- */}
       {error && (

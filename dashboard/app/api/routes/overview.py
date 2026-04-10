@@ -21,6 +21,7 @@ import logging
 
 import dashboard.app.api.control_plane_db as cpdb
 from dashboard.app.api.router import route, HttpError
+from dashboard.app.api.routes.load_center import _build_canonical_pipeline_truth
 
 log = logging.getLogger("fmd.routes.overview")
 
@@ -43,6 +44,8 @@ def get_overview_kpis(params: dict) -> dict:
     ph = ",".join("?" for _ in _SYSTEM_SOURCES)
     ss = tuple(_SYSTEM_SOURCES)
     try:
+        pipeline_truth = _build_canonical_pipeline_truth()
+
         # ------------------------------------------------------------------
         # Freshness: TWO complementary metrics
         #
@@ -93,101 +96,27 @@ def get_overview_kpis(params: dict) -> dict:
             freshness_pct = 0.0
 
         # ------------------------------------------------------------------
-        # Open alerts: entities that have NEVER successfully loaded,
-        # or that have been failing consistently (no success in last 7 days
-        # AND latest entry is failed).
-        #
-        # This avoids the "one failed run = 1,500 alerts" problem.
-        # A failed run on top of a recent success is transient, not an alert.
+        # Completion blockers: active registered entities that are not yet
+        # usable through landing + bronze + silver.
         # ------------------------------------------------------------------
-        error_row = conn.execute(
-            f"""
-            SELECT COALESCE(COUNT(DISTINCT sub.EntityId), 0) AS alert_count
-            FROM (
-                SELECT e.LandingzoneEntityId AS EntityId
-                FROM lz_entities e
-                JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
-                WHERE e.IsActive = 1
-                  AND ds.Name NOT IN ({ph})
-                  -- Entity has NEVER succeeded on any layer
-                  AND NOT EXISTS (
-                      SELECT 1 FROM engine_task_log t2
-                      WHERE t2.EntityId = e.LandingzoneEntityId
-                        AND t2.Status = 'succeeded'
-                  )
-                  -- But HAS been attempted (has at least one log entry)
-                  AND EXISTS (
-                      SELECT 1 FROM engine_task_log t3
-                      WHERE t3.EntityId = e.LandingzoneEntityId
-                  )
-
-                UNION
-
-                SELECT e.LandingzoneEntityId AS EntityId
-                FROM lz_entities e
-                JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
-                WHERE e.IsActive = 1
-                  AND ds.Name NOT IN ({ph})
-                  -- Latest entry is failed
-                  AND EXISTS (
-                      SELECT 1 FROM engine_task_log t4
-                      WHERE t4.EntityId = e.LandingzoneEntityId
-                        AND t4.Status = 'failed'
-                        AND t4.id = (
-                            SELECT MAX(id) FROM engine_task_log t5
-                            WHERE t5.EntityId = e.LandingzoneEntityId
-                        )
-                  )
-                  -- AND no success in last 7 days (not just a transient failure)
-                  AND NOT EXISTS (
-                      SELECT 1 FROM engine_task_log t6
-                      WHERE t6.EntityId = e.LandingzoneEntityId
-                        AND t6.Status = 'succeeded'
-                        AND t6.created_at >= datetime('now', '-7 days')
-                  )
-            ) sub
-            """,
-            ss + ss,
-        ).fetchone()
-        open_alerts = error_row[0] if error_row else 0
-
-        # Add quality-tier alerts if quality engine has been run
-        quality_alerts_row = conn.execute(
-            "SELECT COALESCE(COUNT(*), 0) FROM quality_scores WHERE quality_tier IN ('bronze', 'unclassified')"
-        ).fetchone()
-        if quality_alerts_row and quality_alerts_row[0] > 0:
-            open_alerts += quality_alerts_row[0]
+        open_alerts = int(pipeline_truth["outstandingCount"] or 0)
 
         # ------------------------------------------------------------------
-        # Source counts — exclude system sources
+        # Source counts — use the same active source set / completion semantics
+        # as Load Center and Data Estate.
         # ------------------------------------------------------------------
-        sources_row = conn.execute(
-            f"""
-            SELECT
-                COALESCE(COUNT(*), 0) AS total,
-                COALESCE(SUM(CASE WHEN IsActive = 1 THEN 1 ELSE 0 END), 0) AS online
-            FROM datasources
-            WHERE Name NOT IN ({ph})
-            """,
-            ss,
-        ).fetchone()
-        sources_total  = sources_row[0] if sources_row else 0
-        sources_online = sources_row[1] if sources_row else 0
+        source_stats = list(pipeline_truth["sourceStats"].values())
+        sources_total = len(source_stats)
+        sources_online = sum(
+            1 for source in source_stats
+            if int(source.get("entityCount") or 0) > 0 and int(source.get("blockedCount") or 0) == 0
+        )
 
         # ------------------------------------------------------------------
-        # Entity counts — registered vs loaded (distinct concepts)
+        # Entity counts — active registered vs currently usable end-to-end
         # ------------------------------------------------------------------
-        entities_row = conn.execute(
-            f"""
-            SELECT COALESCE(COUNT(*), 0)
-            FROM lz_entities e
-            JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
-            WHERE e.IsActive = 1
-              AND ds.Name NOT IN ({ph})
-            """,
-            ss,
-        ).fetchone()
-        total_entities = entities_row[0] if entities_row else 0
+        total_entities = int(pipeline_truth["totalRegistered"] or 0)
+        loaded_entities = int(pipeline_truth["completeCount"] or 0)
 
         # ------------------------------------------------------------------
         # Quality average (composite_score across all scored entities)
@@ -215,7 +144,7 @@ def get_overview_kpis(params: dict) -> dict:
             "sources_online":    sources_online,
             "sources_total":     sources_total,
             "total_entities":    total_entities,
-            "loaded_entities":   ever_loaded,
+            "loaded_entities":   loaded_entities,
             "quality_avg":       quality_avg,
         }
 
@@ -243,60 +172,25 @@ def get_overview_sources(params: dict) -> list:
         - 'offline'     if source is inactive OR no entities have ever loaded
         - 'operational' otherwise (has at least one loaded entity)
     """
-    conn = cpdb._get_conn()
     try:
-        rows = conn.execute(
-            """
-            WITH latest_status AS (
-                SELECT EntityId, Status, created_at,
-                       ROW_NUMBER() OVER (PARTITION BY EntityId ORDER BY created_at DESC) AS rn
-                FROM engine_task_log
-            )
-            SELECT
-                ds.DataSourceId,
-                ds.Name,
-                ds.DisplayName,
-                ds.IsActive,
-                COUNT(e.LandingzoneEntityId)                                          AS entity_count,
-                SUM(CASE WHEN ls.Status = 'succeeded' THEN 1 ELSE 0 END)             AS loaded_count,
-                SUM(CASE WHEN ls.Status = 'failed' THEN 1 ELSE 0 END)                AS error_count,
-                MAX(CASE WHEN ls.Status = 'succeeded' THEN ls.created_at ELSE NULL END)
-                                                                                       AS last_refreshed
-            FROM datasources ds
-            LEFT JOIN lz_entities  e  ON e.DataSourceId = ds.DataSourceId
-                                       AND e.IsActive = 1
-            LEFT JOIN latest_status ls ON ls.EntityId = e.LandingzoneEntityId AND ls.rn = 1
-            WHERE ds.Name NOT IN ({placeholders})
-            GROUP BY ds.DataSourceId
-            HAVING entity_count > 0
-            ORDER BY ds.DisplayName
-            """.format(placeholders=",".join("?" for _ in _SYSTEM_SOURCES)),
-            tuple(_SYSTEM_SOURCES),
-        ).fetchall()
-
+        pipeline_truth = _build_canonical_pipeline_truth()
         result = []
-        for r in rows:
-            is_active     = int(r["IsActive"] or 0) == 1
-            error_count   = int(r["error_count"]  or 0)
-            loaded_count  = int(r["loaded_count"] or 0)
-            entity_count  = int(r["entity_count"] or 0)
-            last_refreshed = r["last_refreshed"]
-
-            if not is_active:
+        for source in sorted(pipeline_truth["sourceStats"].values(), key=lambda item: item["displayName"]):
+            entity_count = int(source.get("entityCount") or 0)
+            blocked_count = int(source.get("blockedCount") or 0)
+            if entity_count == 0:
                 status = "offline"
-            elif error_count > 0:
+            elif blocked_count > 0:
                 status = "degraded"
-            elif loaded_count == 0:
-                status = "offline"
             else:
                 status = "operational"
 
             result.append({
-                "name":          r["Name"],
-                "displayName":   r["DisplayName"] or r["Name"],
+                "name":          source["name"],
+                "displayName":   source["displayName"],
                 "status":        status,
                 "entityCount":   entity_count,
-                "lastRefreshed": str(last_refreshed) if last_refreshed else None,
+                "lastRefreshed": source.get("lastRefreshed"),
             })
 
         return result
@@ -304,9 +198,6 @@ def get_overview_sources(params: dict) -> list:
     except Exception:
         log.exception("Failed to load overview sources")
         raise HttpError("Failed to load overview sources", 500)
-
-    finally:
-        conn.close()
 
 
 # ---------------------------------------------------------------------------

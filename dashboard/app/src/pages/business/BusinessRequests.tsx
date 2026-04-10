@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import {
+  BusinessIntentHeader,
   StatusRail,
   toRailStatus,
 } from "@/components/business";
@@ -222,26 +223,46 @@ export default function BusinessRequests() {
 
   return (
     <div className="p-8 max-w-[1280px]">
-      {/* Header */}
-      <div className="flex items-baseline gap-4 mb-8">
-        <h1
-          className="bp-display text-[32px] leading-none"
-          style={{ color: "var(--bp-ink-primary)" }}
-        >
-          Data Requests
-        </h1>
-        <button
-          onClick={fetchRequests}
-          className="ml-auto flex items-center gap-1.5 text-[12px] transition-colors"
-          style={{ color: "var(--bp-ink-muted)" }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--bp-copper)")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--bp-ink-muted)")}
-          aria-label="Refresh"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </button>
-      </div>
+      <BusinessIntentHeader
+        title="Data Requests"
+        meta={loading ? "Loading request history…" : `${requests.length.toLocaleString()} requests tracked`}
+        summary="This page is where business users ask for missing data and track what will happen after submission. It turns a vague ask into a visible workflow with status, response, and preserved business context."
+        items={[
+          {
+            label: "What This Page Is",
+            value: "Request intake and status tracking",
+            detail: "Use the form to ask for new data or changes, then monitor the review and delivery status without leaving the business portal.",
+          },
+          {
+            label: "Why It Matters",
+            value: "Requests should not disappear into email",
+            detail: "Business users need a clear handoff into the platform team with enough context to act and enough visibility to trust that the request is progressing.",
+          },
+          {
+            label: "What Happens Next",
+            value: "Submit once, then watch the handoff",
+            detail: "After submission, the request stays visible here while the platform team reviews scope, maps it to available sources, and responds with approval, completion, or a blocker.",
+          },
+        ]}
+        links={[
+          { label: "Open Catalog", to: "/catalog-portal" },
+          { label: "Open Help", to: "/help" },
+          { label: "Return to Overview", to: "/overview" },
+        ]}
+        actions={
+          <button
+            onClick={fetchRequests}
+            className="ml-auto flex items-center gap-1.5 text-[12px] transition-colors"
+            style={{ color: "var(--bp-ink-muted)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--bp-copper)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--bp-ink-muted)")}
+            aria-label="Refresh"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+        }
+      />
 
       {/* Two-column layout */}
       <div className="grid gap-8" style={{ gridTemplateColumns: "1.2fr 1fr" }}>

@@ -208,7 +208,7 @@ class MetadataAnalyzer:
 
     def analyze_all_sources(self) -> dict:
         """Orchestrate full analysis of all sources."""
-        log.info("🔍 Starting comprehensive cross-source join analysis...")
+        log.info("Starting comprehensive cross-source join analysis...")
 
         analysis_result = {
             "timestamp": datetime.utcnow().isoformat(),
@@ -222,17 +222,17 @@ class MetadataAnalyzer:
 
         # 1. Analyze each source system
         for source_name, conn_info in SOURCE_SYSTEMS.items():
-            log.info(f"📊 Analyzing source: {source_name}")
+            log.info(f"Analyzing source: {source_name}")
             try:
                 tables = self._analyze_source(source_name, conn_info)
                 if tables:
                     analysis_result["sources_analyzed"].append(source_name)
                     analysis_result["total_tables"] += len(tables)
             except Exception as e:
-                log.error(f"❌ Failed to analyze {source_name}: {e}")
+                log.error(f"Failed to analyze {source_name}: {e}")
 
         # 2. Discover within-source foreign key relationships
-        log.info("🔗 Discovering within-source relationships...")
+        log.info("Discovering within-source relationships...")
         self._discover_within_source_joins()
         analysis_result["within_source_joins"] = sum(
             len(t.foreign_keys) for tables_dict in self.all_tables.values()
@@ -240,16 +240,16 @@ class MetadataAnalyzer:
         )
 
         # 3. Discover cross-source join candidates
-        log.info("🌍 Discovering cross-source join candidates...")
+        log.info("Discovering cross-source join candidates...")
         self._discover_cross_source_joins()
         analysis_result["cross_source_candidates"] = len(self.join_candidates)
 
         # 4. Generate reports and artifacts
-        log.info("📝 Generating analysis reports...")
+        log.info("Generating analysis reports...")
         artifacts = self._generate_reports()
         analysis_result["analysis_artifacts"] = artifacts
 
-        log.info("✅ Analysis complete!")
+        log.info("Analysis complete")
         return analysis_result
 
     def _analyze_source(self, source_name: str, conn_info: dict) -> Dict[str, TableMetadata]:
@@ -282,7 +282,7 @@ class MetadataAnalyzer:
                         )
                         tables[table_name] = table_meta
                     except Exception as e:
-                        log.warning(f"  ⚠ Skipped {table_name}: {e}")
+                        log.warning(f"  Skipped {table_name}: {e}")
                         continue
 
                 # Store in master dict
@@ -290,7 +290,7 @@ class MetadataAnalyzer:
                 return tables
 
         except Exception as e:
-            log.error(f"❌ Connection failed for {source_name} ({server}/{database}): {e}")
+            log.error(f"Connection failed for {source_name} ({server}/{database}): {e}")
             return {}
 
     def _extract_table_metadata(
@@ -601,24 +601,24 @@ class MetadataAnalyzer:
             }
 
         json_path = self.output_dir / "join_discovery_metadata.json"
-        with open(json_path, "w") as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(json_report, f, indent=2, default=str)
         artifacts.append(str(json_path))
-        log.info(f"📄 JSON Report: {json_path}")
+        log.info(f"JSON Report: {json_path}")
 
         # 2. HTML Report — Visual overview
         html_report = self._generate_html_report()
         html_path = self.output_dir / "join_discovery_analysis.html"
-        with open(html_path, "w") as f:
+        with open(html_path, "w", encoding="utf-8") as f:
             f.write(html_report)
         artifacts.append(str(html_path))
-        log.info(f"📊 HTML Report: {html_path}")
+        log.info(f"HTML Report: {html_path}")
 
         # 3. SQLite Database — Queryable join discovery DB
         db_path = self.output_dir / "join_discovery.db"
         self._generate_sqlite_database(db_path)
         artifacts.append(str(db_path))
-        log.info(f"🗄 SQLite DB: {db_path}")
+        log.info(f"SQLite DB: {db_path}")
 
         return artifacts
 
@@ -923,7 +923,7 @@ class MetadataAnalyzer:
         conn.commit()
         conn.close()
 
-        log.info(f"✅ SQLite database created: {db_path}")
+        log.info(f"SQLite database created: {db_path}")
 
 
 # ===========================================================================
@@ -945,7 +945,7 @@ if __name__ == "__main__":
     result = analyzer.analyze_all_sources()
 
     print("\n" + "="*80)
-    print("✅ ANALYSIS COMPLETE")
+    print("ANALYSIS COMPLETE")
     print("="*80)
     print(f"Sources Analyzed: {', '.join(result['sources_analyzed'])}")
     print(f"Total Tables: {result['total_tables']}")
@@ -953,5 +953,5 @@ if __name__ == "__main__":
     print(f"Cross-Source Candidates: {result['cross_source_candidates']}")
     print(f"\nArtifacts Generated:")
     for artifact in result['analysis_artifacts']:
-        print(f"  📄 {artifact}")
+        print(f"  {artifact}")
     print("="*80 + "\n")

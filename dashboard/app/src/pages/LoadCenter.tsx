@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Play,
   RefreshCw,
@@ -16,6 +17,13 @@ import {
   ArrowUpDown,
   Search,
 } from "lucide-react";
+import { useEntityDigest } from "@/hooks/useEntityDigest";
+import {
+  findEntityById,
+  findEntityFromParams,
+  getEntityMissingLayers,
+  isSuccessStatus,
+} from "@/lib/exploreWorksurface";
 
 // ============================================================================
 // TYPES
@@ -393,6 +401,8 @@ function SourceDetailTable({ detail }: { detail: SourceDetail }) {
 // ============================================================================
 
 export default function LoadCenter() {
+  const [searchParams] = useSearchParams();
+  const { allEntities } = useEntityDigest();
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -498,6 +508,54 @@ export default function LoadCenter() {
   const totals = status?.totals;
   const runState = status?.runState;
   const isRunning = runState?.active ?? false;
+  const registeredCount = status?.totalRegistered ?? 0;
+  const missingLandingCount = Math.max(registeredCount - (totals?.lz?.tables ?? 0), 0);
+  const missingBronzeCount = Math.max(registeredCount - (totals?.bronze?.tables ?? 0), 0);
+  const missingSilverCount = Math.max(registeredCount - (totals?.silver?.tables ?? 0), 0);
+  const outstandingEntities = useMemo(() => {
+    if (!status) return [];
+    return status.gaps.slice(0, 8);
+  }, [status]);
+  const focusedTable = searchParams.get("table");
+  const focusedSource = searchParams.get("source");
+  const focusedSchema = searchParams.get("schema");
+  const focusedEntityId = searchParams.get("entity");
+  const focusedGap = useMemo(() => {
+    if (!focusedTable || !status) return null;
+    return status.gaps.find((gap) =>
+      gap.table.toLowerCase() === focusedTable.toLowerCase()
+      && (!focusedSource || gap.source.toLowerCase() === focusedSource.toLowerCase())
+    ) || null;
+  }, [focusedSource, focusedTable, status]);
+  const focusedEntity = useMemo(() => {
+    return findEntityById(allEntities, focusedEntityId)
+      || findEntityFromParams(allEntities, {
+        table: focusedTable,
+        schema: focusedSchema,
+        source: focusedSource,
+      });
+  }, [allEntities, focusedEntityId, focusedSchema, focusedSource, focusedTable]);
+  const focusedMissingLayers = useMemo(() => {
+    if (focusedEntity) return getEntityMissingLayers(focusedEntity);
+    return focusedGap?.missingIn ?? [];
+  }, [focusedEntity, focusedGap]);
+  const focusedLayerStatus = focusedEntity ? [
+    { label: "Landing", status: focusedEntity.lzStatus, ready: isSuccessStatus(focusedEntity.lzStatus) },
+    { label: "Bronze", status: focusedEntity.bronzeStatus, ready: isSuccessStatus(focusedEntity.bronzeStatus) },
+    { label: "Silver", status: focusedEntity.silverStatus, ready: isSuccessStatus(focusedEntity.silverStatus) },
+  ] : [];
+  const focusedEntityLabel = focusedEntity
+    ? `${focusedEntity.source}.${focusedEntity.sourceSchema}.${focusedEntity.tableName}`
+    : focusedGap
+      ? `${focusedGap.source}.${focusedGap.schema}.${focusedGap.table}`
+      : null;
+  const focusedEntityNote = focusedEntity?.lastError
+    ? `Last recorded failure: ${focusedEntity.lastError.layer} · ${focusedEntity.lastError.message}`
+    : focusedMissingLayers.length > 0
+      ? `Still missing ${focusedMissingLayers.join(" + ")} before the asset can re-enter tool mode.`
+      : focusedEntity
+        ? "The entity is registered, but Load Center should still own the completion workflow."
+        : null;
   const maxTables = useMemo(() => {
     if (!status?.sources) return 1;
     return Math.max(...status.sources.flatMap(s => [s.lz.tables, s.bronze.tables, s.silver.tables]), 1);
@@ -510,7 +568,7 @@ export default function LoadCenter() {
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--bp-ink-primary)", margin: 0 }}>Load Center</h1>
           <p style={{ fontSize: 13, color: "var(--bp-ink-muted)", margin: "4px 0 0" }}>
-            Successfully loaded tables and rows from engine run history.
+            The single place that finishes imports and shows exactly what is still missing in landing, bronze, and silver.
             {status?.scannedAt && <> Physical scan: {timeAgo(status.scannedAt)}.</>}
             {status && <span style={{ marginLeft: 6, fontSize: 11, color: "var(--bp-ink-muted)" }}>({status.queryTimeSec}s)</span>}
           </p>
@@ -541,7 +599,7 @@ export default function LoadCenter() {
             }}
           >
             <Zap style={{ width: 14, height: 14 }} />
-            Preview Run
+            Preview Completion Plan
           </button>
           <button
             onClick={handleRun}
@@ -556,7 +614,7 @@ export default function LoadCenter() {
           >
             {isRunning
               ? <><Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} /> Running...</>
-              : <><Play style={{ width: 14, height: 14 }} /> Load Everything</>
+              : <><Play style={{ width: 14, height: 14 }} /> Finish Outstanding Entities</>
             }
           </button>
         </div>
@@ -589,7 +647,7 @@ export default function LoadCenter() {
       {/* Run plan preview */}
       {runPlan && (
         <div style={{ padding: "16px", borderRadius: 8, background: "var(--bp-surface-1)", border: "1px solid var(--bp-border)", marginBottom: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: "var(--bp-ink-primary)" }}>Load Plan Preview</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: "var(--bp-ink-primary)" }}>Completion Plan Preview</div>
           <div style={{ display: "flex", gap: 24, fontSize: 13 }}>
             <div><span style={{ fontWeight: 600 }}>{runPlan.plan.summary?.fullLoadCount ?? 0}</span> <span style={{ color: "var(--bp-ink-muted)" }}>full loads</span></div>
             <div><span style={{ fontWeight: 600 }}>{runPlan.plan.summary?.incrementalCount ?? 0}</span> <span style={{ color: "var(--bp-ink-muted)" }}>incremental</span></div>
@@ -620,6 +678,137 @@ export default function LoadCenter() {
         </div>
       )}
 
+      {status && (
+        <div style={{ padding: "18px 20px", borderRadius: 12, background: "linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(244,242,237,0.98) 100%)", border: "1px solid rgba(180,86,36,0.16)", marginBottom: 20 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+            <div style={{ maxWidth: 720 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--bp-copper)" }}>
+                Import completion console
+              </div>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: "var(--bp-ink-primary)", margin: "10px 0 0" }}>
+                Stop guessing what is missing
+              </h2>
+              <p style={{ fontSize: 13, color: "var(--bp-ink-secondary)", margin: "10px 0 0", lineHeight: 1.65 }}>
+                {registeredCount.toLocaleString()} registered entities are expected to make it through landing, bronze, and silver. This page shows exactly how many still have not made it to each layer and gives one button to finish the outstanding work.
+              </p>
+              {(focusedEntityLabel || focusedGap) && (
+                <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 8, background: "rgba(180,86,36,0.08)", border: "1px solid rgba(180,86,36,0.16)", fontSize: 12, color: "var(--bp-ink-secondary)" }}>
+                  <div>
+                    Focused entity: <strong style={{ color: "var(--bp-ink-primary)" }}>{focusedEntityLabel}</strong>
+                    {focusedMissingLayers.length > 0 ? ` is still missing ${focusedMissingLayers.join(" + ")}.` : " is in scope for completion review."}
+                  </div>
+                  {focusedEntityNote ? (
+                    <div style={{ marginTop: 6, lineHeight: 1.55 }}>
+                      {focusedEntityNote}
+                    </div>
+                  ) : null}
+                  {focusedLayerStatus.length > 0 ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                      {focusedLayerStatus.map((layer) => (
+                        <span
+                          key={layer.label}
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: 999,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: layer.ready ? "rgba(34,197,94,0.12)" : "rgba(245,158,11,0.12)",
+                            color: layer.ready ? "#15803d" : "#b45309",
+                          }}
+                        >
+                          {layer.label}: {layer.status || "pending"}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={handleRun}
+                disabled={runLoading || isRunning}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "10px 16px", borderRadius: 999,
+                  fontSize: 13, fontWeight: 600,
+                  border: "none",
+                  background: isRunning ? "var(--bp-ink-muted)" : "var(--bp-copper, #c47a5a)",
+                  color: "#fff", cursor: isRunning ? "not-allowed" : "pointer",
+                }}
+              >
+                {isRunning ? <><Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} /> Running...</> : <><Play style={{ width: 14, height: 14 }} /> Finish Outstanding Entities</>}
+              </button>
+              <button
+                onClick={handleDryRun}
+                disabled={runLoading || isRunning}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "10px 16px", borderRadius: 999,
+                  fontSize: 13, fontWeight: 600,
+                  border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)",
+                  color: "var(--bp-ink-secondary)", cursor: "pointer",
+                }}
+              >
+                <Zap style={{ width: 14, height: 14 }} />
+                Preview Completion Plan
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 18 }}>
+            {[
+              { label: "Missing Landing", value: missingLandingCount, detail: "Registered entities that have not landed yet.", accent: missingLandingCount > 0 ? "#ef4444" : "#22c55e" },
+              { label: "Missing Bronze", value: missingBronzeCount, detail: "Entities still not materialized in bronze.", accent: missingBronzeCount > 0 ? "#f59e0b" : "#22c55e" },
+              { label: "Missing Silver", value: missingSilverCount, detail: "Entities still not usable in silver.", accent: missingSilverCount > 0 ? "#f59e0b" : "#22c55e" },
+              { label: "Gap Fill Queue", value: status.gapCount, detail: "Entities that landed but still stop before the full chain.", accent: status.gapCount > 0 ? "#f59e0b" : "#22c55e" },
+            ].map((item) => (
+              <div key={item.label} style={{ border: "1px solid rgba(91,84,76,0.10)", borderRadius: 12, background: "rgba(255,255,255,0.86)", padding: "14px 16px" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--bp-ink-muted)" }}>
+                  {item.label}
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: item.accent, marginTop: 6, lineHeight: 1.1 }}>
+                  {item.value.toLocaleString()}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--bp-ink-secondary)", marginTop: 6, lineHeight: 1.55 }}>
+                  {item.detail}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {outstandingEntities.length > 0 && (
+            <div style={{ marginTop: 18, border: "1px solid rgba(91,84,76,0.10)", borderRadius: 12, background: "rgba(255,255,255,0.86)", padding: "14px 16px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--bp-ink-primary)" }}>
+                  Entities still missing managed layers
+                </div>
+                <div style={{ fontSize: 11, color: "var(--bp-ink-muted)" }}>
+                  Showing {outstandingEntities.length} of {status.gapCount}
+                </div>
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {outstandingEntities.map((gap) => (
+                  <div key={`${gap.source}.${gap.schema}.${gap.table}`} style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 10, padding: "10px 12px", borderRadius: 10, background: "var(--bp-surface-inset)", border: "1px solid var(--bp-border)" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
+                        {gap.table}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--bp-ink-secondary)", marginTop: 2 }}>
+                        {gap.source} · {gap.schema}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--bp-copper)", fontWeight: 600 }}>
+                      Missing {gap.missingIn.join(" + ")}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Loading state */}
       {loading && !status && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 40, justifyContent: "center", color: "var(--bp-ink-muted)" }}>
@@ -641,8 +830,7 @@ export default function LoadCenter() {
             No loaded sources yet
           </h2>
           <p style={{ fontSize: 14, color: "var(--bp-ink-muted)", maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>
-            The Load Center shows table and row counts from engine run history.
-            Register entities in the Source Manager, then run a load to see data here.
+            Nothing has completed the managed import path yet. Use this page to preview the completion plan or finish the outstanding entities once registration is in place.
           </p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
             <button
@@ -656,7 +844,7 @@ export default function LoadCenter() {
               }}
             >
               <Zap style={{ width: 14, height: 14 }} />
-              Preview Run
+              Preview Completion Plan
             </button>
             <button
               onClick={handleRefresh}
@@ -834,7 +1022,7 @@ export default function LoadCenter() {
             {status.gapCount} Table Gaps Detected
           </div>
           <p style={{ fontSize: 12, color: "var(--bp-ink-muted)", margin: "0 0 8px" }}>
-            These tables exist in Landing Zone but are missing from Bronze and/or Silver. Click "Load Everything" to fill these gaps automatically.
+            These tables exist in Landing Zone but are missing from Bronze and/or Silver. Use "Finish Outstanding Entities" to complete the downstream layers automatically.
           </p>
           <div style={{ maxHeight: 200, overflowY: "auto", fontSize: 12 }}>
             {status.gaps.slice(0, 50).map((g, i) => (

@@ -11,6 +11,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useSourceConfig, resolveSourceLabel, getSourceColor } from "@/hooks/useSourceConfig";
 import {
+  BusinessIntentHeader,
   SourceBadge,
   QualityTierBadge,
   scoreToTier,
@@ -461,21 +462,43 @@ export default function BusinessCatalog() {
 
   return (
     <div className="p-8 max-w-[1280px]">
-      {/* Header */}
-      <div className="mb-2">
-        <h1
-          className="bp-display text-[32px] leading-none"
-          style={{ color: "var(--bp-ink-primary)" }}
-        >
-          Catalog
-        </h1>
-      </div>
-      <p
-        className="text-[14px] mb-8"
-        style={{ color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-body)" }}
-      >
-        Find and explore your data
-      </p>
+      <BusinessIntentHeader
+        title="Catalog"
+        meta={
+          activeTab === "collections"
+            ? `${domains.length.toLocaleString()} collections in scope`
+            : `${lzEntities.length.toLocaleString()} source tables searchable`
+        }
+        summary={
+          activeTab === "collections"
+            ? "This page is the business-facing catalog of trusted collections and the broader source-table estate behind them. Start here when the user knows the business question but not the technical implementation."
+            : "This page is the business-facing catalog of trusted collections and the broader source-table estate behind them. Start here when the user needs to find a specific table, quality signal, or source-backed asset."
+        }
+        items={[
+          {
+            label: "What This Page Is",
+            value: activeTab === "collections" ? "Collection and dataset front door" : "Searchable table inventory",
+            detail: activeTab === "collections"
+              ? "Browse curated business collections first, then move into the deeper source inventory only when a business question requires raw table coverage."
+              : "Search across source tables, filter by source and quality, and open individual data assets without navigating engineering-only screens.",
+          },
+          {
+            label: "Why It Matters",
+            value: "Discovery must feel trustworthy",
+            detail: "If users cannot quickly tell what data exists and how trustworthy it is, every downstream request becomes slower, noisier, and more dependent on tribal knowledge.",
+          },
+          {
+            label: "What Happens Next",
+            value: "Open detail or raise a gap",
+            detail: "Move into the item that looks relevant, then either use it confidently, verify its freshness and quality, or submit a request when the catalog does not yet cover the need.",
+          },
+        ]}
+        links={[
+          { label: "Open Overview", to: "/overview" },
+          { label: "Browse Sources", to: "/sources-portal" },
+          { label: "Submit a Request", to: "/requests" },
+        ]}
+      />
 
       {/* Tab Bar */}
       <div

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, Fragment } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
+import { ExploreWorkbenchHeader } from "@/components/explore/ExploreWorkbenchHeader";
+import { PipelineResolutionPanel } from "@/components/explore/PipelineResolutionPanel";
 import {
   Search,
   Loader2,
@@ -28,8 +30,25 @@ import {
   Table2,
   Layers3,
   Microscope,
+  Orbit,
+  BookOpen,
+  DatabaseZap,
+  Network,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
+import {
+  buildEntityCatalogUrl,
+  buildEntityLineageUrl,
+  buildEntitySourceSqlUrl,
+  findEntityFromParams,
+  getBlockedEntities,
+  getEntityResolutionAction,
+  getEntityLakehouseSchema,
+  getToolReadyEntities,
+  isEntityToolReady,
+  isSuccessStatus,
+} from "@/lib/exploreWorksurface";
 
 // ============================================================================
 // CONSTANTS
@@ -470,41 +489,93 @@ function EntityPicker({
 }: {
   onSelect: (lakehouse: string, schema: string, table: string, layer: string) => void;
 }) {
-  const { allEntities, sourceList, loading: digestLoading } = useEntityDigest();
+  const { allEntities, loading: digestLoading } = useEntityDigest();
+  const toolReadyEntities = useMemo(() => getToolReadyEntities(allEntities), [allEntities]);
+  const blockedEntities = useMemo(() => getBlockedEntities(allEntities), [allEntities]);
+  const sourceList = useMemo(() => {
+    const map = new Map<string, { key: string; name: string; total: number }>();
+    toolReadyEntities.forEach((entity) => {
+      const current = map.get(entity.source) || { key: entity.source, name: entity.source, total: 0 };
+      current.total += 1;
+      map.set(entity.source, current);
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [toolReadyEntities]);
 
   const [selectedSource, setSelectedSource] = useState<string>("");
   const [selectedEntity, setSelectedEntity] = useState<DigestEntity | null>(null);
   const [selectedLayer, setSelectedLayer] = useState<"bronze" | "silver">("bronze");
   const [entitySearch, setEntitySearch] = useState("");
+  const [focusFilter, setFocusFilter] = useState<"all" | "trusted">("all");
 
   const sourceEntities = useMemo(() => {
-    if (!selectedSource) return allEntities;
-    return allEntities.filter((e) => e.source === selectedSource);
-  }, [allEntities, selectedSource]);
+    if (!selectedSource) return toolReadyEntities;
+    return toolReadyEntities.filter((e) => e.source === selectedSource);
+  }, [selectedSource, toolReadyEntities]);
 
   const filteredEntities = useMemo(() => {
-    if (!entitySearch.trim()) return sourceEntities;
-    const q = entitySearch.toLowerCase();
-    return sourceEntities.filter(
-      (e) => e.tableName.toLowerCase().includes(q) || e.sourceSchema.toLowerCase().includes(q)
-    );
-  }, [sourceEntities, entitySearch]);
+    let result = sourceEntities;
+    if (entitySearch.trim()) {
+      const q = entitySearch.toLowerCase();
+      result = result.filter(
+        (e) =>
+          e.tableName.toLowerCase().includes(q) ||
+          e.sourceSchema.toLowerCase().includes(q) ||
+          e.businessName?.toLowerCase().includes(q) ||
+          e.domain?.toLowerCase().includes(q)
+      );
+    }
+
+    if (focusFilter === "trusted") {
+      result = result.filter((e) => (e.qualityScore || 0) >= 80 || e.qualityTier === "silver");
+    }
+
+    return result;
+  }, [entitySearch, focusFilter, sourceEntities]);
 
   const handleProfile = () => {
     if (!selectedEntity) return;
     const lakehouse = LAYER_LAKEHOUSE[selectedLayer] || LAYER_LAKEHOUSE.bronze;
-    onSelect(lakehouse, selectedEntity.source || selectedEntity.sourceSchema, selectedEntity.tableName, selectedLayer);
+    onSelect(lakehouse, getEntityLakehouseSchema(selectedEntity), selectedEntity.tableName, selectedLayer);
   };
+
+  const blockedCount = blockedEntities.length;
+  const silverReadyCount = toolReadyEntities.length;
+  const trustedCount = toolReadyEntities.filter((e) => (e.qualityScore || 0) >= 80 || e.qualityTier === "silver").length;
 
   return (
     <div className="gs-page-enter p-6 md:p-10 max-w-3xl mx-auto space-y-6">
-      <div className="text-center">
-        <Microscope className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--bp-ink-muted)" }} />
-        <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "36px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Data Profiler</h1>
-        <p className="text-sm mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
-          Select a source, entity, and layer to profile
-        </p>
-      </div>
+      <ExploreWorkbenchHeader
+        title="Data Profiler"
+        summary="Investigate shape, completeness, null hotspots, and likely keys so the next stewardship or modeling decision is obvious."
+        meta={`${filteredEntities.length.toLocaleString("en-US")} candidate tables in view`}
+        facts={[
+          {
+            label: "Silver Ready",
+            value: silverReadyCount.toLocaleString("en-US"),
+            detail: "Tables already available for downstream investigation.",
+            tone: "positive",
+          },
+          {
+            label: "Blocked",
+            value: blockedCount.toLocaleString("en-US"),
+            detail: "Incomplete imports are routed to Load Center instead of this picker.",
+            tone: blockedCount > 0 ? "warning" : "neutral",
+          },
+          {
+            label: "Trusted",
+            value: trustedCount.toLocaleString("en-US"),
+            detail: "High-confidence assets worth validating for publish readiness.",
+            tone: "accent",
+          },
+        ]}
+        actions={[
+          { label: "Explore hub", to: "/explore", tone: "quiet", icon: BookOpen },
+          { label: "Show trusted", onClick: () => setFocusFilter("trusted"), tone: focusFilter === "trusted" ? "primary" : "secondary", icon: BookOpen },
+          blockedCount > 0 ? { label: "Open Load Center", to: "/load-center", tone: "secondary", icon: Orbit } : undefined,
+          focusFilter !== "all" ? { label: "Clear focus", onClick: () => setFocusFilter("all"), tone: "quiet" } : undefined,
+        ].filter(Boolean) as never[]}
+      />
 
       {digestLoading ? (
         <div className="flex items-center justify-center py-12 gap-3">
@@ -527,14 +598,37 @@ function EntityPicker({
               className="w-full px-3 py-2 rounded-lg text-sm outline-none"
               style={{ border: "1px solid var(--bp-border-subtle)", backgroundColor: "var(--bp-surface-1)", color: "var(--bp-ink-primary)" }}
             >
-              <option value="">All Sources ({allEntities.length} entities)</option>
+              <option value="">All Sources ({toolReadyEntities.length} tool-ready entities)</option>
               {sourceList.map((s) => (
                 <option key={s.key} value={s.key}>
-                  {s.name} ({s.summary.total} entities)
+                  {s.name} ({s.total} entities)
                 </option>
               ))}
             </select>
           </div>
+
+          {blockedCount > 0 ? (
+            <div className="rounded-2xl px-4 py-3" style={{ border: "1px solid rgba(180,86,36,0.14)", background: "rgba(180,86,36,0.05)" }}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--bp-copper)", fontFamily: "var(--bp-font-mono)" }}>
+                    Tool readiness gate
+                  </div>
+                  <p className="mt-2 text-xs" style={{ color: "var(--bp-ink-secondary)", lineHeight: 1.55 }}>
+                    {blockedCount.toLocaleString("en-US")} entities are blocked from profiling until their import path is finished. Load Center is the only place that should complete those imports.
+                  </p>
+                </div>
+                <Link
+                  to="/load-center"
+                  className="inline-flex items-center gap-2 rounded-full px-4 py-2.5"
+                  style={{ fontSize: 12, fontWeight: 600, color: "var(--bp-surface-1)", backgroundColor: "var(--bp-copper)", textDecoration: "none" }}
+                >
+                  <Orbit size={14} />
+                  Open Load Center
+                </Link>
+              </div>
+            </div>
+          ) : null}
 
           {/* Entity search + list */}
           <div>
@@ -570,16 +664,18 @@ function EntityPicker({
                   >
                     <div>
                       <span className="text-xs font-mono" style={{ color: "var(--bp-ink-primary)" }}>{e.tableName}</span>
-                      <span className="text-[10px] ml-2" style={{ color: "var(--bp-ink-muted)", opacity: 0.5 }}>{e.sourceSchema}</span>
+                      <span className="text-[10px] ml-2" style={{ color: "var(--bp-ink-muted)", opacity: 0.5 }}>
+                        {e.businessName || e.sourceSchema}
+                      </span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      {e.lzStatus === "loaded" && (
+                      {isSuccessStatus(e.lzStatus) && (
                         <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--bp-surface-inset)] text-[var(--bp-ink-muted)]">LZ</span>
                       )}
-                      {e.bronzeStatus === "loaded" && (
+                      {isSuccessStatus(e.bronzeStatus) && (
                         <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--bp-copper-light)]/30 text-[var(--bp-copper-hover)]">BZ</span>
                       )}
-                      {e.silverStatus === "loaded" && (
+                      {isSuccessStatus(e.silverStatus) && (
                         <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--bp-silver-light)]/30 text-[var(--bp-silver)]">SV</span>
                       )}
                     </div>
@@ -596,14 +692,25 @@ function EntityPicker({
 
           {/* Layer selector */}
           {selectedEntity && (
-            <div>
+            <div className="space-y-3">
+              <div className="rounded-2xl px-4 py-3" style={{ border: "1px solid rgba(180,86,36,0.14)", background: "rgba(180,86,36,0.05)" }}>
+                <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--bp-copper)", fontFamily: "var(--bp-font-mono)" }}>
+                  Selected Investigation
+                </div>
+                <div className="mt-2 text-sm font-semibold" style={{ color: "var(--bp-ink-primary)" }}>
+                  {selectedEntity.businessName || selectedEntity.tableName}
+                </div>
+                <p className="mt-1 text-xs" style={{ color: "var(--bp-ink-secondary)", lineHeight: 1.55 }}>
+                  {selectedEntity.diagnosis || "Profile this table in the layer where the decision needs to be made."}
+                </p>
+              </div>
               <label className="text-[10px] uppercase tracking-wider font-medium block mb-1.5" style={{ color: "var(--bp-ink-muted)", opacity: 0.6 }}>
                 Layer
               </label>
               <div className="flex gap-2">
                 {([
-                  { key: "bronze", label: "Bronze", color: "var(--bp-copper-hover)", loaded: selectedEntity.bronzeStatus === "loaded" },
-                  { key: "silver", label: "Silver", color: "var(--bp-silver)", loaded: selectedEntity.silverStatus === "loaded" },
+                  { key: "bronze", label: "Bronze", color: "var(--bp-copper-hover)", loaded: isSuccessStatus(selectedEntity.bronzeStatus) },
+                  { key: "silver", label: "Silver", color: "var(--bp-silver)", loaded: isSuccessStatus(selectedEntity.silverStatus) },
                 ] as const).map((l) => (
                   <button
                     key={l.key}
@@ -650,6 +757,7 @@ function EntityPicker({
 
 export default function DataProfiler() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { allEntities, loading: digestLoading } = useEntityDigest();
   const paramLakehouse = searchParams.get("lakehouse") || "";
   const paramSchema = searchParams.get("schema") || "";
   const paramTable = searchParams.get("table") || "";
@@ -666,6 +774,10 @@ export default function DataProfiler() {
 
   const hasSelection = !!(paramLakehouse && paramSchema && paramTable);
   const layerColor = LAYER_COLORS[paramLayer] || LAYER_COLORS.bronze;
+  const currentEntity = useMemo(() => findEntityFromParams(allEntities, { table: paramTable, schema: paramSchema }), [allEntities, paramSchema, paramTable]);
+  const blockedCurrentEntity = currentEntity && !isEntityToolReady(currentEntity) ? currentEntity : null;
+  const resolutionAction = blockedCurrentEntity ? getEntityResolutionAction(blockedCurrentEntity) : null;
+  const sourceSql = useMemo(() => (currentEntity ? buildEntitySourceSqlUrl(currentEntity) : null), [currentEntity]);
 
   const loadProfile = useCallback(async () => {
     if (!paramLakehouse || !paramSchema || !paramTable) return;
@@ -702,8 +814,9 @@ export default function DataProfiler() {
   }, [paramLakehouse, paramSchema, paramTable]);
 
   useEffect(() => {
-    if (hasSelection) loadProfile();
-  }, [loadProfile, hasSelection]);
+    if (!hasSelection || digestLoading) return;
+    if (!currentEntity || isEntityToolReady(currentEntity)) loadProfile();
+  }, [currentEntity, digestLoading, hasSelection, loadProfile]);
 
   // Handle picker selection → update URL params
   const handleEntitySelect = useCallback(
@@ -759,6 +872,13 @@ export default function DataProfiler() {
     return cols;
   }, [profile, search, sortKey, sortAsc]);
 
+  const highNullCount = useMemo(() => profile?.columns.filter((col) => col.nullPercentage > 50).length ?? 0, [profile]);
+  const allNullCount = useMemo(() => profile?.columns.filter((col) => col.nullPercentage >= 100).length ?? 0, [profile]);
+  const potentialKeyCount = useMemo(() => profile?.columns.filter((col) => (col.uniqueness || 0) >= 99.9 && (profile?.rowCount || 0) > 0).length ?? 0, [profile]);
+  const lowCardinalityCount = useMemo(() => profile?.columns.filter((col) => col.distinctCount <= 5 && col.distinctCount > 0 && (profile?.rowCount || 0) > 100).length ?? 0, [profile]);
+  const avgCompleteness = useMemo(() => profile?.columns.length ? profile.columns.reduce((sum, col) => sum + col.completeness, 0) / profile.columns.length : 0, [profile]);
+  const avgUniqueness = useMemo(() => profile?.columns.length ? profile.columns.reduce((sum, col) => sum + (col.uniqueness || 0), 0) / profile.columns.length : 0, [profile]);
+
   function handleSort(key: SortKey) {
     if (sortKey === key) {
       setSortAsc(!sortAsc);
@@ -790,69 +910,96 @@ export default function DataProfiler() {
     return <EntityPicker onSelect={handleEntitySelect} />;
   }
 
-  return (
-    <div className="gs-page-enter p-4 md:p-6 space-y-4 max-w-[1600px] mx-auto">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setSearchParams({})}
-            className="p-1.5 rounded-md transition-colors"
-            style={{ border: "1px solid var(--bp-border-subtle)", color: "var(--bp-ink-tertiary)" }}
-            title="Change table"
-            aria-label="Go back to table selection"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <div>
-            <div className="flex items-center gap-2">
-              <Table2 className="w-5 h-5" style={{ color: layerColor }} />
-              <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "36px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>
-                {paramSchema}.{paramTable}
-              </h1>
-              <span
-                className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded"
-                style={{
-                  color: layerColor,
-                  backgroundColor: `${layerColor}15`,
-                  border: `1px solid ${layerColor}30`,
-                }}
-              >
-                {paramLayer}
-              </span>
-            </div>
-            <p className="text-xs mt-0.5 flex items-center gap-1.5" style={{ color: "var(--bp-ink-muted)", opacity: 0.6 }}>
-              <Database className="w-3 h-3" />
-              {paramLakehouse}
-            </p>
-          </div>
-        </div>
-
-        {/* View mode tabs */}
-        <div className="flex items-center gap-1 p-0.5 rounded-lg" style={{ backgroundColor: "var(--bp-canvas)", border: "1px solid var(--bp-border-subtle)" }}>
-          {(
-            [
-              { key: "table", label: "Table", icon: Table2 },
-              { key: "matrix", label: "Missing Matrix", icon: BarChart3 },
-              { key: "ranking", label: "Quality Rank", icon: SortAsc },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setViewMode(tab.key)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-              style={
-                viewMode === tab.key
-                  ? { backgroundColor: "var(--bp-surface-1)", color: "var(--bp-ink-primary)", border: "1px solid var(--bp-border-subtle)" }
-                  : { color: "var(--bp-ink-muted)", opacity: 0.6 }
-              }
-            >
-              <tab.icon className="w-3 h-3" />
-              {tab.label}
-            </button>
-          ))}
+  if (digestLoading) {
+    return (
+      <div className="gs-page-enter p-4 md:p-6 space-y-4 max-w-[1200px] mx-auto">
+        <ExploreWorkbenchHeader
+          title={`${paramSchema}.${paramTable}`}
+          summary="Checking whether this entity is actually ready for profiling before opening the workbench."
+          eyebrow="Investigate"
+          meta="Resolving tool readiness"
+        />
+        <div className="flex items-center justify-center py-20 gap-3">
+          <Loader2 className="w-5 h-5 animate-spin" style={{ color: "var(--bp-ink-tertiary)" }} />
+          <span className="text-sm" style={{ color: "var(--bp-ink-tertiary)" }}>Resolving entity readiness...</span>
         </div>
       </div>
+    );
+  }
+
+  if (blockedCurrentEntity && resolutionAction) {
+    return (
+      <div className="gs-page-enter p-4 md:p-6 space-y-4 max-w-[1200px] mx-auto">
+        <ExploreWorkbenchHeader
+          title={blockedCurrentEntity.businessName || `${paramSchema}.${paramTable}`}
+          summary="Profiler only opens for tool-ready entities. Incomplete imports are routed to Load Center instead of pretending the table can be investigated properly."
+          eyebrow="Investigate"
+          meta="Import completion required"
+          facts={[
+            { label: "Loaded", value: `${[blockedCurrentEntity.lzStatus, blockedCurrentEntity.bronzeStatus, blockedCurrentEntity.silverStatus].filter((status) => isSuccessStatus(status)).length}/3`, detail: "Managed layers ready for this entity.", tone: "warning" },
+            { label: "Next move", value: resolutionAction.label, detail: resolutionAction.detail, tone: "accent" },
+          ]}
+          actions={[
+            { label: "Explore hub", to: "/explore", tone: "quiet", icon: BookOpen },
+            { label: "Back to picker", onClick: () => setSearchParams({}), tone: "quiet", icon: ArrowLeft },
+            { label: "Open Load Center", to: resolutionAction.to, tone: "primary", icon: Orbit },
+          ]}
+        />
+        <PipelineResolutionPanel
+          entity={blockedCurrentEntity}
+          action={resolutionAction}
+          summary="This table has not completed its managed load path yet, so Profiler is refusing to fake the experience. Finish the import in Load Center and it will re-enter tool mode automatically."
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="gs-page-enter p-4 md:p-6 space-y-4 max-w-[1600px] mx-auto">
+      <ExploreWorkbenchHeader
+        title={currentEntity?.businessName || `${paramSchema}.${paramTable}`}
+        summary={currentEntity?.description || currentEntity?.diagnosis || "Profile the current layer to understand structure, null density, likely keys, and where downstream trust breaks."}
+        eyebrow="Investigate"
+        meta={`${paramLakehouse} · ${paramLayer}`}
+        facts={[
+          { label: "Rows", value: profile ? fmt(profile.rowCount) : "\u2014", detail: profile?.sampled ? `Sampled from ${fmt(profile.sampleSize)}` : "Full profiled row count.", tone: "accent" },
+          { label: "High Null Columns", value: highNullCount.toString(), detail: allNullCount > 0 ? `${allNullCount} are fully empty.` : "Columns over 50% null.", tone: highNullCount > 0 ? "warning" : "positive" },
+          { label: "Potential Keys", value: potentialKeyCount.toString(), detail: lowCardinalityCount > 0 ? `${lowCardinalityCount} low-cardinality fields also detected.` : "Columns approaching unique-key behavior.", tone: potentialKeyCount > 0 ? "positive" : "neutral" },
+          { label: "Avg Completeness", value: pctFmt(avgCompleteness), detail: `Average uniqueness is ${pctFmt(avgUniqueness)}.`, tone: avgCompleteness >= 95 ? "positive" : avgCompleteness >= 80 ? "accent" : "warning" },
+        ]}
+        actions={[
+          { label: "Explore hub", to: "/explore", tone: "quiet", icon: BookOpen },
+          { label: "Change table", onClick: () => setSearchParams({}), tone: "quiet", icon: ArrowLeft },
+          currentEntity ? { label: "Open lineage", to: buildEntityLineageUrl(currentEntity), tone: "secondary", icon: Network } : undefined,
+          currentEntity ? { label: "Open catalog", to: buildEntityCatalogUrl(currentEntity), tone: "secondary", icon: BookOpen } : undefined,
+          sourceSql ? { label: "Inspect source", to: sourceSql, tone: "secondary", icon: DatabaseZap } : undefined,
+        ].filter(Boolean) as never[]}
+        aside={(
+          <div className="flex items-center gap-1 p-0.5 rounded-lg" style={{ backgroundColor: "var(--bp-canvas)", border: "1px solid var(--bp-border-subtle)" }}>
+            {(
+              [
+                { key: "table", label: "Table", icon: Table2 },
+                { key: "matrix", label: "Missing Matrix", icon: BarChart3 },
+                { key: "ranking", label: "Quality Rank", icon: SortAsc },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setViewMode(tab.key)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                style={
+                  viewMode === tab.key
+                    ? { backgroundColor: "var(--bp-surface-1)", color: "var(--bp-ink-primary)", border: "1px solid var(--bp-border-subtle)" }
+                    : { color: "var(--bp-ink-muted)", opacity: 0.6 }
+                }
+              >
+                <tab.icon className="w-3 h-3" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
+      />
 
       {/* Loading state */}
       {loading && (
@@ -873,50 +1020,6 @@ export default function DataProfiler() {
       {/* Profile data */}
       {profile && !loading && (
         <>
-          {/* Summary strip */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {[
-              { label: profile.sampled ? `Rows (sampled ${fmt(profile.sampleSize)})` : "Rows", value: fmt(profile.rowCount), color: layerColor },
-              { label: "Columns", value: `${profile.columnCount}`, color: "var(--bp-ink-secondary)" },
-              { label: "Profiled", value: `${profile.profiledColumns}`, color: "var(--bp-ink-secondary)" },
-              {
-                label: "Avg Completeness",
-                value: pctFmt(
-                  profile.columns.length > 0
-                    ? profile.columns.reduce((s, c) => s + c.completeness, 0) / profile.columns.length
-                    : 0
-                ),
-                color: qualityColor(
-                  profile.columns.length > 0
-                    ? profile.columns.reduce((s, c) => s + c.completeness, 0) / profile.columns.length
-                    : 0
-                ),
-              },
-              {
-                label: "Avg Uniqueness",
-                value: pctFmt(
-                  profile.columns.length > 0
-                    ? profile.columns.reduce((s, c) => s + (c.uniqueness || 0), 0) / profile.columns.length
-                    : 0
-                ),
-                color: "var(--bp-copper)",
-              },
-            ].map((kpi) => (
-              <div
-                key={kpi.label}
-                className="rounded-lg px-3 py-2"
-                style={{ border: "1px solid var(--bp-border-subtle)", backgroundColor: "var(--bp-surface-1)" }}
-              >
-                <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--bp-ink-muted)", opacity: 0.5 }}>
-                  {kpi.label}
-                </div>
-                <div className="text-xl font-semibold mt-0.5" style={{ color: kpi.color }}>
-                  {kpi.value}
-                </div>
-              </div>
-            ))}
-          </div>
-
           {/* Alert badges */}
           <AlertBadges columns={profile.columns} rowCount={profile.rowCount} />
 

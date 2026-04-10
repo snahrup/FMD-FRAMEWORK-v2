@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useEntityDigest } from "@/hooks/useEntityDigest";
 import type { DigestEntity, DigestSource } from "@/hooks/useEntityDigest";
+import { isSuccessStatus } from "@/lib/exploreWorksurface";
 
 // ============================================================================
 // TYPES — connections, datasources, pipelines still fetched individually
@@ -629,10 +630,9 @@ export default function FlowExplorer() {
 
   // Helper: convert a DigestEntity into an EntityFlow
   function digestToFlow(ent: DigestEntity, ds: DataSource | undefined): EntityFlow {
-    // Gate layer presence on BOTH registration AND load status — registration
-    // alone means "configured" not "data exists". Treat "not_started" as absent.
-    const bronzeLoaded = ent.bronzeId != null && ent.bronzeStatus !== "not_started";
-    const silverLoaded = ent.silverId != null && ent.silverStatus !== "not_started";
+    // Gate layer presence on BOTH registration AND actual success status.
+    const bronzeLoaded = ent.bronzeId != null && isSuccessStatus(ent.bronzeStatus);
+    const silverLoaded = ent.silverId != null && isSuccessStatus(ent.silverStatus);
 
     let maxLayer: EntityFlow["maxLayer"] = "landing";
     if (silverLoaded) maxLayer = "silver";

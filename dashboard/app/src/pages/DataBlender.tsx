@@ -1,18 +1,29 @@
-import { useState, useEffect, useRef } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
-import { cn } from '@/lib/utils';
+import { useMemo, useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { ExploreWorkbenchHeader } from '@/components/explore/ExploreWorkbenchHeader';
+import { PipelineResolutionPanel } from '@/components/explore/PipelineResolutionPanel';
 import { TableBrowser } from '@/components/datablender/TableBrowser';
 import type { BlenderTable } from '@/components/datablender/TableBrowser';
 import { TableProfiler } from '@/components/datablender/TableProfiler';
 import { BlendSuggestions } from '@/components/datablender/BlendSuggestions';
 import { BlendPreview } from '@/components/datablender/BlendPreview';
 import { SqlWorkbench } from '@/components/datablender/SqlWorkbench';
-import { CheckCircle2, XCircle, Database } from 'lucide-react';
+import { Database, BookOpen, Loader2, Network, Sparkles } from 'lucide-react';
+import { useEntityDigest } from '@/hooks/useEntityDigest';
+import {
+  buildEntityCatalogUrl,
+  buildEntityLineageUrl,
+  getEntityResolutionAction,
+  buildEntitySourceSqlUrl,
+  findEntityFromParams,
+  isEntityToolReady,
+} from '@/lib/exploreWorksurface';
 
 type Tab = 'profile' | 'blend' | 'preview';
 
 export default function DataBlender() {
   const [searchParams] = useSearchParams();
+  const { allEntities, loading: digestLoading } = useEntityDigest();
   const [selectedTable, setSelectedTable] = useState<BlenderTable | null>(null);
   const [selectedBlendId, setSelectedBlendId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('profile');
@@ -81,6 +92,13 @@ export default function DataBlender() {
   };
 
   const selectedTableId = selectedTable?.id ?? null;
+  const matchedEntity = useMemo(() => selectedTable
+    ? findEntityFromParams(allEntities, { table: selectedTable.name, schema: selectedTable.schema })
+    : null, [allEntities, selectedTable]);
+  const activeEntity = matchedEntity && isEntityToolReady(matchedEntity) ? matchedEntity : null;
+  const blockedEntity = matchedEntity && !isEntityToolReady(matchedEntity) ? matchedEntity : null;
+  const resolutionAction = blockedEntity ? getEntityResolutionAction(blockedEntity) : null;
+  const sourceSql = (activeEntity || blockedEntity) ? buildEntitySourceSqlUrl(activeEntity || blockedEntity) : null;
 
   const tabs: { id: Tab; label: string; disabled?: boolean }[] = [
     { id: 'profile', label: 'Profile' },
@@ -90,39 +108,40 @@ export default function DataBlender() {
 
   return (
     <div className="gs-page-enter flex flex-col h-[calc(100vh-3rem)]" style={{ backgroundColor: "var(--bp-canvas)" }}>
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-2" style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
-        <div className="flex items-center gap-3">
-          <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "36px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>Data Blender</h1>
-          <span className="text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>Exploration sandbox — browse, profile, preview blends</span>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* Cross-page link to SQL Explorer for source schema inspection */}
-          {selectedTable && (
-            <Link
-              to={`/sql-explorer?database=${encodeURIComponent(selectedTable.lakehouse || '')}&schema=${encodeURIComponent(selectedTable.schema || 'dbo')}&table=${encodeURIComponent(selectedTable.name || '')}`}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition-colors"
-              style={{ border: "1px solid var(--bp-border)", color: "var(--bp-ink-secondary)" }}
-            >
-              <Database className="h-3 w-3" /> View Source Schema
-            </Link>
-          )}
-          {purviewConnected !== null && (
-            <div className="flex items-center gap-1 text-[10px]">
-              {purviewConnected ? (
-                <>
-                  <CheckCircle2 className="h-3 w-3" style={{ color: "var(--bp-operational)" }} />
-                  <span style={{ color: "var(--bp-operational)" }}>Purview</span>
-                </>
-              ) : (
-                <>
-                  <XCircle className="h-3 w-3" style={{ color: "var(--bp-ink-muted)" }} />
-                  <span style={{ color: "var(--bp-ink-muted)" }}>Purview offline</span>
-                </>
-              )}
-            </div>
-          )}
-        </div>
+      <div className="px-4 pt-4 pb-3">
+        <ExploreWorkbenchHeader
+          title="Data Blender"
+          summary="Profile a table, discover blend opportunities, and preview whether the relationship is worth operationalizing."
+          meta={selectedTable ? `${selectedTable.layer} layer focus` : 'No table selected'}
+          facts={[
+            {
+              label: "Selected Table",
+              value: selectedTable ? `${selectedTable.schema}.${selectedTable.name}` : "Choose a table to begin",
+              detail: selectedTable ? selectedTable.lakehouse || "Connected object" : "Use the left browser to set the current working table.",
+              tone: selectedTable ? "accent" : "neutral",
+            },
+            {
+              label: "Blend Stage",
+              value: activeTab === 'blend' ? "Reviewing suggestions" : activeTab === 'preview' ? "Previewing join output" : "Profiling source table",
+              detail: activeTab === 'profile' ? "Start with structure and column shape." : activeTab === 'blend' ? "Review system-generated candidates." : "Validate whether the blended result is worth promoting.",
+              tone: activeTab === 'preview' ? "positive" : "neutral",
+            },
+            {
+              label: "Purview",
+              value: purviewConnected == null ? "Checking..." : purviewConnected ? "Connected" : "Offline",
+              detail: purviewConnected ? "Governance context is available for this session." : "The workbench still runs, but governance enrichment is limited.",
+              tone: purviewConnected ? "positive" : "warning",
+            },
+          ]}
+          actions={[
+            { label: "Explore hub", to: "/explore", tone: "quiet", icon: BookOpen },
+            activeEntity ? { label: "Open lineage", to: buildEntityLineageUrl(activeEntity), tone: "secondary", icon: Network } : undefined,
+            activeEntity ? { label: "Open catalog", to: buildEntityCatalogUrl(activeEntity), tone: "secondary", icon: BookOpen } : undefined,
+            blockedEntity && resolutionAction ? { label: "Open Load Center", to: resolutionAction.to, tone: "primary", icon: Network } : undefined,
+            sourceSql ? { label: "Inspect source", to: sourceSql, tone: "secondary", icon: Database } : undefined,
+            selectedTable && !blockedEntity ? { label: "Profile mode", onClick: () => setActiveTab('profile'), tone: activeTab === 'profile' ? 'primary' : 'secondary', icon: Sparkles } : undefined,
+          ].filter(Boolean) as never[]}
+        />
       </div>
 
       {/* Main content: sidebar + content */}
@@ -138,6 +157,25 @@ export default function DataBlender() {
         {/* Right panel: Content */}
         <div className="flex-1 flex flex-col overflow-hidden" style={{ backgroundColor: "var(--bp-canvas)" }}>
           {selectedTable ? (
+            digestLoading ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center space-y-3">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto" style={{ color: "var(--bp-ink-tertiary)" }} />
+                  <p className="text-sm" style={{ color: "var(--bp-ink-secondary)" }}>
+                    Resolving whether this table is ready for tool mode...
+                  </p>
+                </div>
+              </div>
+            ) : (
+            blockedEntity && resolutionAction ? (
+              <div className="flex-1 overflow-auto p-4">
+                <PipelineResolutionPanel
+                  entity={blockedEntity}
+                  action={resolutionAction}
+                  summary="This table maps to a registered entity that has not finished the managed load path. Blender stops here and routes the user to Load Center instead of exposing half-working profiling and blend tabs."
+                />
+              </div>
+            ) : (
             <>
               {/* Tabs */}
               <div className="flex items-center gap-0 px-4" style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)" }}>
@@ -190,6 +228,8 @@ export default function DataBlender() {
               {/* SQL Workbench */}
               <SqlWorkbench tableId={selectedTable.id} tableMeta={selectedTable} />
             </>
+            )
+            )
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center space-y-3">

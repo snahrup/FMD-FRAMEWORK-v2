@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveSourceLabel } from "@/hooks/useSourceConfig";
+import CompactPageHeader from "@/components/layout/CompactPageHeader";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
@@ -1531,59 +1532,59 @@ export default function EngineControl() {
   const statusCfg = STATUS_CONFIG[engineStatus] || STATUS_CONFIG.idle;
 
   return (
-    <div className="space-y-4" style={{ padding: "32px", maxWidth: "1280px" }}>
-      {/* ═══════════════════════════════════════════════════ */}
-      {/* Top Bar                                             */}
-      {/* ═══════════════════════════════════════════════════ */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="flex items-center gap-3" style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "var(--bp-ink-primary)", lineHeight: "1.1" }}>
-            <Zap className="h-7 w-7" style={{ color: "var(--bp-copper)" }} />
-            Engine Control
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            FMD v3 Python loading engine — start, monitor, and manage data pipeline runs
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setHealthOpen(!healthOpen)}
-            className="gap-1.5"
-          >
-            <HeartPulse className="h-3.5 w-3.5" />
-            Health Check
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleStop}
-            disabled={!isRunning || stopping}
-            className={cn("gap-1.5", isRunning && "border-[var(--bp-fault)] text-[var(--bp-fault)] hover:bg-[var(--bp-fault-light)]")}
-          >
-            {stopping ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Square className="h-3.5 w-3.5" />
-            )}
-            Stop
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              setConfigOpen(!configOpen);
-              setPlanResult(null);
-              setLaunchError(null);
-            }}
-            disabled={isRunning || isStopping}
-            className="gap-1.5"
-          >
-            <Play className="h-3.5 w-3.5" />
-            Start Run
-          </Button>
-        </div>
-      </div>
+    <div className="bp-page-shell space-y-4">
+      <CompactPageHeader
+        eyebrow="Monitor"
+        title="Engine Control"
+        summary="Launch, plan, stop, and diagnose pipeline runs from one surface instead of treating execution control, health, and logs as separate tools."
+        meta={status?.engine_version ? `engine ${status.engine_version}` : "FMD v3 runtime"}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setHealthOpen(!healthOpen)}
+              className="gap-1.5"
+            >
+              <HeartPulse className="h-3.5 w-3.5" />
+              Health Check
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleStop}
+              disabled={!isRunning || stopping}
+              className={cn("gap-1.5", isRunning && "border-[var(--bp-fault)] text-[var(--bp-fault)] hover:bg-[var(--bp-fault-light)]")}
+            >
+              {stopping ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Square className="h-3.5 w-3.5" />
+              )}
+              Stop
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setConfigOpen(!configOpen);
+                setPlanResult(null);
+                setLaunchError(null);
+              }}
+              disabled={isRunning || isStopping}
+              className="gap-1.5"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Start Run
+            </Button>
+          </>
+        }
+        facts={[
+          { label: "Status", value: status?.status || "offline", tone: isRunning ? "warning" : status?.status === "idle" ? "positive" : "neutral" },
+          { label: "Method", value: loadMethod === "pipeline" ? "Fabric notebook" : "Local python", tone: loadMethod === "pipeline" ? "accent" : "warning" },
+          { label: "Fallback", value: pipelineFallback ? "enabled" : "off", tone: pipelineFallback ? "positive" : "neutral" },
+          { label: "Last run", value: status?.last_run ? fmtDuration(status.last_run.duration_seconds) : "none", tone: "neutral" },
+        ]}
+      />
 
       {/* ═══════════════════════════════════════════════════ */}
       {/* Status Bar                                          */}

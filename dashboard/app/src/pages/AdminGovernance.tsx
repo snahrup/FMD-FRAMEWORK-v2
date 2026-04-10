@@ -196,7 +196,8 @@ export default function AdminGovernance() {
         silverCount: slvEnts.length,
         digestEntities: dsEntities,
       };
-    }), [dataSources, connections, allEntities]);
+    })
+    .filter(lane => lane.landingCount > 0), [dataSources, connections, allEntities]);
 
   // Connections with no data source registered yet
   const orphanConnections = useMemo(() => connections

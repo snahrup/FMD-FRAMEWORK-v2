@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from dashboard.app.api.router import route, HttpError
 import dashboard.app.api.control_plane_db as cpdb
+from dashboard.app.api.routes.load_center import _build_canonical_pipeline_truth
 
 log = logging.getLogger("fmd.routes.data_estate")
 
@@ -33,96 +34,59 @@ def _safe(fn, default, label: str):
 def get_estate_overview(params, body=None, headers=None):
     """Single aggregated response for the Data Estate page."""
     conn = cpdb._get_conn()
+    pipeline_state = _safe(_build_canonical_pipeline_truth, {
+        "registered": [],
+        "layerLoaded": {"lz": 0, "bronze": 0, "silver": 0},
+        "layerLastSuccess": {"lz": None, "bronze": None, "silver": None},
+        "sourceStats": {},
+        "totalRegistered": 0,
+    }, "pipeline_state")
 
     # ── Sources ─────────────────────────────────────────────────────
     def _sources():
-        placeholders = ",".join("?" for _ in _SYSTEM_SOURCES)
-        rows = conn.execute(f"""
-            WITH latest_status AS (
-                SELECT EntityId, Status, created_at,
-                       ROW_NUMBER() OVER (PARTITION BY EntityId ORDER BY created_at DESC) AS rn
-                FROM engine_task_log
-            )
-            SELECT
-                ds.DataSourceId, ds.Name, ds.DisplayName, ds.IsActive,
-                COUNT(e.LandingzoneEntityId) AS entity_count,
-                SUM(CASE WHEN ls.Status = 'succeeded' THEN 1 ELSE 0 END) AS loaded_count,
-                SUM(CASE WHEN ls.Status = 'failed' THEN 1 ELSE 0 END) AS error_count,
-                MAX(CASE WHEN ls.Status = 'succeeded' THEN ls.created_at ELSE NULL END) AS last_refreshed
-            FROM datasources ds
-            LEFT JOIN lz_entities e ON e.DataSourceId = ds.DataSourceId AND e.IsActive = 1
-            LEFT JOIN latest_status ls ON ls.EntityId = e.LandingzoneEntityId AND ls.rn = 1
-            WHERE ds.Name NOT IN ({placeholders})
-            GROUP BY ds.DataSourceId
-            HAVING COUNT(e.LandingzoneEntityId) > 0
-            ORDER BY ds.DisplayName
-        """, tuple(_SYSTEM_SOURCES)).fetchall()
-
         result = []
-        for r in rows:
-            is_active = int(r[3] or 0) == 1
-            error_count = int(r[6] or 0)
-            loaded_count = int(r[5] or 0)
-            if not is_active:
+        for source in sorted(pipeline_state["sourceStats"].values(), key=lambda item: item["displayName"]):
+            entity_count = int(source["entityCount"] or 0)
+            complete_count = int(source["loadedCount"] or 0)
+            blocked_count = int(source["blockedCount"] or 0)
+            if entity_count == 0:
                 status = "offline"
-            elif error_count > 0:
+            elif blocked_count > 0:
                 status = "degraded"
-            elif loaded_count == 0:
-                status = "offline"
             else:
                 status = "operational"
             result.append({
-                "name": r[1],
-                "displayName": r[2] or r[1],
+                "name": source["name"],
+                "displayName": source["displayName"],
                 "status": status,
-                "entityCount": int(r[4] or 0),
-                "loadedCount": loaded_count,
-                "errorCount": error_count,
-                "lastRefreshed": str(r[7]) if r[7] else None,
+                "entityCount": entity_count,
+                "loadedCount": complete_count,
+                "errorCount": blocked_count,
+                "lastRefreshed": source.get("lastRefreshed"),
             })
         return result
 
     # ── Layer Stats ─────────────────────────────────────────────────
     def _layers():
-        total_lz = conn.execute("SELECT COUNT(*) FROM lz_entities WHERE IsActive = 1").fetchone()[0] or 0
-        total_bronze = conn.execute("SELECT COUNT(*) FROM bronze_entities WHERE IsActive = 1").fetchone()[0] or 0
-        total_silver = conn.execute("SELECT COUNT(*) FROM silver_entities WHERE IsActive = 1").fetchone()[0] or 0
+        registered = int(pipeline_state["totalRegistered"] or 0)
 
-        layer_stats_rows = conn.execute("""
-            WITH latest AS (
-                SELECT EntityId, Layer, Status, created_at,
-                       ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn
-                FROM engine_task_log
-            )
-            SELECT Layer,
-                   SUM(CASE WHEN Status = 'succeeded' THEN 1 ELSE 0 END) AS loaded,
-                   SUM(CASE WHEN Status = 'failed' THEN 1 ELSE 0 END) AS failed,
-                   MAX(created_at) AS last_load
-            FROM latest WHERE rn = 1
-            GROUP BY Layer
-        """).fetchall()
-
-        layer_map = {}
-        for r in layer_stats_rows:
-            layer_map[str(r[0]).lower()] = {"loaded": int(r[1] or 0), "failed": int(r[2] or 0), "lastLoad": r[3]}
-
-        def _layer(name, key, color, registered):
-            lm = layer_map.get(key, {})
-            loaded = lm.get("loaded", 0)
+        def _layer(name, key, color):
+            loaded = int(pipeline_state["layerLoaded"][key] or 0)
+            missing = max(registered - loaded, 0)
             return {
                 "name": name, "key": key, "color": color,
                 "registered": registered,
                 "loaded": loaded,
-                "failed": lm.get("failed", 0),
-                "lastLoad": lm.get("lastLoad"),
+                "failed": missing,
+                "lastLoad": pipeline_state["layerLastSuccess"][key],
                 "coveragePct": round(loaded / max(registered, 1) * 100, 1),
             }
 
         return [
-            _layer("Landing Zone", "landing", "var(--bp-lz)", total_lz),
-            _layer("Bronze", "bronze", "var(--bp-bronze)", total_bronze),
-            _layer("Silver", "silver", "var(--bp-silver)", total_silver),
-            _layer("Gold", "gold", "var(--bp-gold)", 0),
+            _layer("Landing Zone", "lz", "var(--bp-lz)"),
+            _layer("Bronze", "bronze", "var(--bp-bronze)"),
+            _layer("Silver", "silver", "var(--bp-silver)"),
+            {"name": "Gold", "key": "gold", "color": "var(--bp-gold)", "registered": 0, "loaded": 0, "failed": 0, "lastLoad": None, "coveragePct": 0.0},
         ]
 
     # ── Classification ──────────────────────────────────────────────
