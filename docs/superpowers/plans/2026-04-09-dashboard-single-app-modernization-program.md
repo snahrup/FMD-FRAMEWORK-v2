@@ -158,6 +158,20 @@ Preferred pattern:
 - subviews inside the destination for specialized depth
 - drill-ins for detail, not new first-class pages unless the job is genuinely different
 
+## Functional Preservation Rule
+No page is removed unless its functionality is explicitly re-homed.
+
+For every merge or demotion:
+
+- define the target destination
+- define the target tab, mode, panel, or drill-in
+- list the capabilities being preserved
+- keep deep-link access through redirects where practical
+- preserve the same underlying data truth and action scope
+- document what becomes easier for the user after the merge
+
+If a page exists today for a real job, that job must still exist afterward. The goal is fewer surfaces, not less capability.
+
 ## Proposed Top-Level Destination Model
 This is the target information architecture after consolidation.
 
@@ -414,6 +428,78 @@ Notes:
 - What does it affect?
 - Is the platform healthy enough to proceed?
 - What happened after I made the change?
+
+## Capability Preservation Checklist
+
+### Overview must preserve
+- business summary
+- estate health
+- latest major changes
+- immediate priorities
+- jump-off actions into pipeline operations, monitoring, and investigation
+
+### Pipeline Operations must preserve
+- source and layer scoping
+- run launch
+- live progress
+- stop, abort, retry, and resume
+- entity and run history drill-ins
+- advanced engine/runtime controls
+
+### Monitor and Recovery must preserve
+- health matrix views
+- error triage
+- raw and live logs
+- throughput and counts
+- anomaly and impact views
+- recommended recovery actions
+
+### Data Stewardship must preserve
+- source onboarding and editing
+- catalog browsing
+- lineage views
+- classifications and governance state
+- technical database exploration
+- managed metadata/configuration changes
+
+### Investigation Workbench must preserve
+- SQL execution and result review
+- profiling
+- deep record or column inspection
+- transformation replay
+- flow visualization
+- impact analysis
+- narrative journey or trace views
+
+### Quality Studio must preserve
+- validation status
+- readiness checklist
+- DQ scoring
+- cleansing rule editing
+- SCD audit evidence
+- bridge to Gold Studio release readiness
+
+### Gold Studio must preserve
+- full intake-to-serve lifecycle
+- coverage mapping
+- proposed semantic model
+- release review and waivers
+- publish and serve handoff
+
+### Business Portal must preserve
+- trusted dataset browsing
+- dataset details
+- alerts
+- request creation and status
+- end-user help and definitions
+
+### Platform Admin must preserve
+- setup and provisioning
+- deployment management
+- runtime logs and progress
+- notebook configuration and debugging
+- preflight and post-action summaries
+- resumable or recoverable admin flows where applicable
 
 ## Modernization Groups
 
@@ -789,6 +875,11 @@ Why last:
 | `PostDeploymentSummary` | `Platform Admin` | Merge | Receipt screen in deployment flow. |
 | `PreDeploymentPanel` | `Platform Admin` | Merge | Preflight panel in deployment flow. |
 | `ResumeBanner` | `Platform Admin` | Merge | Reusable async/banner primitive, not standalone page identity. |
+
+### Route handling during consolidation
+- keep legacy routes alive as redirects into the new destination and selected tab where practical
+- preserve bookmarks for high-traffic operational pages first
+- if a route cannot be preserved exactly, land the user on the new destination with a visible explanation of where the old function moved
 
 ### Keep internal-only or hide from primary navigation
 | Current page | Destination | Action | Notes |

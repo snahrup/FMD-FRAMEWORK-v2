@@ -103,6 +103,7 @@ Every major page should include:
 - clear receipts for running, completed, failed, partial, and preserved-work states
 
 If two pages serve the same user job with only minor differences, merge them into one destination with tabs or detail panels instead of keeping extra top-level pages.
+Do not remove functionality during consolidation. Re-home the job, preserve the action scope, and keep legacy routes redirecting into the new destination when practical.
 
 ## Shared Async Contract
 If a page launches or observes background work, it must show:
