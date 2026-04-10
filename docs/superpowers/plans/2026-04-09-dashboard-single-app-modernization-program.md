@@ -12,6 +12,8 @@ Gold Studio proved the right pattern for this product:
 This document applies that same approach across the rest of the dashboard so FMD reads as a single operating system instead of isolated experiences.
 
 ## Inputs
+- primary domain context: `C:\Users\snahrup\CascadeProjects\fabric_toolbox\knowledge`
+- secondary application context: [knowledge](C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/knowledge)
 - [2026-04-09-gold-studio-flow-audit.md](C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/docs/superpowers/audits/2026-04-09-gold-studio-flow-audit.md)
 - [2026-04-09-gold-studio-redesign-brief.md](C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/docs/superpowers/specs/2026-04-09-gold-studio-redesign-brief.md)
 - [2026-04-09-gold-studio-redesign-implementation-plan.md](C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/docs/superpowers/plans/2026-04-09-gold-studio-redesign-implementation-plan.md)
@@ -19,6 +21,18 @@ This document applies that same approach across the rest of the dashboard so FMD
 - local `modernize` skill guidance at `C:\Users\snahrup\.claude\skills\modernize\SKILL.md`
 - local `interface-design` skill guidance at `C:\Users\snahrup\.claude\skills\interface-design\SKILL.md`
 - current route and page inventory from [App.tsx](C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/dashboard/app/src/App.tsx) and [AppLayout.tsx](C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/dashboard/app/src/components/layout/AppLayout.tsx)
+
+## Context Priority
+Use context in this order when making product and UX decisions:
+
+1. `C:\Users\snahrup\CascadeProjects\fabric_toolbox\knowledge`
+   This is the broader IP Corp and Fabric engagement knowledge base. It contains the master business/domain context, systems landscape, company structure, data flows, glossary, learnings, and Power BI inventory.
+2. Repo-local [knowledge](C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK/knowledge)
+   This is mostly FMD-platform context: audits, implementation notes, migration notes, UX captures, and application-specific findings.
+3. Current codebase behavior and route inventory
+4. External official documentation and category research
+
+Do not confuse the repo-local `knowledge/` directory with the broader IP Corp source of truth. Use the `fabric_toolbox` knowledge base for business, systems, and organizational context.
 
 ## Research Standard
 Every major destination redesign should be backed by current feature and interaction research before implementation starts.
