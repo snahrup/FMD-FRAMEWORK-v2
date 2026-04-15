@@ -1268,7 +1268,7 @@ export default function ConfigManager() {
         <SectionHeader icon={Layers3} title={biz ? "Data Sources" : "Data Sources — Metadata Database"} count={db.datasources.length}>
           <p className="text-sm text-muted-foreground mb-5">
             {biz
-              ? "Registered data sources. The Type determines which copy pipeline variant runs for each source."
+              ? "Configured data sources. The Type determines which copy pipeline variant runs for each source."
               : <>The <code className="text-muted-foreground font-mono text-sm">Type</code> column (e.g. ASQL_01) determines which copy pipeline variant runs.</>}
           </p>
           <ConfigTable>
@@ -1399,7 +1399,7 @@ export default function ConfigManager() {
 
       {/* ── Section 8: DB Pipelines ── */}
       <div className="bg-card border border-border rounded-xl p-6">
-        <SectionHeader icon={GitBranch} title={biz ? "Registered Pipelines" : "Registered Pipelines — Metadata Database"} count={db.pipelines.length} defaultOpen={false}>
+        <SectionHeader icon={GitBranch} title={biz ? "Configured Pipelines" : "Configured Pipelines — Metadata Database"} count={db.pipelines.length} defaultOpen={false}>
           <p className="text-sm text-muted-foreground mb-5">
             {biz
               ? "Pipeline registrations used to trigger and monitor runs via the Fabric REST API."

@@ -24,7 +24,7 @@ const API = import.meta.env.VITE_API_URL || "";
 // ── Types ──
 
 interface GoldDomain {
-  id: number | string;
+  id: string;
   name: string;
   description?: string;
   model_count?: number;
@@ -343,7 +343,7 @@ export default function BusinessCatalog() {
         // Backend returns [{name, entityCount}] — normalise to GoldDomain shape
         const arr: GoldDomain[] = (Array.isArray(data) ? data : []).map(
           (d: Record<string, unknown>) => ({
-            id: (d.id as string | number) ?? null,
+            id: String(d.id ?? d.name ?? ""),
             name: (d.name as string) ?? "",
             description: (d.description as string) ?? undefined,
             model_count: (d.entityCount as number) ?? (d.model_count as number) ?? 0,

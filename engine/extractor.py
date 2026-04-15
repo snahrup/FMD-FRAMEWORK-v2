@@ -15,6 +15,7 @@ Handles:
 import io
 import logging
 import time
+from dataclasses import replace
 from datetime import datetime
 from typing import Optional
 
@@ -60,6 +61,7 @@ class DataExtractor:
         self,
         entity: Entity,
         run_id: str = "",
+        _allow_watermark_retry: bool = True,
     ) -> tuple[Optional[bytes], RunResult]:
         """Extract data for a single entity and return (parquet_bytes, result).
 
@@ -89,9 +91,27 @@ class DataExtractor:
 
         # ConnectorX path (Rust speed — Windows Auth or SQL Auth)
         if HAS_CONNECTORX and self._config.use_connectorx:
-            return self._extract_connectorx(entity, run_id)
+            return self._extract_connectorx(
+                entity,
+                run_id,
+                _allow_watermark_retry=_allow_watermark_retry,
+            )
 
-        # Fallback: pyodbc path (existing code below)
+        return self._extract_pyodbc(
+            entity,
+            run_id,
+            _allow_watermark_retry=_allow_watermark_retry,
+        )
+
+    def _extract_pyodbc(
+        self,
+        entity: Entity,
+        run_id: str,
+        _allow_watermark_retry: bool = True,
+    ) -> tuple[Optional[bytes], RunResult]:
+        """Extract using the stable pyodbc path."""
+        t0 = time.perf_counter()
+        source_name = entity.source_name.strip()
         query, params = entity.build_source_query()
         wm_strategy = entity.watermark_strategy
         log.info(
@@ -237,6 +257,17 @@ class DataExtractor:
         except pyodbc.Error as exc:
             elapsed = time.perf_counter() - t0
             error_msg = str(exc)
+            if self._should_retry_without_watermark(error_msg, entity, _allow_watermark_retry):
+                log.warning(
+                    "[%s] Retrying entity %d without watermark filter after SQL date conversion failure",
+                    run_id[:8] if run_id else "?",
+                    entity.id,
+                )
+                return self.extract(
+                    self._entity_without_watermark_filter(entity),
+                    run_id,
+                    _allow_watermark_retry=False,
+                )
             suggestion = self._diagnose_error(error_msg, entity)
             log.error(
                 "[%s] Entity %d extraction failed: %s", run_id[:8] if run_id else "?", entity.id, error_msg
@@ -274,7 +305,10 @@ class DataExtractor:
     # ------------------------------------------------------------------
 
     def _extract_connectorx(
-        self, entity: Entity, run_id: str
+        self,
+        entity: Entity,
+        run_id: str,
+        _allow_watermark_retry: bool = True,
     ) -> tuple[Optional[bytes], RunResult]:
         """Extract using ConnectorX (Rust-speed, Windows or SQL Auth)."""
         t0 = time.perf_counter()
@@ -295,6 +329,29 @@ class DataExtractor:
         except Exception as exc:
             elapsed = time.perf_counter() - t0
             error_msg = str(exc)
+            if self._should_retry_without_watermark(error_msg, entity, _allow_watermark_retry):
+                log.warning(
+                    "[%s] ConnectorX retry without watermark for entity %d after SQL date conversion failure",
+                    run_id[:8] if run_id else "?",
+                    entity.id,
+                )
+                return self._extract_connectorx(
+                    self._entity_without_watermark_filter(entity),
+                    run_id,
+                    _allow_watermark_retry=False,
+                )
+            if self._should_fallback_to_pyodbc(error_msg):
+                log.warning(
+                    "[%s] ConnectorX transient failure for entity %d; falling back to pyodbc: %s",
+                    run_id[:8] if run_id else "?",
+                    entity.id,
+                    error_msg[:220],
+                )
+                return self._extract_pyodbc(
+                    entity,
+                    run_id,
+                    _allow_watermark_retry=_allow_watermark_retry,
+                )
             log.error(
                 "[%s] ConnectorX extraction failed for entity %d: %s",
                 run_id[:8] if run_id else "?", entity.id, error_msg,
@@ -364,6 +421,43 @@ class DataExtractor:
         # This is a best-effort filter — the primary filtering happens at
         # the SQL query level via Entity.build_source_query().
         return [c for c in df.columns if c.lower() in _BINARY_TYPE_NAMES]
+
+    @staticmethod
+    def _entity_without_watermark_filter(entity: Entity) -> Entity:
+        """Clone an entity but drop the persisted watermark filter for one retry.
+
+        The entity remains incremental so a successful fallback still computes
+        and persists a corrected watermark value.
+        """
+        return replace(entity, last_load_value=None)
+
+    @staticmethod
+    def _should_retry_without_watermark(
+        error_msg: str,
+        entity: Entity,
+        allow_retry: bool,
+    ) -> bool:
+        """Retry once when an incremental query fails due to a bad datetime watermark."""
+        if not allow_retry or not entity.is_incremental or not entity.watermark_column:
+            return False
+        msg = (error_msg or "").lower()
+        return (
+            "conversion failed when converting date and/or time from character string" in msg
+            or "code: 241" in msg
+        )
+
+    @staticmethod
+    def _should_fallback_to_pyodbc(error_msg: str) -> bool:
+        """Fallback when ConnectorX/tiberius hits a transient wire-level failure."""
+        msg = (error_msg or "").lower()
+        transient_markers = (
+            "unexpectedeof",
+            "no more packets in the wire",
+            "os error 10054",
+            "forcibly closed by the remote host",
+            "communication link failure",
+        )
+        return any(marker in msg for marker in transient_markers)
 
     # ------------------------------------------------------------------
     # Internal helpers

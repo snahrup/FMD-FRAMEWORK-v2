@@ -187,6 +187,12 @@ class LoadOrchestrator:
         self._load_method = config.load_method          # "notebook" | "pipeline" | "local"
         self._pipeline_fallback = config.pipeline_fallback
         self._circuit_breaker = ConnectionCircuitBreaker(trip_threshold=5)
+        try:
+            from engine.self_heal import queue_failure_case
+            self._queue_self_heal = queue_failure_case
+        except Exception as exc:
+            log.warning("Self-heal queue unavailable: %s", exc)
+            self._queue_self_heal = None
 
         # Notebook IDs are resolved dynamically from the Fabric API by
         # NotebookTrigger — no hardcoded GUIDs needed in config.
@@ -887,7 +893,7 @@ class LoadOrchestrator:
             entities=[
                 {
                     "id": e.id,
-                    "name": e.qualified_name,
+                    "name": self._describe_entity_for_plan(e),
                     "namespace": e.namespace or "",
                     "server": e.source_server,
                     "database": e.source_database,
@@ -901,6 +907,18 @@ class LoadOrchestrator:
                 for e in entities
             ],
         )
+
+    @staticmethod
+    def _describe_entity_for_plan(entity: Entity) -> str:
+        """Return a plan-safe label even when metadata is incomplete."""
+        try:
+            return entity.qualified_name
+        except Exception:
+            schema = (entity.source_schema or "").strip() or "dbo"
+            table = (entity.source_name or "").strip() or "<blank SourceName>"
+            safe_schema = schema.replace("]", "]]")
+            safe_table = table.replace("]", "]]")
+            return f"[{safe_schema}].[{safe_table}]"
 
     # ------------------------------------------------------------------
     # Local Bronze processing
@@ -975,6 +993,7 @@ class LoadOrchestrator:
             self._completed_units += 1
             # Track entity status in control plane DB
             self._audit.mark_bronze_entity_processed(entity, result)
+            self._queue_case_for_self_heal(run_id, entity, result)
 
         succeeded = sum(1 for r in results if r.status == "succeeded")
         failed = sum(1 for r in results if r.status == "failed")
@@ -1054,6 +1073,7 @@ class LoadOrchestrator:
             self._completed_units += 1
             # Track entity status in control plane DB
             self._audit.mark_silver_entity_processed(entity, result)
+            self._queue_case_for_self_heal(run_id, entity, result)
 
         succeeded = sum(1 for r in results if r.status == "succeeded")
         failed = sum(1 for r in results if r.status == "failed")
@@ -1086,8 +1106,9 @@ class LoadOrchestrator:
 
         results: list[RunResult] = []
 
-        # VPN check — auto-connect before wasting time on doomed extractions
-        if not is_vpn_up():
+        # VPN is only required for local desktop extraction. Fabric pipeline
+        # mode executes in the service and should not self-block on local VPN.
+        if self._landing_requires_vpn() and not is_vpn_up():
             log.warning("[%s] VPN down before landing zone — attempting auto-connect", run_id[:8])
             if not ensure_vpn(timeout_seconds=120):
                 log.error("[%s] VPN not available — skipping all landing zone entities", run_id[:8])
@@ -1227,9 +1248,78 @@ class LoadOrchestrator:
         entity_map = {e.id: e for e in entities}
         for r in results:
             if r.status == "failed" and r.entity_id in entity_map:
+                self._queue_case_for_self_heal(run_id, entity_map[r.entity_id], r)
                 self._audit.log_entity_result(run_id, entity_map[r.entity_id], r)
 
         return results
+
+    def _landing_requires_vpn(self) -> bool:
+        """Return True only when landing is running via local source extraction."""
+        return self._load_method == "local"
+
+    def _queue_case_for_self_heal(self, run_id: str, entity, result: RunResult) -> None:
+        """Queue a failed entity/layer for bounded self-heal after the run goes idle."""
+        if result.status != "failed" or not self._queue_self_heal:
+            return
+
+        layer = (result.layer or "").lower()
+        landing_entity_id = int(
+            getattr(entity, "lz_entity_id", 0)
+            or getattr(entity, "id", 0)
+            or 0
+        )
+        if not landing_entity_id:
+            return
+
+        if layer == "silver":
+            target_entity_id = int(
+                getattr(entity, "silver_entity_id", 0)
+                or getattr(entity, "bronze_entity_id", 0)
+                or getattr(entity, "id", 0)
+                or 0
+            )
+        elif layer == "bronze":
+            target_entity_id = int(
+                getattr(entity, "bronze_entity_id", 0)
+                or getattr(entity, "id", 0)
+                or 0
+            )
+        else:
+            target_entity_id = int(
+                getattr(entity, "id", 0)
+                or landing_entity_id
+                or 0
+            )
+        if not target_entity_id:
+            return
+
+        try:
+            case_id = self._queue_self_heal(
+                parent_run_id=run_id,
+                layer=layer,
+                landing_entity_id=landing_entity_id,
+                target_entity_id=target_entity_id,
+                latest_error=result.error or "Unknown pipeline failure",
+                error_suggestion=result.error_suggestion,
+                context={
+                    "qualifiedName": getattr(entity, "qualified_name", None),
+                    "namespace": getattr(entity, "namespace", None),
+                    "sourceSchema": getattr(entity, "source_schema", None),
+                    "sourceName": getattr(entity, "source_name", None),
+                    "layer": layer,
+                    "runId": run_id,
+                },
+            )
+        except Exception as exc:
+            log.warning("[%s] Failed to queue self-heal case for %s entity %s: %s",
+                        run_id[:8], layer, target_entity_id, exc)
+            return
+
+        if case_id:
+            note = f"Queued for self-heal as case {case_id}; daemon will retry after the active run is idle."
+            result.error_suggestion = f"{(result.error_suggestion or '').strip()} {note}".strip()
+            log.warning("[%s] %s entity %s queued for self-heal case %s",
+                        run_id[:8], layer, target_entity_id, case_id)
 
     @staticmethod
     def _interleave_sources(
@@ -1255,9 +1345,9 @@ class LoadOrchestrator:
     # Broader transient patterns — network, throttling, concurrent writes, timeouts
     _TRANSIENT_PATTERNS = (
         "forcibly closed",
-        "Communication link failure",
+        "communication link failure",
         "429",
-        "Too Many Requests",
+        "too many requests",
         "concurrent write",
         "conflict",
         "timeout",
@@ -1448,7 +1538,7 @@ class LoadOrchestrator:
         """POST schema validation result to control plane dashboard."""
         import json
         import urllib.request
-        base_url = getattr(self._config, "control_plane_url", "http://localhost:8787")
+        base_url = getattr(self.config, "control_plane_url", "http://localhost:8787")
         data = json.dumps({
             "run_id": run_id,
             "entity_id": entity_id,
@@ -1481,7 +1571,7 @@ class LoadOrchestrator:
             return extract_result
 
         # Step 1.5: Schema validation (between extract and upload)
-        validation_mode = getattr(self._config, "validation_mode", "warn")
+        validation_mode = getattr(self.config, "validation_mode", "warn")
         if validation_mode != "off" and parquet_bytes:
             try:
                 from engine.schema_validator import validate_extraction

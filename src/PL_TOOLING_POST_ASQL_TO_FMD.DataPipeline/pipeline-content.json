@@ -505,7 +505,7 @@
       },
       "Data_WorkspaceGuid": {
         "type": "string",
-        "defaultValue": "1d947c6d-4350-48c5-8b98-9c21d8862fe7"
+        "defaultValue": "0596d0e7-e036-451d-a967-41a284302e8d"
       },
       "DatasourceName": {
         "type": "string",

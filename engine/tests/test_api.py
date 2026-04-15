@@ -7,6 +7,7 @@ starting an HTTP server or connecting to any databases.
 import json
 from unittest.mock import MagicMock, patch
 
+import engine.api as api_module
 import pytest
 from engine.api import (
     _safe_row,
@@ -152,3 +153,57 @@ def _make_handler(path="/api/engine/status", body=b"{}"):
     handler._error_response = MagicMock()
     handler._cors = MagicMock()
     return handler
+
+
+def test_handle_retry_requires_run_id():
+    handler = _make_handler(path="/api/engine/retry", body=b"{}")
+
+    api_module._handle_retry(handler, config={}, body={"entity_ids": [101]})
+
+    handler._error_response.assert_called_once_with("run_id required for scoped retry", 400)
+
+
+def test_handle_retry_blocks_when_another_run_is_active():
+    handler = _make_handler(path="/api/engine/retry", body=b"{}")
+
+    with patch("engine.api._db_query", return_value=[{"RunId": "live-run", "WorkerPid": 4321}]), \
+         patch("engine.api._is_pid_alive", return_value=True):
+        api_module._handle_retry(
+            handler,
+            config={},
+            body={"run_id": "parent-run", "entity_ids": [101]},
+        )
+
+    handler._json_response.assert_called_once()
+    payload = handler._json_response.call_args.args[0]
+    assert payload["error"] == "Retry is blocked while another run is active"
+    assert payload["current_run_id"] == "live-run"
+    assert handler._json_response.call_args.kwargs["status"] == 409
+
+
+def test_handle_retry_scopes_to_parent_run_and_returns_retry_run_id():
+    handler = _make_handler(path="/api/engine/retry", body=b"{}")
+    engine = MagicMock()
+    thread = MagicMock()
+
+    with patch("engine.api._db_query", side_effect=[[], [{"EntityId": 7}, {"EntityId": 9}]]), \
+         patch("engine.api._get_or_create_engine", return_value=engine), \
+         patch("engine.api._SSEHook.clear"), \
+         patch("engine.api._publish_log"), \
+         patch("engine.api.threading.Thread", return_value=thread), \
+         patch("engine.api.uuid.uuid4", return_value="retry-run-1234"):
+        api_module._handle_retry(
+            handler,
+            config={},
+            body={"run_id": "parent-run"},
+        )
+
+    handler._json_response.assert_called_once()
+    payload = handler._json_response.call_args.args[0]
+    assert payload["run_id"] == "retry-run-1234"
+    assert payload["parent_run_id"] == "parent-run"
+    assert payload["status"] == "started"
+    assert payload["retrying"] == 2
+    assert payload["entity_ids"] == [7, 9]
+    assert callable(engine.on_entity_result)
+    thread.start.assert_called_once()

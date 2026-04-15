@@ -312,12 +312,12 @@ function EntityTable({ entities, selectedIds, onToggle, onToggleAll, searchTerm,
                   <td className="px-3 py-2 text-center">
                     {e.bronzeEntityId ? (
                       e.bronzeActive ? <CheckCircle2 className="w-3.5 h-3.5 mx-auto" aria-label="Active" style={{ color: 'var(--bp-caution)' }} /> : <X className="w-3.5 h-3.5 mx-auto" aria-label="Inactive" style={{ color: 'var(--bp-border-strong)' }} />
-                    ) : <span style={{ color: 'var(--bp-border-strong)' }} aria-label="Not registered">—</span>}
+                    ) : <span style={{ color: 'var(--bp-border-strong)' }} aria-label="Not in scope">—</span>}
                   </td>
                   <td className="px-3 py-2 text-center">
                     {e.silverEntityId ? (
                       e.silverActive ? <CheckCircle2 className="w-3.5 h-3.5 mx-auto" aria-label="Active" style={{ color: 'var(--bp-ink-tertiary)' }} /> : <X className="w-3.5 h-3.5 mx-auto" aria-label="Inactive" style={{ color: 'var(--bp-border-strong)' }} />
-                    ) : <span style={{ color: 'var(--bp-border-strong)' }} aria-label="Not registered">—</span>}
+                    ) : <span style={{ color: 'var(--bp-border-strong)' }} aria-label="Not in scope">—</span>}
                   </td>
                 </tr>
               );

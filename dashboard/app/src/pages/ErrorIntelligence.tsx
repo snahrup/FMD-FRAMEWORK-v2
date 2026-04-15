@@ -7,6 +7,7 @@ import {
   Zap, RefreshCw, Loader2, Search, Filter,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import CompactPageHeader from "@/components/layout/CompactPageHeader";
 
 // ===== Types =====
 type ErrorSeverity = 'critical' | 'warning' | 'info';
@@ -431,26 +432,55 @@ export default function ErrorIntelligence() {
   }, [summaries, filterSeverity]);
 
   return (
-    <div className="space-y-6" style={{ padding: 32, maxWidth: 1280, margin: '0 auto' }}>
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 style={{ fontFamily: 'var(--bp-font-display)', fontSize: 32, color: 'var(--bp-ink-primary)', fontWeight: 400, lineHeight: 1.2 }}>Error Intelligence</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--bp-ink-secondary)' }}>Pipeline error analysis — what happened and how to fix it</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={fetchData} disabled={loading} className="gap-1.5 h-8 text-xs">
-            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            Refresh
-          </Button>
-          {totalErrors > 0 && (
-            <Badge variant="destructive" className="gap-1.5 py-1">
-              <Zap className="h-3 w-3" />
-              {totalErrors} error{totalErrors !== 1 ? 's' : ''}
-            </Badge>
-          )}
-        </div>
-      </div>
+    <div className="bp-page-shell-wide space-y-6">
+      <CompactPageHeader
+        eyebrow="Monitor"
+        title="Error Intelligence"
+        summary="See what failed, group the patterns that repeat, and move directly from symptom to likely remediation without reading raw logs first."
+        meta={loading ? "Refreshing error signals…" : `${totalErrors.toLocaleString()} errors across ${uniquePipelines.length.toLocaleString()} pipelines`}
+        guideItems={[
+          {
+            label: "What This Page Is",
+            value: "Failure pattern desk",
+            detail: "Error Intelligence groups failures by pattern so the team can separate repeatable system issues from one-off execution noise.",
+          },
+          {
+            label: "Why It Matters",
+            value: "Root cause before log spelunking",
+            detail: "This page should answer what broke most often and which remediation is most likely before anyone opens a raw log or job payload.",
+          },
+          {
+            label: "What Happens Next",
+            value: "Triage, then jump deeper",
+            detail: "Use the grouped cards here to spot the failure family, then continue into Mission Control or Execution Log when you need run-by-run evidence.",
+          },
+        ]}
+        guideLinks={[
+          { label: "Open Mission Control", to: "/load-mission-control" },
+          { label: "Open Execution Log", to: "/logs" },
+          { label: "Open Load Center", to: "/load-center" },
+        ]}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={fetchData} disabled={loading} className="gap-1.5 h-8 text-xs">
+              {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              Refresh
+            </Button>
+            {totalErrors > 0 ? (
+              <Badge variant="destructive" className="gap-1.5 py-1">
+                <Zap className="h-3 w-3" />
+                {totalErrors} error{totalErrors !== 1 ? 's' : ''}
+              </Badge>
+            ) : null}
+          </div>
+        }
+        facts={[
+          { label: "Critical", value: criticalCount.toLocaleString(), tone: criticalCount > 0 ? "warning" : "positive" },
+          { label: "Warnings", value: warningCount.toLocaleString(), tone: warningCount > 0 ? "warning" : "neutral" },
+          { label: "Info", value: infoCount.toLocaleString(), tone: "neutral" },
+          { label: "Pipelines", value: uniquePipelines.length.toLocaleString(), tone: "accent" },
+        ]}
+      />
 
       {/* Loading State */}
       {loading && (

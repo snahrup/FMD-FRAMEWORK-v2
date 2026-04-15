@@ -317,7 +317,7 @@ export default function ExecutionMatrix() {
   const isInitialLoading = digestLoading && engineLoading && !digestData;
 
   return (
-    <div className="bp-page-shell space-y-6" data-testid="execution-matrix">
+    <div className="bp-page-shell-wide space-y-6" data-testid="execution-matrix">
       <CompactPageHeader
         eyebrow="Monitor"
         title="Execution Matrix"
@@ -354,7 +354,7 @@ export default function ExecutionMatrix() {
           </>
         }
         facts={[
-          { label: "Entities", value: fmt(totalSummary.total), tone: "accent" },
+          { label: "Tables In Scope", value: fmt(totalSummary.total), tone: "accent" },
           { label: "Success", value: `${successRate}%`, tone: successRate >= 90 ? "positive" : "warning" },
           { label: "Errors", value: fmt(totalSummary.error), tone: totalSummary.error === 0 ? "positive" : "warning" },
           { label: "Sources", value: `${sourceNames.length} core systems`, tone: "neutral" },
@@ -460,11 +460,11 @@ export default function ExecutionMatrix() {
           {/* SUMMARY CARDS (KPI) */}
           {/* ================================================================ */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="kpi-grid">
-            {/* Card 1: Total Entities */}
+            {/* Card 1: Tables In Scope */}
             <KPICard
               icon={<Database className="w-4 h-4" />}
               iconColor="text-[var(--bp-copper)]"
-              label="Total Entities"
+              label="Tables In Scope"
               value={fmt(totalSummary.total)}
               detail={
                 <div className="flex items-center gap-2 flex-wrap">

@@ -15,7 +15,7 @@ import json
 import logging
 import sqlite3
 from dataclasses import dataclass, asdict, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple, Set
 from collections import defaultdict
@@ -31,6 +31,10 @@ log = logging.getLogger("fmd.metadata_analyzer")
 
 # Regex for validating SQL identifiers (alphanumeric, underscore, dot, brackets, spaces)
 _SAFE_SQL_IDENT = re.compile(r'^[\w\.\[\] ]+$')
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 # ===========================================================================
@@ -211,7 +215,7 @@ class MetadataAnalyzer:
         log.info("Starting comprehensive cross-source join analysis...")
 
         analysis_result = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": _utcnow_iso(),
             "sources_analyzed": [],
             "total_tables": 0,
             "total_columns": 0,
@@ -577,7 +581,7 @@ class MetadataAnalyzer:
         # 1. JSON Report — Raw data for API consumption
         json_report = {
             "metadata": {
-                "generated_at": datetime.utcnow().isoformat(),
+                "generated_at": _utcnow_iso(),
                 "total_tables": sum(len(t) for t in self.all_tables.values()),
                 "total_columns": sum(
                     sum(len(tbl.columns) for tbl in tables_dict.values())
@@ -685,7 +689,7 @@ class MetadataAnalyzer:
 <body>
     <div class="container">
         <h1>🔍 FMD Cross-Source Join Discovery Analysis</h1>
-        <p>Generated: {datetime.utcnow().isoformat()}</p>
+        <p>Generated: {_utcnow_iso()}</p>
 
         <div class="summary">
             <div class="stat">

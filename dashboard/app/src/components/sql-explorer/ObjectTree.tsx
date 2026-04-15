@@ -609,7 +609,7 @@ export function ObjectTree({ selectedTable, onSelectTable, initialSelection, che
                               <span className={cn("truncate", dbEmpty ? "text-muted-foreground/40" : db.isRegistered ? "text-[var(--bp-caution)] font-semibold" : "text-foreground/80")}>{db.name}</span>
                               {db.isRegistered && (
                                 <span className="text-[8px] px-1 py-px rounded bg-[var(--bp-caution)]/15 text-[var(--bp-caution)] border border-[var(--bp-caution)]/30 font-semibold uppercase tracking-wider flex-shrink-0">
-                                  Registered
+                                  In Scope
                                 </span>
                               )}
                               {dbTableCount > 0 && (

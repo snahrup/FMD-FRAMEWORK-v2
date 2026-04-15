@@ -24,19 +24,44 @@ def _seed_task_log(db_path):
     import sqlite3
     conn = sqlite3.connect(str(db_path))
     conn.executescript("""
-        -- Entity 1: succeeded in all 3 layers
+        INSERT INTO connections (ConnectionId, Name, Type, IsActive)
+        VALUES (1, 'CON_TEST', 'SQL', 1);
+
+        INSERT INTO datasources (DataSourceId, ConnectionId, Name, Namespace, IsActive)
+        VALUES (1, 1, 'MES', 'MES', 1);
+
+        INSERT INTO lz_entities (
+            LandingzoneEntityId, DataSourceId, SourceSchema, SourceName, IsActive
+        ) VALUES
+            (1, 1, 'dbo', 'orders', 1),
+            (2, 1, 'dbo', 'customers', 1),
+            (3, 1, 'dbo', 'inventory', 1),
+            (10, 1, 'dbo', 'repairs', 1);
+
+        INSERT INTO bronze_entities (
+            BronzeLayerEntityId, LandingzoneEntityId, Schema_, Name, IsActive
+        ) VALUES
+            (101, 1, 'dbo', 'orders', 1),
+            (102, 2, 'dbo', 'customers', 1);
+
+        INSERT INTO silver_entities (
+            SilverLayerEntityId, BronzeLayerEntityId, Schema_, Name, IsActive
+        ) VALUES
+            (201, 101, 'dbo', 'orders', 1);
+
+        -- Entity 1: succeeded in all 3 layers, but bronze/silver use their own IDs
         INSERT INTO engine_task_log (RunId, EntityId, Layer, Status, RowsWritten, created_at)
         VALUES ('run-1', 1, 'landing', 'succeeded', 100, '2026-03-19T10:00:00Z');
         INSERT INTO engine_task_log (RunId, EntityId, Layer, Status, RowsWritten, created_at)
-        VALUES ('run-1', 1, 'bronze', 'succeeded', 100, '2026-03-19T10:01:00Z');
+        VALUES ('run-1', 101, 'bronze', 'succeeded', 100, '2026-03-19T10:01:00Z');
         INSERT INTO engine_task_log (RunId, EntityId, Layer, Status, RowsWritten, created_at)
-        VALUES ('run-1', 1, 'silver', 'succeeded', 100, '2026-03-19T10:02:00Z');
+        VALUES ('run-1', 201, 'silver', 'succeeded', 100, '2026-03-19T10:02:00Z');
 
         -- Entity 2: landing succeeded, bronze failed, silver never ran
         INSERT INTO engine_task_log (RunId, EntityId, Layer, Status, RowsWritten, created_at)
         VALUES ('run-1', 2, 'landing', 'succeeded', 50, '2026-03-19T10:00:00Z');
         INSERT INTO engine_task_log (RunId, EntityId, Layer, Status, RowsWritten, created_at, ErrorMessage)
-        VALUES ('run-1', 2, 'bronze', 'failed', 0, '2026-03-19T10:01:00Z', 'timeout');
+        VALUES ('run-1', 102, 'bronze', 'failed', 0, '2026-03-19T10:01:00Z', 'timeout');
 
         -- Entity 3: skipped in landing (e.g. incremental with no changes)
         INSERT INTO engine_task_log (RunId, EntityId, Layer, Status, RowsWritten, created_at)
@@ -87,6 +112,13 @@ def test_canonical_status_prefers_success_over_old_failure(temp_db):
     import sqlite3
     conn = sqlite3.connect(str(temp_db))
     conn.executescript("""
+        INSERT INTO connections (ConnectionId, Name, Type, IsActive)
+        VALUES (1, 'CON_TEST', 'SQL', 1);
+        INSERT INTO datasources (DataSourceId, ConnectionId, Name, Namespace, IsActive)
+        VALUES (1, 1, 'MES', 'MES', 1);
+        INSERT INTO lz_entities (
+            LandingzoneEntityId, DataSourceId, SourceSchema, SourceName, IsActive
+        ) VALUES (10, 1, 'dbo', 'repairs', 1);
         INSERT INTO engine_task_log (RunId, EntityId, Layer, Status, created_at, ErrorMessage)
         VALUES ('run-1', 10, 'landing', 'failed', '2026-03-18T08:00:00Z', 'connection refused');
         INSERT INTO engine_task_log (RunId, EntityId, Layer, Status, RowsWritten, created_at)
@@ -98,3 +130,16 @@ def test_canonical_status_prefers_success_over_old_failure(temp_db):
     lookup = {(r["LandingzoneEntityId"], r["Layer"]): r for r in result}
     assert lookup[(10, "landing")]["Status"] == "succeeded"
     assert lookup[(10, "landing")]["ErrorMessage"] is None  # success clears error
+
+
+def test_mapped_engine_task_log_normalizes_bronze_and_silver_ids(temp_db):
+    """Bronze/silver task rows should resolve back to the owning LZ entity."""
+    _seed_task_log(temp_db)
+    rows = cpdb.get_mapped_engine_task_log(latest_only=True)
+    lookup = {(r["LandingzoneEntityId"], r["Layer"]): r for r in rows}
+
+    assert lookup[(1, "bronze")]["SourceName"] == "orders"
+    assert lookup[(1, "silver")]["SourceName"] == "orders"
+    assert lookup[(2, "bronze")]["SourceName"] == "customers"
+    assert (101, "bronze") not in lookup
+    assert (201, "silver") not in lookup

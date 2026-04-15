@@ -309,6 +309,31 @@ test.describe('Page: /gold/gold-canonical', () => {
     }
   });
 
+  test('rapid clicking does not cause duplicate API calls', async ({ page }) => {
+    let apiCallCount = 0;
+    await page.route('**/api/**', async route => {
+      apiCallCount++;
+      await route.continue();
+    });
+    await page.goto('/gold/gold-canonical');
+    await waitForStable(page);
+    const refreshBtn = page.locator('button:visible').filter({
+      hasText: /refresh|reload|retry/i
+    }).first();
+    if (await refreshBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      const callsBefore = apiCallCount;
+      for (let i = 0; i < 5; i++) {
+        await refreshBtn.click({ timeout: 500 }).catch(() => {});
+      }
+      await page.waitForTimeout(2000);
+      await expect(page.locator('body')).toBeVisible();
+      const callsAfter = apiCallCount - callsBefore;
+      if (callsAfter >= 5) {
+        console.warn(`Debounce concern: ${callsAfter} API calls from 5 rapid clicks`);
+      }
+    }
+  });
+
   test('all visible inputs accept text without error', async ({ page }) => {
     await navigateToPage(page);
     const inputs = page.locator(

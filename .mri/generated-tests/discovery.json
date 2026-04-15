@@ -2,10 +2,10 @@
   "project_root": "C:\\Users\\snahrup\\CascadeProjects\\FMD_FRAMEWORK",
   "project_type": {
     "framework": "unknown",
-    "base_url": "http://localhost:5173",
+    "base_url": "http://127.0.0.1:5173",
     "port": 5173,
     "has_api": true,
-    "api_base_url": "http://localhost:8000",
+    "api_base_url": "http://127.0.0.1:8000",
     "api_port": 8000
   },
   "routes": [
@@ -16,17 +16,23 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "Open Alerts",
-          "Sources Online",
+          "Landing Loaded",
+          "Silver Loaded",
+          "Tool-Ready",
+          "Quality Avg",
           "Source Health"
         ],
         "filters": [],
         "search_fields": [],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "Load Center",
+          "Mission Control",
+          "Explore",
+          "Gold Studio"
+        ],
         "modals": [],
         "api_calls": [
-          "${API}/api/overview/kpis",
           "${API}/api/overview/sources",
           "${API}/api/overview/activity"
         ],
@@ -35,7 +41,7 @@
         ],
         "has_loading_state": true,
         "has_error_state": true,
-        "has_empty_state": true,
+        "has_empty_state": false,
         "has_search": false,
         "has_pagination": false,
         "has_sort": false,
@@ -55,17 +61,23 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "Open Alerts",
-          "Sources Online",
+          "Landing Loaded",
+          "Silver Loaded",
+          "Tool-Ready",
+          "Quality Avg",
           "Source Health"
         ],
         "filters": [],
         "search_fields": [],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "Load Center",
+          "Mission Control",
+          "Explore",
+          "Gold Studio"
+        ],
         "modals": [],
         "api_calls": [
-          "${API}/api/overview/kpis",
           "${API}/api/overview/sources",
           "${API}/api/overview/activity"
         ],
@@ -74,7 +86,7 @@
         ],
         "has_loading_state": true,
         "has_error_state": true,
-        "has_empty_state": true,
+        "has_empty_state": false,
         "has_search": false,
         "has_pagination": false,
         "has_sort": false,
@@ -95,7 +107,6 @@
       "analysis": {
         "kpis": [
           "alert.entities.length && (",
-          "Alerts",
           "Failed to load alerts: {error}",
           "Critical Alerts",
           "Warning Alerts",
@@ -104,7 +115,14 @@
         "filters": [],
         "search_fields": [],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Overview",
+          "Browse Sources",
+          "Submit a Request"
+        ],
         "modals": [],
         "api_calls": [
           "${API}/api/alerts"
@@ -139,22 +157,29 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "tables",
-          "Sources",
+          "tables in scope",
           "Table",
           "Source",
-          "Across all tables",
-          "Sources Connected",
-          "On Schedule",
-          "Average Quality"
+          "Tables that made it into Fabric landing",
+          "Tables that successfully materialized in bronze",
+          "Sources Healthy",
+          "Landing Loaded",
+          "Bronze Loaded",
+          "Silver Loaded"
         ],
         "filters": [],
         "search_fields": [],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Overview",
+          "Inspect Data Estate",
+          "Open Source Manager"
+        ],
         "modals": [],
         "api_calls": [
-          "${API}/api/overview/kpis",
           "${API}/api/overview/sources",
           "${API}/api/overview/entities"
         ],
@@ -189,6 +214,12 @@
         "search_fields": [],
         "tables": [],
         "table_columns": [
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Overview",
+          "Browse Sources",
+          "Submit a Request",
           "Gold",
           "Silver",
           "Bronze",
@@ -230,13 +261,20 @@
         "filters": [],
         "search_fields": [],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Return to Catalog",
+          "Submit a Request",
+          "Open Help",
+          "Browse Sources"
+        ],
         "modals": [],
         "api_calls": [
           "${API}/api/overview/entities",
           "${API}/api/glossary/entity/${entityId}",
-          "${API}/api/mdm/quality/scores",
-          "${API}/api/gold/models/${goldModelId}"
+          "${API}/api/mdm/quality/scores"
         ],
         "state_vars": [
           "datasource"
@@ -274,7 +312,13 @@
           "In Review",
           "Approved",
           "Completed",
-          "Declined"
+          "Declined",
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Catalog",
+          "Open Help",
+          "Return to Overview"
         ],
         "modals": [],
         "api_calls": [
@@ -316,7 +360,13 @@
           "Find a Table",
           "Understand Data Quality",
           "Request New Data",
-          "Check Source Health"
+          "Check Source Health",
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Overview",
+          "Open Catalog",
+          "Open Requests"
         ],
         "modals": [],
         "api_calls": [],
@@ -358,7 +408,11 @@
         "table_columns": [
           "Succeeded",
           "Failed",
-          "Other"
+          "Other",
+          "Tables In Scope",
+          "Success",
+          "Errors",
+          "Sources"
         ],
         "modals": [],
         "api_calls": [],
@@ -410,7 +464,7 @@
           "Source:",
           "Running health checks...",
           "Running",
-          "Total Entities",
+          "Tables In Plan",
           "Sources",
           "Entities:",
           "Source Breakdown",
@@ -453,7 +507,10 @@
           "Idle",
           "Running",
           "Stopping",
-          "API Connectivity"
+          "API Connectivity",
+          "Method",
+          "Fallback",
+          "Last run"
         ],
         "modals": [],
         "api_calls": [
@@ -491,7 +548,8 @@
           "Source",
           "Table",
           "running...",
-          "Total registered",
+          "Tables In Scope",
+          "Total in scope",
           "Active"
         ],
         "filters": [],
@@ -520,14 +578,18 @@
           "Degraded \u2014 Recent Failures",
           "Critical \u2014 Pipelines Failing",
           "Initial Setup \u2014 No Sources",
-          "SQL Database Offline"
+          "SQL Database Offline",
+          "Sources",
+          "Entities",
+          "Runs",
+          "Health",
+          "Load",
+          "GUID"
         ],
         "modals": [],
         "api_calls": [
           "/api/control-plane",
-          "/api/load-config",
-          "/api/entity-digest/resync",
-          "/api/maintenance-agent/trigger"
+          "/api/load-config"
         ],
         "state_vars": [],
         "has_loading_state": true,
@@ -567,6 +629,13 @@
           "Running",
           "Cancelled",
           "Queued",
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Mission Control",
+          "Open Error Intelligence",
+          "Open Load Center",
+          "Tab",
           "Pipeline Runs",
           "Copy Activities",
           "Notebook Runs"
@@ -734,6 +803,64 @@
       }
     },
     {
+      "path": "/explore",
+      "component": "ExploreHub",
+      "source_file": "dashboard/app/src/App.tsx",
+      "has_params": false,
+      "analysis": {
+        "kpis": [],
+        "filters": [],
+        "search_fields": [],
+        "tables": [],
+        "table_columns": [
+          "Data Catalog",
+          "Data Lineage",
+          "Data Profiler",
+          "Data Blender",
+          "SQL Explorer",
+          "Data Journey",
+          "Load Progress",
+          "Column Evolution",
+          "Transformation Replay",
+          "Sankey Flow",
+          "Impact Pulse",
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Overview",
+          "Open Load Center",
+          "Open Data Estate",
+          "Tool-Ready",
+          "Blocked",
+          "Trusted",
+          "Graph Evidence",
+          "Need to find the right asset?",
+          "Need to understand the break?",
+          "Need to judge data quality fast?"
+        ],
+        "modals": [],
+        "api_calls": [
+          "${API}/api/join-discovery/status"
+        ],
+        "state_vars": [
+          "joinStatus"
+        ],
+        "has_loading_state": true,
+        "has_error_state": false,
+        "has_empty_state": false,
+        "has_search": true,
+        "has_pagination": false,
+        "has_sort": false,
+        "has_export": true,
+        "has_url_params": false,
+        "has_refresh": false,
+        "has_skeleton": false,
+        "source_filters": [],
+        "status_filters": [],
+        "is_coming_soon": false
+      }
+    },
+    {
       "path": "/sources",
       "component": "SourceManager",
       "source_file": "dashboard/app/src/App.tsx",
@@ -743,8 +870,9 @@
           "text-muted-foreground hover:text-foreground text-sm",
           "pb-2",
           "flex items-center gap-2",
-          "Source Manager",
-          "Entities",
+          "Tables In Scope",
+          "Open journey",
+          "Open flow",
           "Table",
           "Source Rows",
           "Open in Fabric"
@@ -766,7 +894,15 @@
           "Primary Keys",
           "Bronze",
           "Silver",
-          "Last Value"
+          "Last Value",
+          "Tables In Scope",
+          "Landing Loaded",
+          "Bronze Loaded",
+          "Silver Loaded",
+          "Load",
+          "Source",
+          "Selected",
+          "Watermark"
         ],
         "modals": [],
         "api_calls": [
@@ -783,12 +919,11 @@
           "/api/load-config"
         ],
         "state_vars": [
-          "registeredDataSources",
-          "discoverResult"
+          "registeredDataSources"
         ],
         "has_loading_state": true,
         "has_error_state": true,
-        "has_empty_state": true,
+        "has_empty_state": false,
         "has_search": true,
         "has_pagination": false,
         "has_sort": true,
@@ -817,18 +952,27 @@
         "table_columns": [
           "Profile",
           "Blend Suggestions",
-          "Preview"
+          "Preview",
+          "Selected Table",
+          "Blend Stage",
+          "Purview",
+          "Explore hub",
+          "Open lineage",
+          "Open catalog",
+          "Open Load Center",
+          "Inspect source",
+          "Profile mode"
         ],
         "modals": [],
         "api_calls": [
           "/api/purview/status"
         ],
         "state_vars": [],
-        "has_loading_state": false,
+        "has_loading_state": true,
         "has_error_state": false,
         "has_empty_state": false,
         "has_search": true,
-        "has_pagination": false,
+        "has_pagination": true,
         "has_sort": false,
         "has_export": true,
         "has_url_params": true,
@@ -849,14 +993,24 @@
           "matched of {fmt(total)}",
           "tables",
           "Failed to load counts",
-          "Matched ({fmt(stats.matched)})"
+          "Matched ({fmt(stats.matched)})",
+          "Source:"
         ],
         "filters": [],
         "search_fields": [
           "Search tables, schemas, sources..."
         ],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "Scope",
+          "Matched",
+          "Scan",
+          "Filter",
+          "Status",
+          "Landing",
+          "Bronze",
+          "Silver"
+        ],
         "modals": [],
         "api_calls": [
           "/api/lakehouse-counts"
@@ -931,6 +1085,21 @@
           "Type Changed",
           "+ Silver",
           "Bronze Only",
+          "Active entity",
+          "Lifecycle coverage",
+          "Current stop",
+          "Next move",
+          "Scope",
+          "Purpose",
+          "Column evolution",
+          "Microscope",
+          "Replay",
+          "What this page is",
+          "Why it matters",
+          "What happens next",
+          "Catalog",
+          "Lineage",
+          "Profile",
           "Schema Diff",
           "Bronze Columns",
           "Silver Columns"
@@ -1033,60 +1202,6 @@
     },
     {
       "path": "/runner",
-      "component": "PipelineRunner",
-      "source_file": "dashboard/app/src/App.tsx",
-      "has_params": false,
-      "analysis": {
-        "kpis": [
-          "pb-2",
-          "text-sm flex items-center gap-2",
-          "pt-6 space-y-4",
-          "Active scope detected",
-          "Entities In Scope"
-        ],
-        "filters": [],
-        "search_fields": [
-          "Filter entities..."
-        ],
-        "tables": [],
-        "table_columns": [
-          "Entity",
-          "Schema",
-          "Incremental",
-          "LZ",
-          "Bronze",
-          "Silver",
-          "Landing Zone",
-          "Full Pipeline",
-          "Landing"
-        ],
-        "modals": [],
-        "api_calls": [
-          "/api/runner/sources",
-          "/api/runner/state"
-        ],
-        "state_vars": [
-          "step",
-          "sources",
-          "selectedLayer"
-        ],
-        "has_loading_state": true,
-        "has_error_state": true,
-        "has_empty_state": true,
-        "has_search": true,
-        "has_pagination": false,
-        "has_sort": false,
-        "has_export": true,
-        "has_url_params": false,
-        "has_refresh": false,
-        "has_skeleton": false,
-        "source_filters": [],
-        "status_filters": [],
-        "is_coming_soon": false
-      }
-    },
-    {
-      "path": "/validation",
       "component": "ValidationChecklist",
       "source_file": "dashboard/app/src/App.tsx",
       "has_params": false,
@@ -1097,7 +1212,6 @@
           "pt-0",
           "flex items-center gap-2",
           "pt-0 space-y-3",
-          "py-3 px-4",
           "Source System Breakdown",
           "Source",
           "Failed"
@@ -1114,7 +1228,67 @@
           "Source",
           "LZ",
           "Bronze",
-          "Silver"
+          "Silver",
+          "Tables In Scope",
+          "Landing",
+          "Selected"
+        ],
+        "modals": [],
+        "api_calls": [
+          "/api/engine/validation"
+        ],
+        "state_vars": [
+          "layerFilter"
+        ],
+        "has_loading_state": true,
+        "has_error_state": true,
+        "has_empty_state": true,
+        "has_search": true,
+        "has_pagination": false,
+        "has_sort": false,
+        "has_export": true,
+        "has_url_params": false,
+        "has_refresh": true,
+        "has_skeleton": false,
+        "source_filters": [],
+        "status_filters": [
+          "all"
+        ],
+        "is_coming_soon": false
+      }
+    },
+    {
+      "path": "/validation",
+      "component": "ValidationChecklist",
+      "source_file": "dashboard/app/src/App.tsx",
+      "has_params": false,
+      "analysis": {
+        "kpis": [
+          "py-4",
+          "pb-2",
+          "pt-0",
+          "flex items-center gap-2",
+          "pt-0 space-y-3",
+          "Source System Breakdown",
+          "Source",
+          "Failed"
+        ],
+        "filters": [],
+        "search_fields": [
+          "Search tables..."
+        ],
+        "tables": [],
+        "table_columns": [
+          "ID",
+          "Entity",
+          "Schema",
+          "Source",
+          "LZ",
+          "Bronze",
+          "Silver",
+          "Tables In Scope",
+          "Landing",
+          "Selected"
         ],
         "modals": [],
         "api_calls": [
@@ -1317,24 +1491,37 @@
       "has_params": false,
       "analysis": {
         "kpis": [
+          "Profile silver",
           "Table"
         ],
         "filters": [],
         "search_fields": [],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "Selected Object",
+          "Staged For Load",
+          "Pipeline Coverage",
+          "Explore hub",
+          "Load staged tables",
+          "Open lineage",
+          "Open catalog",
+          "Profile silver"
+        ],
         "modals": [],
-        "api_calls": [],
+        "api_calls": [
+          "/api/sql-explorer/register-tables",
+          "/api/engine/start"
+        ],
         "state_vars": [],
-        "has_loading_state": false,
-        "has_error_state": false,
+        "has_loading_state": true,
+        "has_error_state": true,
         "has_empty_state": true,
         "has_search": true,
         "has_pagination": false,
         "has_sort": false,
         "has_export": true,
         "has_url_params": true,
-        "has_refresh": false,
+        "has_refresh": true,
         "has_skeleton": false,
         "source_filters": [],
         "status_filters": [],
@@ -1398,6 +1585,7 @@
           "Quality Breakdown",
           "Quality Ranking \u2014 Lowest 15 Columns",
           "Score = 60% completeness + 40% uniqueness",
+          "Open Load Center",
           "Table"
         ],
         "filters": [],
@@ -1441,15 +1629,29 @@
           "Completeness",
           "Null Count",
           "Max Length",
+          "Silver Ready",
+          "Blocked",
+          "Trusted",
+          "Explore hub",
+          "Show trusted",
+          "Open Load Center",
+          "Clear focus",
           "Bronze",
           "Silver",
+          "Loaded",
+          "Next move",
+          "Back to picker",
+          "Rows",
+          "High Null Columns",
+          "Potential Keys",
+          "Avg Completeness",
+          "Change table",
+          "Open lineage",
+          "Open catalog",
+          "Inspect source",
           "Table",
           "Missing Matrix",
-          "Quality Rank",
-          "Columns",
-          "Profiled",
-          "Avg Completeness",
-          "Avg Uniqueness"
+          "Quality Rank"
         ],
         "modals": [],
         "api_calls": [],
@@ -1458,7 +1660,7 @@
         ],
         "has_loading_state": true,
         "has_error_state": true,
-        "has_empty_state": false,
+        "has_empty_state": true,
         "has_search": true,
         "has_pagination": true,
         "has_sort": true,
@@ -1467,7 +1669,9 @@
         "has_refresh": false,
         "has_skeleton": false,
         "source_filters": [],
-        "status_filters": [],
+        "status_filters": [
+          "trusted"
+        ],
         "is_coming_soon": false
       }
     },
@@ -1488,7 +1692,19 @@
           "Landing Zone",
           "Bronze",
           "Silver",
-          "Gold"
+          "Gold",
+          "Active entity",
+          "Lifecycle coverage",
+          "Current layer focus",
+          "Purpose",
+          "Journey",
+          "Microscope",
+          "Replay",
+          "What this page is",
+          "Why it matters",
+          "What happens next",
+          "Catalog",
+          "Lineage"
         ],
         "modals": [],
         "api_calls": [
@@ -1525,7 +1741,18 @@
           "Source",
           "Landing Zone",
           "Bronze",
-          "Silver"
+          "Silver",
+          "Active entity",
+          "Lifecycle coverage",
+          "Primary key",
+          "Purpose",
+          "Journey",
+          "Replay",
+          "Catalog",
+          "What this page is",
+          "Why it matters",
+          "What happens next",
+          "Lineage"
         ],
         "modals": [],
         "api_calls": [],
@@ -1647,7 +1874,7 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "Entities ({sortedEntities.length})"
+          "Tables ({sortedEntities.length})"
         ],
         "filters": [],
         "search_fields": [],
@@ -1822,7 +2049,21 @@
       "analysis": {}
     },
     {
+      "path": "/gold/intake",
+      "component": null,
+      "source_file": "dashboard/app/src/App.tsx",
+      "has_params": false,
+      "analysis": {}
+    },
+    {
       "path": "/gold/ledger",
+      "component": null,
+      "source_file": "dashboard/app/src/App.tsx",
+      "has_params": false,
+      "analysis": {}
+    },
+    {
+      "path": "/gold/cluster",
       "component": null,
       "source_file": "dashboard/app/src/App.tsx",
       "has_params": false,
@@ -1843,118 +2084,177 @@
       "analysis": {}
     },
     {
+      "path": "/gold/spec",
+      "component": null,
+      "source_file": "dashboard/app/src/App.tsx",
+      "has_params": false,
+      "analysis": {}
+    },
+    {
       "path": "/gold/specs",
-      "component": "DataLineage",
+      "component": "GoldMlvManager",
       "source_file": "dashboard/app/src/App.tsx",
       "has_params": false,
       "analysis": {
         "kpis": [
-          "pb-3",
-          "text-base",
-          "h-4 w-4",
-          "text-[11px] mt-1",
-          "p-0",
-          "\\u2014",
-          "Table Lineage",
-          "Source"
+          "Source SQL"
         ],
-        "filters": [],
+        "filters": [
+          "All"
+        ],
         "search_fields": [
-          "Search entities..."
+          "Search by name..."
         ],
         "tables": [],
         "table_columns": [
-          "Entity",
-          "Source",
-          "LZ",
-          "Bronze",
-          "Silver",
-          "Gold",
-          "Rows",
-          "LZ Status",
-          "Bronze Status",
-          "Silver Status",
-          "Total Entities",
-          "Full Chain",
-          "Landing Zone"
+          "{children}",
+          "MLVs",
+          "Views",
+          "Tables"
         ],
         "modals": [],
-        "api_calls": [
-          "/api/lineage/columns/${entity.id}"
-        ],
-        "state_vars": [
-          "columnView"
-        ],
+        "api_calls": [],
+        "state_vars": [],
         "has_loading_state": true,
         "has_error_state": true,
         "has_empty_state": true,
         "has_search": true,
-        "has_pagination": false,
+        "has_pagination": true,
         "has_sort": false,
         "has_export": true,
-        "has_url_params": false,
-        "has_refresh": false,
+        "has_url_params": true,
+        "has_refresh": true,
         "has_skeleton": false,
         "source_filters": [],
-        "status_filters": [],
+        "status_filters": [
+          "All"
+        ],
+        "is_coming_soon": false
+      }
+    },
+    {
+      "path": "/gold/release",
+      "component": "GoldMlvManager",
+      "source_file": "dashboard/app/src/App.tsx",
+      "has_params": false,
+      "analysis": {
+        "kpis": [
+          "Source SQL"
+        ],
+        "filters": [
+          "All"
+        ],
+        "search_fields": [
+          "Search by name..."
+        ],
+        "tables": [],
+        "table_columns": [
+          "{children}",
+          "MLVs",
+          "Views",
+          "Tables"
+        ],
+        "modals": [],
+        "api_calls": [],
+        "state_vars": [],
+        "has_loading_state": true,
+        "has_error_state": true,
+        "has_empty_state": true,
+        "has_search": true,
+        "has_pagination": true,
+        "has_sort": false,
+        "has_export": true,
+        "has_url_params": true,
+        "has_refresh": true,
+        "has_skeleton": false,
+        "source_filters": [],
+        "status_filters": [
+          "All"
+        ],
         "is_coming_soon": false
       }
     },
     {
       "path": "/gold/validation",
-      "component": "DataLineage",
+      "component": "GoldMlvManager",
       "source_file": "dashboard/app/src/App.tsx",
       "has_params": false,
       "analysis": {
         "kpis": [
-          "pb-3",
-          "text-base",
-          "h-4 w-4",
-          "text-[11px] mt-1",
-          "p-0",
-          "\\u2014",
-          "Table Lineage",
-          "Source"
+          "Source SQL"
         ],
-        "filters": [],
+        "filters": [
+          "All"
+        ],
         "search_fields": [
-          "Search entities..."
+          "Search by name..."
         ],
         "tables": [],
         "table_columns": [
-          "Entity",
-          "Source",
-          "LZ",
-          "Bronze",
-          "Silver",
-          "Gold",
-          "Rows",
-          "LZ Status",
-          "Bronze Status",
-          "Silver Status",
-          "Total Entities",
-          "Full Chain",
-          "Landing Zone"
+          "{children}",
+          "MLVs",
+          "Views",
+          "Tables"
         ],
         "modals": [],
-        "api_calls": [
-          "/api/lineage/columns/${entity.id}"
-        ],
-        "state_vars": [
-          "columnView"
-        ],
+        "api_calls": [],
+        "state_vars": [],
         "has_loading_state": true,
         "has_error_state": true,
         "has_empty_state": true,
         "has_search": true,
-        "has_pagination": false,
+        "has_pagination": true,
         "has_sort": false,
         "has_export": true,
-        "has_url_params": false,
-        "has_refresh": false,
+        "has_url_params": true,
+        "has_refresh": true,
         "has_skeleton": false,
         "source_filters": [],
-        "status_filters": [],
+        "status_filters": [
+          "All"
+        ],
+        "is_coming_soon": false
+      }
+    },
+    {
+      "path": "/gold/serve",
+      "component": "GoldMlvManager",
+      "source_file": "dashboard/app/src/App.tsx",
+      "has_params": false,
+      "analysis": {
+        "kpis": [
+          "Source SQL"
+        ],
+        "filters": [
+          "All"
+        ],
+        "search_fields": [
+          "Search by name..."
+        ],
+        "tables": [],
+        "table_columns": [
+          "{children}",
+          "MLVs",
+          "Views",
+          "Tables"
+        ],
+        "modals": [],
+        "api_calls": [],
+        "state_vars": [],
+        "has_loading_state": true,
+        "has_error_state": true,
+        "has_empty_state": true,
+        "has_search": true,
+        "has_pagination": true,
+        "has_sort": false,
+        "has_export": true,
+        "has_url_params": true,
+        "has_refresh": true,
+        "has_skeleton": false,
+        "source_filters": [],
+        "status_filters": [
+          "All"
+        ],
         "is_coming_soon": false
       }
     },
@@ -1965,41 +2265,54 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "pb-3",
-          "text-base",
-          "h-4 w-4",
-          "text-[11px] mt-1",
+          "p-4",
+          "text-[12px]",
+          "flex items-center gap-3 p-5",
+          "p-5",
           "p-0",
-          "\\u2014",
-          "Table Lineage",
-          "Source"
+          "animate-pulse",
+          "h-20 p-4",
+          "Open catalog",
+          "Open blender",
+          "Failed to load entity digest",
+          "Open Load Center"
         ],
         "filters": [],
         "search_fields": [
-          "Search entities..."
+          "Search lineage by table, schema, source, or domain..."
         ],
         "tables": [],
         "table_columns": [
-          "Entity",
-          "Source",
-          "LZ",
+          "Loaded",
+          "Focus",
+          "Last signal",
+          "Next move",
+          "Columns here",
+          "Introduced",
+          "Dropped",
+          "Current",
+          "New",
+          "Carry",
+          "Landing",
           "Bronze",
           "Silver",
           "Gold",
-          "Rows",
-          "LZ Status",
-          "Bronze Status",
-          "Silver Status",
-          "Total Entities",
-          "Full Chain",
-          "Landing Zone"
+          "Tool-Ready Chains",
+          "Blocked Assets",
+          "Landing Coverage",
+          "Trusted",
+          "Explore hub",
+          "Trusted only",
+          "Open Load Center",
+          "Clear focus",
+          "All chains"
         ],
         "modals": [],
         "api_calls": [
           "/api/lineage/columns/${entity.id}"
         ],
         "state_vars": [
-          "columnView"
+          "activeStage"
         ],
         "has_loading_state": true,
         "has_error_state": true,
@@ -2008,11 +2321,13 @@
         "has_pagination": false,
         "has_sort": false,
         "has_export": true,
-        "has_url_params": false,
+        "has_url_params": true,
         "has_refresh": false,
         "has_skeleton": false,
         "source_filters": [],
-        "status_filters": [],
+        "status_filters": [
+          "trusted"
+        ],
         "is_coming_soon": false
       }
     },
@@ -2023,7 +2338,7 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "Total Entities",
+          "Tables In Scope",
           "Est. Columns",
           "PII Detected",
           "Confidential",
@@ -2078,21 +2393,24 @@
       "analysis": {
         "kpis": [
           "underline hover:opacity-80",
-          "h-4 w-4",
-          "text-[11px] mt-1",
-          "p-6 flex items-center gap-3",
+          "flex items-center gap-3 p-6",
+          "p-5",
+          "p-0",
           "animate-pulse",
-          "p-4 h-24",
+          "h-20 p-4",
           "p-4",
           "Source Connection",
           "table after the next run.",
           "Table-level lineage",
           "Quality scoring not configured",
-          "Failed to load entity digest"
+          "Failed to load entity digest",
+          "Open Load Center",
+          "Open lineage",
+          "Open blender"
         ],
         "filters": [],
         "search_fields": [
-          "Search entities, schemas, sources..."
+          "Search assets, domains, or sources..."
         ],
         "tables": [],
         "table_columns": [
@@ -2103,8 +2421,23 @@
           "Database",
           "Schema",
           "Load Type",
-          "Registered Entities",
+          "Tool-Ready Assets",
+          "Trusted Assets",
+          "Atlas Mode",
+          "Blocked Assets",
+          "Explore hub",
+          "Trusted only",
+          "Needs attention",
+          "Profile-ready",
+          "Clear focus",
+          "All",
+          "Trust",
           "Loaded",
+          "Relationships",
+          "Next move",
+          "Resolution",
+          "Landing",
+          "Relationship stage",
           "name",
           "source"
         ],
@@ -2113,22 +2446,31 @@
             "type": "dialog"
           }
         ],
-        "api_calls": [],
+        "api_calls": [
+          "/api/join-discovery/status",
+          "/api/join-discovery/run-analysis",
+          "/api/join-discovery/analyst"
+        ],
         "state_vars": [
-          "sortKey"
+          "sortKey",
+          "joinStatus"
         ],
         "has_loading_state": true,
         "has_error_state": true,
-        "has_empty_state": true,
+        "has_empty_state": false,
         "has_search": true,
         "has_pagination": false,
         "has_sort": true,
         "has_export": true,
-        "has_url_params": false,
-        "has_refresh": false,
+        "has_url_params": true,
+        "has_refresh": true,
         "has_skeleton": true,
         "source_filters": [],
-        "status_filters": [],
+        "status_filters": [
+          "trusted",
+          "attention",
+          "profile_ready"
+        ],
         "is_coming_soon": false
       }
     },
@@ -2141,7 +2483,7 @@
         "kpis": [
           "border-dashed",
           "py-12 text-center",
-          "Total Entities",
+          "Tables In Scope",
           "Full Chain",
           "Partial Chain",
           "Not Started",
@@ -2274,27 +2616,67 @@
           "Sources",
           "Table",
           "Running...",
-          "total entities",
+          "tables in scope",
           "Table counts",
           "Source"
         ],
         "filters": [],
         "search_fields": [
-          "Filter tables..."
+          "Filter tables...",
+          "Search source, table, reason, or prior failure\u2026"
         ],
         "tables": [],
         "table_columns": [
           "Type",
-          "Status"
+          "Status",
+          "Entity",
+          "Missing / Layer Status",
+          "What Load Will Do",
+          "Why",
+          "Latest Issue",
+          "Queue failure",
+          "Collect context",
+          "Invoke local CLI",
+          "Validate patch",
+          "Retry entity",
+          "Return to run",
+          "Queued",
+          "Working",
+          "Resolved",
+          "Exhausted",
+          "unknown",
+          "armed",
+          "Landing",
+          "Bronze",
+          "Silver",
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Mission Control",
+          "Open Source Manager",
+          "Open Data Estate",
+          "Tables In Scope",
+          "Outstanding",
+          "Downstream Gaps",
+          "Daemon",
+          "Unavailable",
+          "Missing Landing",
+          "Missing Bronze",
+          "Missing Silver",
+          "Outstanding Queue",
+          "Full Loads Next",
+          "Incremental Next"
         ],
         "modals": [],
         "api_calls": [
+          "/api/engine/vpn-status",
           "/api/load-center/status"
         ],
         "state_vars": [
           "sort",
           "sort",
           "status",
+          "vpnStatus",
           "sourceDetail"
         ],
         "has_loading_state": true,
@@ -2304,11 +2686,15 @@
         "has_pagination": false,
         "has_sort": true,
         "has_export": true,
-        "has_url_params": false,
+        "has_url_params": true,
         "has_refresh": true,
         "has_skeleton": false,
         "source_filters": [],
-        "status_filters": [],
+        "status_filters": [
+          "withIssue",
+          "withoutIssue",
+          "all"
+        ],
         "is_coming_soon": false
       }
     },
@@ -2319,9 +2705,8 @@
       "has_params": false,
       "analysis": {
         "kpis": [
+          "Open Load Center",
           "Sources",
-          "Entities Loaded",
-          "Failed Entities",
           "Failed",
           "Entities",
           "Tables with data",
@@ -2335,19 +2720,40 @@
         "tables": [],
         "table_columns": [
           "{h}",
+          "Queue failure",
+          "Collect context",
+          "Invoke local CLI",
+          "Validate patch",
+          "Retry entity",
+          "Return to run",
           "Verified",
           "Mismatch",
           "Unverified",
-          "Total Registered",
-          "Incremental-Ready",
-          "Full-Load Only",
-          "Verification Coverage",
+          "armed",
+          "Queued",
+          "Working",
+          "Resolved",
+          "Exhausted",
+          "Tables In Scope",
+          "Landing Loaded",
+          "Bronze Loaded",
+          "Silver Loaded",
           "Landing Zone",
           "Bronze",
           "Silver",
           "Details",
           "Failures",
           "Verification",
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Load Center",
+          "Open Execution Matrix",
+          "Open Error Intelligence",
+          "Run",
+          "Sources",
+          "Scope",
+          "Status",
           "Duration",
           "Throughput",
           "Data Volume",
@@ -2360,11 +2766,11 @@
           "${API}/api/engine/status",
           "${API}/api/lmc/run/${runId}/entities?${q.toString()}",
           "${API}/api/lmc/sources",
-          "${API}/api/engine/retry",
           "${API}/api/lmc/compare?run_a=${encodeURIComponent(compareRunA)}&run_b=${encodeURIComponent(compareRunB)}",
           "${API}/api/lmc/entity-ids-by-source?sources=${encodeURIComponent(sourceFilter.join(",
           "${API}/api/engine/start",
           "${API}/api/engine/stop",
+          "${API}/api/engine/retry",
           "${API}/api/engine/resume",
           "${API}/api/lmc/run/${scope.selectedRunId}/entities?status=failed&limit=5000"
         ],
@@ -2380,6 +2786,46 @@
         "has_sort": false,
         "has_export": true,
         "has_url_params": true,
+        "has_refresh": true,
+        "has_skeleton": false,
+        "source_filters": [],
+        "status_filters": [],
+        "is_coming_soon": false
+      }
+    },
+    {
+      "path": "/__test/table-card-list",
+      "component": "TableCardListFixture",
+      "source_file": "dashboard/app/src/App.tsx",
+      "has_params": false,
+      "analysis": {
+        "kpis": [
+          "TableCardList fixture"
+        ],
+        "filters": [],
+        "search_fields": [],
+        "tables": [],
+        "table_columns": [
+          "MES Orders",
+          "Landing Zone ready",
+          "Status",
+          "Rows",
+          "Latency",
+          "M3 Items",
+          "Bronze load delayed",
+          "Errors"
+        ],
+        "modals": [],
+        "api_calls": [],
+        "state_vars": [],
+        "has_loading_state": false,
+        "has_error_state": true,
+        "has_empty_state": false,
+        "has_search": false,
+        "has_pagination": false,
+        "has_sort": false,
+        "has_export": true,
+        "has_url_params": false,
         "has_refresh": true,
         "has_skeleton": false,
         "source_filters": [],
@@ -2529,43 +2975,55 @@
     },
     {
       "path": "/labs/gold-mlv",
-      "component": "GoldMlvManager",
+      "component": "DqScorecard",
       "source_file": "dashboard/app/src/App.tsx",
       "has_params": false,
       "analysis": {
         "kpis": [
-          "Source SQL"
+          "Failed to load quality scores",
+          "Quality scores haven't been computed. Click",
+          "Entities Scored",
+          "entities",
+          "Quality Tier"
         ],
-        "filters": [
-          "All"
-        ],
-        "search_fields": [
-          "Search by name..."
-        ],
+        "filters": [],
+        "search_fields": [],
         "tables": [],
         "table_columns": [
-          "{children}",
-          "MLVs",
-          "Views",
-          "Tables"
+          "Complete",
+          "Fresh",
+          "Consist.",
+          "Volume",
+          "Entity",
+          "Source",
+          "Composite",
+          "Computed",
+          "Completeness",
+          "Freshness",
+          "Consistency"
         ],
         "modals": [],
-        "api_calls": [],
-        "state_vars": [],
+        "api_calls": [
+          "/api/quality/scores?${qs}",
+          "/api/quality/refresh"
+        ],
+        "state_vars": [
+          "tierFilter",
+          "sortField",
+          "sortDir"
+        ],
         "has_loading_state": true,
         "has_error_state": true,
         "has_empty_state": true,
         "has_search": true,
         "has_pagination": true,
-        "has_sort": false,
+        "has_sort": true,
         "has_export": true,
         "has_url_params": true,
         "has_refresh": true,
         "has_skeleton": false,
         "source_filters": [],
-        "status_filters": [
-          "All"
-        ],
+        "status_filters": [],
         "is_coming_soon": false
       }
     },
@@ -2747,7 +3205,6 @@
       "analysis": {
         "kpis": [
           "alert.entities.length && (",
-          "Alerts",
           "Failed to load alerts: {error}",
           "Critical Alerts",
           "Warning Alerts",
@@ -2756,7 +3213,14 @@
         "filters": [],
         "search_fields": [],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Overview",
+          "Browse Sources",
+          "Submit a Request"
+        ],
         "modals": [],
         "api_calls": [
           "${API}/api/alerts"
@@ -2795,6 +3259,12 @@
         "search_fields": [],
         "tables": [],
         "table_columns": [
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Overview",
+          "Browse Sources",
+          "Submit a Request",
           "Gold",
           "Silver",
           "Bronze",
@@ -2840,7 +3310,13 @@
           "Find a Table",
           "Understand Data Quality",
           "Request New Data",
-          "Check Source Health"
+          "Check Source Health",
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Overview",
+          "Open Catalog",
+          "Open Requests"
         ],
         "modals": [],
         "api_calls": [],
@@ -2878,7 +3354,13 @@
           "In Review",
           "Approved",
           "Completed",
-          "Declined"
+          "Declined",
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Catalog",
+          "Open Help",
+          "Return to Overview"
         ],
         "modals": [],
         "api_calls": [
@@ -2910,22 +3392,29 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "tables",
-          "Sources",
+          "tables in scope",
           "Table",
           "Source",
-          "Across all tables",
-          "Sources Connected",
-          "On Schedule",
-          "Average Quality"
+          "Tables that made it into Fabric landing",
+          "Tables that successfully materialized in bronze",
+          "Sources Healthy",
+          "Landing Loaded",
+          "Bronze Loaded",
+          "Silver Loaded"
         ],
         "filters": [],
         "search_fields": [],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Overview",
+          "Inspect Data Estate",
+          "Open Source Manager"
+        ],
         "modals": [],
         "api_calls": [
-          "${API}/api/overview/kpis",
           "${API}/api/overview/sources",
           "${API}/api/overview/entities"
         ],
@@ -2962,13 +3451,20 @@
         "filters": [],
         "search_fields": [],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Return to Catalog",
+          "Submit a Request",
+          "Open Help",
+          "Browse Sources"
+        ],
         "modals": [],
         "api_calls": [
           "${API}/api/overview/entities",
           "${API}/api/glossary/entity/${entityId}",
-          "${API}/api/mdm/quality/scores",
-          "${API}/api/gold/models/${goldModelId}"
+          "${API}/api/mdm/quality/scores"
         ],
         "state_vars": [
           "datasource"
@@ -2995,17 +3491,23 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "Open Alerts",
-          "Sources Online",
+          "Landing Loaded",
+          "Silver Loaded",
+          "Tool-Ready",
+          "Quality Avg",
           "Source Health"
         ],
         "filters": [],
         "search_fields": [],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "Load Center",
+          "Mission Control",
+          "Explore",
+          "Gold Studio"
+        ],
         "modals": [],
         "api_calls": [
-          "${API}/api/overview/kpis",
           "${API}/api/overview/sources",
           "${API}/api/overview/activity"
         ],
@@ -3014,7 +3516,7 @@
         ],
         "has_loading_state": true,
         "has_error_state": true,
-        "has_empty_state": true,
+        "has_empty_state": false,
         "has_search": false,
         "has_pagination": false,
         "has_sort": false,
@@ -3075,7 +3577,19 @@
           "Landing Zone",
           "Bronze",
           "Silver",
-          "Gold"
+          "Gold",
+          "Active entity",
+          "Lifecycle coverage",
+          "Current layer focus",
+          "Purpose",
+          "Journey",
+          "Microscope",
+          "Replay",
+          "What this page is",
+          "Why it matters",
+          "What happens next",
+          "Catalog",
+          "Lineage"
         ],
         "modals": [],
         "api_calls": [
@@ -3145,7 +3659,8 @@
           "Source",
           "Table",
           "running...",
-          "Total registered",
+          "Tables In Scope",
+          "Total in scope",
           "Active"
         ],
         "filters": [],
@@ -3174,14 +3689,18 @@
           "Degraded \u2014 Recent Failures",
           "Critical \u2014 Pipelines Failing",
           "Initial Setup \u2014 No Sources",
-          "SQL Database Offline"
+          "SQL Database Offline",
+          "Sources",
+          "Entities",
+          "Runs",
+          "Health",
+          "Load",
+          "GUID"
         ],
         "modals": [],
         "api_calls": [
           "/api/control-plane",
-          "/api/load-config",
-          "/api/entity-digest/resync",
-          "/api/maintenance-agent/trigger"
+          "/api/load-config"
         ],
         "state_vars": [],
         "has_loading_state": true,
@@ -3252,18 +3771,27 @@
         "table_columns": [
           "Profile",
           "Blend Suggestions",
-          "Preview"
+          "Preview",
+          "Selected Table",
+          "Blend Stage",
+          "Purview",
+          "Explore hub",
+          "Open lineage",
+          "Open catalog",
+          "Open Load Center",
+          "Inspect source",
+          "Profile mode"
         ],
         "modals": [],
         "api_calls": [
           "/api/purview/status"
         ],
         "state_vars": [],
-        "has_loading_state": false,
+        "has_loading_state": true,
         "has_error_state": false,
         "has_empty_state": false,
         "has_search": true,
-        "has_pagination": false,
+        "has_pagination": true,
         "has_sort": false,
         "has_export": true,
         "has_url_params": true,
@@ -3282,21 +3810,24 @@
       "analysis": {
         "kpis": [
           "underline hover:opacity-80",
-          "h-4 w-4",
-          "text-[11px] mt-1",
-          "p-6 flex items-center gap-3",
+          "flex items-center gap-3 p-6",
+          "p-5",
+          "p-0",
           "animate-pulse",
-          "p-4 h-24",
+          "h-20 p-4",
           "p-4",
           "Source Connection",
           "table after the next run.",
           "Table-level lineage",
           "Quality scoring not configured",
-          "Failed to load entity digest"
+          "Failed to load entity digest",
+          "Open Load Center",
+          "Open lineage",
+          "Open blender"
         ],
         "filters": [],
         "search_fields": [
-          "Search entities, schemas, sources..."
+          "Search assets, domains, or sources..."
         ],
         "tables": [],
         "table_columns": [
@@ -3307,8 +3838,23 @@
           "Database",
           "Schema",
           "Load Type",
-          "Registered Entities",
+          "Tool-Ready Assets",
+          "Trusted Assets",
+          "Atlas Mode",
+          "Blocked Assets",
+          "Explore hub",
+          "Trusted only",
+          "Needs attention",
+          "Profile-ready",
+          "Clear focus",
+          "All",
+          "Trust",
           "Loaded",
+          "Relationships",
+          "Next move",
+          "Resolution",
+          "Landing",
+          "Relationship stage",
           "name",
           "source"
         ],
@@ -3317,22 +3863,31 @@
             "type": "dialog"
           }
         ],
-        "api_calls": [],
+        "api_calls": [
+          "/api/join-discovery/status",
+          "/api/join-discovery/run-analysis",
+          "/api/join-discovery/analyst"
+        ],
         "state_vars": [
-          "sortKey"
+          "sortKey",
+          "joinStatus"
         ],
         "has_loading_state": true,
         "has_error_state": true,
-        "has_empty_state": true,
+        "has_empty_state": false,
         "has_search": true,
         "has_pagination": false,
         "has_sort": true,
         "has_export": true,
-        "has_url_params": false,
-        "has_refresh": false,
+        "has_url_params": true,
+        "has_refresh": true,
         "has_skeleton": true,
         "source_filters": [],
-        "status_filters": [],
+        "status_filters": [
+          "trusted",
+          "attention",
+          "profile_ready"
+        ],
         "is_coming_soon": false
       }
     },
@@ -3343,7 +3898,7 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "Total Entities",
+          "Tables In Scope",
           "Est. Columns",
           "PII Detected",
           "Confidential",
@@ -3397,15 +3952,26 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "Entities",
-          "Sources",
-          "Governance",
-          "Errors"
+          "Tables In Scope",
+          "Landing Loaded",
+          "Bronze Loaded",
+          "Silver Loaded"
         ],
         "filters": [],
         "search_fields": [],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Load Center",
+          "Open Source Manager",
+          "Back to Overview",
+          "Sources",
+          "Tables In Scope",
+          "Silver Loaded",
+          "Blockers"
+        ],
         "modals": [],
         "api_calls": [
           "/api/estate/overview"
@@ -3471,6 +4037,21 @@
           "Type Changed",
           "+ Silver",
           "Bronze Only",
+          "Active entity",
+          "Lifecycle coverage",
+          "Current stop",
+          "Next move",
+          "Scope",
+          "Purpose",
+          "Column evolution",
+          "Microscope",
+          "Replay",
+          "What this page is",
+          "Why it matters",
+          "What happens next",
+          "Catalog",
+          "Lineage",
+          "Profile",
           "Schema Diff",
           "Bronze Columns",
           "Silver Columns"
@@ -3500,41 +4081,54 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "pb-3",
-          "text-base",
-          "h-4 w-4",
-          "text-[11px] mt-1",
+          "p-4",
+          "text-[12px]",
+          "flex items-center gap-3 p-5",
+          "p-5",
           "p-0",
-          "\\u2014",
-          "Table Lineage",
-          "Source"
+          "animate-pulse",
+          "h-20 p-4",
+          "Open catalog",
+          "Open blender",
+          "Failed to load entity digest",
+          "Open Load Center"
         ],
         "filters": [],
         "search_fields": [
-          "Search entities..."
+          "Search lineage by table, schema, source, or domain..."
         ],
         "tables": [],
         "table_columns": [
-          "Entity",
-          "Source",
-          "LZ",
+          "Loaded",
+          "Focus",
+          "Last signal",
+          "Next move",
+          "Columns here",
+          "Introduced",
+          "Dropped",
+          "Current",
+          "New",
+          "Carry",
+          "Landing",
           "Bronze",
           "Silver",
           "Gold",
-          "Rows",
-          "LZ Status",
-          "Bronze Status",
-          "Silver Status",
-          "Total Entities",
-          "Full Chain",
-          "Landing Zone"
+          "Tool-Ready Chains",
+          "Blocked Assets",
+          "Landing Coverage",
+          "Trusted",
+          "Explore hub",
+          "Trusted only",
+          "Open Load Center",
+          "Clear focus",
+          "All chains"
         ],
         "modals": [],
         "api_calls": [
           "/api/lineage/columns/${entity.id}"
         ],
         "state_vars": [
-          "columnView"
+          "activeStage"
         ],
         "has_loading_state": true,
         "has_error_state": true,
@@ -3543,11 +4137,13 @@
         "has_pagination": false,
         "has_sort": false,
         "has_export": true,
-        "has_url_params": false,
+        "has_url_params": true,
         "has_refresh": false,
         "has_skeleton": false,
         "source_filters": [],
-        "status_filters": [],
+        "status_filters": [
+          "trusted"
+        ],
         "is_coming_soon": false
       }
     },
@@ -3566,7 +4162,18 @@
           "Source",
           "Landing Zone",
           "Bronze",
-          "Silver"
+          "Silver",
+          "Active entity",
+          "Lifecycle coverage",
+          "Primary key",
+          "Purpose",
+          "Journey",
+          "Replay",
+          "Catalog",
+          "What this page is",
+          "Why it matters",
+          "What happens next",
+          "Lineage"
         ],
         "modals": [],
         "api_calls": [],
@@ -3596,6 +4203,7 @@
           "Quality Breakdown",
           "Quality Ranking \u2014 Lowest 15 Columns",
           "Score = 60% completeness + 40% uniqueness",
+          "Open Load Center",
           "Table"
         ],
         "filters": [],
@@ -3639,15 +4247,29 @@
           "Completeness",
           "Null Count",
           "Max Length",
+          "Silver Ready",
+          "Blocked",
+          "Trusted",
+          "Explore hub",
+          "Show trusted",
+          "Open Load Center",
+          "Clear focus",
           "Bronze",
           "Silver",
+          "Loaded",
+          "Next move",
+          "Back to picker",
+          "Rows",
+          "High Null Columns",
+          "Potential Keys",
+          "Avg Completeness",
+          "Change table",
+          "Open lineage",
+          "Open catalog",
+          "Inspect source",
           "Table",
           "Missing Matrix",
-          "Quality Rank",
-          "Columns",
-          "Profiled",
-          "Avg Completeness",
-          "Avg Uniqueness"
+          "Quality Rank"
         ],
         "modals": [],
         "api_calls": [],
@@ -3656,7 +4278,7 @@
         ],
         "has_loading_state": true,
         "has_error_state": true,
-        "has_empty_state": false,
+        "has_empty_state": true,
         "has_search": true,
         "has_pagination": true,
         "has_sort": true,
@@ -3665,7 +4287,9 @@
         "has_refresh": false,
         "has_skeleton": false,
         "source_filters": [],
-        "status_filters": [],
+        "status_filters": [
+          "trusted"
+        ],
         "is_coming_soon": false
       }
     },
@@ -3747,7 +4371,7 @@
           "Source:",
           "Running health checks...",
           "Running",
-          "Total Entities",
+          "Tables In Plan",
           "Sources",
           "Entities:",
           "Source Breakdown",
@@ -3790,7 +4414,10 @@
           "Idle",
           "Running",
           "Stopping",
-          "API Connectivity"
+          "API Connectivity",
+          "Method",
+          "Fallback",
+          "Last run"
         ],
         "modals": [],
         "api_calls": [
@@ -3869,8 +4496,15 @@
           "Critical",
           "Warning",
           "Info",
-          "Total",
-          "Warnings"
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Mission Control",
+          "Open Execution Log",
+          "Open Load Center",
+          "Warnings",
+          "Pipelines",
+          "Total"
         ],
         "modals": [],
         "api_calls": [
@@ -3918,6 +4552,13 @@
           "Running",
           "Cancelled",
           "Queued",
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Mission Control",
+          "Open Error Intelligence",
+          "Open Load Center",
+          "Tab",
           "Pipeline Runs",
           "Copy Activities",
           "Notebook Runs"
@@ -3969,7 +4610,11 @@
         "table_columns": [
           "Succeeded",
           "Failed",
-          "Other"
+          "Other",
+          "Tables In Scope",
+          "Success",
+          "Errors",
+          "Sources"
         ],
         "modals": [],
         "api_calls": [],
@@ -4028,6 +4673,64 @@
         "has_export": true,
         "has_url_params": false,
         "has_refresh": true,
+        "has_skeleton": false,
+        "source_filters": [],
+        "status_filters": [],
+        "is_coming_soon": false
+      }
+    },
+    {
+      "path": "/explore-hub",
+      "component": "ExploreHub",
+      "source_file": "dashboard/app/src/pages/ExploreHub.tsx",
+      "has_params": false,
+      "analysis": {
+        "kpis": [],
+        "filters": [],
+        "search_fields": [],
+        "tables": [],
+        "table_columns": [
+          "Data Catalog",
+          "Data Lineage",
+          "Data Profiler",
+          "Data Blender",
+          "SQL Explorer",
+          "Data Journey",
+          "Load Progress",
+          "Column Evolution",
+          "Transformation Replay",
+          "Sankey Flow",
+          "Impact Pulse",
+          "What This Page Is",
+          "Why It Matters",
+          "What Happens Next",
+          "Open Overview",
+          "Open Load Center",
+          "Open Data Estate",
+          "Tool-Ready",
+          "Blocked",
+          "Trusted",
+          "Graph Evidence",
+          "Need to find the right asset?",
+          "Need to understand the break?",
+          "Need to judge data quality fast?"
+        ],
+        "modals": [],
+        "api_calls": [
+          "${API}/api/join-discovery/status"
+        ],
+        "state_vars": [
+          "joinStatus"
+        ],
+        "has_loading_state": true,
+        "has_error_state": false,
+        "has_empty_state": false,
+        "has_search": true,
+        "has_pagination": false,
+        "has_sort": false,
+        "has_export": true,
+        "has_url_params": false,
+        "has_refresh": false,
         "has_skeleton": false,
         "source_filters": [],
         "status_filters": [],
@@ -4115,7 +4818,8 @@
           "Domains",
           "Specimens",
           "Clusters",
-          "Gold Specs"
+          "Gold Specs",
+          "Reload Canonical"
         ],
         "modals": [],
         "api_calls": [],
@@ -4128,7 +4832,7 @@
         "has_sort": false,
         "has_export": true,
         "has_url_params": true,
-        "has_refresh": false,
+        "has_refresh": true,
         "has_skeleton": false,
         "source_filters": [],
         "status_filters": [
@@ -4193,7 +4897,8 @@
       "analysis": {
         "kpis": [
           "Filter by job state",
-          "Source class:"
+          "Source class:",
+          "Source Detected"
         ],
         "filters": [],
         "search_fields": [
@@ -4201,6 +4906,11 @@
         ],
         "tables": [],
         "table_columns": [
+          "#",
+          "Column",
+          "Type",
+          "Nullable",
+          "Identity",
           "{h}",
           "Upload File",
           "Paste SQL",
@@ -4217,16 +4927,17 @@
           "Canonical",
           "Gold Specs",
           "Certification",
+          "Reload Intake",
           "Import Your First Specimen"
         ],
         "modals": [],
         "api_calls": [
           "${API}/api/gold-studio/specimens",
           "${API}/api/gold-studio/specimens/${created.id}/extract",
+          "${API}/api/gold-studio/auto-detect",
           "${API}/api/gold-studio/specimens/bulk",
-          "${API}/api/gold-studio/stats",
-          "${API}/api/gold-studio/specimens?limit=200",
-          "${API}/api/gold-studio/entities?limit=500",
+          "${API}/api/gold-studio/specimens?${specimenParams}",
+          "${API}/api/gold-studio/entities?${entityParams}",
           "${API}/api/gold-studio/specimens/${id}"
         ],
         "state_vars": [],
@@ -4237,8 +4948,8 @@
         "has_pagination": true,
         "has_sort": false,
         "has_export": true,
-        "has_url_params": false,
-        "has_refresh": false,
+        "has_url_params": true,
+        "has_refresh": true,
         "has_skeleton": false,
         "source_filters": [],
         "status_filters": [],
@@ -4275,7 +4986,8 @@
           "History",
           "Ready to Deploy",
           "Total Specs",
-          "Deprecated"
+          "Deprecated",
+          "Reload Specs"
         ],
         "modals": [],
         "api_calls": [],
@@ -4291,7 +5003,9 @@
         "has_refresh": true,
         "has_skeleton": false,
         "source_filters": [],
-        "status_filters": [],
+        "status_filters": [
+          "All"
+        ],
         "is_coming_soon": false
       }
     },
@@ -4302,64 +5016,55 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "internal",
-          "ml-1.5",
-          "rounded-md px-4 py-2 text-sm font-medium hover:opacity-90",
-          "rounded-md border px-3 py-1.5 text-sm",
-          "openSpec(s)}>",
-          "openCat(c)}>",
-          "openReport(r)}>",
-          "Active Waiver"
+          "gs-hero-enter",
+          "gs-stagger-row flex items-center gap-1.5",
+          "w-full rounded-md border px-3 py-2 md:col-span-2",
+          "rounded-lg px-3 py-3"
         ],
         "filters": [],
-        "search_fields": [],
+        "search_fields": [
+          "Search appendix rows..."
+        ],
         "tables": [],
         "table_columns": [
-          "Spec Name",
-          "Status",
-          "Version",
-          "Domain",
-          "Display Name",
-          "Technical Name",
-          "Owner",
-          "Sensitivity",
-          "Endorsement",
-          "Published",
-          "Report",
-          "Type",
-          "Coverage Status",
-          "Assessed",
-          "Rule",
-          "Expected",
-          "Actual",
-          "Metric",
-          "Legacy Value",
-          "Gold Value",
-          "Delta",
-          "Validated",
-          "Draft",
-          "Needs Reval.",
-          "Deprecated",
-          "Passed",
-          "Warning",
-          "Failed",
-          "Queued",
-          "Running",
-          "\\u2713 Certified",
-          "Promoted",
+          "{header}",
+          "Coverage Map",
+          "Proposed Semantic Model",
+          "Coverage Appendix",
+          "Fully Accounted",
+          "Partial Coverage",
+          "Missing Coverage",
+          "Context Only",
+          "No Field Evidence",
           "Not Analyzed",
           "Analyzed",
           "Partially Covered",
           "Fully Covered",
           "Recreated",
           "Reconciled",
+          "Published",
+          "Validated",
+          "Designed",
+          "Needs Spec",
+          "Published Product",
+          "Accounted For",
+          "Needs Semantic Def.",
+          "Needs Canonical Map",
+          "Unmapped",
+          "Report Not Linked",
           "internal",
-          "Pending",
-          "Certified",
-          "Cataloged",
-          "Total Specs",
-          "Gold specs exist for required entities",
-          "No unresolved metrics remain"
+          "Model Coverage",
+          "Release Blockers",
+          "Published Products",
+          "Imported Artifacts",
+          "Tracked Reports",
+          "Validated Specs",
+          "Canonical Objects",
+          "Updated",
+          "Reload Release Gate",
+          "Review Blockers",
+          "Entities",
+          "Need Specs"
         ],
         "modals": [
           {
@@ -4372,22 +5077,25 @@
             "type": "dialog"
           }
         ],
-        "api_calls": [],
+        "api_calls": [
+          "/api/specs",
+          "/api/release/coverage-map",
+          "/api/release/proposed-model",
+          "/api/release/coverage-appendix"
+        ],
         "state_vars": [],
         "has_loading_state": true,
         "has_error_state": true,
         "has_empty_state": true,
-        "has_search": false,
+        "has_search": true,
         "has_pagination": true,
         "has_sort": false,
         "has_export": true,
-        "has_url_params": false,
+        "has_url_params": true,
         "has_refresh": true,
         "has_skeleton": false,
         "source_filters": [],
-        "status_filters": [
-          "All"
-        ],
+        "status_filters": [],
         "is_coming_soon": false
       }
     },
@@ -4442,7 +5150,7 @@
         "kpis": [
           "border-dashed",
           "py-12 text-center",
-          "Total Entities",
+          "Tables In Scope",
           "Full Chain",
           "Partial Chain",
           "Not Started",
@@ -4497,7 +5205,7 @@
       "has_params": false,
       "analysis": {
         "kpis": [
-          "Entities ({sortedEntities.length})"
+          "Tables ({sortedEntities.length})"
         ],
         "filters": [],
         "search_fields": [],
@@ -4812,14 +5520,24 @@
           "matched of {fmt(total)}",
           "tables",
           "Failed to load counts",
-          "Matched ({fmt(stats.matched)})"
+          "Matched ({fmt(stats.matched)})",
+          "Source:"
         ],
         "filters": [],
         "search_fields": [
           "Search tables, schemas, sources..."
         ],
         "tables": [],
-        "table_columns": [],
+        "table_columns": [
+          "Scope",
+          "Matched",
+          "Scan",
+          "Filter",
+          "Status",
+          "Landing",
+          "Bronze",
+          "Silver"
+        ],
         "modals": [],
         "api_calls": [
           "/api/lakehouse-counts"
@@ -4948,8 +5666,9 @@
           "text-muted-foreground hover:text-foreground text-sm",
           "pb-2",
           "flex items-center gap-2",
-          "Source Manager",
-          "Entities",
+          "Tables In Scope",
+          "Open journey",
+          "Open flow",
           "Table",
           "Source Rows",
           "Open in Fabric"
@@ -4971,7 +5690,15 @@
           "Primary Keys",
           "Bronze",
           "Silver",
-          "Last Value"
+          "Last Value",
+          "Tables In Scope",
+          "Landing Loaded",
+          "Bronze Loaded",
+          "Silver Loaded",
+          "Load",
+          "Source",
+          "Selected",
+          "Watermark"
         ],
         "modals": [],
         "api_calls": [
@@ -4988,12 +5715,11 @@
           "/api/load-config"
         ],
         "state_vars": [
-          "registeredDataSources",
-          "discoverResult"
+          "registeredDataSources"
         ],
         "has_loading_state": true,
         "has_error_state": true,
-        "has_empty_state": true,
+        "has_empty_state": false,
         "has_search": true,
         "has_pagination": false,
         "has_sort": true,
@@ -5074,7 +5800,6 @@
           "pt-0",
           "flex items-center gap-2",
           "pt-0 space-y-3",
-          "py-3 px-4",
           "Source System Breakdown",
           "Source",
           "Failed"
@@ -5091,7 +5816,10 @@
           "Source",
           "LZ",
           "Bronze",
-          "Silver"
+          "Silver",
+          "Tables In Scope",
+          "Landing",
+          "Selected"
         ],
         "modals": [],
         "api_calls": [
@@ -5148,12 +5876,6 @@
     }
   ],
   "api_endpoints": [
-    {
-      "method": "GET",
-      "path": "/api/...",
-      "source_file": "archive/scripts/jira/jira_chunk1_update.py",
-      "has_params": false
-    },
     {
       "method": "GET",
       "path": "/api/things",
@@ -5492,6 +6214,18 @@
     },
     {
       "method": "GET",
+      "path": "/api/engine/vpn-status",
+      "source_file": "dashboard/app/api/routes/engine.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/engine/self-heal/status",
+      "source_file": "dashboard/app/api/routes/engine.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
       "path": "/api/engine/plan",
       "source_file": "dashboard/app/api/routes/engine.py",
       "has_params": false
@@ -5559,6 +6293,12 @@
     {
       "method": "POST",
       "path": "/api/engine/abort-run",
+      "source_file": "dashboard/app/api/routes/engine.py",
+      "has_params": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/engine/cleanup-runs",
       "source_file": "dashboard/app/api/routes/engine.py",
       "has_params": false
     },
@@ -5996,6 +6736,12 @@
     },
     {
       "method": "GET",
+      "path": "/api/gold-studio/workflow-shell",
+      "source_file": "dashboard/app/api/routes/gold_studio.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
       "path": "/api/gold-studio/field-usage",
       "source_file": "dashboard/app/api/routes/gold_studio.py",
       "has_params": false
@@ -6059,6 +6805,96 @@
       "path": "/api/gold-studio/report-coverage/{id}",
       "source_file": "dashboard/app/api/routes/gold_studio.py",
       "has_params": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/gold-studio/release/coverage-map",
+      "source_file": "dashboard/app/api/routes/gold_studio.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/gold-studio/release/proposed-model",
+      "source_file": "dashboard/app/api/routes/gold_studio.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/gold-studio/release/coverage-appendix",
+      "source_file": "dashboard/app/api/routes/gold_studio.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/gold-studio/source-systems",
+      "source_file": "dashboard/app/api/routes/gold_studio.py",
+      "has_params": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/gold-studio/specimens/{id}/preview",
+      "source_file": "dashboard/app/api/routes/gold_studio.py",
+      "has_params": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/gold-studio/specimens/{id}/live-describe",
+      "source_file": "dashboard/app/api/routes/gold_studio.py",
+      "has_params": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/gold-studio/auto-detect",
+      "source_file": "dashboard/app/api/routes/gold_studio.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/join-discovery/status",
+      "source_file": "dashboard/app/api/routes/join_discovery.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/join-discovery/candidates",
+      "source_file": "dashboard/app/api/routes/join_discovery.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/join-discovery/cross-source",
+      "source_file": "dashboard/app/api/routes/join_discovery.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/join-discovery/table",
+      "source_file": "dashboard/app/api/routes/join_discovery.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/join-discovery/lineage",
+      "source_file": "dashboard/app/api/routes/join_discovery.py",
+      "has_params": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/join-discovery/validate",
+      "source_file": "dashboard/app/api/routes/join_discovery.py",
+      "has_params": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/join-discovery/run-analysis",
+      "source_file": "dashboard/app/api/routes/join_discovery.py",
+      "has_params": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/join-discovery/analyst",
+      "source_file": "dashboard/app/api/routes/join_discovery.py",
+      "has_params": false
     },
     {
       "method": "GET",
@@ -6142,6 +6978,12 @@
       "method": "GET",
       "path": "/api/lmc/compare",
       "source_file": "dashboard/app/api/routes/load_mission_control.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/metric-contract",
+      "source_file": "dashboard/app/api/routes/metrics_contract.py",
       "has_params": false
     },
     {
@@ -6446,6 +7288,12 @@
     },
     {
       "method": "GET",
+      "path": "/api/pipeline-integrity",
+      "source_file": "dashboard/app/api/routes/pipeline_integrity.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
       "path": "/api/classification/purview/status",
       "source_file": "dashboard/app/api/routes/purview.py",
       "has_params": false
@@ -6501,6 +7349,12 @@
     {
       "method": "POST",
       "path": "/api/quality/refresh",
+      "source_file": "dashboard/app/api/routes/quality.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/labs/dq-trends",
       "source_file": "dashboard/app/api/routes/quality.py",
       "has_params": false
     },
@@ -6568,6 +7422,72 @@
       "method": "POST",
       "path": "/api/schema-validation/result",
       "source_file": "dashboard/app/api/routes/schema_validation.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/setup/capacities",
+      "source_file": "dashboard/app/api/routes/setup.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/setup/workspaces/{workspaceId}/lakehouses",
+      "source_file": "dashboard/app/api/routes/setup.py",
+      "has_params": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/setup/workspaces/{workspaceId}/notebooks",
+      "source_file": "dashboard/app/api/routes/setup.py",
+      "has_params": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/setup/workspaces/{workspaceId}/pipelines",
+      "source_file": "dashboard/app/api/routes/setup.py",
+      "has_params": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/setup/workspaces/{workspaceId}/sql-databases",
+      "source_file": "dashboard/app/api/routes/setup.py",
+      "has_params": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/setup/create-workspace",
+      "source_file": "dashboard/app/api/routes/setup.py",
+      "has_params": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/setup/create-lakehouse",
+      "source_file": "dashboard/app/api/routes/setup.py",
+      "has_params": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/setup/create-sql-database",
+      "source_file": "dashboard/app/api/routes/setup.py",
+      "has_params": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/setup/save-config",
+      "source_file": "dashboard/app/api/routes/setup.py",
+      "has_params": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/setup/validate",
+      "source_file": "dashboard/app/api/routes/setup.py",
+      "has_params": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/setup/provision-all",
+      "source_file": "dashboard/app/api/routes/setup.py",
       "has_params": false
     },
     {
@@ -6729,6 +7649,12 @@
     {
       "method": "POST",
       "path": "/api/sql-explorer/server-label",
+      "source_file": "dashboard/app/api/routes/sql_explorer.py",
+      "has_params": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/sql-explorer/register-tables",
       "source_file": "dashboard/app/api/routes/sql_explorer.py",
       "has_params": false
     },
@@ -6946,6 +7872,10 @@
         "source_file": "dashboard/app/src/pages/ConfigManager.tsx"
       },
       {
+        "text": "Maintenance",
+        "source_file": "dashboard/app/src/pages/ControlPlane.tsx"
+      },
+      {
         "text": "{icon}\n      {label}\n      {count !== undefined && {count}}",
         "source_file": "dashboard/app/src/pages/ControlPlane.tsx"
       },
@@ -6958,11 +7888,19 @@
         "source_file": "dashboard/app/src/pages/DatabaseExplorer.tsx"
       },
       {
-        "text": "setSourceFilter(\"all\")}>All",
+        "text": "setSourceFilter(\"all\")}>All sources",
         "source_file": "dashboard/app/src/pages/DataCatalog.tsx"
       },
       {
-        "text": "setSortKey(k)}>\n               {k}",
+        "text": "setFocusFilter(option.key)}\n            >\n              {option.label}",
+        "source_file": "dashboard/app/src/pages/DataCatalog.tsx"
+      },
+      {
+        "text": "setSortKey(key)}>\n              \n              {key}",
+        "source_file": "dashboard/app/src/pages/DataCatalog.tsx"
+      },
+      {
+        "text": "setDetailEntity(activeEntity)}>\n                      Inspect full asset detail",
         "source_file": "dashboard/app/src/pages/DataCatalog.tsx"
       },
       {
@@ -6982,11 +7920,11 @@
         "source_file": "dashboard/app/src/pages/DataClassification.tsx"
       },
       {
-        "text": "Retry",
+        "text": "Refresh",
         "source_file": "dashboard/app/src/pages/DataEstate.tsx"
       },
       {
-        "text": "Refresh",
+        "text": "Retry",
         "source_file": "dashboard/app/src/pages/DataEstate.tsx"
       },
       {
@@ -6994,15 +7932,15 @@
         "source_file": "dashboard/app/src/pages/DataEstate.tsx"
       },
       {
-        "text": "setColumnView(false)}>\n             Table Lineage",
+        "text": "setShowColumnMatrix(false)}>\n                    Hide matrix",
         "source_file": "dashboard/app/src/pages/DataLineage.tsx"
       },
       {
-        "text": "setColumnView(true)}>\n             Column Lineage",
+        "text": "setSourceFilter(\"all\")}>\n            All sources",
         "source_file": "dashboard/app/src/pages/DataLineage.tsx"
       },
       {
-        "text": "setSourceFilter(\"all\")}\n          >\n            All Sources",
+        "text": "setFocusFilter(option.key)}\n            >\n              {option.label}",
         "source_file": "dashboard/app/src/pages/DataLineage.tsx"
       },
       {
@@ -7046,7 +7984,7 @@
         "source_file": "dashboard/app/src/pages/EngineControl.tsx"
       },
       {
-        "text": "{loading ?  : }\n            Refresh",
+        "text": "{loading ?  : }\n              Refresh",
         "source_file": "dashboard/app/src/pages/ErrorIntelligence.tsx"
       },
       {
@@ -7094,8 +8032,8 @@
         "source_file": "dashboard/app/src/pages/gold/GoldCanonical.tsx"
       },
       {
-        "text": "Retry",
-        "source_file": "dashboard/app/src/pages/gold/GoldCanonical.tsx"
+        "text": "{m.label}\n                {m.value}",
+        "source_file": "dashboard/app/src/pages/gold/GoldClusters.tsx"
       },
       {
         "text": "Dismiss Cluster",
@@ -7114,7 +8052,7 @@
         "source_file": "dashboard/app/src/pages/gold/GoldLedger.tsx"
       },
       {
-        "text": "{submitting ? \"Submitting...\" : \"Import SQL\"}",
+        "text": "{submitting ? \"Importing & Extracting...\" : \"Import & Extract\"}",
         "source_file": "dashboard/app/src/pages/gold/GoldLedger.tsx"
       },
       {
@@ -7138,19 +8076,19 @@
         "source_file": "dashboard/app/src/pages/gold/GoldLedger.tsx"
       },
       {
-        "text": "Retry",
-        "source_file": "dashboard/app/src/pages/gold/GoldSpecs.tsx"
-      },
-      {
         "text": "Submit Waiver",
         "source_file": "dashboard/app/src/pages/gold/GoldValidation.tsx"
       },
       {
-        "text": "Publish",
+        "text": "Publish Product",
         "source_file": "dashboard/app/src/pages/gold/GoldValidation.tsx"
       },
       {
-        "text": "Register",
+        "text": "Register Report",
+        "source_file": "dashboard/app/src/pages/gold/GoldValidation.tsx"
+      },
+      {
+        "text": "Export CSV",
         "source_file": "dashboard/app/src/pages/gold/GoldValidation.tsx"
       },
       {
@@ -7178,7 +8116,7 @@
         "source_file": "dashboard/app/src/pages/LoadCenter.tsx"
       },
       {
-        "text": "Preview Run",
+        "text": "Preview Plan",
         "source_file": "dashboard/app/src/pages/LoadCenter.tsx"
       },
       {
@@ -7186,7 +8124,15 @@
         "source_file": "dashboard/app/src/pages/LoadCenter.tsx"
       },
       {
-        "text": "Preview Run",
+        "text": "{isRunning ? <> Running... : <> Finish Outstanding Entities}",
+        "source_file": "dashboard/app/src/pages/LoadCenter.tsx"
+      },
+      {
+        "text": "Preview Completion Plan",
+        "source_file": "dashboard/app/src/pages/LoadCenter.tsx"
+      },
+      {
+        "text": "Preview Completion Plan",
         "source_file": "dashboard/app/src/pages/LoadCenter.tsx"
       },
       {
@@ -7195,14 +8141,6 @@
       },
       {
         "text": "Stop",
-        "source_file": "dashboard/app/src/pages/LoadMissionControl.tsx"
-      },
-      {
-        "text": "Resume",
-        "source_file": "dashboard/app/src/pages/LoadMissionControl.tsx"
-      },
-      {
-        "text": "Retry Failed",
         "source_file": "dashboard/app/src/pages/LoadMissionControl.tsx"
       },
       {
@@ -7282,7 +8220,7 @@
         "source_file": "dashboard/app/src/pages/PipelineRunner.tsx"
       },
       {
-        "text": "{scanning ?  : }\n            {scanning ? \"Scanning...\" : \"Scan Files\"}",
+        "text": "{scanning ?  : }\n              {scanning ? \"Scanning...\" : \"Scan Files\"}",
         "source_file": "dashboard/app/src/pages/RecordCounts.tsx"
       },
       {
@@ -7398,7 +8336,7 @@
         "source_file": "dashboard/app/src/pages/SourceManager.tsx"
       },
       {
-        "text": "{discoveringAll ?  : }\n                  Discover &amp; Register",
+        "text": "{discoveringAll ?  : }\n                  Discover &amp; Add to Scope",
         "source_file": "dashboard/app/src/pages/SourceManager.tsx"
       },
       {
@@ -7422,8 +8360,16 @@
         "source_file": "dashboard/app/src/pages/SourceManager.tsx"
       },
       {
+        "text": "{loading ?  : }\n                    {loading ? 'Loading...' : 'Load'}",
+        "source_file": "dashboard/app/src/pages/SqlExplorer.tsx"
+      },
+      {
         "text": "Run First Audit",
         "source_file": "dashboard/app/src/pages/TestAudit.tsx"
+      },
+      {
+        "text": "Refresh",
+        "source_file": "dashboard/app/src/pages/ValidationChecklist.tsx"
       },
       {
         "text": "Clear",
@@ -7488,7 +8434,7 @@
         "source_file": "dashboard/app/src/pages/DatabaseExplorer.tsx"
       },
       {
-        "identifier": "Search entities, schemas, sources...",
+        "identifier": "Search assets, domains, or sources...",
         "source_file": "dashboard/app/src/pages/DataCatalog.tsx"
       },
       {
@@ -7496,7 +8442,7 @@
         "source_file": "dashboard/app/src/pages/DataClassification.tsx"
       },
       {
-        "identifier": "Search entities...",
+        "identifier": "Search lineage by table, schema, source, or domain...",
         "source_file": "dashboard/app/src/pages/DataLineage.tsx"
       },
       {
@@ -7600,15 +8546,15 @@
     ]
   },
   "summary": {
-    "routes_found": 109,
-    "api_endpoints_found": 287,
-    "buttons_found": 147,
+    "routes_found": 117,
+    "api_endpoints_found": 320,
+    "buttons_found": 152,
     "inputs_found": 26,
-    "pages_with_kpis": 80,
-    "pages_with_search": 70,
+    "pages_with_kpis": 83,
+    "pages_with_search": 75,
     "pages_with_modals": 4,
-    "pages_with_tables": 81,
+    "pages_with_tables": 99,
     "coming_soon_pages": 0,
-    "scan_time_seconds": 7.71
+    "scan_time_seconds": 4.92
   }
 }

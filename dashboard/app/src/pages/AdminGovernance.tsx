@@ -356,7 +356,7 @@ export default function AdminGovernance() {
               </div>
               <p className="text-3xl font-bold font-[var(--bp-font-mono)] tabular-nums text-[var(--bp-ink-primary)]">{item.count}</p>
               <p className="text-sm text-[var(--bp-ink-muted)] mt-1">
-                {item.count === 0 ? 'Not yet registered' : `${item.count} registered`}
+                {item.count === 0 ? 'Not yet in scope' : `${item.count} in scope`}
               </p>
             </div>
           ))}
@@ -420,7 +420,7 @@ export default function AdminGovernance() {
           <div className="text-center py-12 text-[var(--bp-ink-muted)]">
             <FabricIcon name="databases" className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p className="font-medium">No lineage data yet</p>
-            <p className="text-sm mt-1">Register connections, data sources, and entities in Source Manager to build the lineage graph</p>
+            <p className="text-sm mt-1">Configure source connections and add tables to scope in Source Manager to build the lineage graph</p>
           </div>
         ) : (
           <>
@@ -573,7 +573,7 @@ export default function AdminGovernance() {
                                   </span>
                                 </div>
                               ))}
-                              {lane.landingCount === 0 && <p className="text-[11px] text-[var(--bp-ink-muted)] italic">No entities registered</p>}
+                              {lane.landingCount === 0 && <p className="text-[11px] text-[var(--bp-ink-muted)] italic">No tables in scope</p>}
                             </div>
                           </div>
 
@@ -662,7 +662,7 @@ export default function AdminGovernance() {
             <div className="mt-6 pt-4 border-t border-[var(--bp-border-subtle)]">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-[var(--bp-ink-muted)]">
-                  {sourceLanes.length} source{sourceLanes.length !== 1 ? 's' : ''} registered
+                  {sourceLanes.length} source{sourceLanes.length !== 1 ? 's' : ''} configured
                   {orphanConnections.length > 0 && ` \u00b7 ${orphanConnections.length} connection${orphanConnections.length !== 1 ? 's' : ''} pending`}
                 </span>
                 <div className="flex items-center space-x-6 font-[var(--bp-font-mono)] tabular-nums">

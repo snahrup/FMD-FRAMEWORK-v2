@@ -24,6 +24,7 @@ Covers:
     GET  /api/sql-explorer/lakehouse-file-tables   — file-backed delta tables
     GET  /api/sql-explorer/lakehouse-file-detail   — detail for a specific table folder
 """
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import logging
 import urllib.request
@@ -88,7 +89,7 @@ def _get_fabric_token(scope: str) -> str:
 # ODBC injection fix — server allowlist
 # ---------------------------------------------------------------------------
 
-def _validate_server(server: str) -> None:
+def _validate_server(server: str, *, allow_when_empty: bool = False) -> None:
     """Reject servers not registered in the FMD connections table.
 
     Security fix: prevents ODBC injection by ensuring only servers that
@@ -110,6 +111,8 @@ def _validate_server(server: str) -> None:
         "SELECT ServerName FROM connections WHERE ServerName IS NOT NULL AND ServerName != '' AND IsActive = 1"
     )
     allowed_servers = {r["ServerName"].strip().lower() for r in allowed if r.get("ServerName")}
+    if not allowed_servers and allow_when_empty:
+        return
     if stripped.lower() not in allowed_servers:
         raise HttpError(
             f"Server '{server}' is not in registered connections. "
@@ -230,14 +233,18 @@ def get_sql_explorer_servers(params: dict) -> list:
         "mes": "MES", "etqstagingprd": "ETQ", "m3fdbprd": "M3",
         "di_prd_staging": "M3C", "optivalive": "Optiva",
     }
-    seen: set = set()
-    servers: list = []
     driver = _get_sql_driver()
-    for r in rows:
-        srv = r.get("ServerName", "")
+    unique_rows: list[dict] = []
+    seen: set[str] = set()
+    for row in rows:
+        srv = row.get("ServerName", "")
         if not srv or srv in seen:
             continue
         seen.add(srv)
+        unique_rows.append(row)
+
+    def _probe(row: dict) -> dict:
+        srv = row.get("ServerName", "")
         status = "unknown"
         error = None
         try:
@@ -252,8 +259,8 @@ def get_sql_explorer_servers(params: dict) -> list:
             status = "offline"
             error = str(e)[:200]
 
-        db_name = r.get("DatabaseName") or ""
-        ds_name = r.get("DataSourceName") or ""
+        db_name = row.get("DatabaseName") or ""
+        ds_name = row.get("DataSourceName") or ""
         if srv in labels:
             display = labels[srv]
         elif db_name and db_name.lower() in _FRIENDLY_DEFAULTS:
@@ -261,16 +268,40 @@ def get_sql_explorer_servers(params: dict) -> list:
         else:
             display = ds_name or srv
 
-        servers.append({
+        return {
             "server": srv,
             "display": display,
             "datasource": ds_name,
             "database": db_name,
-            "namespace": r.get("Namespace") or "",
-            "description": r.get("Description") or "",
+            "namespace": row.get("Namespace") or "",
+            "description": row.get("Description") or "",
             "status": status,
             "error": error,
-        })
+        }
+
+    servers: list[dict] = []
+    max_workers = min(max(len(unique_rows), 1), 8)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_probe, row): row.get("ServerName", "") for row in unique_rows}
+        for future in as_completed(futures):
+            try:
+                servers.append(future.result())
+            except Exception as exc:
+                srv = futures[future]
+                servers.append(
+                    {
+                        "server": srv,
+                        "display": srv,
+                        "datasource": "",
+                        "database": "",
+                        "namespace": "",
+                        "description": "",
+                        "status": "offline",
+                        "error": str(exc)[:200],
+                    }
+                )
+
+    servers.sort(key=lambda row: (row["display"].lower(), row["server"].lower()))
     return servers
 
 
@@ -549,7 +580,7 @@ def post_server_label(params: dict) -> dict:
     if not server or not label:
         raise HttpError("server and label are required", 400)
     # SECURITY: validate server is registered before allowing label save
-    _validate_server(server)
+    _validate_server(server, allow_when_empty=True)
     _save_server_label(server, label)
     return {"server": server, "label": label}
 

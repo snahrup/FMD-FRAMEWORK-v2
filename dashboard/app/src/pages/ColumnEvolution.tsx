@@ -939,7 +939,7 @@ export default function ColumnEvolution() {
       <div className="flex-shrink-0 px-6 py-4" style={{ zIndex: 100, position: "relative", borderBottom: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
         <ExploreWorkbenchHeader
           eyebrow="Explore"
-          meta={journey ? `${journey.source.namespace || journey.source.dataSourceName} • ${journey.source.name}` : `${entities.length.toLocaleString("en-US")} entities available`}
+          meta={journey ? `${journey.source.namespace || journey.source.dataSourceName} • ${journey.source.name}` : `${entities.length.toLocaleString("en-US")} tables available for column tracing`}
           title="Column Evolution"
           summary="Walk the schema layer by layer to see which columns were preserved, introduced, removed, or transformed before the data reached downstream use."
           facts={headerFacts}

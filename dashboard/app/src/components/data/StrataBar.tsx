@@ -58,7 +58,10 @@ export default function StrataBar({
   const height = SIZE_MAP[size];
   const total = useMemo(() => {
     if (mode !== "count") return 0;
-    return Object.values(values).reduce((s, v) => s + (v && v > 0 ? v : 0), 0);
+    return Object.values(values).reduce<number>(
+      (sum, value) => sum + (typeof value === "number" && value > 0 ? value : 0),
+      0,
+    );
   }, [values, mode]);
 
   // Filter to layers that have data (for count mode, skip zero/null; for status mode, include all)
@@ -83,11 +86,12 @@ export default function StrataBar({
         {activeLayers.map((layer) => {
           const v = values[layer.key];
           const hasValue = v !== null && v > 0;
+          const numericValue = typeof v === "number" ? v : 0;
 
           // Width calculation
           let widthPct: string;
           if (mode === "count" && total > 0) {
-            widthPct = `${((hasValue ? v! : 0) / total) * 100}%`;
+            widthPct = `${((hasValue ? numericValue : 0) / total) * 100}%`;
           } else {
             // Equal segments for status mode
             widthPct = `${100 / activeLayers.length}%`;
@@ -96,7 +100,7 @@ export default function StrataBar({
           return (
             <div
               key={layer.key}
-              title={`${layer.label}: ${hasValue ? v!.toLocaleString() : "—"}`}
+              title={`${layer.label}: ${hasValue ? numericValue.toLocaleString() : "—"}`}
               style={{
                 width: widthPct,
                 height: "100%",

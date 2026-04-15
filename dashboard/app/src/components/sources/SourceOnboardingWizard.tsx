@@ -183,23 +183,23 @@ export function SourceOnboardingWizard({
       setBulkRegistering(false);
       const succeeded = task.done - task.errors;
       if (succeeded > 0) {
-        updateStep(3, 'complete', `${succeeded} entities`, 'Registered from source database');
+        updateStep(3, 'complete', `${succeeded} tables`, 'Added to scope from source database');
         updateStep(4, 'complete', 'Ready', 'All steps completed');
       } else if (task.status === 'cancelled') {
-        updateStep(3, 'in_progress', `${task.done} entities`, `Cancelled after ${task.done} registrations`);
+        updateStep(3, 'in_progress', `${task.done} tables`, `Cancelled after ${task.done} scope updates`);
       } else {
-        updateStep(3, 'in_progress', '0 entities', `All ${task.errors} registrations failed`);
+        updateStep(3, 'in_progress', '0 tables', `All ${task.errors} scope updates failed`);
       }
       Promise.all([onRefresh(), loadOnboarding()]);
       setStatus({
         type: succeeded > 0 && task.errors === 0 ? 'success' : 'error',
         message: task.status === 'cancelled'
-          ? `Cancelled — ${succeeded} registered before cancellation`
+          ? `Cancelled — ${succeeded} table${succeeded === 1 ? '' : 's'} added to scope before cancellation`
           : task.errors === 0
-            ? `All ${task.done} entities registered successfully`
+            ? `All ${task.done} table${task.done === 1 ? '' : 's'} added to scope`
             : succeeded > 0
-              ? `${succeeded} registered, ${task.errors} failed`
-              : `All ${task.errors} registrations failed`,
+              ? `${succeeded} added to scope, ${task.errors} failed`
+              : `All ${task.errors} scope updates failed`,
       });
       if (succeeded > 0) {
         setDiscoveredTables([]);
@@ -433,7 +433,7 @@ export function SourceOnboardingWizard({
       setFilePath(folder);
       setTablePrefix(prefix);
 
-      setStatus({ type: 'success', message: `Source "${sourceLabel}" configured. Connection + data source registered.` });
+      setStatus({ type: 'success', message: `Source "${sourceLabel}" configured. Connection and data source are ready.` });
       await Promise.all([onRefresh(), loadOnboarding()]);
       setTimeout(() => setActiveVisualStep(1), 400);
     } catch (e) {
@@ -475,7 +475,7 @@ export function SourceOnboardingWizard({
         .filter((k: string) => !alreadyRegisteredKeys.has(k));
       setSelectedTables(new Set(newKeys));
       const regCount = tables.length - newKeys.length;
-      setStatus({ type: 'success', message: `Found ${tables.length} tables in ${selectedGateway.database}${regCount > 0 ? ` (${regCount} already registered)` : ''}` });
+      setStatus({ type: 'success', message: `Found ${tables.length} tables in ${selectedGateway.database}${regCount > 0 ? ` (${regCount} already in scope)` : ''}` });
     } catch (e) {
       setStatus({ type: 'error', message: e instanceof Error ? e.message : 'Failed to fetch tables' });
     } finally {
@@ -815,7 +815,7 @@ export function SourceOnboardingWizard({
           {selectedSource && (
             <button
               onClick={() => {
-                if (confirm(`Remove "${selectedSource}" and ALL its registered data (connections, datasources, entities)?`))
+                if (confirm(`Remove "${selectedSource}" and ALL of its configured framework data (connections, data sources, tables)?`))
                   purgeSource(selectedSource);
               }}
               className="p-2 text-muted-foreground/50 hover:text-destructive rounded-lg hover:bg-destructive/10 transition-colors ml-auto"
@@ -995,7 +995,7 @@ export function SourceOnboardingWizard({
                                 </div>
                                 {opt.alreadyRegistered && (
                                   <span className="text-[10px] text-[#3D7C4F] bg-[#E7F3EB] px-1.5 py-0.5 rounded">
-                                    registered
+                                    in scope
                                   </span>
                                 )}
                               </button>
@@ -1177,15 +1177,15 @@ export function SourceOnboardingWizard({
                     </div>
                   ) : (
                     <div className="ml-7 space-y-4">
-                      {/* Registered entities banner */}
+                      {/* Tables already in scope banner */}
                       {alreadyRegisteredKeys.size > 0 && (
                         <div className="bg-[#E7F3EB] border border-[#3D7C4F]/30 rounded-lg p-3">
                           <div className="flex items-center gap-2 text-sm text-[#3D7C4F]">
                             <CheckCircle2 className="h-4 w-4 shrink-0" />
-                            <span className="font-medium">{alreadyRegisteredKeys.size} table{alreadyRegisteredKeys.size !== 1 ? 's' : ''} already registered</span>
+                            <span className="font-medium">{alreadyRegisteredKeys.size} table{alreadyRegisteredKeys.size !== 1 ? 's' : ''} already in scope</span>
                           </div>
                           <p className="text-xs text-[#3D7C4F]/70 mt-1 ml-6">
-                            Registered tables appear dimmed below. Select additional tables to add to the framework.
+                            Tables already in scope appear dimmed below. Select additional tables to add.
                           </p>
                         </div>
                       )}
@@ -1294,7 +1294,7 @@ export function SourceOnboardingWizard({
                                 <>
                                   <span className="text-xs text-muted-foreground whitespace-nowrap">
                                     {selectedTables.size} new selected
-                                    {regCount > 0 && <span className="text-[#3D7C4F]"> · {regCount} registered</span>}
+                                    {regCount > 0 && <span className="text-[#3D7C4F]"> · {regCount} in scope</span>}
                                   </span>
                                   <button
                                     onClick={() => {
@@ -1345,7 +1345,7 @@ export function SourceOnboardingWizard({
                                     <span className={`font-mono ${isRegistered ? 'text-muted-foreground' : 'text-foreground'}`}>{t.TABLE_NAME}</span>
                                     {isRegistered ? (
                                       <span className="ml-auto text-[10px] text-[#3D7C4F] bg-[#E7F3EB] px-1.5 py-0.5 rounded font-medium">
-                                        registered
+                                        in scope
                                       </span>
                                     ) : (
                                       <span className="ml-auto text-muted-foreground/50 font-mono text-[10px]">
@@ -1360,10 +1360,10 @@ export function SourceOnboardingWizard({
                           {/* Register button */}
                           <div className="flex items-center justify-between px-3 py-2.5 bg-muted border-t border-border">
                             <div className="text-xs text-muted-foreground">
-                              {selectedTables.size} new table{selectedTables.size !== 1 ? 's' : ''} will be registered
+                              {selectedTables.size} new table{selectedTables.size !== 1 ? 's' : ''} will be added to scope
                               {alreadyRegisteredKeys.size > 0 && (
                                 <span className="text-[#3D7C4F] ml-1">
-                                  ({alreadyRegisteredKeys.size} already in framework)
+                                  ({alreadyRegisteredKeys.size} already in scope)
                                 </span>
                               )}
                             </div>
@@ -1450,17 +1450,17 @@ export function SourceOnboardingWizard({
                               className="flex items-center gap-1.5 px-5 py-2 text-sm bg-[#3D7C4F] hover:bg-[#2d6040] text-white rounded-lg font-semibold transition-colors"
                             >
                               <Plus className="h-4 w-4" />
-                              Confirm & Register {selectedTables.size} Entities
+                              Confirm & Add {selectedTables.size} Tables
                             </button>
                           </div>
                         </div>
                       )}
 
-                      {/* Registered entities list */}
+                      {/* Tables currently in scope */}
                       {registeredEntities.length > 0 && (
                         <div className="pt-4 border-t border-border">
                           <p className="text-xs font-medium text-muted-foreground mb-2">
-                            Registered entities ({registeredEntities.length})
+                            Tables in scope ({registeredEntities.length})
                           </p>
                           <div className="space-y-1 max-h-40 overflow-y-auto">
                             {registeredEntities.map(e => (
@@ -1502,7 +1502,7 @@ export function SourceOnboardingWizard({
                           <span className="font-semibold">Source ready to import</span>
                         </div>
                         <p className="text-xs text-[#3D7C4F]/80">
-                          <strong>{selectedSource}</strong> is configured with {registeredEntities.length} table{registeredEntities.length !== 1 ? 's' : ''}. Click Import to start loading data.
+                          <strong>{selectedSource}</strong> is configured with {registeredEntities.length} table{registeredEntities.length !== 1 ? 's' : ''} in scope. Click Import to start loading data.
                         </p>
                       </div>
 
@@ -1535,7 +1535,7 @@ export function SourceOnboardingWizard({
                             {/* Phase steps visualization */}
                             <div className="mt-3 space-y-1.5">
                               {[
-                                { phase: 'registering', label: 'Registering tables' },
+                                { phase: 'registering', label: 'Adding tables to scope' },
                                 { phase: 'optimizing', label: 'Analyzing tables' },
                                 { phase: 'loading_lz', label: 'Importing data' },
                                 { phase: 'loading_bronze', label: 'Processing data' },
@@ -1636,7 +1636,7 @@ export function SourceOnboardingWizard({
                         <div className="mt-4 bg-muted/50 rounded-lg p-3 border border-border">
                           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">What happens when you import</p>
                           <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-                            <li>Your tables are registered and analyzed for optimal loading</li>
+                            <li>Your tables are added to scope and analyzed for optimal loading</li>
                             <li>Data is copied from the source database</li>
                             <li>Tables are standardized and deduplicated</li>
                             <li>Business logic and data quality rules are applied</li>

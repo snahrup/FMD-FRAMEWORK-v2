@@ -17,6 +17,7 @@ import {
   Copy,
   FileText,
 } from 'lucide-react';
+import CompactPageHeader from '@/components/layout/CompactPageHeader';
 
 // ── Types ──
 
@@ -286,47 +287,75 @@ export default function ExecutionLog() {
   }
 
   return (
-    <div className="space-y-6" style={{ padding: "32px", maxWidth: "1280px" }}>
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>Execution Log</h1>
-          <p className="text-muted-foreground mt-1">Pipeline, copy, and notebook execution history</p>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          {/* View mode toggle */}
-          <div className="flex items-center bg-muted rounded-lg border border-border p-0.5">
+    <div className="bp-page-shell-wide space-y-6">
+      <CompactPageHeader
+        eyebrow="Monitor"
+        title="Execution Log"
+        summary="Review pipeline, copy, and notebook history in one place, then pivot between business-friendly summaries and the full technical record when you need the raw details."
+        meta={`${stats.total.toLocaleString()} records in the current ${activeTab} view`}
+        guideItems={[
+          {
+            label: "What This Page Is",
+            value: "Run history archive",
+            detail: "Execution Log is the historical record for pipeline, copy, and notebook work after runs complete or fail.",
+          },
+          {
+            label: "Why It Matters",
+            value: "Readable first, raw second",
+            detail: "Operators should be able to understand a run outcome from the business view, then flip into the technical view only when the raw payload is needed.",
+          },
+          {
+            label: "What Happens Next",
+            value: "Filter, expand, and compare",
+            detail: "Narrow the time slice, expand the records that matter, and jump back to Mission Control or Error Intelligence if the current run needs live context or grouped failure patterns.",
+          },
+        ]}
+        guideLinks={[
+          { label: "Open Mission Control", to: "/load-mission-control" },
+          { label: "Open Error Intelligence", to: "/errors" },
+          { label: "Open Load Center", to: "/load-center" },
+        ]}
+        actions={
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center bg-muted rounded-lg border border-border p-0.5">
+              <button
+                onClick={() => setViewMode('business')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  viewMode === 'business'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                Business
+              </button>
+              <button
+                onClick={() => setViewMode('technical')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  viewMode === 'technical'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Code className="h-3.5 w-3.5" />
+                Technical
+              </button>
+            </div>
             <button
-              onClick={() => setViewMode('business')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                viewMode === 'business'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
+              onClick={loadData}
+              className="flex items-center gap-2 px-3 py-2 text-sm bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
             >
-              <Eye className="h-3.5 w-3.5" />
-              Business
-            </button>
-            <button
-              onClick={() => setViewMode('technical')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                viewMode === 'technical'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <Code className="h-3.5 w-3.5" />
-              Technical
+              <RefreshCw className="h-4 w-4" /> Refresh
             </button>
           </div>
-          <button
-            onClick={loadData}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
-          >
-            <RefreshCw className="h-4 w-4" /> Refresh
-          </button>
-        </div>
-      </div>
+        }
+        facts={[
+          { label: "Succeeded", value: stats.succeeded.toLocaleString(), tone: stats.succeeded > 0 ? "positive" : "neutral" },
+          { label: "Failed", value: stats.failed.toLocaleString(), tone: stats.failed > 0 ? "warning" : "positive" },
+          { label: "Running", value: stats.running.toLocaleString(), tone: stats.running > 0 ? "accent" : "neutral" },
+          { label: "Tab", value: activeTab === 'pipelines' ? 'Pipeline Runs' : activeTab === 'copies' ? 'Copy Activities' : 'Notebook Runs', tone: "accent" },
+        ]}
+      />
 
       {/* Tab selector + Stats */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">

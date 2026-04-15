@@ -199,6 +199,7 @@ def _build_sqlite_entity_digest(
 
         ent_data = {
             "id": lz_id,
+            "dataSourceId": int(entity.get("DataSourceId") or 0),
             "tableName": entity.get("SourceName", ""),
             "sourceSchema": entity.get("SourceSchema", ""),
             "onelakeSchema": entity.get("FilePath") or entity.get("SourceSchema") or "dbo",

@@ -1,0 +1,11 @@
+I can’t complete a real review from this session because I can’t read the repository state. Local command execution is blocked in the sandbox (`CreateProcessAsUserW failed: 5` / `CreateProcessWithLogonW failed: 267`), and the workspace filesystem MCP calls are being canceled before returning file contents.
+
+That means I don’t have enough access to produce credible findings, and I’m not going to fake one. If you want the actual skeptical review, send any of these and I’ll review them with findings first, ordered by severity:
+
+```powershell
+git status --short
+git diff --cached
+git diff
+```
+
+If the diffs are large, `git diff --stat` plus the changed-file patches is enough.

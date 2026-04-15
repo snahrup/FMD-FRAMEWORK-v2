@@ -8,8 +8,10 @@ Tests cover:
   - _BINARY_TYPE_NAMES constant
 """
 
+import io
 from unittest.mock import MagicMock, patch
 import pytest
+import polars as pl
 
 from engine.extractor import DataExtractor, _BINARY_TYPE_NAMES
 from engine.models import Entity, EngineConfig, RunResult
@@ -233,6 +235,61 @@ class TestExtractBlankSourceName:
         assert result.status == "failed"
         assert "Empty SourceName" in result.error
 
+
+class TestWatermarkRecovery:
+    def test_connectorx_retries_without_watermark_on_datetime_conversion(self):
+        config = _make_config()
+        source = MagicMock()
+        source.build_connectorx_uri.return_value = "mssql://test"
+        extractor = DataExtractor(config, source)
+        entity = _make_entity(
+            is_incremental=True,
+            watermark_column="crt_dt",
+            last_load_value="480",
+        )
+
+        recovered = pl.DataFrame({"crt_dt": ["2026-04-13 00:00:00"], "id": [1]})
+
+        with patch("engine.extractor.HAS_CONNECTORX", True), \
+             patch.object(extractor._config, "use_connectorx", True), \
+             patch("engine.extractor.cx.read_sql", side_effect=[
+                 Exception("Conversion failed when converting date and/or time from character string. code: 241"),
+                 recovered,
+             ]):
+            parquet_bytes, result = extractor.extract(entity, "run-1")
+
+        assert parquet_bytes is not None
+        assert result.status == "succeeded"
+        assert result.rows_read == 1
+        assert result.watermark_after == "2026-04-13 00:00:00"
+
+    def test_connectorx_falls_back_to_pyodbc_on_transient_wire_error(self):
+        config = _make_config()
+        source = MagicMock()
+        source.build_connectorx_uri.return_value = "mssql://test"
+        extractor = DataExtractor(config, source)
+        entity = _make_entity()
+        expected = (
+            b"parquet-bytes",
+            RunResult(entity_id=entity.id, layer="landing", status="succeeded", rows_read=5, rows_written=5),
+        )
+
+        with patch("engine.extractor.HAS_CONNECTORX", True), \
+             patch.object(extractor._config, "use_connectorx", True), \
+             patch("engine.extractor.cx.read_sql", side_effect=Exception(
+                 "called `Result::unwrap()` on an `Err` value: Io { kind: UnexpectedEof, message: \"No more packets in the wire\" } (os error 10054)"
+             )), \
+             patch.object(extractor, "_extract_pyodbc", return_value=expected) as pyodbc_fallback:
+            parquet_bytes, result = extractor.extract(entity, "run-1")
+
+        assert parquet_bytes == b"parquet-bytes"
+        assert result.status == "succeeded"
+        pyodbc_fallback.assert_called_once_with(
+            entity,
+            "run-1",
+            _allow_watermark_retry=True,
+        )
+
     def test_fails_with_empty_name(self):
         config = _make_config()
         source = MagicMock()
@@ -243,3 +300,29 @@ class TestExtractBlankSourceName:
 
         assert parquet_bytes is None
         assert result.status == "failed"
+
+
+class TestPyodbcPath:
+    def test_pyodbc_path_handles_empty_result_without_nameerror(self):
+        config = _make_config()
+        config.use_connectorx = False
+        source = MagicMock()
+        extractor = DataExtractor(config, source)
+        entity = _make_entity(source_name="Orders")
+
+        cursor = MagicMock()
+        cursor.description = None
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+
+        cm = MagicMock()
+        cm.__enter__.return_value = conn
+        cm.__exit__.return_value = None
+        source.connect.return_value = cm
+
+        parquet_bytes, result = extractor.extract(entity, "run-1")
+
+        assert parquet_bytes is None
+        assert result.status == "succeeded"
+        assert result.extraction_method == "pyodbc"
+        cursor.execute.assert_called_once()

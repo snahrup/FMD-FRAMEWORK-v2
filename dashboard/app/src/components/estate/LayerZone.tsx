@@ -3,9 +3,9 @@ import { useNavigate } from "react-router-dom";
 interface LayerZoneProps {
   name: string;
   layerKey: string;
-  registered: number;
+  inScope: number;
   loaded: number;
-  failed: number;
+  missing: number;
   coveragePct: number;
   lastLoad: string | null;
   index: number;
@@ -15,29 +15,27 @@ const LAYER_COLORS: Record<string, { accent: string; bg: string; label: string }
   landing: { accent: "var(--bp-lz)", bg: "var(--bp-lz-light, #E3EDF5)", label: "LZ" },
   bronze: { accent: "var(--bp-bronze)", bg: "var(--bp-bronze-light, #F4E0D0)", label: "BR" },
   silver: { accent: "var(--bp-silver)", bg: "var(--bp-silver-light, #E2E8F0)", label: "SL" },
-  gold: { accent: "var(--bp-gold)", bg: "var(--bp-gold-light, #F5E6C8)", label: "AU" },
 };
 
 const NAV_MAP: Record<string, string> = {
   landing: "/load-center",
   bronze: "/load-center",
   silver: "/load-center",
-  gold: "/gold/ledger",
 };
 
 export function LayerZone({
   name,
   layerKey,
-  registered,
+  inScope,
   loaded,
-  failed,
+  missing,
   coveragePct,
   lastLoad,
   index,
 }: LayerZoneProps) {
   const navigate = useNavigate();
   const colors = LAYER_COLORS[layerKey] || LAYER_COLORS.landing;
-  const isGhost = registered === 0 && loaded === 0;
+  const isGhost = inScope === 0 && loaded === 0;
   const hasData = loaded > 0;
 
   // Coverage ring (SVG)
@@ -62,7 +60,7 @@ export function LayerZone({
       <div
         className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl transition-colors"
         style={{
-          background: failed > 0 ? "var(--bp-fault)" : hasData ? colors.accent : "var(--bp-border)",
+          background: missing > 0 ? "var(--bp-fault)" : hasData ? colors.accent : "var(--bp-border)",
         }}
       />
 
@@ -99,7 +97,7 @@ export function LayerZone({
                 {name}
               </div>
               <div className="text-[10px] tabular-nums" style={{ color: "var(--bp-ink-tertiary)" }}>
-                {registered.toLocaleString()} registered
+                {inScope.toLocaleString()} tables in scope
               </div>
             </div>
           </div>
@@ -110,9 +108,9 @@ export function LayerZone({
               <span className="tabular-nums">
                 <strong style={{ color: "var(--bp-operational)" }}>{loaded.toLocaleString()}</strong> loaded
               </span>
-              {failed > 0 && (
+              {missing > 0 && (
                 <span className="tabular-nums">
-                  <strong style={{ color: "var(--bp-fault)" }}>{failed}</strong> missing
+                  <strong style={{ color: "var(--bp-fault)" }}>{missing}</strong> remaining
                 </span>
               )}
               {lastLoad && (

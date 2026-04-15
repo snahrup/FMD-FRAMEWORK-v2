@@ -1,0 +1,8 @@
+I couldn’t review the uncommitted changes from this session because I wasn’t able to inspect the local working tree. The local shell path fails with a Windows sandbox error (`CreateProcessAsUserW failed: 1920`), and the filesystem MCP endpoints are being canceled by the client, so I can’t read `git status`, `git diff`, or the modified files.
+
+To do the review, send:
+1. `git status --short`
+2. `git diff --cached`
+3. `git diff`
+
+If the diff is large, the changed files or patch output is enough. Once I have that, I’ll return a skeptical senior-engineer review with findings first, ordered by severity, with file/line references.

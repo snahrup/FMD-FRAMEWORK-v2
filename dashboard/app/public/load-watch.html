@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FMD Load Watch</title>
+  <link rel="icon" href="/vite.svg" />
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4efe8;
+      --panel: rgba(255, 255, 255, 0.88);
+      --panel-strong: #ffffff;
+      --line: rgba(120, 113, 108, 0.22);
+      --ink: #1f1b16;
+      --muted: #6d665f;
+      --accent: #b95b27;
+      --accent-soft: rgba(185, 91, 39, 0.12);
+      --green: #1f9d60;
+      --green-soft: rgba(31, 157, 96, 0.14);
+      --amber: #c58b1a;
+      --amber-soft: rgba(197, 139, 26, 0.14);
+      --red: #c8483c;
+      --red-soft: rgba(200, 72, 60, 0.14);
+      --shadow: 0 18px 40px rgba(31, 27, 22, 0.08);
+      --radius: 20px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "Inter", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top right, rgba(185, 91, 39, 0.08), transparent 24rem),
+        linear-gradient(180deg, #f7f3ed 0%, var(--bg) 100%);
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .page {
+      width: min(1440px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }
+
+    .shell {
+      display: grid;
+      gap: 16px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .hero {
+      display: grid;
+      gap: 16px;
+      padding: 22px 24px;
+    }
+
+    .hero-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 42px);
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .subtle {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .run-select-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel-strong);
+      padding: 8px 12px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .run-select-wrap select {
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font: inherit;
+      min-width: 280px;
+      outline: none;
+    }
+
+    button,
+    .pill-link {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel-strong);
+      color: var(--ink);
+      padding: 10px 14px;
+      font: inherit;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+
+    button:hover,
+    .pill-link:hover {
+      transform: translateY(-1px);
+      border-color: rgba(185, 91, 39, 0.35);
+    }
+
+    .accent-button {
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .meta-row,
+    .stats-grid,
+    .layer-grid,
+    .two-up {
+      display: grid;
+      gap: 14px;
+    }
+
+    .meta-row {
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+
+    .stats-grid {
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }
+
+    .layer-grid {
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    }
+
+    .two-up {
+      grid-template-columns: minmax(320px, 1.1fr) minmax(400px, 1.6fr);
+      align-items: start;
+    }
+
+    .card {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.82);
+    }
+
+    .label {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .big {
+      font-size: clamp(24px, 3vw, 34px);
+      line-height: 1;
+      letter-spacing: -0.04em;
+      margin: 0;
+    }
+
+    .big-inline {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+      flex-wrap: wrap;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .status-running {
+      color: var(--green);
+      background: var(--green-soft);
+    }
+
+    .status-idle {
+      color: var(--amber);
+      background: var(--amber-soft);
+    }
+
+    .status-failed {
+      color: var(--red);
+      background: var(--red-soft);
+    }
+
+    .progress {
+      height: 10px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(120, 113, 108, 0.14);
+      margin: 12px 0 10px;
+    }
+
+    .progress > span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #d77b44 0%, #b95b27 100%);
+      min-width: 4px;
+    }
+
+    .layer-row,
+    .activity-row,
+    .source-row {
+      display: grid;
+      gap: 8px;
+      padding: 12px 0;
+      border-top: 1px solid rgba(120, 113, 108, 0.14);
+    }
+
+    .layer-row:first-child,
+    .activity-row:first-child,
+    .source-row:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .split {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .split strong {
+      font-size: 15px;
+    }
+
+    .tiny {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .list {
+      display: grid;
+      gap: 0;
+    }
+
+    .banner {
+      display: none;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(200, 72, 60, 0.26);
+      background: rgba(200, 72, 60, 0.08);
+      color: #7a241c;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .banner.visible {
+      display: block;
+    }
+
+    .empty {
+      color: var(--muted);
+      padding: 10px 0 0;
+      font-size: 14px;
+    }
+
+    .mono {
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 12px;
+    }
+
+    @media (max-width: 980px) {
+      .two-up {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="shell">
+      <section class="panel hero">
+        <div class="hero-top">
+          <div>
+            <p class="eyebrow">FMD Autonomous Ops</p>
+            <h1>Load Watch</h1>
+            <p class="subtle">A thin live view of the active run. It refreshes every 5 seconds and sticks to the real engine APIs.</p>
+          </div>
+          <div class="hero-actions">
+            <button id="refresh-button" class="accent-button" type="button">Refresh now</button>
+            <label class="run-select-wrap" for="run-selector">
+              Run
+              <select id="run-selector">
+                <option value="">Auto (active/latest)</option>
+              </select>
+            </label>
+            <a class="pill-link" href="/api/engine/status" target="_blank" rel="noreferrer">Raw engine status</a>
+            <a class="pill-link" href="/api/live-monitor?minutes=120" target="_blank" rel="noreferrer">Raw live monitor</a>
+          </div>
+        </div>
+        <div id="error-banner" class="banner"></div>
+        <div class="meta-row">
+          <div class="card">
+            <p class="label">Run status</p>
+            <div id="run-status-chip" class="status-chip status-idle">Waiting for data</div>
+            <p id="run-id" class="tiny mono" style="margin: 12px 0 0;">No run selected</p>
+            <p id="run-scope" class="tiny" style="margin: 8px 0 0;">Scope unavailable</p>
+          </div>
+          <div class="card">
+            <p class="label">Current layer</p>
+            <p id="current-layer" class="big">-</p>
+            <p id="layer-meta" class="muted" style="margin: 8px 0 0;">No active work yet</p>
+          </div>
+          <div class="card">
+            <p class="label">Elapsed</p>
+            <p id="elapsed" class="big">00:00:00</p>
+            <p id="started-at" class="muted" style="margin: 8px 0 0;">Waiting for start time</p>
+          </div>
+          <div class="card">
+            <p class="label">Heartbeat</p>
+            <p id="heartbeat-age" class="big">-</p>
+            <p id="heartbeat-at" class="muted" style="margin: 8px 0 0;">No heartbeat yet</p>
+          </div>
+          <div class="card">
+            <p class="label">Telemetry</p>
+            <p id="telemetry-mode" class="big">-</p>
+            <p id="telemetry-note" class="muted" style="margin: 8px 0 0;">Waiting for progress data</p>
+          </div>
+        </div>
+        <div class="stats-grid">
+          <div class="card">
+            <p class="label">Total entities</p>
+            <div class="big-inline">
+              <p id="total-entities" class="big">0</p>
+              <span class="muted">in scope</span>
+            </div>
+          </div>
+          <div class="card">
+            <p class="label">Finished steps</p>
+            <div class="big-inline">
+              <p id="finished-steps" class="big">0</p>
+              <span class="muted">entity-layer executions</span>
+            </div>
+          </div>
+          <div class="card">
+            <p class="label">Remaining steps</p>
+            <div class="big-inline">
+              <p id="remaining-steps" class="big">0</p>
+              <span class="muted">still to go</span>
+            </div>
+          </div>
+          <div class="card">
+            <p class="label">Throughput</p>
+            <div class="big-inline">
+              <p id="throughput-rows" class="big">0</p>
+              <span class="muted">rows/sec</span>
+            </div>
+            <p id="throughput-bytes" class="muted" style="margin: 8px 0 0;">0 bytes/sec</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="layer-grid" class="layer-grid"></section>
+
+      <section class="two-up">
+        <div class="panel card">
+          <div class="split">
+            <div>
+              <p class="label">Current layer by source</p>
+              <strong id="source-section-title">Waiting for layer data</strong>
+            </div>
+            <span id="source-summary" class="tiny">-</span>
+          </div>
+          <div id="source-list" class="list" style="margin-top: 14px;"></div>
+        </div>
+
+        <div class="panel card">
+          <div class="split">
+            <div>
+              <p class="label">Recent table activity</p>
+              <strong id="activity-title">Latest completed work</strong>
+            </div>
+            <span id="last-updated" class="tiny">Never refreshed</span>
+          </div>
+          <div id="activity-list" class="list" style="margin-top: 14px;"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const REFRESH_MS = 5000;
+    const ids = {};
+    for (const id of [
+      "error-banner",
+      "run-status-chip",
+      "run-id",
+      "run-scope",
+      "current-layer",
+      "layer-meta",
+      "elapsed",
+      "started-at",
+      "heartbeat-age",
+      "heartbeat-at",
+      "telemetry-mode",
+      "telemetry-note",
+      "total-entities",
+      "finished-steps",
+      "remaining-steps",
+      "throughput-rows",
+      "throughput-bytes",
+      "layer-grid",
+      "source-section-title",
+      "source-summary",
+      "source-list",
+      "activity-title",
+      "activity-list",
+      "last-updated",
+      "refresh-button",
+      "run-selector",
+    ]) {
+      ids[id] = document.getElementById(id);
+    }
+
+    function formatNumber(value) {
+      const num = Number(value || 0);
+      return Number.isFinite(num) ? num.toLocaleString() : "0";
+    }
+
+    function formatPercent(done, total) {
+      if (!total) return "0%";
+      return `${Math.round((done / total) * 100)}%`;
+    }
+
+    function formatDuration(seconds) {
+      const safe = Math.max(0, Math.floor(Number(seconds || 0)));
+      const hours = String(Math.floor(safe / 3600)).padStart(2, "0");
+      const minutes = String(Math.floor((safe % 3600) / 60)).padStart(2, "0");
+      const secs = String(safe % 60).padStart(2, "0");
+      return `${hours}:${minutes}:${secs}`;
+    }
+
+    function formatBytesPerSecond(value) {
+      const num = Number(value || 0);
+      if (!Number.isFinite(num) || num <= 0) return "0 B/sec";
+      const units = ["B/sec", "KB/sec", "MB/sec", "GB/sec"];
+      let size = num;
+      let index = 0;
+      while (size >= 1024 && index < units.length - 1) {
+        size /= 1024;
+        index += 1;
+      }
+      return `${size.toFixed(size >= 100 || index === 0 ? 0 : 1)} ${units[index]}`;
+    }
+
+    function formatUtc(isoString) {
+      if (!isoString) return "Unknown";
+      const date = new Date(isoString);
+      if (Number.isNaN(date.getTime())) return isoString;
+      return date.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    }
+
+    function timeAgo(isoString) {
+      if (!isoString) return "-";
+      const date = new Date(isoString);
+      if (Number.isNaN(date.getTime())) return isoString;
+      const delta = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+      if (delta < 60) return `${delta}s ago`;
+      if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
+      return `${Math.floor(delta / 3600)}h ${Math.floor((delta % 3600) / 60)}m ago`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    async function fetchJson(url) {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText} from ${url}`);
+      }
+      return response.json();
+    }
+
+    function normalizeRunRows(payload) {
+      if (!payload) return [];
+      if (Array.isArray(payload.runs)) return payload.runs;
+      if (Array.isArray(payload.items)) return payload.items;
+      if (Array.isArray(payload.data)) return payload.data;
+      return [];
+    }
+
+    function optionLabelForRun(run) {
+      const id = run?.run_id || run?.runId || "";
+      const status = String(run?.status || "unknown");
+      const started = run?.started_at || run?.startedAt || null;
+      const startedLabel = started ? formatUtc(started) : "unknown start";
+      return `${id} • ${status} • ${startedLabel}`;
+    }
+
+    function syncRunSelector(runRows) {
+      const previous = ids["run-selector"].value;
+      const options = ['<option value="">Auto (active/latest)</option>'];
+
+      for (const run of runRows) {
+        const runId = run?.run_id || run?.runId || "";
+        if (!runId) continue;
+        options.push(`<option value="${escapeHtml(runId)}">${escapeHtml(optionLabelForRun(run))}</option>`);
+      }
+
+      ids["run-selector"].innerHTML = options.join("");
+      const stillPresent = previous && runRows.some((run) => (run?.run_id || run?.runId || "") === previous);
+      ids["run-selector"].value = stillPresent ? previous : "";
+    }
+
+    function normalizedLayer(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
+    function layerTitle(value) {
+      const normalized = normalizedLayer(value);
+      if (!normalized) return "unknown";
+      if (normalized === "slv" || normalized === "silver") return "silver";
+      if (normalized === "brz" || normalized === "bronze") return "bronze";
+      if (normalized === "lz" || normalized === "landingzone" || normalized === "landing") return "landing";
+      return normalized;
+    }
+
+    function statusChipClass(statusValue) {
+      const value = String(statusValue || "").toLowerCase();
+      if (value.includes("progress") || value === "running") return "status-running";
+      if (value.includes("fail") || value.includes("abort") || value.includes("interrupt")) return "status-failed";
+      return "status-idle";
+    }
+
+    function renderLayerCards(totalEntities, layerNames, layerData, fallback) {
+      const populatedLayers = layerNames.filter((layerName) => {
+        const info = layerData[layerName] || {};
+        return Number(info.succeeded || 0) || Number(info.failed || 0) || Number(info.skipped || 0);
+      });
+
+      if (!populatedLayers.length && fallback?.layerName) {
+        const finished = Number(fallback.completed || 0);
+        const remaining = Math.max(totalEntities - finished, 0);
+        const progressWidth = totalEntities ? Math.max((finished / totalEntities) * 100, 1) : 0;
+        ids["layer-grid"].innerHTML = `
+          <section class="panel card">
+            <p class="label">${escapeHtml(fallback.layerName)}</p>
+            <div class="big-inline">
+              <p class="big">${formatNumber(finished)}</p>
+              <span class="muted">worker-reported completions</span>
+            </div>
+            <div class="progress"><span style="width:${progressWidth}%"></span></div>
+            <div class="stack">
+              <div class="split"><strong>Completed</strong><span class="muted">${formatNumber(finished)} / ${formatNumber(totalEntities)} (${formatPercent(finished, totalEntities)})</span></div>
+              <div class="split"><strong>Remaining</strong><span class="muted">${formatNumber(remaining)}</span></div>
+              <div class="split"><strong>Telemetry</strong><span class="muted">Worker heartbeat fallback</span></div>
+            </div>
+          </section>
+        `;
+        return;
+      }
+
+      if (!layerNames.length) {
+        ids["layer-grid"].innerHTML = '<div class="panel card"><p class="empty">No layer plan is available for the current run.</p></div>';
+        return;
+      }
+
+      ids["layer-grid"].innerHTML = layerNames.map((layerName) => {
+        const info = layerData[layerName] || {};
+        const succeeded = Number(info.succeeded || 0);
+        const failed = Number(info.failed || 0);
+        const skipped = Number(info.skipped || 0);
+        const finished = succeeded + failed + skipped;
+        const remaining = Math.max(totalEntities - finished, 0);
+        const progressWidth = totalEntities ? Math.max((finished / totalEntities) * 100, 1) : 0;
+        return `
+          <section class="panel card">
+            <p class="label">${escapeHtml(layerName)}</p>
+            <div class="big-inline">
+              <p class="big">${formatNumber(succeeded)}</p>
+              <span class="muted">loaded</span>
+            </div>
+            <div class="progress"><span style="width:${progressWidth}%"></span></div>
+            <div class="stack">
+              <div class="split"><strong>Completed</strong><span class="muted">${formatNumber(finished)} / ${formatNumber(totalEntities)} (${formatPercent(finished, totalEntities)})</span></div>
+              <div class="split"><strong>Remaining</strong><span class="muted">${formatNumber(remaining)}</span></div>
+              <div class="split"><strong>Failed</strong><span class="muted">${formatNumber(failed)}</span></div>
+              <div class="split"><strong>Skipped</strong><span class="muted">${formatNumber(skipped)}</span></div>
+            </div>
+          </section>
+        `;
+      }).join("");
+    }
+
+    function renderSourceRows(currentLayer, totalEntities, rows, sourceTotals) {
+      const title = currentLayer ? `${currentLayer} progress by source` : "Current layer by source";
+      ids["source-section-title"].textContent = title;
+
+      if (!rows.length) {
+        ids["source-summary"].textContent = "No source rows yet";
+        ids["source-list"].innerHTML = '<p class="empty">Source breakdown will appear once the engine writes task rows for this layer.</p>';
+        return;
+      }
+
+      const totalFinished = rows.reduce((sum, row) => sum + Number(row.succeeded || 0) + Number(row.failed || 0) + Number(row.skipped || 0), 0);
+      ids["source-summary"].textContent = `${formatNumber(totalFinished)} finished`;
+
+      ids["source-list"].innerHTML = rows.map((row) => {
+        const finished = Number(row.succeeded || 0) + Number(row.failed || 0) + Number(row.skipped || 0);
+        const total = Number(sourceTotals[row.source] || row.total_entities || totalEntities || 0);
+        const remaining = Math.max(total - finished, 0);
+        const width = total ? Math.max((finished / total) * 100, 1) : 0;
+        return `
+          <div class="source-row">
+            <div class="split">
+              <strong>${escapeHtml(row.source || "unknown source")}</strong>
+              <span class="tiny">${formatNumber(finished)} / ${formatNumber(total)}</span>
+            </div>
+            <div class="progress"><span style="width:${width}%"></span></div>
+            <div class="split">
+              <span class="muted">${formatNumber(row.succeeded || 0)} succeeded, ${formatNumber(row.failed || 0)} failed</span>
+              <span class="tiny">${formatNumber(remaining)} remaining</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderActivityRows(logs) {
+      if (!logs.length) {
+        ids["activity-title"].textContent = "Waiting for engine task logs";
+        ids["activity-list"].innerHTML = '<p class="empty">Recent table activity will appear here as the run progresses.</p>';
+        return;
+      }
+
+      const latest = logs[0];
+      ids["activity-title"].textContent = `${latest.DataSourceName || "source"} / ${latest.SourceName || "table"}`;
+
+      ids["activity-list"].innerHTML = logs.map((entry) => {
+        const statusClass = statusChipClass(entry.Status);
+        return `
+          <div class="activity-row">
+            <div class="split">
+              <strong>${escapeHtml(entry.SourceName || "unknown table")}</strong>
+              <span class="status-chip ${statusClass}">${escapeHtml(entry.Status || "unknown")}</span>
+            </div>
+            <div class="split">
+              <span class="muted">${escapeHtml(entry.DataSourceName || "unknown source")} • ${escapeHtml(entry.LoadType || "unknown load")}</span>
+              <span class="tiny">${timeAgo(entry.created_at)}</span>
+            </div>
+            <div class="split">
+              <span class="muted">${formatNumber(entry.RowsWritten || 0)} rows • ${formatDuration(entry.DurationSeconds || 0)}</span>
+              <span class="tiny">${formatUtc(entry.created_at)}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function clearError() {
+      ids["error-banner"].classList.remove("visible");
+      ids["error-banner"].textContent = "";
+    }
+
+    function showError(message) {
+      ids["error-banner"].classList.add("visible");
+      ids["error-banner"].textContent = message;
+    }
+
+    async function refresh() {
+      ids["refresh-button"].disabled = true;
+      try {
+        const [status, runsPayload] = await Promise.all([
+          fetchJson("/api/engine/status"),
+          fetchJson("/api/engine/runs?limit=50").catch(() => ({ runs: [] })),
+        ]);
+        const runRows = normalizeRunRows(runsPayload);
+        syncRunSelector(runRows);
+        const selectedRunId = ids["run-selector"].value;
+        const runId = selectedRunId || status?.current_run_id || status?.last_run?.run_id || runRows[0]?.run_id || "";
+        let progress = null;
+        let logs = { logs: [] };
+
+        if (runId) {
+          [progress, logs] = await Promise.all([
+            fetchJson(`/api/lmc/progress?run_id=${encodeURIComponent(runId)}`),
+            fetchJson(`/api/engine/logs?run_id=${encodeURIComponent(runId)}&limit=15`),
+          ]);
+        }
+
+        render(status, progress, logs?.logs || [], runId);
+        clearError();
+      } catch (error) {
+        showError(`Refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        ids["refresh-button"].disabled = false;
+      }
+    }
+
+    function render(status, progress, logs, requestedRunId) {
+      const lastRun = status?.last_run || {};
+      const run = progress?.run || {};
+      const runId = run.runId || requestedRunId || lastRun.run_id || status?.current_run_id || "No active run";
+      const startedAt = run.startedAt || lastRun.started_at || null;
+      const heartbeatAt = lastRun.heartbeat_at || null;
+      const currentLayer = layerTitle(lastRun.current_layer || "");
+      const rawLayers = String(run.layers || lastRun.layers || "");
+      const layerNames = rawLayers.split(",").map((item) => layerTitle(item)).filter(Boolean);
+      const totalEntities = Number(run.totalEntities || lastRun.total || 0);
+      const layerData = progress?.layers || {};
+      const telemetryHasLayerRows = layerNames.some((layerName) => {
+        const info = layerData[layerName] || {};
+        return Number(info.succeeded || 0) || Number(info.failed || 0) || Number(info.skipped || 0);
+      });
+      const finishedStepsFromTelemetry = layerNames.reduce((sum, layerName) => {
+        const info = layerData[layerName] || {};
+        return sum + Number(info.succeeded || 0) + Number(info.failed || 0) + Number(info.skipped || 0);
+      }, 0);
+      const finishedSteps = telemetryHasLayerRows
+        ? finishedStepsFromTelemetry
+        : Number(lastRun.completed_units || 0);
+      const totalSteps = telemetryHasLayerRows
+        ? (totalEntities && layerNames.length ? totalEntities * layerNames.length : totalEntities)
+        : totalEntities;
+      const remainingSteps = Math.max(totalSteps - finishedSteps, 0);
+      const heartbeatLabel = heartbeatAt ? timeAgo(heartbeatAt) : "-";
+      const statusValue = lastRun.status || status?.status || "unknown";
+      const rowsPerSecond = progress?.throughput?.rows_per_sec || 0;
+      const bytesPerSecond = progress?.throughput?.bytes_per_sec || 0;
+      const currentLayerRows = (progress?.bySourceByLayer || [])
+        .filter((row) => layerTitle(row.layer) === currentLayer)
+        .sort((a, b) => Number(b.total_entities || 0) - Number(a.total_entities || 0));
+      const sourceTotals = Object.fromEntries((progress?.bySource || []).map((row) => [row.source, Number(row.total_entities || 0)]));
+
+      ids["run-status-chip"].className = `status-chip ${statusChipClass(statusValue)}`;
+      ids["run-status-chip"].textContent = String(statusValue || "unknown");
+      ids["run-id"].textContent = runId;
+      ids["run-scope"].textContent = `${formatNumber(totalEntities)} entities • ${escapeHtml(lastRun.triggered_by || run.triggeredBy || "unknown trigger")}`;
+      ids["current-layer"].textContent = currentLayer || "-";
+      ids["layer-meta"].textContent = rawLayers ? `Planned layers: ${rawLayers}` : "Layer plan unavailable";
+      ids["elapsed"].textContent = startedAt ? formatDuration((Date.now() - new Date(startedAt).getTime()) / 1000) : "00:00:00";
+      ids["started-at"].textContent = startedAt ? `Started ${formatUtc(startedAt)}` : "Waiting for start time";
+      ids["heartbeat-age"].textContent = heartbeatLabel;
+      ids["heartbeat-at"].textContent = heartbeatAt ? `Last heartbeat ${formatUtc(heartbeatAt)}` : "No heartbeat yet";
+      ids["telemetry-mode"].textContent = telemetryHasLayerRows ? "task log" : "heartbeat";
+      ids["telemetry-note"].textContent = telemetryHasLayerRows
+        ? "Detailed run telemetry is live."
+        : "Falling back to worker heartbeat because detailed task rows have not landed yet.";
+      ids["total-entities"].textContent = formatNumber(totalEntities);
+      ids["finished-steps"].textContent = formatNumber(finishedSteps);
+      ids["remaining-steps"].textContent = formatNumber(remainingSteps);
+      ids["throughput-rows"].textContent = formatNumber(Math.round(rowsPerSecond));
+      ids["throughput-bytes"].textContent = formatBytesPerSecond(bytesPerSecond);
+      ids["last-updated"].textContent = `Last refreshed ${formatUtc(new Date().toISOString())}`;
+
+      renderLayerCards(totalEntities, layerNames, layerData, {
+        layerName: currentLayer,
+        completed: lastRun.completed_units,
+      });
+      renderSourceRows(currentLayer, totalEntities, currentLayerRows, sourceTotals);
+      renderActivityRows(logs);
+    }
+
+    ids["refresh-button"].addEventListener("click", refresh);
+    ids["run-selector"].addEventListener("change", refresh);
+    refresh();
+    setInterval(refresh, REFRESH_MS);
+  </script>
+</body>
+</html>

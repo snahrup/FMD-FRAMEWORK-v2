@@ -298,13 +298,12 @@ function SourceCard({ source, technical }: { source: Source; technical: boolean 
   const name = friendlySourceName(source.name, technical);
   const layers = source.layers;
 
-  // Entity-level progress: how many distinct tables loaded into each layer
   const lzMax = layers.landing.total ?? layers.landing.count;
   const brzMax = layers.bronze.total ?? layers.bronze.count;
+  const slvMax = layers.silver.total ?? layers.silver.count;
   const lzVal = layers.landing.loaded ?? 0;
   const brzVal = layers.bronze.loaded ?? 0;
-  // Silver: count = registered entities, no per-source processing yet
-  const slvCount = layers.silver.count;
+  const slvVal = layers.silver.loaded ?? 0;
 
   return (
     <div className="bg-card backdrop-blur-sm border border-border/50 rounded-xl p-5">
@@ -367,9 +366,22 @@ function SourceCard({ source, technical }: { source: Source; technical: boolean 
         <div>
           <div className="flex items-center justify-between text-xs mb-1">
             <span className="text-muted-foreground">{friendlyLayerName("silver", technical)}</span>
-            <span className="font-medium text-foreground">{slvCount} registered</span>
+            <span className="font-medium">
+              <span className="text-foreground">{fmtNum(slvVal)}</span>
+              {slvMax > 0 && (
+                <span className="text-muted-foreground"> / {fmtNum(slvMax)}</span>
+              )}
+              {layers.silver.completion !== undefined && layers.silver.completion > 0 && (
+                <span className={cn(
+                  "ml-1.5 text-[10px]",
+                  layers.silver.completion >= 95 ? "text-[var(--bp-operational)]" : layers.silver.completion >= 50 ? "text-[var(--bp-caution)]" : "text-[var(--bp-fault)]"
+                )}>
+                  {fmtPct(layers.silver.completion)}
+                </span>
+              )}
+            </span>
           </div>
-          <ProgressBar value={slvCount} max={layers.landing.count || 1} color="success" />
+          <ProgressBar value={slvVal} max={slvMax || 1} color="success" />
         </div>
       </div>
 
@@ -505,7 +517,7 @@ export default function ExecutiveDashboard() {
         <div>
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "32px", color: "#1C1917", lineHeight: "1.1" }}>Data Pipeline Overview</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {data.dataSources} data sources &middot; {fmtNum(overview.totalEntities)} entities &middot; Updated {timeAgo(data.timestamp)}
+            {data.dataSources} data sources &middot; {fmtNum(overview.totalEntities)} tables in scope &middot; Updated {timeAgo(data.timestamp)}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -539,21 +551,21 @@ export default function ExecutiveDashboard() {
       {/* ── Hero Stats ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="Total Entities"
+          label="Tables In Scope"
           value={fmtNum(overview.totalEntities)}
-          subtitle={`${data.dataSources} sources · ${fmtNum(layers.landing.loaded ?? 0)} of ${fmtNum(layers.landing.total)} loaded to LZ`}
+          subtitle={`${data.dataSources} sources · ${fmtNum(layers.landing.loaded ?? 0)} landed in Fabric`}
           icon={Database}
           color="bg-primary"
         />
         <StatCard
-          label={technical ? "Bronze Processing" : "Data Ingested"}
+          label={technical ? "Bronze Load" : "Bronze Loaded"}
           value={fmtPct(layers.bronze.completion ?? 0)}
           subtitle={`${fmtNum(layers.bronze.loaded ?? 0)} of ${fmtNum(layers.bronze.total)} entities loaded`}
           icon={Layers}
           color="bg-[var(--bp-operational)]"
         />
         <StatCard
-          label={technical ? "Silver Processing" : "Data Cleansed"}
+          label={technical ? "Silver Load" : "Silver Loaded"}
           value={fmtPct(layers.silver.completion ?? 0)}
           subtitle={`${fmtNum(layers.silver.loaded ?? 0)} of ${fmtNum(layers.silver.total)} entities loaded`}
           icon={HardDrive}
@@ -579,7 +591,7 @@ export default function ExecutiveDashboard() {
         </h2>
         <div className="flex items-stretch gap-0">
           <FlowNode
-            label={technical ? "Landing Zone" : "Source Files"}
+            label={technical ? "Landing Zone" : "Landing Loaded"}
             count={layers.landing.loaded ?? 0}
             total={layers.landing.total}
             rows={overview.rowCounts.landing}
@@ -587,7 +599,7 @@ export default function ExecutiveDashboard() {
             color="bg-[var(--bp-copper)]"
           />
           <FlowNode
-            label={technical ? "Bronze Layer" : "Raw Data"}
+            label={technical ? "Bronze Layer" : "Bronze Loaded"}
             count={layers.bronze.loaded ?? 0}
             total={layers.bronze.total}
             rows={overview.rowCounts.bronze}
@@ -595,7 +607,7 @@ export default function ExecutiveDashboard() {
             color="bg-[var(--bp-caution)]"
           />
           <FlowNode
-            label={technical ? "Silver Layer" : "Clean Data"}
+            label={technical ? "Silver Layer" : "Silver Loaded"}
             count={layers.silver.loaded ?? 0}
             total={layers.silver.total}
             rows={overview.rowCounts.silver}

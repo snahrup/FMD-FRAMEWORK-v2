@@ -11,7 +11,7 @@
 
 interface PipelineFlowProps {
   sourcesActive: boolean;
-  layersActive: { landing: boolean; bronze: boolean; silver: boolean; gold: boolean };
+  layersActive: { landing: boolean; bronze: boolean; silver: boolean; gold?: boolean };
   governanceActive: boolean;
 }
 
@@ -23,7 +23,7 @@ export function PipelineFlow({ sourcesActive, layersActive, governanceActive }: 
   // Vertical layer-to-layer
   const lzToBronze = layersActive.landing && layersActive.bronze;
   const bronzeToSilver = layersActive.bronze && layersActive.silver;
-  const silverToGold = layersActive.silver && layersActive.gold;
+  const silverToGold = layersActive.silver && !!layersActive.gold;
 
   return (
     <svg

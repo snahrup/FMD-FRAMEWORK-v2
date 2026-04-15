@@ -214,3 +214,87 @@ def refresh_quality_scores(params: dict) -> dict:
         "scored": result.get("scored", 0),
         "tiers":  result.get("tiers", {}),
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/labs/dq-trends
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/labs/dq-trends")
+def get_dq_trends(params: dict) -> dict:
+    """Return 7-day DQ trend points and persist the current snapshot."""
+    from datetime import datetime
+
+    from dashboard.app.api import metrics_store
+
+    try:
+        hours = max(1, min(int(params.get("hours") or 168), 24 * 30))
+    except (TypeError, ValueError):
+        hours = 168
+
+    metrics_store.init_db()
+
+    conn = cpdb._get_conn()
+    try:
+        entity_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive = 1"
+        ).fetchone()
+        entity_count = int(entity_row["cnt"]) if entity_row else 0
+
+        latest_rows = conn.execute(
+            """
+            WITH latest AS (
+                SELECT
+                    EntityId,
+                    RowsWritten,
+                    ROW_NUMBER() OVER (PARTITION BY EntityId ORDER BY id DESC) AS rn
+                FROM engine_task_log
+            )
+            SELECT
+                SUM(CASE WHEN COALESCE(RowsWritten, 0) > 0 THEN 1 ELSE 0 END) AS with_data,
+                SUM(CASE WHEN COALESCE(RowsWritten, 0) <= 0 THEN 1 ELSE 0 END) AS empty_count,
+                SUM(CASE WHEN COALESCE(RowsWritten, 0) > 0 THEN RowsWritten ELSE 0 END) AS total_rows
+            FROM latest
+            WHERE rn = 1
+            """
+        ).fetchone()
+
+        with_data = int(latest_rows["with_data"]) if latest_rows and latest_rows["with_data"] is not None else 0
+        empty = (
+            int(latest_rows["empty_count"])
+            if latest_rows and latest_rows["empty_count"] is not None
+            else max(entity_count - with_data, 0)
+        )
+        total_rows = int(latest_rows["total_rows"]) if latest_rows and latest_rows["total_rows"] is not None else 0
+    finally:
+        conn.close()
+
+    coverage = round((with_data / entity_count * 100) if entity_count > 0 else 0, 1)
+    metrics_store.record_dq_snapshot(
+        entity_count=entity_count,
+        with_data=with_data,
+        empty=empty,
+        total_rows=total_rows,
+        coverage=coverage,
+    )
+
+    snapshots = metrics_store.get_dq_snapshots(hours=hours)
+    points = []
+    for snap in snapshots:
+        captured = snap.get("captured_at") or ""
+        try:
+            dt = datetime.fromisoformat(str(captured).replace("Z", "+00:00"))
+            label = dt.strftime("%m/%d")
+        except ValueError:
+            label = str(captured)
+        points.append(
+            {
+                "time": label,
+                "coverage": round(float(snap.get("coverage") or 0), 1),
+                "entityCount": int(snap.get("entity_count") or 0),
+                "withData": int(snap.get("with_data") or 0),
+                "totalRows": int(snap.get("total_rows") or 0),
+            }
+        )
+
+    return {"points": points}

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
 from dashboard.app.api.routes.load_center import _build_canonical_pipeline_truth
+from dashboard.app.api.routes.metrics_contract import build_metric_contract
 
 log = logging.getLogger("fmd.routes.monitoring")
 
@@ -57,6 +58,12 @@ def get_live_monitor(params: dict) -> dict:
         minutes = 240
 
     result: dict = {}
+    contract = build_metric_contract()
+    tables = contract["tables"]
+    total_in_scope = int(tables["inScope"]["value"] or 0)
+    landing_loaded = int(tables["landingLoaded"]["value"] or 0)
+    bronze_loaded = int(tables["bronzeLoaded"]["value"] or 0)
+    silver_loaded = int(tables["silverLoaded"]["value"] or 0)
 
     # minutes=0 means "all time" — skip the WHERE time filter entirely
     time_filter = ""
@@ -93,30 +100,26 @@ def get_live_monitor(params: dict) -> dict:
         time_params,
     )
 
-    # Processing counts from entity tables
-    try:
-        lz_total = db.query("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive = 1")
-        brz_total = db.query("SELECT COUNT(*) AS cnt FROM bronze_entities WHERE IsActive = 1")
-        slv_total = db.query("SELECT COUNT(*) AS cnt FROM silver_entities WHERE IsActive = 1")
-
-        # Processed counts from engine_task_log (the ONLY trustworthy source)
-        status_rows = _safe_query(
-            "SELECT Layer, COUNT(DISTINCT EntityId) AS cnt FROM engine_task_log "
-            "WHERE Status = 'succeeded' GROUP BY Layer"
-        )
-        status_map = {r["Layer"]: r["cnt"] for r in status_rows} if status_rows else {}
-
-        result["counts"] = {
-            "lzRegistered": lz_total[0]["cnt"] if lz_total else 0,
-            "brzRegistered": brz_total[0]["cnt"] if brz_total else 0,
-            "slvRegistered": slv_total[0]["cnt"] if slv_total else 0,
-            "lzProcessed": status_map.get("landing", 0),
-            "brzProcessed": status_map.get("bronze", 0),
-            "slvProcessed": status_map.get("silver", 0),
-        }
-    except Exception as e:
-        log.warning("Failed to load monitoring counts: %s", e)
-        result["counts"] = {}
+    result["counts"] = {
+        "lzTotal": total_in_scope,
+        "brzTotal": total_in_scope,
+        "slvTotal": total_in_scope,
+        "lzLoaded": landing_loaded,
+        "brzLoaded": bronze_loaded,
+        "slvLoaded": silver_loaded,
+        "lzPending": max(total_in_scope - landing_loaded, 0),
+        "brzPending": max(total_in_scope - bronze_loaded, 0),
+        "slvPending": max(total_in_scope - silver_loaded, 0),
+        "toolReady": int(tables["toolReady"]["value"] or 0),
+        "blocked": int(tables["blocked"]["value"] or 0),
+        # Legacy keys kept until all consumers are migrated.
+        "lzRegistered": total_in_scope,
+        "brzRegistered": total_in_scope,
+        "slvRegistered": total_in_scope,
+        "lzProcessed": landing_loaded,
+        "brzProcessed": bronze_loaded,
+        "slvProcessed": silver_loaded,
+    }
 
     # Recently processed Bronze entities
     result["bronzeEntities"] = _safe_query(
@@ -625,24 +628,12 @@ def get_executive_dashboard(params: dict) -> dict:
     """
     now = _utcnow_iso()
     pipeline_truth = _build_canonical_pipeline_truth()
-
-    # --- Entity totals per layer ---
-    lz_total = _safe_query("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive=1")
-    brz_total = _safe_query("SELECT COUNT(*) AS cnt FROM bronze_entities WHERE IsActive=1")
-    slv_total = _safe_query("SELECT COUNT(*) AS cnt FROM silver_entities WHERE IsActive=1")
-    lz_count = lz_total[0]["cnt"] if lz_total else 0
-    brz_count = brz_total[0]["cnt"] if brz_total else 0
-    slv_count = slv_total[0]["cnt"] if slv_total else 0
-
-    # --- Loaded counts from engine_task_log ---
-    status_rows = _safe_query(
-        "SELECT LOWER(Layer) AS layer, COUNT(DISTINCT EntityId) AS cnt FROM engine_task_log "
-        "WHERE Status = 'succeeded' GROUP BY LOWER(Layer)"
-    )
-    sm = {r["layer"]: r["cnt"] for r in status_rows} if status_rows else {}
-    lz_loaded = sm.get("landing", 0) + sm.get("landingzone", 0)
-    brz_loaded = sm.get("bronze", 0)
-    slv_loaded = sm.get("silver", 0)
+    contract = build_metric_contract()
+    tables = contract["tables"]
+    in_scope = int(tables["inScope"]["value"] or 0)
+    lz_loaded = int(tables["landingLoaded"]["value"] or 0)
+    brz_loaded = int(tables["bronzeLoaded"]["value"] or 0)
+    slv_loaded = int(tables["silverLoaded"]["value"] or 0)
 
     # --- Row counts from lakehouse_row_counts cache ---
     rc_rows = _safe_query(
@@ -656,56 +647,26 @@ def get_executive_dashboard(params: dict) -> dict:
     landing_rows = sum(v for k, v in rc_map.items() if "landing" in k.lower() or "lz" in k.lower())
 
     # --- Data source count ---
-    ds_count = len(pipeline_truth.get("sourceStats", {}))
+    ds_count = int(contract["sources"]["total"] or 0)
 
     # --- Per-source breakdown ---
-    source_rows = _safe_query(
-        "WITH latest_task AS ("
-        "  SELECT EntityId, Layer, Status, "
-        "  ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn "
-        "  FROM engine_task_log"
-        "), latest AS ("
-        "  SELECT EntityId, Layer, Status FROM latest_task WHERE rn = 1"
-        ") "
-        "SELECT ds.Name AS name, ds.DisplayName AS displayName, ds.Namespace AS namespace, "
-        "COUNT(DISTINCT le.LandingzoneEntityId) AS entityCount, "
-        "COUNT(DISTINCT CASE WHEN le.IsActive=1 THEN le.LandingzoneEntityId END) AS activeLz, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_lz.Status,'')) = 'succeeded' "
-        "  THEN le.LandingzoneEntityId END) AS lzLoaded, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_br.Status,'')) = 'succeeded' "
-        "  THEN le.LandingzoneEntityId END) AS brzLoaded, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_sv.Status,'')) = 'succeeded' "
-        "  THEN le.LandingzoneEntityId END) AS slvLoaded "
-        "FROM lz_entities le "
-        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
-        "LEFT JOIN latest es_lz ON le.LandingzoneEntityId = es_lz.EntityId "
-        "  AND LOWER(es_lz.Layer) IN ('landing','landingzone') "
-        "LEFT JOIN latest es_br ON le.LandingzoneEntityId = es_br.EntityId "
-        "  AND LOWER(es_br.Layer) = 'bronze' "
-        "LEFT JOIN latest es_sv ON le.LandingzoneEntityId = es_sv.EntityId "
-        "  AND LOWER(es_sv.Layer) = 'silver' "
-        "WHERE ds.IsActive=1 AND le.IsActive=1 "
-        "GROUP BY ds.DataSourceId, ds.Name, ds.DisplayName, ds.Namespace "
-        "ORDER BY COALESCE(ds.DisplayName, ds.Name)"
-    )
     sources = []
-    for s in source_rows:
-        ec = int(s.get("entityCount") or 0)
-        alz = int(s.get("activeLz") or 0)
-        ll = int(s.get("lzLoaded") or 0)
-        bl = int(s.get("brzLoaded") or 0)
-        sl = int(s.get("slvLoaded") or 0)
+    for source in contract["sources"]["bySource"]:
+        ec = int(source.get("tablesInScope") or 0)
+        ll = int(source.get("landingLoaded") or 0)
+        bl = int(source.get("bronzeLoaded") or 0)
+        sl = int(source.get("silverLoaded") or 0)
         sources.append({
-            "name": s.get("displayName") or s.get("name") or "",
-            "namespace": s.get("namespace") or "",
+            "name": source.get("displayName") or source.get("source") or "",
+            "namespace": source.get("source") or "",
             "entityCount": ec,
             "layers": {
-                "landing": {"count": alz, "active": alz, "total": alz, "loaded": ll,
-                            "completion": round(ll / alz * 100, 1) if alz else 0},
-                "bronze":  {"count": alz, "active": alz, "total": alz, "loaded": bl,
-                            "completion": round(bl / alz * 100, 1) if alz else 0},
-                "silver":  {"count": alz, "active": alz, "total": alz, "loaded": sl,
-                            "completion": round(sl / alz * 100, 1) if alz else 0},
+                "landing": {"count": ec, "active": ec, "total": ec, "loaded": ll,
+                            "completion": round(ll / ec * 100, 1) if ec else 0},
+                "bronze":  {"count": ec, "active": ec, "total": ec, "loaded": bl,
+                            "completion": round(bl / ec * 100, 1) if ec else 0},
+                "silver":  {"count": ec, "active": ec, "total": ec, "loaded": sl,
+                            "completion": round(sl / ec * 100, 1) if ec else 0},
             },
             "rowCounts": {"bronze": 0, "silver": 0},
         })
@@ -758,7 +719,7 @@ def get_executive_dashboard(params: dict) -> dict:
         health = "setup"
     elif failed > 0 and succeeded == 0:
         health = "critical"
-    elif failed > 0:
+    elif failed > 0 or int(contract["blockers"]["open"] or 0) > 0:
         health = "warning"
     else:
         health = "healthy"
@@ -790,7 +751,7 @@ def get_executive_dashboard(params: dict) -> dict:
             "INSERT INTO health_trend_snapshots "
             "(snapshot_time, lz_loaded, bronze_loaded, silver_loaded, total_entities, pipeline_success_rate) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (now, lz_loaded, brz_loaded, slv_loaded, lz_count, success_rate),
+            (now, lz_loaded, brz_loaded, slv_loaded, in_scope, success_rate),
         )
     except Exception as e:
         log.debug("Failed to save health trend snapshot: %s", e)
@@ -800,17 +761,17 @@ def get_executive_dashboard(params: dict) -> dict:
         "health": health,
         "dataSources": ds_count,
         "overview": {
-            "totalEntities": lz_count,
+            "totalEntities": in_scope,
             "layers": {
-                "landing": {"total": lz_count, "loaded": lz_loaded,
-                            "pending": lz_count - lz_loaded,
-                            "completion": round(lz_loaded / lz_count * 100, 1) if lz_count else 0},
-                "bronze":  {"total": brz_count, "loaded": brz_loaded,
-                            "pending": brz_count - brz_loaded,
-                            "completion": round(brz_loaded / brz_count * 100, 1) if brz_count else 0},
-                "silver":  {"total": slv_count, "loaded": slv_loaded,
-                            "pending": slv_count - slv_loaded,
-                            "completion": round(slv_loaded / slv_count * 100, 1) if slv_count else 0},
+                "landing": {"total": in_scope, "loaded": lz_loaded,
+                            "pending": max(in_scope - lz_loaded, 0),
+                            "completion": round(lz_loaded / in_scope * 100, 1) if in_scope else 0},
+                "bronze":  {"total": in_scope, "loaded": brz_loaded,
+                            "pending": max(in_scope - brz_loaded, 0),
+                            "completion": round(brz_loaded / in_scope * 100, 1) if in_scope else 0},
+                "silver":  {"total": in_scope, "loaded": slv_loaded,
+                            "pending": max(in_scope - slv_loaded, 0),
+                            "completion": round(slv_loaded / in_scope * 100, 1) if in_scope else 0},
             },
             "rowCounts": {"bronze": bronze_rows, "silver": silver_rows, "landing": landing_rows},
         },

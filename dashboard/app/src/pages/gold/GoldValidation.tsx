@@ -279,6 +279,7 @@ interface PublishFormState {
 }
 
 interface ModelFlowData {
+  [key: string]: unknown;
   node: ProposedModelNode;
   tone: { color: string; bg: string; border: string; label: string };
 }
@@ -448,7 +449,9 @@ function ProgressRail({ value, color }: { value: number; color: string }) {
   );
 }
 
-function ModelNodeCard({ data }: NodeProps<Node<ModelFlowData>>) {
+type ModelFlowNode = Node<ModelFlowData, "semantic">;
+
+function ModelNodeCard({ data }: NodeProps<ModelFlowNode>) {
   const tone = data.tone;
   const previewColumns = data.node.columns_preview.slice(0, 4);
   const previewMeasures = data.node.measures_preview.slice(0, 3);
@@ -656,7 +659,7 @@ export default function GoldValidation() {
   const accountedPct = summary ? Math.round((summary.field_rows_accounted_for / Math.max(summary.field_rows_total, 1)) * 100) : 0;
   const blockersCount = coverageMap?.blockers.length ?? 0;
 
-  const flowNodes = useMemo<Array<Node<ModelFlowData, "semantic">>>(() => {
+  const flowNodes = useMemo<ModelFlowNode[]>(() => {
     const groupOrder = ["dimension", "fact", "bridge", "aggregate", "reference", "other"];
     const grouped = new Map<string, ProposedModelNode[]>();
     (proposedModel?.nodes ?? []).forEach((node) => {
@@ -800,7 +803,7 @@ export default function GoldValidation() {
         body: JSON.stringify(newReport),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      showToast("Report registered", "success");
+      showToast("Report added", "success");
       setShowAddReport(false);
       setNewReport({ domain: activeDomain ?? "", report_name: "", report_description: "", report_type: "power_bi" });
       load();
@@ -896,7 +899,7 @@ export default function GoldValidation() {
         <div className="mt-3 flex flex-wrap items-center gap-5">
           {[
             { label: "Imported Artifacts", value: summary?.imported_artifacts ?? 0 },
-            { label: "Registered Reports", value: summary?.registered_reports ?? 0 },
+            { label: "Tracked Reports", value: summary?.registered_reports ?? 0 },
             { label: "Validated Specs", value: `${summary?.validated_specs ?? 0}/${summary?.current_specs ?? 0}` },
             { label: "Canonical Objects", value: summary?.canonical_entities ?? 0 },
             { label: "Updated", value: formatDate(summary?.updated_at) },
@@ -1384,7 +1387,7 @@ function ProposedModelView({
   onOpenNode,
 }: {
   model: ProposedModelResponse;
-  flowNodes: Array<Node<ModelFlowData, "semantic">>;
+  flowNodes: ModelFlowNode[];
   flowEdges: Edge[];
   onOpenNode: (node: ProposedModelNode) => void;
 }) {
@@ -1406,7 +1409,7 @@ function ProposedModelView({
               fitView
               minZoom={0.4}
               maxZoom={1.3}
-              onNodeClick={(_, node) => onOpenNode((node.data as ModelFlowData).node)}
+              onNodeClick={(_, node) => onOpenNode(node.data.node)}
               nodesDraggable={false}
               elementsSelectable
               proOptions={{ hideAttribution: true }}
@@ -1774,7 +1777,7 @@ function DetailGrid({ items }: { items: Array<[string, string]> }) {
 
 function EvidenceList({ title, items, tone = "neutral" }: { title: string; items: string[]; tone?: "neutral" | "danger" }) {
   if (items.length === 0) {
-    return <GoldNoResults title={`No ${title.toLowerCase()} recorded`} message="Nothing is registered in this section yet." />;
+    return <GoldNoResults title={`No ${title.toLowerCase()} recorded`} message="Nothing is tracked in this section yet." />;
   }
   return (
     <div>

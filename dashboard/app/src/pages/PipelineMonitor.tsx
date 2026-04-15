@@ -413,7 +413,7 @@ function interpretFailureReason(reason: string | Record<string, unknown> | null 
   if (lower.includes('column') && (lower.includes('not found') || lower.includes('invalid') || lower.includes('does not exist'))) {
     return {
       summary: 'Schema mismatch — column not found',
-      suggestion: 'The source table schema changed since the entity was registered. Re-run source analysis from Source Manager to update the entity configuration.',
+      suggestion: 'The source table schema changed since this table was first added to scope. Re-run source analysis from Source Manager to update the entity configuration.',
     };
   }
 
@@ -1632,7 +1632,7 @@ export default function PipelineMonitor() {
               ? `${runningCount} pipeline${runningCount > 1 ? 's' : ''} running`
               : hasExecutionData
                 ? 'Real-time pipeline execution status'
-                : `${activePipelines.length} registered pipelines across the FMD framework`
+                : `${activePipelines.length} configured pipelines across the FMD framework`
             }
           </p>
         </div>

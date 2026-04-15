@@ -107,7 +107,7 @@ class TestSourceConnection:
     def test_default_timeout(self):
         config = _make_config()
         sc = SourceConnection(config)
-        assert sc._query_timeout == 120  # EngineConfig default
+        assert sc._query_timeout == 300  # EngineConfig default
 
     def test_uses_config_driver(self):
         config = _make_config(source_sql_driver="MyDriver")

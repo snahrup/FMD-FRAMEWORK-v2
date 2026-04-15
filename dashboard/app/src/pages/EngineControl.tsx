@@ -2050,7 +2050,7 @@ export default function EngineControl() {
                   </div>
 
                   <div className="flex items-center justify-between px-2.5 py-2 border-t border-border bg-muted text-xs text-muted-foreground">
-                    <span>{allEntities.length} total entities</span>
+                    <span>{allEntities.length} tables in scope</span>
                     <span className={selectedEntityIds.size > 0 ? "text-[var(--bp-copper)] font-medium" : ""}>
                       {selectedEntityIds.size > 0 ? `${selectedEntityIds.size} selected` : "None selected — will run all"}
                     </span>
@@ -2125,7 +2125,7 @@ export default function EngineControl() {
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <div className="p-2 rounded bg-background border text-center">
                 <p className="text-xl font-bold text-foreground tabular-nums">{fmtNum(planResult.entity_count)}</p>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Entities</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Tables In Plan</p>
               </div>
               <div className="p-2 rounded bg-background border text-center">
                 <p className="text-xl font-bold text-[var(--bp-copper)] tabular-nums">{fmtNum(planResult.incremental_count)}</p>

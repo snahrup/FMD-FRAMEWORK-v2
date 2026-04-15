@@ -1,85 +1,93 @@
-# PRE-LAUNCH CHECKLIST — Agent Team Readiness
+# PRE-LAUNCH CHECKLIST — Monday Demo Readiness
 
-> **Status**: READY TO LAUNCH
-> **Owner**: sage-tower
-> **Purpose**: Every box must be checked before unleashing agents. This prevents the "go around and around" problem.
-
----
-
-## 1. Config Fixes (RESOLVED — sage-tower 2026-03-09)
-
-- [x] Fix `config.json` → `engine.load_method`: changed `"local"` → `"notebook"` (Fabric notebook execution)
-- [x] Fix `config.json` → `engine.notebook_lz_id`: set to `a69cb3e2-52a1-abee-4335-29721d1d5828` (NB_FMD_PROCESSING_LANDINGZONE_MAIN)
-- [x] Fix `config.json` → `engine.notebook_processing_id`: set to `bf2101e2-a101-b8df-43bf-5f6ba130a279` (NB_FMD_PROCESSING_PARALLEL_MAIN)
-- [x] Fix `config.json` → `engine.notebook_maintenance_id`: left empty (NB_FMD_MAINTENANCE_AGENT not yet deployed to Fabric)
-- [x] Fix `engine.notebook_bronze_id`: changed `a2712a97` → `f7be6488` (matches item_deployment.json)
-- [x] Fix `engine.notebook_silver_id`: changed `8ce7bc73` → `556fd16b` (matches item_deployment.json)
-- [x] **RESOLVED**: `item_deployment.json` is the deployment output from Fabric — it is the source of truth for all item IDs
-
-## 2. Collision Prevention (HIGH — prevents merge hell)
-
-- [x] Ownership map updated with all 9 agents + conflict zones documented
-- [x] engine/tests/ split: Engine Lead = unit (`test_<module>.py`), QA Engineer = integration (`test_integration_*.py`)
-- [x] `deploy_from_scratch.py` — LOCKED to DevOps Lead only (rule 7 in ownership-map.md). Other agents submit change requests.
-- [x] API response contracts: API Lead notifies Frontend Lead before any shape change
-- [x] config/ directory: DevOps writes during deploy, API Lead reads at runtime
-
-## 3. Test Infrastructure (MEDIUM — agents need to validate their work)
-
-- [x] pytest: 31/31 passing
-- [x] TypeScript build: clean
-- [x] Playwright config: correct (baseURL `127.0.0.1:5173`, screenshots/video/trace on)
-- [x] Node modules: present and complete
-- [x] Semgrep: configured with security rules
-- [ ] Python deps: `pandas` import fails — agents must `pip install pandas pyodbc` before engine work
-- [ ] Dev servers: agents must start Vite + API before E2E tests
-  - Vite: `cd dashboard/app && npm run dev`
-  - API: `cd dashboard/app/api && python server.py`
-
-## 4. Knowledge Base (GREEN — comprehensive)
-
-- [x] `knowledge/DEFINITION-OF-DONE.md` — 10-section binary checklist
-- [x] `knowledge/TEST-PLAN.md` — 489 assertions across 40 pages in 3 tiers
-- [x] `knowledge/BURNED-BRIDGES.md` — 10 sections of gotchas and dead ends
-- [x] `knowledge/CURRENT-STATE.md` — Master index with reading order
-- [x] `knowledge/architecture/ownership-map.md` — Non-overlapping file ownership + conflict zones
-- [x] `knowledge/engine/audit-backend.md` — 14 engine modules documented
-- [x] `knowledge/frontend/audit-pages.md` — 38 pages documented
-- [x] `knowledge/frontend/audit-components.md` — 133 components documented
-- [x] `knowledge/fabric/audit-artifacts.md` — 23 pipelines, 11 notebooks
-- [x] `knowledge/devops/audit-deployment.md` — 17 phases documented
-- [x] `knowledge/ipcorp/` — Company context (5 files)
-- [x] `knowledge/UX-AUDIT-REPORT.md` — Complete (30 pages graded, overall C+)
-
-## 5. Agent Configuration (GREEN)
-
-- [x] All 9 AGENTS.md files have: identity, responsibilities, safety, references
-- [x] All agents reference DEFINITION-OF-DONE.md
-- [x] Entity count updated to 1,666 across 5 sources in all agent files
-- [x] Mandatory Visual Documentation Protocol in all agent files
-- [x] All agents set to claude-opus-4-6 with effort:high
-- [x] Paperclip company registered with 8 agents + goals + issues
-
-## 6. Safety Rails
-
-- [x] Ownership boundaries prevent file collisions
-- [x] CTO agent has 3x weight in architectural decisions
-- [x] QA agents are read-only on production code
-- [x] Feature workflow: CTO decompose → Lead implement → QA review → CTO merge
-- [ ] Git branching strategy: agents should work on feature branches, not main
-- [ ] Pre-commit hooks: ensure tests pass before merge
+> **Status**: READY FOR MONDAY DEMO
+> **Validated on**: 2026-04-11
+> **Purpose**: Current go/no-go checklist for the FMD dashboard demo environment
 
 ---
 
-## LAUNCH DECISION
+## 1. Release Gates
 
-| Criteria | Status | Blocker? |
-|----------|--------|----------|
-| Config correctness | GREEN | RESOLVED — all notebook IDs fixed from item_deployment.json, load_method→notebook |
-| File collision risk | GREEN | RESOLVED — deploy_from_scratch.py locked to DevOps Lead |
-| Test infrastructure | GREEN | No (minor pip install needed) |
-| Knowledge base | GREEN | No |
-| Agent configuration | GREEN | No |
-| Safety rails | GREEN | No |
+- [x] Frontend production build succeeds: `cd dashboard/app && npm run build`
+- [x] Frontend lint gate is green: `cd dashboard/app && npm run lint`
+- [x] API test suite is green: `python -m pytest dashboard/app/api/tests -q`
+- [x] Engine test suite is green: `python -m pytest engine/tests -q`
+- [x] Root URL serves the built SPA from `dashboard/app/dist`
+- [x] Engine status endpoint is healthy: `GET /api/engine/status`
 
-**Verdict**: **READY TO LAUNCH.** All blockers resolved. Config IDs synced to item_deployment.json. deploy_from_scratch.py locked to DevOps Lead. Test infra green (31/31 pytest, clean TS build, Playwright ready). All 9 agents configured with ownership boundaries and DEFINITION-OF-DONE references.
+### Current validation results
+
+| Gate | Result |
+|------|--------|
+| Frontend build | PASS |
+| Frontend lint | PASS (`0` errors, warnings remain non-blocking) |
+| API tests | PASS (`288 passed`) |
+| Engine tests | PASS (`329 passed, 6 skipped`) |
+| Browser smoke sweep | PASS |
+
+---
+
+## 2. Demo-Critical User Paths
+
+- [x] `/overview` loads cleanly
+- [x] `/catalog-portal` loads cleanly with no duplicate-key console errors
+- [x] `/labs/dq-scorecard` loads cleanly and `/api/labs/dq-trends` returns data
+- [x] `/load-mission-control` loads cleanly and engine health is visible
+- [x] `/setup` loads cleanly and the workspace/lakehouse/notebook/pipeline discovery APIs respond
+- [x] `/sql-explorer` loads cleanly and server discovery completes quickly enough for a demo
+- [x] `/admin` gate loads cleanly
+- [x] Admin auth issues a session token and protected admin writes accept `session_token`
+- [x] `/journey` and `/lineage` load cleanly
+
+---
+
+## 3. Runtime Prerequisites
+
+- [x] `dashboard/app/api/.env` is present on the demo machine
+- [x] `FABRIC_CLIENT_SECRET` is configured
+- [x] `ADMIN_PASSWORD` is configured
+- [x] `dashboard/app/dist/` exists
+- [x] ODBC Driver 18 for SQL Server is installed
+- [x] Outbound access to Azure/Fabric endpoints is available
+
+### Environment variables expected at runtime
+
+```env
+FABRIC_CLIENT_SECRET=<service-principal-secret>
+ADMIN_PASSWORD=<demo-admin-password>
+ONELAKE_MOUNT_PATH=<optional-local-mount>
+PURVIEW_ACCOUNT_NAME=<optional>
+```
+
+---
+
+## 4. Architecture Reality Check
+
+- [x] Backend runtime is Python `http.server` plus the route registry in `dashboard/app/api/server.py`
+- [x] Static frontend is served from `dashboard/app/dist`
+- [x] Control-plane state is stored locally in `dashboard/app/api/fmd_control_plane.db`
+- [x] Background helpers run in-process for control-plane sync tasks
+- [x] Fabric/SQL/OneLake access depends on the configured service principal and network reachability
+
+---
+
+## 5. Non-Blocking Follow-Up
+
+- [ ] Reduce frontend lint warnings over time; they no longer block release
+- [ ] Clean up test-only deprecation warnings in `dashboard/app/api/tests/test_control_plane_db.py`
+- [ ] Split or lazy-load the largest frontend bundle chunks if startup size becomes an issue
+- [ ] Add a repeatable browser smoke script for the final pre-demo check
+
+---
+
+## Launch Decision
+
+| Criteria | Status | Notes |
+|----------|--------|-------|
+| Buildable | GREEN | Production bundle generates successfully |
+| Testable | GREEN | API and engine suites are passing |
+| Runnable | GREEN | Server serves SPA and API on port `8787` |
+| Demo flows | GREEN | Critical paths validated in-browser |
+| Secrets/config | GREEN | Runtime secret and admin auth are configured |
+
+**Verdict**: **READY FOR MONDAY DEMO.** The previously blocking issues in build, engine health, setup wiring, SQL explorer responsiveness, DQ trend loading, business catalog identity handling, and admin session handling have been resolved and revalidated.

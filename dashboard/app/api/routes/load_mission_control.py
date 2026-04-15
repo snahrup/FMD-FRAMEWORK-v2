@@ -19,6 +19,13 @@ import dashboard.app.api.control_plane_db as cpdb
 
 log = logging.getLogger("fmd.routes.lmc")
 
+_SUPPORTED_LAYERS = ("landing", "bronze", "silver")
+_LAYER_LAKEHOUSE = {
+    "landing": "LH_DATA_LANDINGZONE",
+    "bronze": "LH_BRONZE_LAYER",
+    "silver": "LH_SILVER_LAYER",
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -54,6 +61,151 @@ def _int(v) -> int:
         return int(v) if v is not None else 0
     except (TypeError, ValueError):
         return 0
+
+
+def _split_csv(raw: str | None) -> list[str]:
+    return [part.strip() for part in str(raw or "").split(",") if part and part.strip()]
+
+
+def _parse_entity_filter(raw: str | None) -> list[int]:
+    entity_ids: list[int] = []
+    for part in _split_csv(raw):
+        try:
+            entity_ids.append(int(part))
+        except (TypeError, ValueError):
+            continue
+    return entity_ids
+
+
+def _parse_run_layers(raw: str | None) -> list[str]:
+    layers = [layer.lower() for layer in _split_csv(raw)]
+    return [layer for layer in layers if layer in _SUPPORTED_LAYERS] or list(_SUPPORTED_LAYERS)
+
+
+def _classify_load_strategy(entity: dict) -> dict:
+    is_incremental = bool(entity.get("isIncremental"))
+    watermark_column = entity.get("watermarkColumn")
+    last_watermark = entity.get("lastWatermark")
+
+    if is_incremental and watermark_column and last_watermark:
+        return {
+            "nextAction": "incremental",
+            "nextActionLabel": "Incremental load",
+            "reason": "Watermark history exists, so the next run can advance without reseeding.",
+        }
+    if is_incremental and watermark_column and not last_watermark:
+        return {
+            "nextAction": "full_load",
+            "nextActionLabel": "First full load",
+            "reason": "Incremental configuration exists, but there is no watermark history yet.",
+        }
+    if not is_incremental and not watermark_column:
+        return {
+            "nextAction": "full_load",
+            "nextActionLabel": "Full load",
+            "reason": "No watermark strategy is configured for this table.",
+        }
+    return {
+        "nextAction": "full_load",
+        "nextActionLabel": "Full load",
+        "reason": "This table is currently configured to reload in full.",
+    }
+
+
+def _resolve_run_scope_entities(run_meta: dict) -> list[dict]:
+    """Resolve the exact entity scope for a run from persisted engine_runs metadata."""
+    entity_ids = _parse_entity_filter(run_meta.get("EntityFilter"))
+    source_filter = _split_csv(run_meta.get("SourceFilter"))
+
+    query = (
+        "SELECT le.LandingzoneEntityId AS entityId, "
+        "  le.DataSourceId AS dataSourceId, "
+        "  ds.Name AS source, "
+        "  COALESCE(ds.DisplayName, ds.Name) AS sourceDisplay, "
+        "  le.SourceSchema AS schema, "
+        "  le.SourceName AS tableName, "
+        "  le.FilePath AS filePath, "
+        "  COALESCE(le.IsIncremental, 0) AS isIncremental, "
+        "  le.IsIncrementalColumn AS watermarkColumn, "
+        "  w.LoadValue AS lastWatermark, "
+        "  be.BronzeLayerEntityId AS bronzeEntityId, "
+        "  se.SilverLayerEntityId AS silverEntityId "
+        "FROM lz_entities le "
+        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
+        "LEFT JOIN bronze_entities be ON be.LandingzoneEntityId = le.LandingzoneEntityId "
+        "LEFT JOIN silver_entities se ON se.BronzeLayerEntityId = be.BronzeLayerEntityId "
+        "LEFT JOIN watermarks w ON w.LandingzoneEntityId = le.LandingzoneEntityId "
+        "WHERE le.IsActive = 1"
+    )
+    params: list = []
+
+    if entity_ids:
+        placeholders = ",".join("?" for _ in entity_ids)
+        query += f" AND le.LandingzoneEntityId IN ({placeholders})"
+        params.extend(entity_ids)
+    elif source_filter:
+        placeholders = ",".join("?" for _ in source_filter)
+        query += f" AND ds.Name IN ({placeholders})"
+        params.extend(source_filter)
+
+    query += " ORDER BY COALESCE(ds.DisplayName, ds.Name), le.SourceSchema, le.SourceName"
+    return _safe_query(query, tuple(params))
+
+
+def _get_run_scope_inventory_rows(run_id: str, scoped_entity_ids: list[int]) -> dict[tuple[int, str], dict]:
+    if not scoped_entity_ids:
+        return {}
+
+    placeholders = ",".join("?" for _ in scoped_entity_ids)
+    params = (run_id, *scoped_entity_ids)
+    sql = f"""
+        {cpdb._MAPPED_ENGINE_TASK_LOG_CTE},
+        ranked AS (
+            SELECT
+                LandingzoneEntityId,
+                Layer,
+                Status,
+                LoadEndDateTime,
+                ErrorMessage,
+                RunId,
+                RowsRead,
+                RowsWritten,
+                SourceTable,
+                ROW_NUMBER() OVER (
+                    PARTITION BY LandingzoneEntityId, Layer
+                    ORDER BY
+                        LoadEndDateTime DESC,
+                        CASE Status
+                          WHEN 'succeeded' THEN 1
+                          WHEN 'failed' THEN 2
+                          WHEN 'skipped' THEN 3
+                          ELSE 4
+                        END,
+                        id DESC
+                ) AS rn
+            FROM mapped
+            WHERE LandingzoneEntityId IS NOT NULL
+              AND RunId = ?
+              AND LandingzoneEntityId IN ({placeholders})
+        )
+        SELECT
+            LandingzoneEntityId,
+            Layer,
+            Status,
+            LoadEndDateTime,
+            ErrorMessage,
+            RunId,
+            RowsRead,
+            RowsWritten,
+            SourceTable
+        FROM ranked
+        WHERE rn = 1
+    """
+    rows = _safe_query(sql, params)
+    return {
+        (_int(row.get("LandingzoneEntityId")), str(row.get("Layer") or "").lower()): row
+        for row in rows
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +289,16 @@ def get_lmc_progress(params: dict) -> dict:
             "bySource": [],
             "errorBreakdown": [],
             "loadTypeBreakdown": [],
+            "selfHeal": {
+                "enabled": False,
+                "configured": False,
+                "availableAgents": [],
+                "selectedAgent": None,
+                "note": "Self-heal status is unavailable.",
+                "runtime": {"status": "unknown", "currentCaseId": None, "workerPid": None, "agentName": None, "heartbeatAt": None, "lastMessage": None, "healthy": False},
+                "summary": {"queuedCount": 0, "activeCount": 0, "succeededCount": 0, "exhaustedCount": 0, "disabledCount": 0, "totalCount": 0},
+                "cases": [],
+            },
             "serverTime": _utcnow_iso(),
         }
 
@@ -320,6 +482,22 @@ def get_lmc_progress(params: dict) -> dict:
         lh_state = {}
         lh_by_source = []
 
+    try:
+        from engine.self_heal import get_self_heal_status_payload
+        self_heal = get_self_heal_status_payload(run_id=run_id, limit_cases=12, limit_events=6)
+    except Exception as exc:
+        log.warning("Self-heal status unavailable for LMC progress: %s", exc)
+        self_heal = {
+            "enabled": False,
+            "configured": False,
+            "availableAgents": [],
+            "selectedAgent": None,
+            "note": "Self-heal status is unavailable.",
+            "runtime": {"status": "unknown", "currentCaseId": None, "workerPid": None, "agentName": None, "heartbeatAt": None, "lastMessage": str(exc), "healthy": False},
+            "summary": {"queuedCount": 0, "activeCount": 0, "succeededCount": 0, "exhaustedCount": 0, "disabledCount": 0, "totalCount": 0},
+            "cases": [],
+        }
+
     return {
         "run": {
             "runId": run_meta.get("RunId", run_id),
@@ -331,6 +509,9 @@ def get_lmc_progress(params: dict) -> dict:
             "startedAt": run_meta.get("StartedAt"),
             "endedAt": run_meta.get("EndedAt"),
             "errorSummary": run_meta.get("ErrorSummary", ""),
+            "sourceFilter": _split_csv(run_meta.get("SourceFilter")),
+            "entityFilter": _parse_entity_filter(run_meta.get("EntityFilter")),
+            "resolvedEntityCount": _int(run_meta.get("ResolvedEntityCount", run_meta.get("TotalEntities", total_active))),
         },
         "totalActiveEntities": _int(total_active),
         "layers": layers,
@@ -343,6 +524,7 @@ def get_lmc_progress(params: dict) -> dict:
             "total_active": 0, "lz_verified": 0, "brz_verified": 0,
             "slv_verified": 0, "lz_last_scan": None, "brz_last_scan": None,
         },
+        "selfHeal": self_heal,
         "lakehouseState": lh_state,
         "lakehouseBySource": lh_by_source,
         "serverTime": _utcnow_iso(),
@@ -362,31 +544,83 @@ def get_lmc_runs(params: dict) -> dict:
         "SELECT er.RunId, er.Mode, er.Status, er.TotalEntities, "
         "  er.Layers, er.TriggeredBy, er.ErrorSummary, "
         "  er.StartedAt, er.EndedAt, er.TotalDurationSeconds, "
-        "  (SELECT COUNT(DISTINCT EntityId) FROM engine_task_log etl "
-        "    WHERE etl.RunId = er.RunId AND etl.Status = 'succeeded') AS actualSucceeded, "
-        "  (SELECT COUNT(DISTINCT EntityId) FROM engine_task_log etl "
-        "    WHERE etl.RunId = er.RunId AND etl.Status = 'failed') AS actualFailed, "
-        "  (SELECT COUNT(DISTINCT EntityId) FROM engine_task_log etl "
-        "    WHERE etl.RunId = er.RunId AND etl.Status = 'skipped') AS actualSkipped, "
-        "  (SELECT SUM(RowsRead) FROM engine_task_log etl "
-        "    WHERE etl.RunId = er.RunId AND etl.Status = 'succeeded') AS totalRowsRead, "
-        "  (SELECT SUM(BytesTransferred) FROM engine_task_log etl "
-        "    WHERE etl.RunId = er.RunId AND etl.Status = 'succeeded') AS totalBytes, "
-        "  (SELECT COUNT(*) FROM engine_task_log etl WHERE etl.RunId = er.RunId) AS totalTaskLogs, "
-        "  (SELECT ExtractionMethod FROM engine_task_log "
-        "    WHERE RunId = er.RunId AND ExtractionMethod != 'unknown' "
-        "    GROUP BY ExtractionMethod ORDER BY COUNT(*) DESC LIMIT 1"
-        "  ) AS extraction_method "
+        "  er.SourceFilter, er.EntityFilter, er.ResolvedEntityCount "
         "FROM engine_runs er "
         "ORDER BY er.StartedAt DESC LIMIT ?",
         (str(limit),),
     )
 
-    return {
-        "runs": [{
+    run_ids = [r.get("RunId") for r in runs if r.get("RunId")]
+    tasklog_agg: dict[str, dict] = {}
+    extraction_method_by_run: dict[str, str] = {}
+
+    if run_ids:
+        placeholders = ",".join("?" for _ in run_ids)
+        agg_rows = _safe_query(
+            f"SELECT etl.RunId, "
+            f"  COUNT(DISTINCT CASE WHEN etl.Status = 'succeeded' THEN etl.EntityId END) AS actualSucceeded, "
+            f"  COUNT(DISTINCT CASE WHEN etl.Status = 'failed' THEN etl.EntityId END) AS actualFailed, "
+            f"  COUNT(DISTINCT CASE WHEN etl.Status = 'skipped' THEN etl.EntityId END) AS actualSkipped, "
+            f"  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.RowsRead ELSE 0 END) AS totalRowsRead, "
+            f"  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.BytesTransferred ELSE 0 END) AS totalBytes, "
+            f"  COUNT(*) AS totalTaskLogs "
+            f"FROM engine_task_log etl "
+            f"WHERE etl.RunId IN ({placeholders}) "
+            f"GROUP BY etl.RunId",
+            tuple(run_ids),
+        )
+        tasklog_agg = {r["RunId"]: r for r in agg_rows}
+
+        method_rows = _safe_query(
+            f"WITH method_counts AS ("
+            f"  SELECT RunId, COALESCE(NULLIF(ExtractionMethod, ''), 'unknown') AS extraction_method, "
+            f"         COUNT(*) AS cnt "
+            f"  FROM engine_task_log "
+            f"  WHERE RunId IN ({placeholders}) "
+            f"    AND COALESCE(NULLIF(ExtractionMethod, ''), 'unknown') != 'unknown' "
+            f"  GROUP BY RunId, COALESCE(NULLIF(ExtractionMethod, ''), 'unknown')"
+            f"), ranked AS ("
+            f"  SELECT RunId, extraction_method, "
+            f"         ROW_NUMBER() OVER (PARTITION BY RunId ORDER BY cnt DESC, extraction_method ASC) AS rn "
+            f"  FROM method_counts"
+            f") "
+            f"SELECT RunId, extraction_method FROM ranked WHERE rn = 1",
+            tuple(run_ids),
+        )
+        extraction_method_by_run = {
+            r["RunId"]: r.get("extraction_method") or "unknown"
+            for r in method_rows
+        }
+
+    mapped_runs = []
+    for r in runs:
+        agg = tasklog_agg.get(r.get("RunId"), {})
+        mapped_runs.append({
             **r,
-            "extractionMethod": r.get("extraction_method") or "unknown",
-        } for r in runs],
+            "runId": r.get("RunId", ""),
+            "mode": r.get("Mode", ""),
+            "status": r.get("Status", "Unknown"),
+            "totalEntities": _int(r.get("TotalEntities")),
+            "layers": r.get("Layers", ""),
+            "triggeredBy": r.get("TriggeredBy", ""),
+            "errorSummary": r.get("ErrorSummary", ""),
+            "startedAt": r.get("StartedAt"),
+            "endedAt": r.get("EndedAt"),
+            "totalDurationSeconds": float(r.get("TotalDurationSeconds") or 0),
+            "succeeded": _int(agg.get("actualSucceeded", r.get("SucceededEntities"))),
+            "failed": _int(agg.get("actualFailed", r.get("FailedEntities"))),
+            "skipped": _int(agg.get("actualSkipped", r.get("SkippedEntities"))),
+            "totalRowsRead": _int(agg.get("totalRowsRead", r.get("TotalRowsRead"))),
+            "totalBytes": _int(agg.get("totalBytes", r.get("TotalBytesTransferred"))),
+            "totalTaskLogs": _int(agg.get("totalTaskLogs")),
+            "extractionMethod": extraction_method_by_run.get(r.get("RunId"), "unknown"),
+            "sourceFilter": _split_csv(r.get("SourceFilter")),
+            "entityFilter": _parse_entity_filter(r.get("EntityFilter")),
+            "resolvedEntityCount": _int(r.get("ResolvedEntityCount", r.get("TotalEntities"))),
+        })
+
+    return {
+        "runs": mapped_runs,
         "serverTime": _utcnow_iso(),
     }
 
@@ -508,6 +742,22 @@ def get_lmc_run_detail(params: dict) -> dict:
         (run_id,),
     )
 
+    try:
+        from engine.self_heal import get_self_heal_status_payload
+        self_heal = get_self_heal_status_payload(run_id=run_id, limit_cases=20, limit_events=8)
+    except Exception as exc:
+        log.warning("Self-heal status unavailable for run detail %s: %s", run_id, exc)
+        self_heal = {
+            "enabled": False,
+            "configured": False,
+            "availableAgents": [],
+            "selectedAgent": None,
+            "note": "Self-heal status is unavailable.",
+            "runtime": {"status": "unknown", "currentCaseId": None, "workerPid": None, "agentName": None, "heartbeatAt": None, "lastMessage": str(exc), "healthy": False},
+            "summary": {"queuedCount": 0, "activeCount": 0, "succeededCount": 0, "exhaustedCount": 0, "disabledCount": 0, "totalCount": 0},
+            "cases": [],
+        }
+
     return {
         "run": {
             "runId": run_meta.get("RunId"),
@@ -519,6 +769,9 @@ def get_lmc_run_detail(params: dict) -> dict:
             "startedAt": run_meta.get("StartedAt"),
             "endedAt": run_meta.get("EndedAt"),
             "errorSummary": run_meta.get("ErrorSummary", ""),
+            "sourceFilter": _split_csv(run_meta.get("SourceFilter")),
+            "entityFilter": _parse_entity_filter(run_meta.get("EntityFilter")),
+            "resolvedEntityCount": _int(run_meta.get("ResolvedEntityCount", run_meta.get("TotalEntities"))),
         },
         "layerSource": layer_source,
         "failures": [{
@@ -532,9 +785,169 @@ def get_lmc_run_detail(params: dict) -> dict:
             "count": _int(r["cnt"]),
             "totalRows": _int(r["total_rows"]),
         } for r in extraction_methods],
+        "selfHeal": self_heal,
         "loadTypes": load_types,
         "watermarkUpdates": watermark_updates,
         "timeline": timeline,
+        "serverTime": _utcnow_iso(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/lmc/run/{run_id}/scope-inventory — Truthful scope inventory
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/lmc/run/{run_id}/scope-inventory")
+def get_lmc_run_scope_inventory(params: dict) -> dict:
+    """Return run-scoped table inventory with run status, history, and lakehouse presence."""
+    run_id = params.get("run_id", "")
+    if not run_id:
+        raise HttpError("run_id is required", 400)
+
+    run_rows = _safe_query("SELECT * FROM engine_runs WHERE RunId = ?", (run_id,))
+    if not run_rows:
+        raise HttpError(f"Run {run_id} not found", 404)
+    run_meta = run_rows[0]
+    run_layers = _parse_run_layers(run_meta.get("Layers"))
+
+    scope_entities = _resolve_run_scope_entities(run_meta)
+    scoped_entity_ids = [_int(entity.get("entityId")) for entity in scope_entities if entity.get("entityId") is not None]
+
+    run_lookup = _get_run_scope_inventory_rows(run_id, scoped_entity_ids)
+    latest_any_lookup = {
+        (_int(row.get("LandingzoneEntityId")), str(row.get("Layer") or "").lower()): row
+        for row in cpdb.get_mapped_engine_task_log(latest_only=True)
+        if _int(row.get("LandingzoneEntityId")) in scoped_entity_ids
+    }
+    latest_success_lookup = {
+        (_int(row.get("LandingzoneEntityId")), str(row.get("Layer") or "").lower()): row
+        for row in cpdb.get_mapped_engine_task_log(latest_only=True, success_only=True)
+        if _int(row.get("LandingzoneEntityId")) in scoped_entity_ids
+    }
+
+    physical_rows = _safe_query(
+        "SELECT lakehouse, LOWER(schema_name) AS schema_name, LOWER(table_name) AS table_name, row_count, scanned_at "
+        "FROM lakehouse_row_counts"
+    )
+    physical_lookup = {
+        (str(row.get("lakehouse") or ""), str(row.get("schema_name") or ""), str(row.get("table_name") or "")): row
+        for row in physical_rows
+    }
+
+    entities_payload: list[dict] = []
+    summary = {
+        "scopeEntityCount": len(scope_entities),
+        "attemptedInRunCount": 0,
+        "runGapCount": 0,
+        "runMissingByLayer": {layer: 0 for layer in _SUPPORTED_LAYERS},
+        "historicalMissingByLayer": {layer: 0 for layer in _SUPPORTED_LAYERS},
+        "physicalMissingByLayer": {layer: 0 for layer in _SUPPORTED_LAYERS},
+    }
+
+    for entity in scope_entities:
+        entity_id = _int(entity.get("entityId"))
+        schema = str(entity.get("schema") or "").lower()
+        table_name = str(entity.get("tableName") or "").lower()
+        strategy = _classify_load_strategy(entity)
+
+        run_layer_status: dict[str, dict] = {}
+        history_layer_status: dict[str, dict] = {}
+        physical_layer_status: dict[str, dict] = {}
+        run_missing_layers: list[str] = []
+        never_succeeded_layers: list[str] = []
+        missing_physical_layers: list[str] = []
+
+        for layer in _SUPPORTED_LAYERS:
+            run_row = run_lookup.get((entity_id, layer))
+            latest_any = latest_any_lookup.get((entity_id, layer))
+            latest_success = latest_success_lookup.get((entity_id, layer))
+            physical_row = physical_lookup.get((_LAYER_LAKEHOUSE[layer], schema, table_name))
+
+            run_status = str(run_row.get("Status") or "not_started").lower() if run_row else "not_started"
+            run_layer_status[layer] = {
+                "status": run_status,
+                "at": run_row.get("LoadEndDateTime") if run_row else None,
+                "runId": run_row.get("RunId") if run_row else None,
+                "errorMessage": run_row.get("ErrorMessage") if run_row else None,
+                "rowsRead": _int(run_row.get("RowsRead")) if run_row else 0,
+                "rowsWritten": _int(run_row.get("RowsWritten")) if run_row else 0,
+            }
+            if layer in run_layers and run_status != "succeeded":
+                run_missing_layers.append(layer)
+                summary["runMissingByLayer"][layer] += 1
+
+            history_layer_status[layer] = {
+                "latestStatus": str(latest_any.get("Status") or "").lower() if latest_any else None,
+                "latestAt": latest_any.get("LoadEndDateTime") if latest_any else None,
+                "latestRunId": latest_any.get("RunId") if latest_any else None,
+                "everSucceeded": latest_success is not None,
+                "lastSuccessAt": latest_success.get("LoadEndDateTime") if latest_success else None,
+                "lastSuccessRunId": latest_success.get("RunId") if latest_success else None,
+            }
+            if latest_success is None:
+                never_succeeded_layers.append(layer)
+                summary["historicalMissingByLayer"][layer] += 1
+
+            row_count = None
+            scan_failed = False
+            exists = False
+            scanned_at = None
+            if physical_row:
+                scanned_at = physical_row.get("scanned_at")
+                raw_row_count = physical_row.get("row_count")
+                row_count = _int(raw_row_count)
+                scan_failed = row_count < 0
+                exists = row_count >= 0
+                if scan_failed:
+                    row_count = None
+            physical_layer_status[layer] = {
+                "exists": exists,
+                "rowCount": row_count,
+                "scannedAt": scanned_at,
+                "scanFailed": scan_failed,
+            }
+            if not exists:
+                missing_physical_layers.append(layer)
+                summary["physicalMissingByLayer"][layer] += 1
+
+        run_attempted = any(run_layer_status[layer]["status"] != "not_started" for layer in _SUPPORTED_LAYERS)
+        if run_attempted:
+            summary["attemptedInRunCount"] += 1
+        if run_missing_layers:
+            summary["runGapCount"] += 1
+
+        entities_payload.append({
+            "entityId": entity_id,
+            "source": entity.get("source"),
+            "sourceDisplay": entity.get("sourceDisplay") or entity.get("source"),
+            "schema": entity.get("schema"),
+            "table": entity.get("tableName"),
+            "isIncremental": bool(entity.get("isIncremental")),
+            "watermarkColumn": entity.get("watermarkColumn"),
+            "lastWatermark": entity.get("lastWatermark"),
+            "runAttempted": run_attempted,
+            "runMissingLayers": run_missing_layers,
+            "neverSucceededLayers": never_succeeded_layers,
+            "missingPhysicalLayers": missing_physical_layers,
+            "nextAction": strategy["nextAction"],
+            "nextActionLabel": strategy["nextActionLabel"],
+            "nextActionReason": strategy["reason"],
+            "runLayerStatus": run_layer_status,
+            "historyLayerStatus": history_layer_status,
+            "physicalLayerStatus": physical_layer_status,
+        })
+
+    return {
+        "run": {
+            "runId": run_meta.get("RunId"),
+            "status": run_meta.get("Status"),
+            "layersInScope": run_layers,
+            "sourceFilter": _split_csv(run_meta.get("SourceFilter")),
+            "entityFilter": _parse_entity_filter(run_meta.get("EntityFilter")),
+            "resolvedEntityCount": _int(run_meta.get("ResolvedEntityCount", len(scope_entities))),
+        },
+        "summary": summary,
+        "entities": entities_payload,
         "serverTime": _utcnow_iso(),
     }
 
@@ -559,7 +972,13 @@ def get_lmc_run_entities(params: dict) -> dict:
     """
     run_id = params.get("run_id", "")
     if not run_id:
-        raise HttpError("run_id is required", 400)
+        return {
+            "entities": [],
+            "total": 0,
+            "limit": min(_int(params.get("limit", 200)), 1000),
+            "offset": _int(params.get("offset", 0)),
+            "serverTime": _utcnow_iso(),
+        }
 
     # Build WHERE clauses
     wheres = ["etl.RunId = ?"]
@@ -686,7 +1105,13 @@ def get_lmc_entity_history(params: dict) -> dict:
         (str(eid),),
     )
     if not entity_meta:
-        raise HttpError(f"Entity {eid} not found", 404)
+        return {
+            "entity": None,
+            "watermark": None,
+            "history": [],
+            "retries": [],
+            "serverTime": _utcnow_iso(),
+        }
 
     # Current watermark
     watermark = _safe_query(

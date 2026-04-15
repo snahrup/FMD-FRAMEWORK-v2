@@ -25,6 +25,26 @@ log = logging.getLogger("fmd.bronze")
 # Pure transformation functions (stateless, testable)
 # ---------------------------------------------------------------------------
 
+def _utcnow() -> datetime:
+    """Current UTC time as a naive datetime (no timezone info).
+
+    Bronze timestamps are persisted as naive UTC in Delta. Normalizing here
+    keeps incoming frames schema-compatible with Delta reads that are later
+    stripped to naive UTC before merge/write.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _strip_tz(df: pl.DataFrame) -> pl.DataFrame:
+    """Normalize any timezone-aware datetime columns to naive UTC."""
+    cast_cols = [
+        pl.col(name).dt.replace_time_zone(None)
+        for name, dtype in zip(df.columns, df.dtypes)
+        if isinstance(dtype, pl.Datetime) and dtype.time_zone is not None
+    ]
+    return df.with_columns(cast_cols) if cast_cols else df
+
+
 def clean_column_names(df: pl.DataFrame) -> pl.DataFrame:
     """Strip whitespace from column names (matches notebook line 548)."""
     rename_map = {c: c.strip() for c in df.columns if c != c.strip()}
@@ -83,7 +103,7 @@ def hash_non_key_columns(df: pl.DataFrame, pk_columns: list[str]) -> pl.DataFram
 def add_record_load_date(df: pl.DataFrame) -> pl.DataFrame:
     """Add RecordLoadDate timestamp column."""
     return df.with_columns(
-        pl.lit(datetime.now(timezone.utc)).alias("RecordLoadDate")
+        pl.lit(_utcnow()).alias("RecordLoadDate")
     )
 
 
@@ -137,6 +157,7 @@ class BronzeProcessor:
         rows_read = len(df)
 
         # Steps 2-6: Transform
+        df = _strip_tz(df)
         df = clean_column_names(df)
         df = hash_pk_columns(df, entity.pk_columns)
         df = deduplicate(df)
@@ -156,6 +177,7 @@ class BronzeProcessor:
             success = self._io.write_delta(workspace_id, table_path, df, mode="overwrite")
         else:
             # Merge: insert new + update changed + delete missing (full load only)
+            existing = _strip_tz(existing)
             df = self._merge_bronze(existing, df, entity.is_incremental)
             log.info("[%s] Bronze %s: merged, writing %d rows",
                      run_id[:8], entity.source_name, len(df))

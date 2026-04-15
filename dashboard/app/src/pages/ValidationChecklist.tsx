@@ -386,7 +386,7 @@ export default function ValidationChecklist() {
           </div>
         }
         facts={totals ? [
-          { label: "Active", value: `${totals.active} of ${totals.entities} registered`, tone: "accent" },
+          { label: "Tables In Scope", value: `${totals.active}`, tone: "accent" },
           { label: "Landing", value: `${totals.lzLoaded} loaded`, tone: totals.lzLoaded === totals.active ? "positive" : "warning" },
           { label: "Bronze", value: `${totals.bronzeLoaded} loaded`, tone: totals.bronzeLoaded === totals.active ? "positive" : "warning" },
           { label: "Silver", value: `${totals.silverLoaded} loaded`, tone: totals.silverLoaded === totals.active ? "positive" : "warning" },
@@ -492,7 +492,7 @@ export default function ValidationChecklist() {
                       )}
                       <div className="flex-1 min-w-0">
                         <span className="text-sm font-medium" style={{ color: "var(--bp-ink-primary)" }}>{dsName}</span>
-                        <span className="text-xs ml-2" style={{ color: "var(--bp-ink-muted)" }}>{active} active</span>
+                        <span className="text-xs ml-2" style={{ color: "var(--bp-ink-muted)" }}>{active} tables in scope</span>
                       </div>
                       <div className="hidden md:flex items-center gap-2">
                         <VLayerBadge label="LZ" loaded={lzLoaded} total={active} />
@@ -514,7 +514,7 @@ export default function ValidationChecklist() {
                         {stuckCount > 0 && (
                           <div className="flex items-center gap-2 text-xs" style={{ color: "var(--bp-caution)" }}>
                             <AlertTriangle className="h-3.5 w-3.5" />
-                            {stuckCount} entities stuck at LZ (Bronze never processed)
+                            {stuckCount} tables still stop at Landing
                           </div>
                         )}
                       </div>

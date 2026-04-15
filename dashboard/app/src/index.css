@@ -686,15 +686,29 @@
   padding: 16px;
 }
 
+.bp-page-shell-wide {
+  width: min(1520px, 100%);
+  margin: 0 auto;
+  padding: 20px 20px 32px;
+}
+
 @media (min-width: 768px) {
   .bp-page-shell {
     padding: 24px;
+  }
+
+  .bp-page-shell-wide {
+    padding: 24px 24px 40px;
   }
 }
 
 @media (min-width: 1280px) {
   .bp-page-shell {
     padding: 32px;
+  }
+
+  .bp-page-shell-wide {
+    padding: 24px 32px 48px;
   }
 }
 

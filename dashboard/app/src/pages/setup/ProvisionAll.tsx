@@ -62,22 +62,14 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
   const [copied, setCopied] = useState(false);
   const configRef = useRef<EnvironmentConfig | null>(null);
 
-  // TODO(P14): wire to actual endpoint — POST /api/setup/provision-all does not exist yet.
-  // When implemented, restore the real provisioning call here.
   const handleProvision = async () => {
-    if (!capacity) return;
+    const selectedCapacity = capacity;
+    if (!selectedCapacity) return;
+    const provisionCapacity: FabricCapacity = selectedCapacity;
     setProvisioning(true);
     setSteps([]);
     setError(null);
     setDone(false);
-
-    // Backend endpoint not yet implemented — show informational error
-    setError("Provisioning endpoint not yet available. Use deploy_from_scratch.py for environment setup.");
-    setProvisioning(false);
-    return;
-
-    // --- Dead code below kept for reference when endpoint is created ---
-    /* istanbul ignore next */
     const placeholders: ProvisionStep[] = [
       { name: "Connections: carry forward", status: "creating" },
       { name: "Workspace: INTEGRATION DATA (D)", status: "creating" },
@@ -98,8 +90,8 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          capacityId: capacity.id,
-          capacityDisplayName: capacity.displayName,
+          capacityId: provisionCapacity.id,
+          capacityDisplayName: provisionCapacity.displayName,
         }),
       });
       const data = await resp.json();
@@ -114,7 +106,7 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
 
       if (data.config) {
         const newConfig: EnvironmentConfig = {
-          capacity,
+          capacity: provisionCapacity,
           workspaces: {
             data_dev: data.config.workspaces?.data_dev || null,
             code_dev: data.config.workspaces?.code_dev || null,
@@ -134,8 +126,12 @@ export function ProvisionAll({ onComplete }: ProvisionAllProps) {
         };
         configRef.current = newConfig;
       }
-    } catch (ex) {
-      setError(ex instanceof Error ? ex.message : String(ex));
+    } catch (ex: unknown) {
+      const message =
+        typeof ex === "object" && ex !== null
+          ? String((ex as { message?: unknown }).message ?? ex)
+          : String(ex);
+      setError(message);
       setSteps([]);
     } finally {
       setProvisioning(false);

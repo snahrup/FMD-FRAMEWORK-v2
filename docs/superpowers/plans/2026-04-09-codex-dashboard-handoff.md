@@ -66,3 +66,7 @@ Default branch for this modernization stream:
 
 - `feat/mobile-phase0-foundation`
 
+## Continuation Handoffs
+For the latest April 13, 2026 pipeline/debugging continuation, read:
+
+- `C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK\docs\superpowers\plans\2026-04-13-codex-pipeline-ops-handoff.md`

@@ -1,0 +1,16 @@
+I can’t actually review the uncommitted changes from this session because local repo inspection is blocked on every available path.
+
+The concrete failures were:
+- shell access fails with `CreateProcessAsUserW failed: 1920` or policy blocks `pwsh.exe`
+- desktop/file-system MCP calls are being cancelled before execution
+
+So I don’t have a trustworthy way to read `git status` or the patch, which means I can’t produce a defensible review.
+
+If you want, send the output of:
+```powershell
+git status --short
+git diff --cached
+git diff
+```
+
+If the diff is large, `git diff --stat` plus the changed files is enough for a first pass. Once I have the patch, I’ll review it as requested: findings first, ordered by severity, with exact file/line references and test gaps.

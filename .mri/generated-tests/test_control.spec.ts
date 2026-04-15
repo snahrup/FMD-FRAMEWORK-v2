@@ -10,7 +10,7 @@ import {
  * Component: ControlPlane
  * Source: dashboard/app/src/App.tsx
  *
- * KPIs detected: Source, Table, running..., Total registered, Active
+ * KPIs detected: Source, Table, running..., Tables In Scope, Total in scope, Active
  * Has search: yes
  * Table columns: Source, Schema, Table, File Name, Load Type, Watermark, Primary Keys, Bronze
  *

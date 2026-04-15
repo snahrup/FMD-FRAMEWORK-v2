@@ -11,7 +11,8 @@
     "test:mobile-touch-audit": "npx playwright test -c playwright.mobile-audit.config.ts tests/mobile-touch-target-audit.spec.ts --reporter=list",
     "test:mobile-font-audit": "npx playwright test -c playwright.mobile-audit.config.ts tests/mobile-font-size-audit.spec.ts --reporter=list",
     "test:mobile-audits": "npx playwright test -c playwright.mobile-audit.config.ts tests/mobile-touch-target-audit.spec.ts tests/mobile-font-size-audit.spec.ts --reporter=list",
-    "test:audit": "npx playwright test fmd-dashboard-audit.spec.ts --reporter=html",
+    "test:demo-packets": "npx playwright test tests/demo-readiness-packets.spec.ts --reporter=list",
+    "test:audit": "npm run test:demo-packets",
     "test:smoke": "npx playwright test smoke.spec.ts --reporter=list",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"

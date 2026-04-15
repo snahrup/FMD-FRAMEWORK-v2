@@ -3,34 +3,25 @@
 //
 // Design system: Industrial Precision, Light Mode
 // All styles use BP CSS custom properties (--bp-*)
-// Data: /api/overview/sources, /api/overview/kpis, /api/control-plane
+// Data: /api/metric-contract, /api/overview/sources, /api/overview/entities
 // ============================================================================
 
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
+import { useMetricContract } from "@/hooks/useMetricContract";
 import { useTerminology } from "@/hooks/useTerminology";
 import { useSourceConfig, resolveSourceLabel, getSourceColor } from "@/hooks/useSourceConfig";
 import {
   BusinessIntentHeader,
   KpiCard,
-  ProgressRing,
   SourceBadge,
 } from "@/components/business";
 import { RefreshCw, Search, ChevronRight, Database } from "lucide-react";
+import { isSuccessStatus } from "@/lib/exploreWorksurface";
 
 const API = import.meta.env.VITE_API_URL || "";
 
 // ── Types ──
-
-interface KPIData {
-  freshness_pct: number;
-  freshness_on_time: number;
-  freshness_total: number;
-  sources_online: number;
-  sources_total: number;
-  total_entities: number;
-  quality_avg: number;
-}
 
 interface SourceHealth {
   name: string;
@@ -48,6 +39,7 @@ interface LZEntity {
   TableName: string;          // table name
   DataSourceId: number;
   IsActive: boolean;
+  LzStatus?: string | null;
   LastLoadDate?: string | null;
   BronzeStatus?: string | null;
   SilverStatus?: string | null;
@@ -179,7 +171,7 @@ function SourceCard({ src }: { src: SourceHealth }) {
         className="text-[13px] mt-1 mb-4"
         style={{ color: "var(--bp-ink-tertiary)", fontFamily: "var(--bp-font-body)" }}
       >
-        tables
+        tables in scope
       </div>
 
       <div className="mt-auto flex items-center justify-between">
@@ -215,8 +207,13 @@ function SourceCard({ src }: { src: SourceHealth }) {
 export default function BusinessSources() {
   const { t } = useTerminology();
   useSourceConfig(); // trigger cache hydration for resolveSourceLabel / getSourceColor
+  const {
+    data: metrics,
+    loading: contractLoading,
+    error: contractError,
+    refresh: refreshMetrics,
+  } = useMetricContract();
 
-  const [kpis, setKpis] = useState<KPIData | null>(null);
   const [sources, setSources] = useState<SourceHealth[]>([]);
   const [lzEntities, setLzEntities] = useState<LZEntity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -239,23 +236,20 @@ export default function BusinessSources() {
   async function fetchAll() {
     try {
       setError(null);
-      const [kpiRes, srcRes, entRes] = await Promise.all([
-        fetch(`${API}/api/overview/kpis`),
+      const [srcRes, entRes] = await Promise.all([
         fetch(`${API}/api/overview/sources`),
         fetch(`${API}/api/overview/entities`),
       ]);
 
-      if (!kpiRes.ok || !srcRes.ok || !entRes.ok) {
+      if (!srcRes.ok || !entRes.ok) {
         throw new Error("One or more endpoints returned an error");
       }
 
-      const [kpiData, srcData, entData] = await Promise.all([
-        kpiRes.json(),
+      const [srcData, entData] = await Promise.all([
         srcRes.json(),
         entRes.json(),
       ]);
 
-      setKpis(kpiData);
       setSources(srcData);
       setLzEntities(entData);
     } catch (err) {
@@ -266,10 +260,13 @@ export default function BusinessSources() {
   }
 
   useEffect(() => {
-    fetchAll();
-    const timer = setInterval(fetchAll, 30_000);
+    void fetchAll();
+    const timer = setInterval(() => {
+      void fetchAll();
+      void refreshMetrics();
+    }, 30_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [refreshMetrics]);
 
   // Filtered table list
   const filteredEntities = useMemo(() => {
@@ -297,15 +294,17 @@ export default function BusinessSources() {
     const names = new Set(lzEntities.map((e) => e.SourceName).filter(Boolean));
     return Array.from(names).sort();
   }, [lzEntities]);
+  const pageLoading = loading || contractLoading;
+  const pageError = contractError || error;
 
   return (
     <div className="p-8 max-w-[1280px]">
       <BusinessIntentHeader
         title="Sources"
         meta={
-          kpis
-            ? `${kpis.sources_online} of ${kpis.sources_total} sources connected`
-            : loading
+          metrics
+            ? `${metrics.sources.operational} of ${metrics.sources.total} sources are clean across the managed path`
+            : pageLoading
             ? "Loading source health…"
             : `${sources.length} sources in scope`
         }
@@ -334,7 +333,10 @@ export default function BusinessSources() {
         ]}
         actions={
           <button
-            onClick={fetchAll}
+            onClick={() => {
+              void refreshMetrics();
+              void fetchAll();
+            }}
             className="ml-auto flex items-center gap-1.5 text-[12px] transition-colors"
             style={{ color: "var(--bp-ink-muted)" }}
             onMouseEnter={(e) => (e.currentTarget.style.color = "var(--bp-copper)")}
@@ -348,7 +350,7 @@ export default function BusinessSources() {
       />
 
       {/* Error banner */}
-      {error && (
+      {pageError && (
         <div
           className="mb-5 flex items-center gap-2 rounded-lg px-4 py-3 text-[13px]"
           style={{
@@ -358,46 +360,45 @@ export default function BusinessSources() {
             borderColor: "rgba(185, 58, 42, 0.2)",
           }}
         >
-          {error}
+          {pageError}
         </div>
       )}
 
       {/* KPI Row */}
-      {loading ? (
+      {pageLoading ? (
         <KPIRowSkeleton />
       ) : (
-        <div className="grid grid-cols-4 gap-5 mb-6">
+        <div className="grid gap-5 mb-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
           <KpiCard
-            label="Sources Connected"
-            value={kpis ? `${kpis.sources_online} / ${kpis.sources_total}` : "\u2014"}
+            label="Sources Healthy"
+            value={metrics ? `${metrics.sources.operational} / ${metrics.sources.total}` : "\u2014"}
             subtitle={
-              kpis && kpis.sources_online === kpis.sources_total
-                ? "All sources connected"
-                : kpis
-                ? `${kpis.sources_total - kpis.sources_online} offline`
+              metrics && metrics.sources.operational === metrics.sources.total
+                ? "Every source is clear through silver"
+                : metrics
+                ? `${metrics.sources.total - metrics.sources.operational} still have blocked tables`
                 : undefined
             }
           />
           <KpiCard
-            label={`Total ${t("Tables")}`}
-            value={kpis ? kpis.total_entities.toLocaleString() : "\u2014"}
-            subtitle={kpis ? `Across ${kpis.sources_total} sources` : undefined}
+            label={`${t("Tables")} In Scope`}
+            value={metrics ? metrics.tables.inScope.value.toLocaleString() : "\u2014"}
+            subtitle={metrics ? `Across ${metrics.sources.total} sources` : undefined}
           />
           <KpiCard
-            label="On Schedule"
-            value={kpis ? `${kpis.freshness_pct.toFixed(1)}%` : "\u2014"}
-            subtitle={
-              kpis
-                ? `${kpis.freshness_on_time.toLocaleString()} of ${kpis.freshness_total.toLocaleString()} on time`
-                : undefined
-            }
-            adornment={<ProgressRing pct={kpis?.freshness_pct ?? 0} size={56} />}
+            label="Landing Loaded"
+            value={metrics ? `${metrics.tables.landingLoaded.value.toLocaleString()} / ${metrics.tables.inScope.value.toLocaleString()}` : "\u2014"}
+            subtitle="Tables that made it into Fabric landing"
           />
           <KpiCard
-            label="Average Quality"
-            value={kpis?.quality_avg != null ? `${kpis.quality_avg.toFixed(0)}%` : "\u2014"}
-            subtitle="Across all tables"
-            adornment={<ProgressRing pct={kpis?.quality_avg ?? 0} size={56} />}
+            label="Bronze Loaded"
+            value={metrics ? `${metrics.tables.bronzeLoaded.value.toLocaleString()} / ${metrics.tables.inScope.value.toLocaleString()}` : "\u2014"}
+            subtitle="Tables that successfully materialized in bronze"
+          />
+          <KpiCard
+            label="Silver Loaded"
+            value={metrics ? `${metrics.tables.silverLoaded.value.toLocaleString()} / ${metrics.tables.inScope.value.toLocaleString()}` : "\u2014"}
+            subtitle={metrics ? `${metrics.tables.toolReady.value.toLocaleString()} are clean enough for tool mode` : undefined}
           />
         </div>
       )}
@@ -562,9 +563,9 @@ export default function BusinessSources() {
 
                 {/* Layer status indicators */}
                 <div className="w-[140px] flex items-center justify-center gap-2">
-                  <LayerDot label="LZ" active />
-                  <LayerDot label="B" active={!!entity.BronzeStatus} />
-                  <LayerDot label="S" active={!!entity.SilverStatus} />
+                  <LayerDot label="LZ" active={isSuccessStatus(entity.LzStatus)} />
+                  <LayerDot label="B" active={isSuccessStatus(entity.BronzeStatus)} />
+                  <LayerDot label="S" active={isSuccessStatus(entity.SilverStatus)} />
                 </div>
 
                 {/* Last refreshed */}

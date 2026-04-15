@@ -10,7 +10,7 @@
 // don't fire duplicate requests.
 // ============================================================================
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
 const API = import.meta.env.VITE_API_URL || "";
 
@@ -94,6 +94,22 @@ export interface DigestFilters {
   source?: string;
   layer?: string;
   status?: string;
+}
+
+function summarizeEntities(entities: DigestEntity[]): DigestSourceSummary {
+  return entities.reduce(
+    (acc, entity) => {
+      const overall = (entity.overall || "pending").toLowerCase();
+      acc.total += 1;
+      if (overall === "complete") acc.complete += 1;
+      else if (overall === "error") acc.error += 1;
+      else if (overall === "partial") acc.partial += 1;
+      else if (overall === "not_started") acc.not_started += 1;
+      else acc.pending += 1;
+      return acc;
+    },
+    { total: 0, complete: 0, pending: 0, error: 0, partial: 0, not_started: 0 },
+  );
 }
 
 // ── Module-level cache (shared across all hook instances) ──
@@ -266,26 +282,38 @@ export function useEntityDigest(filters: DigestFilters = {}) {
   // ── Derived helpers ──
 
   /** Flat list of all entities across all sources */
-  const allEntities: DigestEntity[] = data
+  const registeredEntities: DigestEntity[] = data
     ? Object.values(data.sources).flatMap((s) => s.entities)
     : [];
 
+  /** User-facing pipeline scope excludes inactive registrations. */
+  const allEntities: DigestEntity[] = useMemo(
+    () => registeredEntities.filter((entity) => entity.isActive),
+    [registeredEntities],
+  );
+
   /** Source list sorted by key */
-  const sourceList: DigestSource[] = data
-    ? Object.values(data.sources).sort((a, b) => a.key.localeCompare(b.key))
-    : [];
+  const sourceList: DigestSource[] = useMemo(
+    () => data
+      ? Object.values(data.sources)
+          .map((source) => {
+            const activeEntities = source.entities.filter((entity) => entity.isActive);
+            return {
+              ...source,
+              entities: activeEntities,
+              summary: summarizeEntities(activeEntities),
+            };
+          })
+          .filter((source) => source.entities.length > 0)
+          .sort((a, b) => a.key.localeCompare(b.key))
+      : [],
+    [data],
+  );
 
   /** Aggregate summary across all sources */
-  const totalSummary: DigestSourceSummary = sourceList.reduce(
-    (acc, s) => ({
-      total: acc.total + s.summary.total,
-      complete: acc.complete + s.summary.complete,
-      pending: acc.pending + s.summary.pending,
-      error: acc.error + s.summary.error,
-      partial: acc.partial + s.summary.partial,
-      not_started: acc.not_started + s.summary.not_started,
-    }),
-    { total: 0, complete: 0, pending: 0, error: 0, partial: 0, not_started: 0 },
+  const totalSummary: DigestSourceSummary = useMemo(
+    () => summarizeEntities(allEntities),
+    [allEntities],
   );
 
   /** Find a specific entity by table name (case-insensitive) */
@@ -304,7 +332,7 @@ export function useEntityDigest(filters: DigestFilters = {}) {
   /** Filter entities by source key */
   const entitiesBySource = useCallback(
     (sourceKey: string): DigestEntity[] => {
-      return data?.sources[sourceKey]?.entities || [];
+      return data?.sources[sourceKey]?.entities.filter((entity) => entity.isActive) || [];
     },
     [data],
   );
@@ -315,6 +343,7 @@ export function useEntityDigest(filters: DigestFilters = {}) {
     error,
     refresh,
     allEntities,
+    registeredEntities,
     sourceList,
     totalSummary,
     findEntity,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import {
   BookOpen,
@@ -15,10 +15,10 @@ import {
   Search,
   ArrowDownUp,
 } from "lucide-react";
-import { ExploreWorkbenchHeader } from "@/components/explore/ExploreWorkbenchHeader";
 import { LaunchTile } from "@/components/navigation/LaunchTile";
 import { useEntityDigest } from "@/hooks/useEntityDigest";
 import { getBlockedEntities, getToolReadyEntities } from "@/lib/exploreWorksurface";
+import CompactPageHeader from "@/components/layout/CompactPageHeader";
 
 const API = import.meta.env.VITE_API_URL || "";
 
@@ -120,11 +120,34 @@ export default function ExploreHub() {
   const sourceCount = useMemo(() => new Set(allEntities.map((entity) => entity.source)).size, [allEntities]);
 
   return (
-    <div className="space-y-6 gs-page-enter" style={{ padding: "28px 32px", maxWidth: "1520px", margin: "0 auto" }}>
-      <ExploreWorkbenchHeader
-        title="Explore"
+    <div className="bp-page-shell-wide space-y-6">
+      <CompactPageHeader
+        eyebrow="Explore"
+        title="Explore Hub"
         summary="Choose the investigative surface that matches the question instead of making each tool page teach the full system from scratch."
         meta={loading ? "Building tool inventory..." : `${toolReadyEntities.length.toLocaleString("en-US")} tool-ready assets across ${sourceCount.toLocaleString("en-US")} sources`}
+        guideItems={[
+          {
+            label: "What This Page Is",
+            value: "Investigation routing layer",
+            detail: "Explore Hub is the decision point for analysis work. It should tell operators which tool fits the question before they spend time in the wrong workspace.",
+          },
+          {
+            label: "Why It Matters",
+            value: "Less tool thrash",
+            detail: "Catalog, Lineage, Profiler, Blender, and SQL Explorer solve different jobs. This page reduces bouncing by making that distinction visible up front.",
+          },
+          {
+            label: "What Happens Next",
+            value: "Start broad, then narrow",
+            detail: "Move into a core workspace first, then branch into the deeper specialist tools only when the first answer shows where the trail continues.",
+          },
+        ]}
+        guideLinks={[
+          { label: "Open Overview", to: "/overview" },
+          { label: "Open Load Center", to: "/load-center" },
+          { label: "Open Data Estate", to: "/estate" },
+        ]}
         facts={[
           {
             label: "Tool-Ready",
@@ -153,10 +176,37 @@ export default function ExploreHub() {
             tone: joinStatus?.status === "ready" ? "positive" : "accent",
           },
         ]}
-        actions={[
-          { label: "Back to Overview", to: "/overview", tone: "quiet" },
-          blockedEntities.length > 0 ? { label: "Open Load Center", to: "/load-center", tone: "secondary", icon: Orbit } : undefined,
-        ].filter(Boolean) as never[]}
+        actions={
+          <div className="flex items-center gap-2">
+            <Link
+              to="/overview"
+              className="inline-flex items-center rounded-full px-3 py-2 text-xs font-semibold transition-transform hover:-translate-y-0.5"
+              style={{
+                textDecoration: "none",
+                color: "var(--bp-ink-secondary)",
+                border: "1px solid rgba(120,113,108,0.1)",
+                background: "rgba(255,255,255,0.72)",
+              }}
+            >
+              Overview
+            </Link>
+            {blockedEntities.length > 0 ? (
+              <Link
+                to="/load-center"
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold transition-transform hover:-translate-y-0.5"
+                style={{
+                  textDecoration: "none",
+                  color: "var(--bp-copper)",
+                  border: "1px solid rgba(180,86,36,0.16)",
+                  background: "rgba(180,86,36,0.08)",
+                }}
+              >
+                <Orbit size={12} />
+                Load Center
+              </Link>
+            ) : null}
+          </div>
+        }
       />
 
       <div
@@ -179,14 +229,15 @@ export default function ExploreHub() {
             value: "Start with Profiler",
             detail: "Use the table workbench when the question is whether the structure is fit for joins, modeling, or release.",
           },
-        ].map((item) => (
+        ].map((item, index) => (
           <div
             key={item.label}
-            className="rounded-[20px] p-4"
+            className="rounded-[20px] p-4 gs-stagger-card"
             style={{
+              "--i": Math.min(index, 2),
               border: "1px solid rgba(120,113,108,0.12)",
               background: "rgba(255,255,255,0.88)",
-            }}
+            } as CSSProperties}
           >
             <div
               style={{
@@ -241,29 +292,30 @@ export default function ExploreHub() {
           className="grid gap-4"
           style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
         >
-          {coreTools.map((tool) => (
-            <LaunchTile
-              key={tool.to}
-              {...tool}
-              statLabel={tool.to === "/catalog"
-                ? "Tool-ready"
-                : tool.to === "/lineage"
-                  ? "Blocked"
-                  : tool.to === "/profile"
-                    ? "Trusted"
-                    : tool.to === "/blender"
-                      ? "Blend scope"
-                      : "Sources"}
-              statValue={tool.to === "/catalog"
-                ? toolReadyEntities.length.toLocaleString("en-US")
-                : tool.to === "/lineage"
-                  ? blockedEntities.length.toLocaleString("en-US")
-                  : tool.to === "/profile"
-                    ? trustedCount.toLocaleString("en-US")
-                    : tool.to === "/blender"
-                      ? `${Math.min(toolReadyEntities.length, 180).toLocaleString("en-US")} ready`
-                      : sourceCount.toLocaleString("en-US")}
-            />
+          {coreTools.map((tool, index) => (
+            <div key={tool.to} className="gs-stagger-card" style={{ "--i": Math.min(index, 4) } as CSSProperties}>
+              <LaunchTile
+                {...tool}
+                statLabel={tool.to === "/catalog"
+                  ? "Tool-ready"
+                  : tool.to === "/lineage"
+                    ? "Blocked"
+                    : tool.to === "/profile"
+                      ? "Trusted"
+                      : tool.to === "/blender"
+                        ? "Blend scope"
+                        : "Sources"}
+                statValue={tool.to === "/catalog"
+                  ? toolReadyEntities.length.toLocaleString("en-US")
+                  : tool.to === "/lineage"
+                    ? blockedEntities.length.toLocaleString("en-US")
+                    : tool.to === "/profile"
+                      ? trustedCount.toLocaleString("en-US")
+                      : tool.to === "/blender"
+                        ? `${Math.min(toolReadyEntities.length, 180).toLocaleString("en-US")} ready`
+                        : sourceCount.toLocaleString("en-US")}
+              />
+            </div>
           ))}
         </div>
       </div>
@@ -312,16 +364,17 @@ export default function ExploreHub() {
           className="grid gap-3"
           style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", marginTop: 18 }}
         >
-          {deepDiveTools.map((tool) => (
+          {deepDiveTools.map((tool, index) => (
             <Link
               key={tool.to}
               to={tool.to}
-              className="block rounded-[18px] p-4 transition-transform duration-200 hover:-translate-y-0.5"
+              className="block rounded-[18px] p-4 transition-transform duration-200 hover:-translate-y-0.5 gs-stagger-card"
               style={{
+                "--i": Math.min(index, 5),
                 textDecoration: "none",
                 border: "1px solid rgba(120,113,108,0.1)",
                 background: "rgba(255,255,255,0.78)",
-              }}
+              } as CSSProperties}
             >
               <div className="flex items-center gap-2">
                 <tool.icon size={15} style={{ color: "var(--bp-copper)" }} />

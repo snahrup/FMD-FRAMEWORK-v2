@@ -107,12 +107,12 @@ const TEST_CATALOG: Array<{ keywords: string[]; desc: TestDescription }> = [
       scenario: "Opens Live Monitor to verify the real-time loading progress matches other pages.",
       actions: [
         "Navigated to the Live Monitor page",
-        "Read loaded/total/registered counts for Landing Zone, Bronze, and Silver",
-        "Compared Bronze registered count against total entities",
+        "Read loaded and in-scope counts for Landing Zone, Bronze, and Silver",
+        "Compared Bronze in-scope count against total tables in scope",
         "Cross-checked Bronze loaded against Execution Matrix and Validation",
       ],
-      expected: "Bronze and Silver registered counts should equal total entities. Bronze loaded should match Execution Matrix and Validation.",
-      failHint: "Registered entities don't match total — some entities may not have been registered for all layers, or the counts are coming from different queries.",
+      expected: "Bronze and Silver in-scope counts should equal total tables in scope. Bronze loaded should match Execution Matrix and Validation.",
+      failHint: "Tables in scope don't match across pages — some routes are still reading a different query or stale cache.",
     },
   },
   {
@@ -181,8 +181,8 @@ const TEST_CATALOG: Array<{ keywords: string[]; desc: TestDescription }> = [
         "Read per-source entity counts: Landing, Bronze, Silver, Total",
         "Verified Landing = Bronze = Silver = Total for each source",
       ],
-      expected: "Every source should show the same count for Landing, Bronze, and Silver — they're the same entities registered at each layer.",
-      failHint: "Layer counts differ per source — some entities may only be registered for certain layers, or the query is filtering incorrectly.",
+      expected: "Every source should show one consistent in-scope count, with Landing, Bronze, and Silver showing how much of that scope is actually loaded.",
+      failHint: "Layer counts differ per source in a way that implies the same metric is being calculated differently across the page.",
     },
   },
   {
@@ -223,7 +223,7 @@ const TEST_CATALOG: Array<{ keywords: string[]; desc: TestDescription }> = [
         "Cross-checked Bronze count against Data Blender",
       ],
       expected: "Total tables and LZ count should match total entities. Bronze should match Data Blender's Bronze count.",
-      failHint: "Flow Explorer total is off — it may be counting Gold or other layers that aren't registered yet.",
+      failHint: "Flow Explorer total is off — it may be counting layers or assets that are outside the managed Fabric scope.",
     },
   },
   {
@@ -293,7 +293,7 @@ const TEST_CATALOG: Array<{ keywords: string[]; desc: TestDescription }> = [
         "Checked Success Rate makes sense (Bug 8)",
         "Checked run counts between Engine Control and Control Plane (Bug 9)",
         "Checked fail counts vs error counts (Bug 10)",
-        "Checked registered entity counts on Live Monitor (Bug 11)",
+        "Checked in-scope counts on Live Monitor (Bug 11)",
         "Checked execution log pipeline runs are reasonable (Bug 12)",
         "Checked for 'status unknown' in notebook runs (Bug 13)",
         "Checked Data Flow page isn't blank (Bug 14)",
@@ -917,9 +917,15 @@ export default function TestAudit() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasLoadedOnce = useRef(false);
   const selectedRunRef = useRef(selectedRun);
-  selectedRunRef.current = selectedRun;
   const auditStatusRef = useRef(auditStatus);
-  auditStatusRef.current = auditStatus;
+
+  useEffect(() => {
+    selectedRunRef.current = selectedRun;
+  }, [selectedRun]);
+
+  useEffect(() => {
+    auditStatusRef.current = auditStatus;
+  }, [auditStatus]);
 
   const loadHistory = useCallback(async () => {
     try {

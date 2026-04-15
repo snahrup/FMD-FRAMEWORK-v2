@@ -18,6 +18,7 @@ from pathlib import Path
 
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
+import dashboard.app.api.control_plane_db as cpdb
 from dashboard.app.api.routes.data_access import (
     _get_config,
     _get_fabric_token,
@@ -103,6 +104,38 @@ def _load_latest_run() -> dict:
     return result
 
 
+def _load_engine_run_state() -> dict:
+    """Return current active and latest resumable engine runs triggered by Load Center."""
+    active_rows = db.query(
+        "SELECT RunId, Status, StartedAt, EndedAt, TotalEntities "
+        "FROM engine_runs "
+        "WHERE TriggeredBy = 'load_center' AND Status = 'InProgress' "
+        "ORDER BY StartedAt DESC LIMIT 1"
+    )
+    resumable_rows = db.query(
+        "SELECT RunId, Status, StartedAt, EndedAt, TotalEntities "
+        "FROM engine_runs "
+        "WHERE TriggeredBy = 'load_center' AND Status IN ('Interrupted', 'Aborted', 'Failed') "
+        "ORDER BY COALESCE(EndedAt, StartedAt) DESC LIMIT 1"
+    )
+
+    def _map_run(row: dict | None) -> dict | None:
+        if not row:
+            return None
+        return {
+            "runId": row.get("RunId"),
+            "status": row.get("Status"),
+            "startedAt": row.get("StartedAt"),
+            "endedAt": row.get("EndedAt"),
+            "totalEntities": int(row.get("TotalEntities") or 0),
+        }
+
+    return {
+        "active": _map_run(active_rows[0] if active_rows else None),
+        "resumable": _map_run(resumable_rows[0] if resumable_rows else None),
+    }
+
+
 def _mark_interrupted_runs():
     """On startup, mark any 'active' runs as interrupted (server crashed mid-run)."""
     db.execute(
@@ -124,45 +157,39 @@ except Exception:
 # ---------------------------------------------------------------------------
 
 def _get_counts_from_log() -> dict:
-    """Get the latest successful row counts per entity per layer from engine_task_log.
+    """Get the latest successful row counts per LZ entity per layer.
 
-    This is the primary data source. The engine already records RowsWritten
-    for every entity on every load. We just read the most recent successful
-    entry per entity per layer — one SQLite query, instant.
+    Bronze and silver task rows do not reliably share the same numeric EntityId
+    as their owning LZ entity. We therefore read the canonical, layer-aware
+    mapping from control_plane_db instead of joining engine_task_log directly.
     """
-    rows = db.query("""
-        SELECT
-            t.EntityId,
-            t.Layer,
-            t.SourceTable,
-            t.RowsWritten,
-            t.TargetLakehouse,
-            t.created_at,
-            t.LoadType,
-            le.SourceSchema,
-            le.SourceName,
-            le.IsIncremental,
-            le.IsIncrementalColumn,
-            le.IsActive,
-            ds.Name AS source_name,
-            ds.DisplayName AS source_display,
-            ds.Namespace AS namespace,
-            be.BronzeLayerEntityId,
-            se.SilverLayerEntityId
-        FROM engine_task_log t
-        INNER JOIN (
-            SELECT EntityId, Layer, MAX(id) AS max_id
-            FROM engine_task_log
-            WHERE LOWER(Status) = 'succeeded'
-            GROUP BY EntityId, Layer
-        ) latest ON t.id = latest.max_id
-        JOIN lz_entities le ON t.EntityId = le.LandingzoneEntityId
-        JOIN datasources ds ON le.DataSourceId = ds.DataSourceId
-        LEFT JOIN bronze_entities be ON be.LandingzoneEntityId = le.LandingzoneEntityId
-        LEFT JOIN silver_entities se ON se.BronzeLayerEntityId = be.BronzeLayerEntityId
-        ORDER BY ds.Name, le.SourceSchema, le.SourceName
-    """)
-    return rows
+    rows = cpdb.get_mapped_engine_task_log(latest_only=True, success_only=True)
+    datasource_lookup = {
+        int(row["DataSourceId"]): row
+        for row in cpdb.get_source_config()
+        if row.get("DataSourceId") is not None
+    }
+
+    enriched = []
+    for row in rows:
+        ds = datasource_lookup.get(int(row.get("DataSourceId") or 0), {})
+        enriched.append({
+            "EntityId": row.get("LandingzoneEntityId"),
+            "DataSourceId": row.get("DataSourceId"),
+            "Layer": row.get("Layer"),
+            "SourceSchema": row.get("SourceSchema"),
+            "SourceName": row.get("SourceName"),
+            "SourceTable": row.get("SourceTable"),
+            "RowsRead": row.get("RowsRead"),
+            "RowsWritten": row.get("RowsWritten"),
+            "created_at": row.get("LoadEndDateTime"),
+            "RunId": row.get("RunId"),
+            "IsIncremental": row.get("IsIncremental"),
+            "source_name": ds.get("Name") or "",
+            "source_display": ds.get("DisplayName") or ds.get("Name") or "",
+            "namespace": ds.get("Namespace") or ds.get("Name") or "",
+        })
+    return enriched
 
 
 def _get_all_registered() -> list[dict]:
@@ -171,6 +198,7 @@ def _get_all_registered() -> list[dict]:
     return db.query("""
         SELECT
             le.LandingzoneEntityId AS entity_id,
+            le.DataSourceId AS data_source_id,
             le.SourceSchema AS schema,
             le.SourceName AS table_name,
             le.IsIncremental,
@@ -192,7 +220,142 @@ def _get_all_registered() -> list[dict]:
     """)
 
 
-def _build_canonical_pipeline_truth() -> dict:
+_PLAN_REASON_LABELS = {
+    "incremental_watermark_ready": "Watermark history exists, so the next run can stay incremental.",
+    "first_load_for_incremental": "Incremental table has no watermark history yet, so it must seed with a full load.",
+    "no_watermark_analysis": "No watermark strategy has been analyzed yet, so the safest path is a full load.",
+    "full_load_entity": "This entity is configured to run as a full load.",
+}
+
+
+def _entity_id(entity: dict) -> int:
+    return int(entity.get("entity_id") or entity.get("LandingzoneEntityId") or 0)
+
+
+def _filter_registered_entities(entities: list[dict], requested_sources: list[str] | None) -> list[dict]:
+    if not requested_sources:
+        return list(entities)
+    requested = {s.strip().lower() for s in requested_sources if s and s.strip()}
+    if not requested:
+        return list(entities)
+    return [
+        e for e in entities
+        if (e.get("source_name") or "").lower() in requested
+        or (e.get("source_display") or "").lower() in requested
+    ]
+
+
+def _get_outstanding_registered_entities(
+    truth: dict,
+    requested_sources: list[str] | None = None,
+) -> list[dict]:
+    """Return only registered entities still missing at least one clean layer."""
+    registered = _filter_registered_entities(truth.get("registered", []), requested_sources)
+    log_lookup = truth.get("logLookup", {})
+    outstanding: list[dict] = []
+
+    for entity in registered:
+        data_source_id = int(entity.get("data_source_id") or 0)
+        schema = (entity.get("schema") or "").lower()
+        table = (entity.get("table_name") or "").lower()
+        is_complete = all(
+            (layer_key, data_source_id, schema, table) in log_lookup
+            for layer_key in ("lz", "bronze", "silver")
+        )
+        if not is_complete:
+            outstanding.append(entity)
+
+    return outstanding
+
+
+def _build_completion_plan(entities: list[dict]) -> dict:
+    """Return the exact completion plan logic used by Load Center and the run button."""
+    plan = {
+        "fullLoad": [],
+        "incremental": [],
+        "gapFill": [],
+        "needsOptimize": [],
+        "totalEntities": len(entities),
+    }
+    by_entity: dict[int, dict] = {}
+
+    for entity in entities:
+        entity_id = _entity_id(entity)
+        is_incremental = bool(entity.get("IsIncremental"))
+        has_watermark_col = bool(entity.get("IsIncrementalColumn"))
+        has_last_value = bool(entity.get("last_watermark"))
+        has_bronze = bool(entity.get("BronzeLayerEntityId"))
+        has_silver = bool(entity.get("SilverLayerEntityId"))
+        missing_registrations = []
+        if not has_bronze:
+            missing_registrations.append("bronze")
+        if not has_silver:
+            missing_registrations.append("silver")
+
+        entry = {
+            "entityId": entity_id,
+            "source": entity.get("source_display") or entity.get("source_name"),
+            "schema": entity.get("schema"),
+            "table": entity.get("table_name"),
+        }
+
+        if missing_registrations:
+            plan["gapFill"].append({
+                **entry,
+                "missingBronze": "bronze" in missing_registrations,
+                "missingSilver": "silver" in missing_registrations,
+            })
+
+        reason_code = "full_load_entity"
+        next_action = "full_load"
+        next_action_label = "Full load"
+        needs_optimize = False
+
+        if is_incremental and has_watermark_col and has_last_value:
+            reason_code = "incremental_watermark_ready"
+            next_action = "incremental"
+            next_action_label = "Incremental load"
+            plan["incremental"].append({**entry, "watermarkColumn": entity.get("IsIncrementalColumn")})
+        elif is_incremental and has_watermark_col and not has_last_value:
+            reason_code = "first_load_for_incremental"
+            plan["fullLoad"].append({**entry, "reason": reason_code})
+        elif not is_incremental and not has_watermark_col:
+            reason_code = "no_watermark_analysis"
+            needs_optimize = True
+            plan["needsOptimize"].append(entry)
+            plan["fullLoad"].append({**entry, "reason": reason_code})
+        else:
+            plan["fullLoad"].append({**entry, "reason": reason_code})
+
+        action_parts: list[str] = []
+        if missing_registrations:
+            action_parts.append(f"Register {' + '.join(missing_registrations)}")
+        action_parts.append("Run incremental load" if next_action == "incremental" else "Run full load")
+        if needs_optimize:
+            action_parts.append("Analyze watermark strategy")
+
+        by_entity[entity_id] = {
+            "nextAction": next_action,
+            "nextActionLabel": next_action_label,
+            "planReasonCode": reason_code,
+            "planReason": _PLAN_REASON_LABELS.get(reason_code, reason_code.replace("_", " ")),
+            "needsGapFill": bool(missing_registrations),
+            "missingRegistrations": missing_registrations,
+            "needsOptimize": needs_optimize,
+            "actionSummary": " -> ".join(action_parts),
+        }
+
+    plan["summary"] = {
+        "fullLoadCount": len(plan["fullLoad"]),
+        "incrementalCount": len(plan["incremental"]),
+        "gapFillCount": len(plan["gapFill"]),
+        "needsOptimizeCount": len(plan["needsOptimize"]),
+        "totalEntities": len(entities),
+    }
+    return {"plan": plan, "byEntity": by_entity}
+
+
+def _build_canonical_pipeline_truth(*, include_history: bool = False) -> dict:
     """Return the shared pipeline-completion truth used across the dashboard.
 
     Canonical rules:
@@ -205,12 +368,14 @@ def _build_canonical_pipeline_truth() -> dict:
     actually usable through landing, bronze, and silver?" question.
     """
     registered = _get_all_registered()
+    latest_status_rows = cpdb.get_mapped_engine_task_log(latest_only=True)
 
-    reg_lookup: dict[tuple[str, str], dict] = {}
+    reg_lookup: dict[tuple[int, str, str], dict] = {}
     for entity in registered:
+        data_source_id = int(entity.get("data_source_id") or 0)
         schema = (entity.get("schema") or "").lower()
         table = (entity.get("table_name") or "").lower()
-        reg_lookup[(schema, table)] = entity
+        reg_lookup[(data_source_id, schema, table)] = entity
 
     def _max_iso(current: str | None, candidate: str | None) -> str | None:
         if not candidate:
@@ -219,54 +384,92 @@ def _build_canonical_pipeline_truth() -> dict:
             return candidate
         return candidate if candidate > current else current
 
-    log_lookup: dict[tuple[str, str, str], dict] = {}
+    latest_lookup: dict[tuple[str, int, str, str], dict] = {}
+    history_lookup: dict[tuple[str, int, str, str], dict] = {}
+    log_lookup: dict[tuple[str, int, str, str], dict] = {}
     layer_last_success = {"lz": None, "bronze": None, "silver": None}
 
-    for row in _get_counts_from_log():
+    for row in latest_status_rows:
         raw_layer = (row.get("Layer") or "landing").lower()
         layer_key = "lz" if raw_layer == "landing" else raw_layer
         if layer_key not in layer_last_success:
             continue
 
+        data_source_id = int(row.get("DataSourceId") or 0)
         schema = (row.get("SourceSchema") or "").lower()
         table = (row.get("SourceName") or row.get("SourceTable") or "").lower()
         if "." in table:
             table = table.split(".")[-1]
-        if (schema, table) not in reg_lookup:
+        if (data_source_id, schema, table) not in reg_lookup:
             continue
+        latest_lookup[(layer_key, data_source_id, schema, table)] = row
 
-        key = (layer_key, schema, table)
-        current = log_lookup.get(key)
-        current_created = (current or {}).get("created_at") or ""
-        candidate_created = row.get("created_at") or ""
-        if current is None or candidate_created > current_created:
-            log_lookup[key] = row
-            layer_last_success[layer_key] = _max_iso(layer_last_success[layer_key], candidate_created)
+    for key, latest_row in latest_lookup.items():
+        layer_key = key[0]
+        if str(latest_row.get("Status") or "").lower() == "succeeded":
+            log_lookup[key] = {
+                **latest_row,
+                "created_at": latest_row.get("LoadEndDateTime"),
+            }
+            layer_last_success[layer_key] = _max_iso(
+                layer_last_success[layer_key],
+                latest_row.get("LoadEndDateTime"),
+            )
+
+    if include_history:
+        for row in _get_counts_from_log():
+            raw_layer = (row.get("Layer") or "landing").lower()
+            layer_key = "lz" if raw_layer == "landing" else raw_layer
+            if layer_key not in layer_last_success:
+                continue
+
+            data_source_id = int(row.get("DataSourceId") or 0)
+            schema = (row.get("SourceSchema") or "").lower()
+            table = (row.get("SourceName") or row.get("SourceTable") or "").lower()
+            if "." in table:
+                table = table.split(".")[-1]
+            if (data_source_id, schema, table) not in reg_lookup:
+                continue
+
+            history_lookup[(layer_key, data_source_id, schema, table)] = row
 
     source_stats: dict[str, dict] = {}
     layer_loaded = {"lz": 0, "bronze": 0, "silver": 0}
     complete_count = 0
     outstanding_count = 0
+    historical_complete_count = 0
+    historical_only_count = 0
 
     for entity in registered:
         source = entity.get("source_display") or entity.get("source_name") or ""
+        data_source_id = int(entity.get("data_source_id") or 0)
         schema = (entity.get("schema") or "").lower()
         table = (entity.get("table_name") or "").lower()
         last_refreshed = None
 
         layer_presence = {}
         for layer_key in ("lz", "bronze", "silver"):
-            present = (layer_key, schema, table) in log_lookup
+            key = (layer_key, data_source_id, schema, table)
+            present = key in log_lookup
             layer_presence[layer_key] = present
             if present:
                 layer_loaded[layer_key] += 1
-                last_refreshed = _max_iso(last_refreshed, log_lookup[(layer_key, schema, table)].get("created_at"))
+                last_refreshed = _max_iso(last_refreshed, log_lookup[key].get("created_at"))
 
         is_complete = layer_presence["lz"] and layer_presence["bronze"] and layer_presence["silver"]
         if is_complete:
             complete_count += 1
         else:
             outstanding_count += 1
+        if include_history:
+            historical_complete = all(
+                (layer_key, data_source_id, schema, table) in history_lookup
+                for layer_key in ("lz", "bronze", "silver")
+            )
+            if historical_complete:
+                historical_complete_count += 1
+                if not is_complete:
+                    historical_only_count += 1
 
         bucket = source_stats.setdefault(source, {
             "name": source,
@@ -286,6 +489,8 @@ def _build_canonical_pipeline_truth() -> dict:
     return {
         "registered": registered,
         "regLookup": reg_lookup,
+        "latestLookup": latest_lookup,
+        "historyLookup": history_lookup,
         "logLookup": log_lookup,
         "layerLoaded": layer_loaded,
         "layerLastSuccess": layer_last_success,
@@ -293,6 +498,8 @@ def _build_canonical_pipeline_truth() -> dict:
         "totalRegistered": len(registered),
         "completeCount": complete_count,
         "outstandingCount": outstanding_count,
+        "historicalCompleteCount": historical_complete_count,
+        "historicalOnlyCount": historical_only_count,
     }
 
 
@@ -314,7 +521,31 @@ def get_load_center_status(params: dict) -> dict:
     truth = _build_canonical_pipeline_truth()
     registered = truth["registered"]
     reg_lookup = truth["regLookup"]
+    latest_lookup = truth["latestLookup"]
     log_lookup = truth["logLookup"]
+    try:
+        from engine.self_heal import get_self_heal_status_payload
+        self_heal_status = get_self_heal_status_payload(limit_cases=20, limit_events=6)
+    except Exception as exc:
+        log.warning("Self-heal status unavailable for Load Center: %s", exc)
+        self_heal_status = {
+            "enabled": False,
+            "configured": False,
+            "availableAgents": [],
+            "selectedAgent": None,
+            "note": "Self-heal status is unavailable.",
+            "runtime": {"status": "unknown", "currentCaseId": None, "workerPid": None, "agentName": None, "heartbeatAt": None, "lastMessage": str(exc), "healthy": False},
+            "summary": {"queuedCount": 0, "activeCount": 0, "succeededCount": 0, "exhaustedCount": 0, "disabledCount": 0, "totalCount": 0},
+            "cases": [],
+        }
+    active_case_lookup = {
+        int(case.get("landingEntityId") or 0): case
+        for case in self_heal_status.get("cases", [])
+        if case.get("status") not in {"succeeded", "exhausted", "disabled"}
+    }
+    completion_plan_bundle = _build_completion_plan(_get_outstanding_registered_entities(truth))
+    completion_plan = completion_plan_bundle["plan"]
+    completion_plan_index = completion_plan_bundle["byEntity"]
 
     # 2. OPTIONAL: physical scan cache (may be empty — that's OK)
     physical = db.query(
@@ -326,6 +557,10 @@ def get_load_center_status(params: dict) -> dict:
         "FROM lakehouse_row_counts"
     )
     has_physical = len(physical) > 0
+    registered_pairs = {
+        ((e.get("schema") or "").lower(), (e.get("table_name") or "").lower())
+        for e in registered
+    }
 
     # Index physical scan by (layer_key, schema, table)
     phys_lookup: dict[tuple, int] = {}
@@ -349,6 +584,7 @@ def get_load_center_status(params: dict) -> dict:
 
     for e in registered:
         source = e.get("source_display") or e.get("source_name") or ""
+        data_source_id = int(e.get("data_source_id") or 0)
         schema = (e.get("schema") or "").lower()
         table = (e.get("table_name") or "").lower()
 
@@ -364,7 +600,7 @@ def get_load_center_status(params: dict) -> dict:
         src = sources_map[source]
 
         for layer_key in ("lz", "bronze", "silver"):
-            log_entry = log_lookup.get((layer_key, schema, table))
+            log_entry = log_lookup.get((layer_key, data_source_id, schema, table))
             phys_rows = phys_lookup.get((layer_key, schema, table))
 
             # An entity counts as "loaded" if it has a successful engine log entry
@@ -391,14 +627,41 @@ def get_load_center_status(params: dict) -> dict:
 
     # 4. Gap detection: entities with LZ success but missing Bronze/Silver success
     gaps: list[dict] = []
+    outstanding: list[dict] = []
     for e in registered:
+        entity_id = _entity_id(e)
+        data_source_id = int(e.get("data_source_id") or 0)
         schema = (e.get("schema") or "").lower()
         table = (e.get("table_name") or "").lower()
         source = e.get("source_display") or e.get("source_name") or schema
 
-        in_lz = ("lz", schema, table) in log_lookup
-        in_bronze = ("bronze", schema, table) in log_lookup
-        in_silver = ("silver", schema, table) in log_lookup
+        in_lz = ("lz", data_source_id, schema, table) in log_lookup
+        in_bronze = ("bronze", data_source_id, schema, table) in log_lookup
+        in_silver = ("silver", data_source_id, schema, table) in log_lookup
+        layer_states: dict[str, str] = {}
+        latest_issue = None
+        latest_issue_sort_key = ""
+
+        for layer_key, public_name in (("lz", "landing"), ("bronze", "bronze"), ("silver", "silver")):
+            lookup_key = (layer_key, data_source_id, schema, table)
+            latest_row = latest_lookup.get(lookup_key)
+            if lookup_key in log_lookup:
+                layer_states[public_name] = "loaded"
+            elif latest_row is not None:
+                state = str(latest_row.get("Status") or "attempted").lower()
+                layer_states[public_name] = state
+                sort_key = latest_row.get("LoadEndDateTime") or ""
+                if state != "succeeded" and sort_key >= latest_issue_sort_key:
+                    latest_issue_sort_key = sort_key
+                    latest_issue = {
+                        "layer": public_name,
+                        "status": state,
+                        "at": latest_row.get("LoadEndDateTime"),
+                        "message": latest_row.get("ErrorMessage"),
+                        "runId": latest_row.get("RunId"),
+                    }
+            else:
+                layer_states[public_name] = "not_started"
 
         if in_lz and (not in_bronze or not in_silver):
             missing = []
@@ -408,18 +671,51 @@ def get_load_center_status(params: dict) -> dict:
                 missing.append("silver")
             gaps.append({"source": source, "schema": schema, "table": table, "missingIn": missing})
 
+        missing_layers = [layer for layer in ("landing", "bronze", "silver") if layer_states[layer] != "loaded"]
+        if missing_layers:
+            plan_meta = completion_plan_index.get(entity_id, {})
+            self_heal_case = active_case_lookup.get(entity_id)
+            outstanding.append({
+                "entityId": entity_id,
+                "source": source,
+                "schema": schema,
+                "table": table,
+                "missingIn": missing_layers,
+                "layerStatus": layer_states,
+                "nextAction": plan_meta.get("nextAction"),
+                "nextActionLabel": plan_meta.get("nextActionLabel"),
+                "planReasonCode": plan_meta.get("planReasonCode"),
+                "planReason": plan_meta.get("planReason"),
+                "needsGapFill": bool(plan_meta.get("needsGapFill")),
+                "missingRegistrations": plan_meta.get("missingRegistrations", []),
+                "needsOptimize": bool(plan_meta.get("needsOptimize")),
+                "actionSummary": plan_meta.get("actionSummary"),
+                "latestIssue": latest_issue,
+                "selfHealCase": self_heal_case,
+            })
+
     # 5. Detect orphan physical tables (in lakehouse but not registered)
     unmatched: list[dict] = []
     for p in physical:
         lh = p.get("lakehouse", "")
         schema = p.get("schema_name", "").lower()
         table = p.get("table_name", "").lower()
-        if (schema, table) not in reg_lookup:
+        if (schema, table) not in registered_pairs:
             lk = "lz" if "LANDING" in lh.upper() else "bronze" if "BRONZE" in lh.upper() else "silver"
             unmatched.append({"layer": lk, "schema": schema, "table": table})
 
     # 6. Build response
     sources_summary = sorted(sources_map.values(), key=lambda s: s["name"])
+    gaps.sort(key=lambda row: (row["source"], row["schema"], row["table"]))
+    outstanding.sort(
+        key=lambda row: (
+            0 if row.get("latestIssue") else 1,
+            0 if "landing" in row.get("missingIn", []) else 1,
+            row["source"],
+            row["schema"],
+            row["table"],
+        )
+    )
 
     totals = {}
     for layer_key in ("lz", "bronze", "silver"):
@@ -443,8 +739,13 @@ def get_load_center_status(params: dict) -> dict:
     return {
         "sources": sources_summary,
         "totals": totals,
-        "gaps": gaps[:100],
+        "gaps": gaps,
         "gapCount": len(gaps),
+        "outstanding": outstanding,
+        "outstandingCount": len(outstanding),
+        "toolReadyCount": truth["completeCount"],
+        "completionPlan": {"summary": completion_plan["summary"]},
+        "selfHeal": self_heal_status,
         "totalRegistered": len(registered),
         "unmatchedCount": len(unmatched),
         "orphanPhysicalTables": len(unmatched),
@@ -452,6 +753,7 @@ def get_load_center_status(params: dict) -> dict:
         "scannedAt": meta.get("newest"),
         "refreshRunning": _refresh_running,
         "runState": _run_state if _run_state.get("active") else _load_latest_run(),
+        "engineRunState": _load_engine_run_state(),
         "queryTimeSec": round(time.time() - t_start, 3),
     }
 
@@ -467,15 +769,16 @@ def get_load_center_source_detail(params: dict) -> dict:
     registered = _get_all_registered()
     log_rows = _get_counts_from_log()
 
-    # Index engine log by (layer, schema, table)
+    # Index engine log by (layer, datasource, schema, table)
     log_lookup: dict[tuple, dict] = {}
     for r in log_rows:
         layer = (r.get("Layer") or "landing").lower()
+        data_source_id = int(r.get("DataSourceId") or 0)
         schema = (r.get("SourceSchema") or "").lower()
         table = (r.get("SourceName") or r.get("SourceTable") or "").lower()
         if "." in table:
             table = table.split(".")[-1]
-        log_lookup[(layer, schema, table)] = r
+        log_lookup[(layer, data_source_id, schema, table)] = r
 
     # Index physical scan by (layer_key, schema, table)
     physical = db.query(
@@ -496,6 +799,7 @@ def get_load_center_source_detail(params: dict) -> dict:
         if src.lower() != source_name.lower():
             continue
 
+        data_source_id = int(e.get("data_source_id") or 0)
         schema = e.get("schema") or ""
         table = e.get("table_name") or ""
         key = (schema.lower(), table.lower())
@@ -513,7 +817,7 @@ def get_load_center_source_detail(params: dict) -> dict:
 
         for layer_key, layer_name in [("lz", "landing"), ("bronze", "bronze"), ("silver", "silver")]:
             phys_rows = phys_lookup.get((layer_key, key[0], key[1]))
-            log_entry = log_lookup.get((layer_name, key[0], key[1]))
+            log_entry = log_lookup.get((layer_name, data_source_id, key[0], key[1]))
 
             if phys_rows is not None and phys_rows >= 0:
                 # Physical scan available — this is the true total row count
@@ -622,77 +926,9 @@ def post_load_center_run(params: dict) -> dict:
     dry_run = params.get("dryRun", False)
     requested_sources = params.get("sources")  # null = all
 
-    # Get all registered entities with their state
-    entities = db.query(
-        "SELECT le.LandingzoneEntityId, le.DataSourceId, le.SourceSchema, le.SourceName, "
-        "       le.IsIncremental, le.IsIncrementalColumn, le.IsActive, "
-        "       ds.Name AS source_name, ds.DisplayName AS source_display, "
-        "       be.BronzeLayerEntityId, be.IsActive AS bronze_active, "
-        "       se.SilverLayerEntityId, se.IsActive AS silver_active, "
-        "       w.LoadValue AS last_watermark "
-        "FROM lz_entities le "
-        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
-        "LEFT JOIN bronze_entities be ON be.LandingzoneEntityId = le.LandingzoneEntityId "
-        "LEFT JOIN silver_entities se ON se.BronzeLayerEntityId = be.BronzeLayerEntityId "
-        "LEFT JOIN watermarks w ON le.LandingzoneEntityId = w.LandingzoneEntityId "
-        "WHERE le.IsActive = 1 "
-        "ORDER BY ds.Name, le.SourceSchema, le.SourceName"
-    )
-
-    # Filter by requested sources
-    if requested_sources:
-        req_lower = [s.lower() for s in requested_sources]
-        entities = [e for e in entities if
-                    (e.get("source_name") or "").lower() in req_lower or
-                    (e.get("source_display") or "").lower() in req_lower]
-
-    # Categorize each entity
-    plan = {
-        "fullLoad": [],       # Never loaded or no watermark
-        "incremental": [],    # Has watermark + last value
-        "gapFill": [],        # Exists in LZ but missing Bronze/Silver registration
-        "needsOptimize": [],  # Not yet analyzed for watermark capability
-        "totalEntities": len(entities),
-    }
-
-    for e in entities:
-        entity_id = e["LandingzoneEntityId"]
-        is_incr = bool(e.get("IsIncremental"))
-        has_watermark_col = bool(e.get("IsIncrementalColumn"))
-        has_last_value = bool(e.get("last_watermark"))
-        has_bronze = bool(e.get("BronzeLayerEntityId"))
-        has_silver = bool(e.get("SilverLayerEntityId"))
-
-        entry = {
-            "entityId": entity_id,
-            "source": e.get("source_display") or e.get("source_name"),
-            "schema": e.get("SourceSchema"),
-            "table": e.get("SourceName"),
-        }
-
-        # Gap: missing Bronze or Silver registration
-        if not has_bronze or not has_silver:
-            plan["gapFill"].append({**entry, "missingBronze": not has_bronze, "missingSilver": not has_silver})
-
-        # Determine load type
-        if is_incr and has_watermark_col and has_last_value:
-            plan["incremental"].append({**entry, "watermarkColumn": e.get("IsIncrementalColumn")})
-        elif is_incr and has_watermark_col and not has_last_value:
-            # Marked incremental but never loaded — needs full first
-            plan["fullLoad"].append({**entry, "reason": "first_load_for_incremental"})
-        elif not is_incr and not has_watermark_col:
-            # Never analyzed for watermark capability
-            plan["needsOptimize"].append(entry)
-            plan["fullLoad"].append({**entry, "reason": "no_watermark_analysis"})
-        else:
-            plan["fullLoad"].append({**entry, "reason": "full_load_entity"})
-
-    plan["summary"] = {
-        "fullLoadCount": len(plan["fullLoad"]),
-        "incrementalCount": len(plan["incremental"]),
-        "gapFillCount": len(plan["gapFill"]),
-        "needsOptimizeCount": len(plan["needsOptimize"]),
-    }
+    truth = _build_canonical_pipeline_truth()
+    entities = _get_outstanding_registered_entities(truth, requested_sources)
+    plan = _build_completion_plan(entities)["plan"]
 
     if dry_run:
         return {"dryRun": True, "plan": plan}
@@ -968,9 +1204,13 @@ def _poll_notebook_completion(ws_id: str, nb_id: str, nb_name: str, layer: str, 
 
         try:
             token = _get_fabric_token("https://api.fabric.microsoft.com/.default")
+            query_string = urllib.parse.urlencode({
+                "orderBy": "startTimeUtc desc",
+                "top": 1,
+            })
             url = (
                 f"https://api.fabric.microsoft.com/v1/workspaces/{ws_id}"
-                f"/items/{nb_id}/jobs/instances?orderBy=startTimeUtc desc&top=1"
+                f"/items/{nb_id}/jobs/instances?{query_string}"
             )
             req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
             resp = urllib.request.urlopen(req, timeout=15)

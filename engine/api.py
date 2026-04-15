@@ -38,6 +38,7 @@ import time
 import urllib.parse
 import uuid
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -315,8 +316,7 @@ def _cleanup_orphaned_runs() -> None:
         if not orphaned:
             return
 
-        import datetime
-        now = datetime.datetime.utcnow()
+        now = datetime.now(UTC)
         grace_seconds = 120
         cleaned = 0
 
@@ -325,9 +325,8 @@ def _cleanup_orphaned_runs() -> None:
             started_at = run.get("StartedAt")
             if started_at:
                 try:
-                    started = datetime.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                    started_naive = started.replace(tzinfo=None)
-                    if (now - started_naive).total_seconds() < grace_seconds:
+                    started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                    if (now - started).total_seconds() < grace_seconds:
                         log.debug("Skipping run %s — within %ds grace window",
                                   run["RunId"][:8], grace_seconds)
                         continue
@@ -391,8 +390,6 @@ def _cleanup_stale_runs() -> int:
 
     Returns the number of runs cleaned up.
     """
-    import datetime
-
     orphaned = _db_query(
         "SELECT RunId, WorkerPid, StartedAt FROM engine_runs "
         "WHERE Status IN ('InProgress', 'running')"
@@ -400,7 +397,7 @@ def _cleanup_stale_runs() -> int:
     if not orphaned:
         return 0
 
-    now = datetime.datetime.utcnow()
+    now = datetime.now(UTC)
     cleaned = 0
 
     for run in orphaned:
@@ -411,8 +408,8 @@ def _cleanup_stale_runs() -> int:
         # Skip runs within 2-minute grace window
         if started_at:
             try:
-                started = datetime.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                age_seconds = (now - started.replace(tzinfo=None)).total_seconds()
+                started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                age_seconds = (now - started).total_seconds()
                 if age_seconds < 120:
                     continue
             except (ValueError, TypeError):
@@ -753,28 +750,37 @@ def _start_sse_poller(run_id: str) -> None:
     threading.Thread(target=_poll, daemon=True, name=f"sse-poll-{run_id[:8]}").start()
 
 
+def _get_live_active_run() -> Optional[dict]:
+    """Return the active run whose worker PID is still alive, if any."""
+    active_runs = _db_query(
+        "SELECT RunId, WorkerPid, HeartbeatAt FROM engine_runs "
+        "WHERE Status IN ('InProgress', 'running')"
+    )
+    for run in active_runs:
+        pid = run.get("WorkerPid")
+        if not pid:
+            continue
+        try:
+            if _is_pid_alive(int(pid)):
+                return run
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _handle_start(handler, config: dict, body: dict) -> None:
     """Start the engine as a detached worker subprocess.
 
     Pre-generates run_id, pre-creates engine_runs row, spawns worker,
     returns immediately. No race conditions — run_id is known before spawn.
     """
-    # Check for already-running worker via heartbeat
-    active = _db_query(
-        "SELECT RunId, WorkerPid, HeartbeatAt FROM engine_runs "
-        "WHERE Status IN ('InProgress', 'running') LIMIT 1"
-    )
-    if active:
-        run = active[0]
-        pid = run.get("WorkerPid")
-        if pid:
-            if _is_pid_alive(pid):
-                handler._json_response({
-                    "error": "Engine is already running",
-                    "current_run_id": run.get("RunId"),
-                }, status=409)
-                return
-            # Dead PID — allow new start
+    active_run = _get_live_active_run()
+    if active_run:
+        handler._json_response({
+            "error": "Engine is already running",
+            "current_run_id": active_run.get("RunId"),
+        }, status=409)
+        return
 
     mode = body.get("mode", "run")
     layers = body.get("layers")       # list or None
@@ -1186,20 +1192,26 @@ def _handle_retry(handler, config: dict, body: dict) -> None:
     """Retry failed entities from a previous run.
 
     Body: {"run_id": "...", "entity_ids": [1,2], "layers": ["landing"]}
+    Requires run_id so the retry stays scoped to a known parent run.
     If entity_ids not provided, queries all failed entities from that run.
     """
     global _run_thread
 
-    engine = _get_or_create_engine(config)
+    run_id = body.get("run_id")
+    if not run_id:
+        handler._error_response("run_id required for scoped retry", 400)
+        return
 
-    if engine.status == "running":
+    active_run = _get_live_active_run()
+    if active_run:
         handler._json_response({
-            "error": "Engine is already running",
-            "current_run_id": engine.current_run_id,
+            "error": "Retry is blocked while another run is active",
+            "current_run_id": active_run.get("RunId"),
         }, status=409)
         return
 
-    run_id = body.get("run_id")
+    engine = _get_or_create_engine(config)
+
     entity_ids = body.get("entity_ids")
     layers = body.get("layers")
 
@@ -1225,7 +1237,11 @@ def _handle_retry(handler, config: dict, body: dict) -> None:
 
     # Clear SSE events and start retry run
     _SSEHook.clear()
-    _publish_log("info", f"Retrying {len(entity_ids)} entities from run {run_id}")
+    retry_run_id = str(uuid.uuid4())
+    _publish_log(
+        "info",
+        f"Retrying {len(entity_ids)} entities from run {run_id} as run {retry_run_id[:8]}",
+    )
 
     # Wire up live callback for retries too
     def _on_retry_result(run_id_str: str, result, entity=None) -> None:
@@ -1254,6 +1270,7 @@ def _handle_retry(handler, config: dict, body: dict) -> None:
                 entity_ids=entity_ids,
                 layers=layers,
                 triggered_by="retry",
+                run_id=retry_run_id,
             )
             if isinstance(results, list):
                 succeeded = sum(1 for r in results if r.status == "succeeded")
@@ -1273,7 +1290,8 @@ def _handle_retry(handler, config: dict, body: dict) -> None:
     _run_thread.start()
 
     handler._json_response({
-        "run_id": engine.current_run_id,
+        "run_id": retry_run_id,
+        "parent_run_id": run_id,
         "status": "started",
         "retrying": len(entity_ids),
         "entity_ids": entity_ids,
@@ -1469,173 +1487,137 @@ def _handle_validation(handler) -> None:
     This powers the Validation Checklist dashboard page.
     """
     try:
-        # Overview by source
-        overview = _db_query("""
-            SELECT
-                d.Name AS DataSource,
-                COUNT(*) AS TotalEntities,
-                SUM(CASE WHEN e.IsActive = 1 THEN 1 ELSE 0 END) AS Active,
-                SUM(CASE WHEN e.IsActive = 0 THEN 1 ELSE 0 END) AS Inactive
-            FROM lz_entities e
-            JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            GROUP BY d.Name
-            ORDER BY d.Name
-        """)
+        from dashboard.app.api.routes.entities import _build_sqlite_entity_digest
+        from dashboard.app.api.routes.load_center import _build_canonical_pipeline_truth
 
-        # All layer status queries use entity_status as the single source of truth.
-        # entity_status PK = (LandingzoneEntityId, Layer).
-        # Layer names: 'landing'/'landingzone' (LZ), 'bronze', 'silver'.
-        # Status: 'loaded'/'succeeded' = done, 'failed' = error, 'not_started'/NULL = pending.
-        _LOADED = "LOWER(COALESCE(%s.Status,'')) IN ('loaded','succeeded')"
-        _FAILED = "LOWER(COALESCE(%s.Status,'')) IN ('failed','error')"
+        digest = _build_sqlite_entity_digest()
+        truth = _build_canonical_pipeline_truth()
+        log_lookup = truth.get("logLookup", {})
 
-        # LZ status per source
-        lz_status = _db_query("""
-            SELECT
-                d.Name AS DataSource,
-                SUM(CASE WHEN """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS LzLoaded,
-                SUM(CASE WHEN """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS LzFailed,
-                SUM(CASE WHEN NOT """ + (_LOADED % "es") + """
-                          AND NOT """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS LzNeverAttempted
-            FROM lz_entities e
-            JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
-                AND LOWER(es.Layer) IN ('landing', 'landingzone')
-            WHERE e.IsActive = 1
-            GROUP BY d.Name
-            ORDER BY d.Name
-        """)
+        def _present(layer_key: str, entity: dict) -> bool:
+            data_source_id = int(entity.get("dataSourceId") or entity.get("DataSourceId") or 0)
+            schema = str(entity.get("sourceSchema") or "").strip().lower()
+            table = str(entity.get("tableName") or "").strip().lower()
+            return bool(data_source_id and schema and table and (layer_key, data_source_id, schema, table) in log_lookup)
 
-        # Bronze status per source
-        bronze_status = _db_query("""
-            SELECT
-                d.Name AS DataSource,
-                SUM(CASE WHEN """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS BronzeLoaded,
-                SUM(CASE WHEN """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS BronzeFailed,
-                SUM(CASE WHEN NOT """ + (_LOADED % "es") + """
-                          AND NOT """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS BronzeNeverAttempted
-            FROM lz_entities e
-            JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
-                AND LOWER(es.Layer) = 'bronze'
-            WHERE e.IsActive = 1
-            GROUP BY d.Name
-            ORDER BY d.Name
-        """)
+        def _status_code(entity: dict, layer_key: str, status_key: str) -> int:
+            if _present(layer_key, entity):
+                return 1
+            status = str(entity.get(status_key) or "").strip().lower()
+            if status in ("failed", "error", "aborted", "interrupted"):
+                return 0
+            return -1
 
-        # Silver status per source
-        silver_status = _db_query("""
-            SELECT
-                d.Name AS DataSource,
-                SUM(CASE WHEN """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS SilverLoaded,
-                SUM(CASE WHEN """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS SilverFailed,
-                SUM(CASE WHEN NOT """ + (_LOADED % "es") + """
-                          AND NOT """ + (_FAILED % "es") + """ THEN 1 ELSE 0 END) AS SilverNeverAttempted
-            FROM lz_entities e
-            JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
-                AND LOWER(es.Layer) = 'silver'
-            WHERE e.IsActive = 1
-            GROUP BY d.Name
-            ORDER BY d.Name
-        """)
+        overview: list[dict] = []
+        lz_status: list[dict] = []
+        bronze_status: list[dict] = []
+        silver_status: list[dict] = []
+        digest_counts = {"complete": 0, "partial": 0, "not_started": 0}
+        never_attempted: list[dict] = []
+        stuck_map: dict[str, int] = {}
+        entities: list[dict] = []
 
-        # Digest: overall per-entity status across all three layers
-        digest = _db_query("""
-            WITH entity_layers AS (
-                SELECT
-                    e.LandingzoneEntityId,
-                    MAX(CASE WHEN LOWER(es.Layer) IN ('landing','landingzone')
-                              AND """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS lz_ok,
-                    MAX(CASE WHEN LOWER(es.Layer) = 'bronze'
-                              AND """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS brz_ok,
-                    MAX(CASE WHEN LOWER(es.Layer) = 'silver'
-                              AND """ + (_LOADED % "es") + """ THEN 1 ELSE 0 END) AS slv_ok
-                FROM lz_entities e
-                LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
-                WHERE e.IsActive = 1
-                GROUP BY e.LandingzoneEntityId
-            )
-            SELECT
-                CASE
-                    WHEN lz_ok = 1 AND brz_ok = 1 AND slv_ok = 1 THEN 'complete'
-                    WHEN lz_ok = 1 OR brz_ok = 1 OR slv_ok = 1 THEN 'partial'
-                    ELSE 'not_started'
-                END AS OverallStatus,
-                COUNT(*) AS EntityCount
-            FROM entity_layers
-            GROUP BY OverallStatus
-        """)
+        for source in digest.get("sources", []):
+            source_name = str(source.get("displayName") or source.get("name") or "")
+            source_entities = list(source.get("entities", []))
+            active_entities = [entity for entity in source_entities if entity.get("isActive")]
 
-        # Never-attempted entities (no LZ entity_status row)
-        never_attempted = _db_query("""
-            SELECT
-                e.LandingzoneEntityId AS EntityId,
-                d.Name AS DataSource,
-                e.SourceSchema,
-                e.SourceName
-            FROM lz_entities e
-            JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
-                AND LOWER(es.Layer) IN ('landing', 'landingzone')
-            WHERE e.IsActive = 1 AND es.LandingzoneEntityId IS NULL
-            ORDER BY d.Name, e.SourceSchema, e.SourceName
-            LIMIT 50
-        """)
+            overview.append({
+                "DataSource": source_name,
+                "TotalEntities": len(source_entities),
+                "Active": len(active_entities),
+                "Inactive": max(len(source_entities) - len(active_entities), 0),
+            })
 
-        # Stuck at LZ (loaded LZ but bronze not loaded)
-        stuck_at_lz = _db_query("""
-            SELECT
-                d.Name AS DataSource,
-                COUNT(DISTINCT e.LandingzoneEntityId) AS StuckCount
-            FROM lz_entities e
-            JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            JOIN entity_status es_lz ON e.LandingzoneEntityId = es_lz.LandingzoneEntityId
-                AND LOWER(es_lz.Layer) IN ('landing', 'landingzone')
-                AND """ + (_LOADED % "es_lz") + """
-            LEFT JOIN entity_status es_brz ON e.LandingzoneEntityId = es_brz.LandingzoneEntityId
-                AND LOWER(es_brz.Layer) = 'bronze'
-                AND """ + (_LOADED % "es_brz") + """
-            WHERE e.IsActive = 1 AND es_brz.LandingzoneEntityId IS NULL
-            GROUP BY d.Name
-            ORDER BY d.Name
-        """)
+            layer_buckets = {
+                "lz": {"loaded": 0, "failed": 0, "never": 0},
+                "bronze": {"loaded": 0, "failed": 0, "never": 0},
+                "silver": {"loaded": 0, "failed": 0, "never": 0},
+            }
 
-        # Per-entity layer status (entity_status for all three layers)
-        entities = _db_query("""
-            SELECT
-                e.LandingzoneEntityId AS EntityId,
-                d.Name AS DataSource,
-                e.SourceSchema,
-                e.SourceName,
-                e.IsIncremental,
-                CASE WHEN """ + (_LOADED % "es_lz") + """ THEN 1
-                     WHEN """ + (_FAILED % "es_lz") + """ THEN 0
-                     ELSE -1 END AS LzStatus,
-                CASE WHEN """ + (_LOADED % "es_brz") + """ THEN 1
-                     WHEN """ + (_FAILED % "es_brz") + """ THEN 0
-                     ELSE -1 END AS BronzeStatus,
-                CASE WHEN """ + (_LOADED % "es_slv") + """ THEN 1
-                     WHEN """ + (_FAILED % "es_slv") + """ THEN 0
-                     ELSE -1 END AS SilverStatus
-            FROM lz_entities e
-            JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            LEFT JOIN entity_status es_lz ON e.LandingzoneEntityId = es_lz.LandingzoneEntityId
-                AND LOWER(es_lz.Layer) IN ('landing', 'landingzone')
-            LEFT JOIN entity_status es_brz ON e.LandingzoneEntityId = es_brz.LandingzoneEntityId
-                AND LOWER(es_brz.Layer) = 'bronze'
-            LEFT JOIN entity_status es_slv ON e.LandingzoneEntityId = es_slv.LandingzoneEntityId
-                AND LOWER(es_slv.Layer) = 'silver'
-            WHERE e.IsActive = 1
-            ORDER BY d.Name, e.SourceSchema, e.SourceName
-        """)
+            for entity in active_entities:
+                lz_code = _status_code(entity, "lz", "lzStatus")
+                bronze_code = _status_code(entity, "bronze", "bronzeStatus")
+                silver_code = _status_code(entity, "silver", "silverStatus")
+
+                for layer_key, code in (("lz", lz_code), ("bronze", bronze_code), ("silver", silver_code)):
+                    bucket = layer_buckets[layer_key]
+                    if code == 1:
+                        bucket["loaded"] += 1
+                    elif code == 0:
+                        bucket["failed"] += 1
+                    else:
+                        bucket["never"] += 1
+
+                if lz_code == -1:
+                    never_attempted.append({
+                        "EntityId": int(entity.get("id") or 0),
+                        "DataSource": source_name,
+                        "SourceSchema": entity.get("sourceSchema") or "",
+                        "SourceName": entity.get("tableName") or "",
+                    })
+
+                if lz_code == 1 and bronze_code != 1:
+                    stuck_map[source_name] = stuck_map.get(source_name, 0) + 1
+
+                if lz_code == 1 and bronze_code == 1 and silver_code == 1:
+                    overall = "complete"
+                elif lz_code == 1 or bronze_code == 1 or silver_code == 1:
+                    overall = "partial"
+                else:
+                    overall = "not_started"
+                digest_counts[overall] += 1
+
+                entities.append({
+                    "EntityId": int(entity.get("id") or 0),
+                    "DataSource": source_name,
+                    "SourceSchema": entity.get("sourceSchema") or "",
+                    "SourceName": entity.get("tableName") or "",
+                    "IsIncremental": bool(entity.get("isIncremental")),
+                    "LzStatus": lz_code,
+                    "BronzeStatus": bronze_code,
+                    "SilverStatus": silver_code,
+                })
+
+            lz_status.append({
+                "DataSource": source_name,
+                "LzLoaded": layer_buckets["lz"]["loaded"],
+                "LzFailed": layer_buckets["lz"]["failed"],
+                "LzNeverAttempted": layer_buckets["lz"]["never"],
+            })
+            bronze_status.append({
+                "DataSource": source_name,
+                "BronzeLoaded": layer_buckets["bronze"]["loaded"],
+                "BronzeFailed": layer_buckets["bronze"]["failed"],
+                "BronzeNeverAttempted": layer_buckets["bronze"]["never"],
+            })
+            silver_status.append({
+                "DataSource": source_name,
+                "SilverLoaded": layer_buckets["silver"]["loaded"],
+                "SilverFailed": layer_buckets["silver"]["failed"],
+                "SilverNeverAttempted": layer_buckets["silver"]["never"],
+            })
+
+        stuck_at_lz = [
+            {"DataSource": data_source, "StuckCount": count}
+            for data_source, count in sorted(stuck_map.items())
+        ]
+        digest_rows = [
+            {"OverallStatus": status, "EntityCount": count}
+            for status, count in digest_counts.items()
+        ]
+        entities.sort(key=lambda row: (row["DataSource"], row["SourceSchema"], row["SourceName"]))
+        never_attempted = sorted(
+            never_attempted,
+            key=lambda row: (row["DataSource"], row["SourceSchema"], row["SourceName"]),
+        )[:50]
 
         handler._json_response({
             "overview": [_safe_row(r) for r in overview],
             "lz_status": [_safe_row(r) for r in lz_status],
             "bronze_status": [_safe_row(r) for r in bronze_status],
             "silver_status": [_safe_row(r) for r in silver_status],
-            "digest": [_safe_row(r) for r in digest],
+            "digest": [_safe_row(r) for r in digest_rows],
             "never_attempted": [_safe_row(r) for r in never_attempted],
             "stuck_at_lz": [_safe_row(r) for r in stuck_at_lz],
             "entities": [_safe_row(r) for r in entities],

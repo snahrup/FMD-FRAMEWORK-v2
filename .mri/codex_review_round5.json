@@ -1,0 +1,10 @@
+Blocked on repo access. I can’t inspect the current uncommitted changes from this session because the local desktop/MCP file tools are being cancelled and the shell runner can’t execute the repo inspection commands here. Any review from me right now would be guesswork.
+
+Paste the diff and I’ll do a proper skeptical review with severity-ranked findings and file/line references. The minimum useful input is:
+
+```powershell
+git diff --stat
+git diff --unified=3
+```
+
+If the diff is very large, `git diff --name-only` plus the per-file diffs is enough.

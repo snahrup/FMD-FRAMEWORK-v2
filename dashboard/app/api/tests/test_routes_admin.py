@@ -65,3 +65,24 @@ def test_admin_config_accepts_correct_password():
     # May succeed or fail depending on db state, but should NOT be 403
     assert status != 403
     os.environ.pop("ADMIN_PASSWORD", None)
+
+
+def test_admin_config_accepts_session_token():
+    os.environ["ADMIN_PASSWORD"] = "secret123"
+    auth_status, _, auth_body = dispatch(
+        "POST",
+        "/api/admin/auth",
+        {},
+        {"password": "secret123"},
+    )
+    assert auth_status == 200
+    token = json.loads(auth_body)["sessionToken"]
+
+    status, _, _ = dispatch(
+        "POST",
+        "/api/admin/config",
+        {},
+        {"session_token": token, "key": "test_key", "value": "test_val"},
+    )
+    assert status != 403
+    os.environ.pop("ADMIN_PASSWORD", None)

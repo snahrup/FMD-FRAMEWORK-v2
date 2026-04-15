@@ -1,0 +1,15 @@
+I can’t credibly review the uncommitted changes from this session because I’m unable to read the local repo state.
+
+What I found:
+- Local shell execution fails immediately with `CreateProcessAsUserW failed: 1920`.
+- The workspace file/MCP tools that would let me inspect files and diffs are being canceled before returning data.
+
+That means I do not have the actual diff, changed file list, or file contents, so I can’t produce real findings without guessing.
+
+If you want the review now, send one of these:
+1. `git status --short`
+2. `git diff --stat`
+3. `git diff`
+4. If you have staged changes too: `git diff --cached`
+
+Once you paste that, I’ll review it as requested: findings first, ordered by severity, with concrete file/line references where possible.

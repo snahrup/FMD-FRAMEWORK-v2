@@ -121,3 +121,12 @@ CLAUDE.md
 CLAUDE.md
 .windsurf\rules\openmemory.md
 CLAUDE.md
+
+# Runtime outputs (regenerated, never commit)
+output/
+artifacts/
+dashboard/app/artifacts/
+dashboard/app/screenshots/
+
+# Misdirected path from path-bug (has real credentials — NEVER commit)
+Userssnahrup.claude/

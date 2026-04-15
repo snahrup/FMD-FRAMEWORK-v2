@@ -9,7 +9,7 @@ export default defineConfig({
   reporter: [['html', { open: 'never' }], ['json', { outputFile: 'test-results/results.json' }]],
   globalTeardown: './tests/global-teardown.ts',
   use: {
-    baseURL: 'http://localhost:8787',
+    baseURL: 'http://127.0.0.1:8787',
 
     // --- Screenshots ---
     screenshot: {

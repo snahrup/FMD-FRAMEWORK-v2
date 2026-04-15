@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from dashboard.app.api.router import route, HttpError
 import dashboard.app.api.control_plane_db as cpdb
-from dashboard.app.api.routes.load_center import _build_canonical_pipeline_truth
+from dashboard.app.api.routes.metrics_contract import build_metric_contract
 
 log = logging.getLogger("fmd.routes.data_estate")
 
@@ -34,21 +34,26 @@ def _safe(fn, default, label: str):
 def get_estate_overview(params, body=None, headers=None):
     """Single aggregated response for the Data Estate page."""
     conn = cpdb._get_conn()
-    pipeline_state = _safe(_build_canonical_pipeline_truth, {
-        "registered": [],
-        "layerLoaded": {"lz": 0, "bronze": 0, "silver": 0},
-        "layerLastSuccess": {"lz": None, "bronze": None, "silver": None},
-        "sourceStats": {},
-        "totalRegistered": 0,
-    }, "pipeline_state")
+    contract = _safe(build_metric_contract, {
+        "tables": {
+            "inScope": {"value": 0},
+            "landingLoaded": {"value": 0},
+            "bronzeLoaded": {"value": 0},
+            "silverLoaded": {"value": 0},
+            "toolReady": {"value": 0},
+            "blocked": {"value": 0},
+        },
+        "sources": {"bySource": [], "total": 0, "operational": 0},
+        "lastSuccess": {"landing": None, "bronze": None, "silver": None},
+    }, "metric_contract")
 
     # ── Sources ─────────────────────────────────────────────────────
     def _sources():
         result = []
-        for source in sorted(pipeline_state["sourceStats"].values(), key=lambda item: item["displayName"]):
-            entity_count = int(source["entityCount"] or 0)
-            complete_count = int(source["loadedCount"] or 0)
-            blocked_count = int(source["blockedCount"] or 0)
+        for source in sorted(contract["sources"]["bySource"], key=lambda item: item.get("displayName") or item["source"]):
+            entity_count = int(source.get("tablesInScope") or 0)
+            complete_count = int(source.get("silverLoaded") or 0)
+            blocked_count = int(source.get("blocked") or 0)
             if entity_count == 0:
                 status = "offline"
             elif blocked_count > 0:
@@ -56,37 +61,36 @@ def get_estate_overview(params, body=None, headers=None):
             else:
                 status = "operational"
             result.append({
-                "name": source["name"],
-                "displayName": source["displayName"],
+                "name": source["source"],
+                "displayName": source.get("displayName") or source["source"],
                 "status": status,
                 "entityCount": entity_count,
                 "loadedCount": complete_count,
                 "errorCount": blocked_count,
-                "lastRefreshed": source.get("lastRefreshed"),
+                "lastRefreshed": None,
             })
         return result
 
     # ── Layer Stats ─────────────────────────────────────────────────
     def _layers():
-        registered = int(pipeline_state["totalRegistered"] or 0)
+        in_scope = int(contract["tables"]["inScope"]["value"] or 0)
 
-        def _layer(name, key, color):
-            loaded = int(pipeline_state["layerLoaded"][key] or 0)
-            missing = max(registered - loaded, 0)
+        def _layer(name, key, metric_key, last_success_key, color):
+            loaded = int(contract["tables"][metric_key]["value"] or 0)
+            missing = max(in_scope - loaded, 0)
             return {
                 "name": name, "key": key, "color": color,
-                "registered": registered,
+                "inScope": in_scope,
                 "loaded": loaded,
-                "failed": missing,
-                "lastLoad": pipeline_state["layerLastSuccess"][key],
-                "coveragePct": round(loaded / max(registered, 1) * 100, 1),
+                "missing": missing,
+                "lastLoad": contract["lastSuccess"][last_success_key],
+                "coveragePct": round(loaded / max(in_scope, 1) * 100, 1),
             }
 
         return [
-            _layer("Landing Zone", "lz", "var(--bp-lz)"),
-            _layer("Bronze", "bronze", "var(--bp-bronze)"),
-            _layer("Silver", "silver", "var(--bp-silver)"),
-            {"name": "Gold", "key": "gold", "color": "var(--bp-gold)", "registered": 0, "loaded": 0, "failed": 0, "lastLoad": None, "coveragePct": 0.0},
+            _layer("Landing Zone", "landing", "landingLoaded", "landing", "var(--bp-lz)"),
+            _layer("Bronze", "bronze", "bronzeLoaded", "bronze", "var(--bp-bronze)"),
+            _layer("Silver", "silver", "silverLoaded", "silver", "var(--bp-silver)"),
         ]
 
     # ── Classification ──────────────────────────────────────────────

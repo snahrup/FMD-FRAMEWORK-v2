@@ -15,7 +15,6 @@ import {
   ArrowRight,
   Layers,
   Zap,
-  TrendingUp,
   BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -27,7 +26,7 @@ const API = import.meta.env.VITE_API_URL || "";
 
 interface LayerData {
   loaded: number;
-  registered: number;
+  inScope: number;
   pending?: number;
   status: "complete" | "in_progress" | "partial" | "not_started";
 }
@@ -110,7 +109,7 @@ function buildMatrixData(digest: Record<string, unknown>, controlPlane: Record<s
     const entities = src.entities;
     let lzLoaded = 0, bronzeLoaded = 0, silverLoaded = 0;
     let lzPending = 0, bronzePending = 0, silverPending = 0;
-    const registered = entities.length;
+    const inScope = entities.length;
 
     for (const e of entities) {
       const lzS = e.lzStatus as string || "not_started";
@@ -139,9 +138,9 @@ function buildMatrixData(digest: Record<string, unknown>, controlPlane: Record<s
       key: src.key,
       name: src.name || src.key,
       icon: SOURCE_ICON_MAP[src.key] || "database",
-      lz: { loaded: lzLoaded, registered, pending: lzPending, status: layerStatus(lzLoaded, lzPending, registered) },
-      bronze: { loaded: bronzeLoaded, registered, pending: bronzePending, status: layerStatus(bronzeLoaded, bronzePending, registered) },
-      silver: { loaded: silverLoaded, registered, pending: silverPending, status: layerStatus(silverLoaded, silverPending, registered) },
+      lz: { loaded: lzLoaded, inScope, pending: lzPending, status: layerStatus(lzLoaded, lzPending, inScope) },
+      bronze: { loaded: bronzeLoaded, inScope, pending: bronzePending, status: layerStatus(bronzeLoaded, bronzePending, inScope) },
+      silver: { loaded: silverLoaded, inScope, pending: silverPending, status: layerStatus(silverLoaded, silverPending, inScope) },
     };
 
     totalLz += lzLoaded;
@@ -212,9 +211,9 @@ function fmtNum(n: number): string {
   return n.toLocaleString();
 }
 
-function pct(loaded: number, registered: number): number {
-  if (registered === 0) return 0;
-  return Math.min(100, Math.round((loaded / registered) * 100));
+function pct(loaded: number, inScope: number): number {
+  if (inScope === 0) return 0;
+  return Math.min(100, Math.round((loaded / inScope) * 100));
 }
 
 function timeSince(iso: string): string {
@@ -376,7 +375,7 @@ function LayerNode({
   showPending?: boolean;
   onClick?: () => void;
 }) {
-  const percentage = pct(layer.loaded, layer.registered);
+  const percentage = pct(layer.loaded, layer.inScope);
   const colors = STATUS_COLORS[layer.status] || STATUS_COLORS.not_started;
 
   return (
@@ -419,7 +418,7 @@ function SourceCard({ source, isExpanded, onToggle, onDrillDown }: {
   const Icon = SOURCE_ICONS[source.icon] || Database;
   const overallPct = pct(
     source.lz.loaded + source.bronze.loaded + source.silver.loaded,
-    source.lz.registered + source.bronze.registered + source.silver.registered
+    source.lz.inScope + source.bronze.inScope + source.silver.inScope
   );
 
   const allComplete =
@@ -577,13 +576,13 @@ function SourceCard({ source, isExpanded, onToggle, onDrillDown }: {
                       <span className={cn("font-mono font-bold", colors.text)}>{data.loaded}</span>
                     </div>
                     <div className="flex justify-between text-xs">
-                      <span style={{ color: "var(--bp-ink-tertiary)" }}>Registered</span>
-                      <span className="font-mono" style={{ color: "var(--bp-ink-secondary)" }}>{data.registered}</span>
+                      <span style={{ color: "var(--bp-ink-tertiary)" }}>In Scope</span>
+                      <span className="font-mono" style={{ color: "var(--bp-ink-secondary)" }}>{data.inScope}</span>
                     </div>
-                    {data.loaded < data.registered && (
+                    {data.loaded < data.inScope && (
                       <div className="flex justify-between text-xs">
-                        <span style={{ color: "var(--bp-ink-tertiary)" }}>Gap</span>
-                        <span className="font-mono" style={{ color: "var(--bp-fault)" }}>{data.registered - data.loaded}</span>
+                        <span style={{ color: "var(--bp-ink-tertiary)" }}>Remaining</span>
+                        <span className="font-mono" style={{ color: "var(--bp-fault)" }}>{data.inScope - data.loaded}</span>
                       </div>
                     )}
                     {"pending" in data && data.pending! > 0 && (
@@ -735,7 +734,7 @@ export default function PipelineMatrix() {
 
   const sources = Object.values(data.sources);
   const totals = data.totals;
-  const totalLoaded = totals.lz + totals.bronze + totals.silver;
+  const totalInScope = sources.reduce((sum, source) => sum + source.lz.inScope, 0);
   const totalPending = totals.bronzePending + totals.silverPending;
 
   return (
@@ -762,7 +761,7 @@ export default function PipelineMatrix() {
             Data Pipeline Matrix
           </h1>
           <p className="text-sm mt-1" style={{ color: "var(--bp-ink-tertiary)" }}>
-            Real-time view of data flowing through the medallion architecture
+            Fabric load progress by source across Landing, Bronze, and Silver
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -796,32 +795,32 @@ export default function PipelineMatrix() {
       {/* Hero Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <HeroStat
-          label="Landing Zone"
+          label="Tables In Scope"
+          value={totalInScope}
+          subtitle="active tables across all sources"
+          icon={Database}
+          color="text-[#1C1917]"
+        />
+        <HeroStat
+          label="Landing Loaded"
           value={totals.lz}
-          subtitle="tables extracted"
+          subtitle={Math.max(totalInScope - totals.lz, 0) > 0 ? `${Math.max(totalInScope - totals.lz, 0)} remaining` : "all loaded"}
           icon={Database}
           color="text-[#B45624]"
         />
         <HeroStat
-          label="Bronze Layer"
+          label="Bronze Loaded"
           value={totals.bronze}
           subtitle={totals.bronzePending > 0 ? `${totals.bronzePending} pending` : "all loaded"}
           icon={Layers}
           color="text-[#C27A1A]"
         />
         <HeroStat
-          label="Silver Layer"
+          label="Silver Loaded"
           value={totals.silver}
           subtitle={totals.silverPending > 0 ? `${totals.silverPending} pending` : "all loaded"}
           icon={Zap}
           color="text-[#3D7C4F]"
-        />
-        <HeroStat
-          label="Total Loaded"
-          value={totalLoaded}
-          subtitle={totalPending > 0 ? `${totalPending} still pending` : "across all layers"}
-          icon={TrendingUp}
-          color="text-[#1C1917]"
         />
       </div>
 

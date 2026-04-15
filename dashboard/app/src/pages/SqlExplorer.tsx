@@ -118,7 +118,7 @@ export default function SqlExplorer() {
       if (entityIds.length === 0) {
         setLoadResult({
           count: 0,
-          errors: ['These tables are already loaded in the warehouse.'],
+          errors: ['These tables are already loaded in Fabric.'],
         });
         _refreshCheckedSchemas();
         setCheckedTables([]);
@@ -211,13 +211,13 @@ export default function SqlExplorer() {
             {
               label: "Staged For Load",
               value: `${checkedTables.length}`,
-              detail: checkedTables.length ? "Ready to register and send into managed layers." : "Nothing queued right now.",
+              detail: checkedTables.length ? "Ready to load through Landing, Bronze, and Silver." : "Nothing staged right now.",
               tone: checkedTables.length ? "positive" : "neutral",
             },
             {
               label: "Pipeline Coverage",
-              value: matchedEntity ? `${getLoadedLayerCount(matchedEntity)}/3 layers` : "Not registered",
-              detail: matchedEntity ? matchedEntity.diagnosis || "Known downstream coverage." : "This object has no matched digest entity yet.",
+              value: matchedEntity ? `${getLoadedLayerCount(matchedEntity)}/3 layers` : "Not in scope",
+              detail: matchedEntity ? matchedEntity.diagnosis || "Known downstream coverage." : "Load this table to bring it into the managed Fabric path.",
               tone: matchedEntity && isSuccessStatus(matchedEntity.silverStatus) ? "positive" : matchedEntity ? "accent" : "neutral",
             },
           ]}
@@ -308,10 +308,10 @@ export default function SqlExplorer() {
               <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--bp-border)" }}>
                 <div>
                   <h3 className="text-base font-semibold" style={{ fontFamily: "var(--bp-font-display)", color: "var(--bp-ink-primary)" }}>
-                    Load {checkedTables.length} Table{checkedTables.length !== 1 ? 's' : ''} to Warehouse
+                    Load {checkedTables.length} Table{checkedTables.length !== 1 ? 's' : ''} into Fabric
                   </h3>
                   <p className="text-xs mt-0.5" style={{ color: "var(--bp-ink-secondary)" }}>
-                    These tables will be loaded into the data warehouse and included in all future refreshes.
+                    These tables will be added to pipeline scope if needed, then loaded through Landing, Bronze, and Silver.
                   </p>
                 </div>
                 <button onClick={() => !loading && setShowConfirmDialog(false)} className="p-1 rounded-md hover:bg-accent cursor-pointer" style={{ color: "var(--bp-ink-muted)" }}>
@@ -412,7 +412,7 @@ function EmptyState() {
       <h2 className="text-base font-semibold mb-1.5" style={{ fontFamily: "var(--bp-font-display)", color: "var(--bp-ink-primary)" }}>SQL Object Explorer</h2>
       <p className="text-sm max-w-sm text-center leading-relaxed mb-5" style={{ color: "var(--bp-ink-secondary)" }}>
         Browse tables across your connected servers.
-        Check any table and click Load to bring it into the warehouse.
+        Check any table and click Load to bring it into Landing, Bronze, and Silver.
       </p>
 
       <div className="flex items-center gap-2.5 text-xs mb-6" style={{ color: "var(--bp-ink-muted)" }}>

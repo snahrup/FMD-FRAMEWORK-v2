@@ -20,7 +20,7 @@ SQLite tables written:
 
 import logging
 import traceback
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional, List
 
 from engine.models import Entity, RunResult, LogEnvelope
@@ -34,6 +34,14 @@ log = logging.getLogger("fmd.logging_db")
 # engine to run even if the dashboard package isn't available.
 _cpdb = None
 _cpdb_loaded = False
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+def _utcnow_iso_z() -> str:
+    return _utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _get_cpdb():
@@ -91,7 +99,7 @@ class AuditLogger:
                 "triggered_by": triggered_by,
             },
             timestamps={
-                "started": datetime.utcnow().isoformat() + "Z",
+                "started": _utcnow().isoformat().replace("+00:00", "Z"),
                 "ended": None,
             },
         )
@@ -140,7 +148,7 @@ class AuditLogger:
             },
             timestamps={
                 "started": None,
-                "ended": datetime.utcnow().isoformat() + "Z",
+                "ended": _utcnow().isoformat().replace("+00:00", "Z"),
             },
         )
 
@@ -187,7 +195,7 @@ class AuditLogger:
             },
             timestamps={
                 "started": None,
-                "ended": datetime.utcnow().isoformat() + "Z",
+                "ended": _utcnow().isoformat().replace("+00:00", "Z"),
             },
         )
         log.error("Run %s fatal error: %s", run_id[:8], error, exc_info=True)
@@ -276,7 +284,7 @@ class AuditLogger:
             "bytes_transferred": result.bytes_transferred,
             "duration_seconds": result.duration_seconds,
         }
-        envelope.timestamps["ended"] = datetime.utcnow().isoformat() + "Z"
+        envelope.timestamps["ended"] = _utcnow().isoformat().replace("+00:00", "Z")
 
         if result.error:
             envelope.error = {
@@ -319,7 +327,7 @@ class AuditLogger:
 
         Writes to SQLite only via control_plane_db.
         """
-        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_str = _utcnow_iso_z()
 
         cpdb = _get_cpdb()
         if cpdb:
@@ -368,7 +376,7 @@ class AuditLogger:
         cpdb = _get_cpdb()
         if not cpdb:
             return
-        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_str = _utcnow_iso_z()
         try:
             cpdb.upsert_engine_run({
                 "RunId": run_id,
@@ -387,7 +395,7 @@ class AuditLogger:
 
     def mark_bronze_entity_processed(self, entity, result) -> None:
         """Write Bronze entity processing status to SQLite tracking tables."""
-        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_str = _utcnow_iso_z()
         cpdb = _get_cpdb()
         if not cpdb:
             return
@@ -417,7 +425,7 @@ class AuditLogger:
 
     def mark_silver_entity_processed(self, entity, result) -> None:
         """Write Silver entity processing status to SQLite tracking tables."""
-        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_str = _utcnow_iso_z()
         cpdb = _get_cpdb()
         if not cpdb:
             return
@@ -450,7 +458,7 @@ class AuditLogger:
         if not new_value or new_value == entity.last_load_value:
             return
 
-        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_str = _utcnow_iso_z()
 
         cpdb = _get_cpdb()
         if cpdb:
@@ -473,7 +481,7 @@ class AuditLogger:
         message: str,
     ) -> None:
         """Write pipeline audit record to SQLite."""
-        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_str = _utcnow_iso_z()
 
         cpdb = _get_cpdb()
         if cpdb:
@@ -503,7 +511,7 @@ class AuditLogger:
         message: str,
     ) -> None:
         """Write copy activity audit record to SQLite."""
-        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_str = _utcnow_iso_z()
         params_str = f"rows={rows_read},bytes={bytes_transferred},dur={duration_seconds}s"
 
         cpdb = _get_cpdb()
@@ -542,7 +550,7 @@ class AuditLogger:
         error_summary: Optional[str] = None,
     ) -> None:
         """Write engine run record to SQLite."""
-        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_str = _utcnow_iso_z()
 
         cpdb = _get_cpdb()
         if cpdb:

@@ -3,14 +3,20 @@
 Security fix: ADMIN_PASSWORD must be set AND non-empty. Empty string
 no longer matches empty input (was a bypass vulnerability).
 """
+import base64
+import hashlib
+import hmac
 import os
 import json
 import logging
+import secrets
+import time
 
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
 
 log = logging.getLogger("fmd.routes.admin")
+_ADMIN_SESSION_TTL_SECONDS = 8 * 60 * 60
 
 
 def _queue_export(table: str):
@@ -32,8 +38,52 @@ db.execute("""
 """)
 
 
+def _session_signing_key(admin_pw: str) -> bytes:
+    extra = os.environ.get("ADMIN_SESSION_SECRET", "")
+    material = f"{admin_pw}:{extra}" if extra else admin_pw
+    return material.encode("utf-8")
+
+
+def _sign_admin_session(payload: str, admin_pw: str) -> str:
+    digest = hmac.new(
+        _session_signing_key(admin_pw),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _issue_admin_session(admin_pw: str) -> tuple[str, int]:
+    issued_at = int(time.time())
+    expires_at = issued_at + _ADMIN_SESSION_TTL_SECONDS
+    nonce = secrets.token_hex(8)
+    payload = f"{issued_at}:{expires_at}:{nonce}"
+    signature = _sign_admin_session(payload, admin_pw)
+    return f"{payload}.{signature}", expires_at
+
+
+def _validate_admin_session(token: str) -> bool:
+    admin_pw = os.environ.get("ADMIN_PASSWORD", "")
+    if not admin_pw or not token:
+        return False
+    try:
+        payload, signature = token.rsplit(".", 1)
+        _issued_at, expires_at_raw, _nonce = payload.split(":", 2)
+        expires_at = int(expires_at_raw)
+    except (ValueError, AttributeError):
+        return False
+    if expires_at < int(time.time()):
+        return False
+    expected = _sign_admin_session(payload, admin_pw)
+    return hmac.compare_digest(signature, expected)
+
+
 def _check_admin_password(params: dict):
-    """Validate admin password. Raises HttpError(403) on failure."""
+    """Validate admin password or active session. Raises HttpError(403) on failure."""
+    session_token = params.get("session_token", "")
+    if session_token and _validate_admin_session(session_token):
+        return
+
     password = params.get("password", "")
     admin_pw = os.environ.get("ADMIN_PASSWORD", "")
     if not admin_pw or password != admin_pw:
@@ -49,7 +99,14 @@ def get_health(params):
 def post_admin_auth(params):
     """Verify admin password."""
     _check_admin_password(params)
-    return {"ok": True, "authenticated": True}
+    admin_pw = os.environ.get("ADMIN_PASSWORD", "")
+    session_token, expires_at = _issue_admin_session(admin_pw)
+    return {
+        "ok": True,
+        "authenticated": True,
+        "sessionToken": session_token,
+        "expiresAt": expires_at,
+    }
 
 
 @route("POST", "/api/admin/config")
@@ -156,10 +213,27 @@ def get_setup_current_config(params):
 
     fabric = raw.get("fabric", {})
     engine = raw.get("engine", {})
+    sql = raw.get("sql", {})
+
+    workspace_rows = db.query("SELECT WorkspaceGuid, Name FROM workspaces")
+    workspace_name_by_guid = {
+        (row.get("WorkspaceGuid") or "").lower(): row.get("Name", "")
+        for row in workspace_rows
+        if row.get("WorkspaceGuid")
+    }
+    connection_rows = db.query("SELECT Name, ConnectionGuid, Type FROM connections")
+    connection_by_guid = {
+        (row.get("ConnectionGuid") or "").lower(): row
+        for row in connection_rows
+        if row.get("ConnectionGuid")
+    }
 
     # Map config.json into the EnvironmentConfig shape the frontend expects
     def _ws(ws_id, name=""):
-        return {"id": ws_id, "displayName": name} if ws_id else None
+        if not ws_id:
+            return None
+        display_name = workspace_name_by_guid.get(str(ws_id).lower(), name)
+        return {"id": ws_id, "displayName": display_name or name}
 
     def _lh(lh_id, name="", ws_id=""):
         if not lh_id:
@@ -168,39 +242,70 @@ def get_setup_current_config(params):
 
     data_ws = fabric.get("workspace_data_id", "")
     code_ws = fabric.get("workspace_code_id", "")
+    config_ws = fabric.get("workspace_config_id", "")
+    data_prod_ws = fabric.get("workspace_data_prod_id", "")
+    code_prod_ws = fabric.get("workspace_code_prod_id", "")
 
-    # Try to get connection info from DB
-    # The connections table uses "Name" (not "ConnectionName") per the schema.
+    configured_connection_ids = fabric.get("connection_ids", {}) or {}
+    connection_keys = (
+        "CON_FMD_FABRIC_SQL",
+        "CON_FMD_FABRIC_PIPELINES",
+        "CON_FMD_ADF_PIPELINES",
+        "CON_FMD_FABRIC_NOTEBOOKS",
+    )
     connections = {}
-    try:
-        rows = db.query("SELECT Name, ConnectionGuid FROM connections")
-        for r in rows:
-            name = r.get("Name", "")
-            guid = r.get("ConnectionGuid", "")
-            if name and guid:
-                connections[name] = {"id": guid, "displayName": name}
-    except Exception as e:
-        log.warning("Failed to load connections for admin gateway: %s", e)
+    for key in connection_keys:
+        guid = configured_connection_ids.get(key, "")
+        row = connection_by_guid.get(str(guid).lower())
+        if row:
+            connections[key] = {
+                "id": row.get("ConnectionGuid", ""),
+                "displayName": row.get("Name", key),
+                "type": row.get("Type", ""),
+            }
+        else:
+            name_match = next((r for r in connection_rows if r.get("Name") == key), None)
+            connections[key] = (
+                {
+                    "id": name_match.get("ConnectionGuid", ""),
+                    "displayName": name_match.get("Name", key),
+                    "type": name_match.get("Type", ""),
+                }
+                if name_match and name_match.get("ConnectionGuid")
+                else None
+            )
+
+    database = None
+    if fabric.get("sql_database_id") or sql.get("database"):
+        database = {
+            "id": fabric.get("sql_database_id", ""),
+            "displayName": fabric.get("sql_database_name") or "SQL_INTEGRATION_FRAMEWORK",
+            "serverFqdn": sql.get("server", ""),
+            "databaseName": sql.get("database", ""),
+        }
 
     config = {
+        "capacity": {
+            "id": fabric.get("capacity_id", ""),
+            "displayName": fabric.get("capacity_name") or "Configured Capacity",
+            "sku": "",
+            "state": "Active",
+        }
+        if fabric.get("capacity_id")
+        else None,
         "workspaces": {
             "data_dev": _ws(data_ws, "INTEGRATION DATA (D)"),
             "code_dev": _ws(code_ws, "INTEGRATION CODE (D)"),
-            "config": None,
-            "data_prod": None,
-            "code_prod": None,
+            "config": _ws(config_ws, "INTEGRATION CONFIG"),
+            "data_prod": _ws(data_prod_ws, "INTEGRATION DATA (P)"),
+            "code_prod": _ws(code_prod_ws, "INTEGRATION CODE (P)"),
         },
         "lakehouses": {
             "LH_DATA_LANDINGZONE": _lh(engine.get("lz_lakehouse_id"), "LH_DATA_LANDINGZONE", data_ws),
             "LH_BRONZE_LAYER": _lh(engine.get("bronze_lakehouse_id"), "LH_BRONZE_LAYER", data_ws),
             "LH_SILVER_LAYER": _lh(engine.get("silver_lakehouse_id"), "LH_SILVER_LAYER", data_ws),
         },
-        "connections": connections or {
-            "CON_FMD_FABRIC_SQL": None,
-            "CON_FMD_FABRIC_PIPELINES": None,
-            "CON_FMD_ADF_PIPELINES": None,
-            "CON_FMD_FABRIC_NOTEBOOKS": None,
-        },
+        "connections": connections,
         "notebooks": {
             "NB_FMD_LOAD_LANDING_BRONZE": _ws(engine.get("notebook_bronze_id"), "NB_FMD_LOAD_LANDING_BRONZE"),
             "NB_FMD_LOAD_BRONZE_SILVER": _ws(engine.get("notebook_silver_id"), "NB_FMD_LOAD_BRONZE_SILVER"),
@@ -208,7 +313,7 @@ def get_setup_current_config(params):
         "pipelines": {
             "PL_FMD_LDZ_COPY_SQL": _ws(engine.get("pipeline_copy_sql_id"), "PL_FMD_LDZ_COPY_SQL"),
         },
-        "database": None,
+        "database": database,
     }
 
     return {"config": config}

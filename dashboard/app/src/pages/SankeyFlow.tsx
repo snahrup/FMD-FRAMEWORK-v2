@@ -120,7 +120,10 @@ function SourcePanel({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   // Close on click outside
   useEffect(() => {
@@ -176,7 +179,7 @@ function SourcePanel({
           <div>
             <h2 className="text-sm font-semibold text-foreground">{source.name}</h2>
             <p className="text-[10px] text-muted-foreground/60">
-              {source.entities.length} entities
+              {source.entities.length} tables
               {source.connection && ` \u00B7 ${source.connection.server}/${source.connection.database}`}
             </p>
           </div>
@@ -240,10 +243,14 @@ export default function SankeyFlow() {
   const [selectedSource, setSelectedSource] = useState<DigestSource | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 960, height: 600 });
-  const hasLoadedOnce = useRef(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
   // Track first successful load for anti-flash pattern
-  if (data && !hasLoadedOnce.current) hasLoadedOnce.current = true;
+  useEffect(() => {
+    if (data) {
+      setHasLoadedOnce(true);
+    }
+  }, [data]);
 
   // ── Responsive dimensions ──
   // Re-run when data first loads so the ResizeObserver attaches after the
@@ -456,7 +463,7 @@ export default function SankeyFlow() {
   // ── Render ──
 
   // Loading state — only show spinner before first successful load
-  if (loading && !hasLoadedOnce.current) {
+  if (loading && !hasLoadedOnce) {
     return (
       <div className="flex items-center justify-center gap-3 text-muted-foreground" style={{ height: 'calc(100vh - 3rem)' }}>
         <Loader2 className="w-5 h-5 animate-spin" />
@@ -501,7 +508,7 @@ export default function SankeyFlow() {
         <div>
           <h1 className="text-[32px] font-normal tracking-tight" style={{ fontFamily: 'var(--bp-font-display)', color: 'var(--bp-ink-primary)' }}>Data Flow</h1>
           <p className="text-xs text-muted-foreground/60 mt-0.5">
-            {totalSummary.total.toLocaleString()} entities across {sourceList.length} sources
+            {totalSummary.total.toLocaleString()} tables in scope across {sourceList.length} sources
             {data.generatedAt && (
               <span className="ml-2 text-muted-foreground/40">
                 &middot; {shortTime(data.generatedAt)}
@@ -709,7 +716,7 @@ export default function SankeyFlow() {
                         fill="var(--bp-ink-muted, #A8A29E)"
                         fillOpacity={0.6}
                       >
-                        {node.count.toLocaleString()} entities
+                        {node.count.toLocaleString()} tables
                       </text>
                     </g>
                   ) : (
@@ -734,7 +741,7 @@ export default function SankeyFlow() {
                         fillOpacity={0.6}
                       >
                         {node.count > 0
-                          ? `${node.count.toLocaleString()} entities`
+                          ? `${node.count.toLocaleString()} tables`
                           : "Coming soon"}
                       </text>
                     </g>

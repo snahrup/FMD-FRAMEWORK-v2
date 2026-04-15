@@ -8,24 +8,8 @@ import { test, expect } from '@playwright/test';
 
 test.describe('API: GET endpoints — full validation', () => {
 
-  test('GET /api/... returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/...');
-    expect(response.status()).toBe(200);
-    const contentType = response.headers()['content-type'] || '';
-    if (contentType.includes('application/json')) {
-      const body = await response.json();
-      expect(body).toBeDefined();
-      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
-        if ('error' in body) expect(body.error).toBeFalsy();
-      }
-    } else {
-      const text = await response.text();
-      expect(text.length).toBeGreaterThan(0);
-    }
-  });
-
   test('GET /api/things returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/things');
+    const response = await request.get('http://127.0.0.1:8000/api/things');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -41,7 +25,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/health returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/health');
+    const response = await request.get('http://127.0.0.1:8000/api/health');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -57,7 +41,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/admin/config returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/admin/config');
+    const response = await request.get('http://127.0.0.1:8000/api/admin/config');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -73,7 +57,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/fabric/workspaces returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/fabric/workspaces');
+    const response = await request.get('http://127.0.0.1:8000/api/fabric/workspaces');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -89,7 +73,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/fabric/connections returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/fabric/connections');
+    const response = await request.get('http://127.0.0.1:8000/api/fabric/connections');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -105,7 +89,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/fabric/security-groups returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/fabric/security-groups');
+    const response = await request.get('http://127.0.0.1:8000/api/fabric/security-groups');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -121,7 +105,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/setup/current-config returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/setup/current-config');
+    const response = await request.get('http://127.0.0.1:8000/api/setup/current-config');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -137,7 +121,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/alerts returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/alerts');
+    const response = await request.get('http://127.0.0.1:8000/api/alerts');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -153,7 +137,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/classification/status returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/classification/status');
+    const response = await request.get('http://127.0.0.1:8000/api/classification/status');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -169,7 +153,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/classification/summary returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/classification/summary');
+    const response = await request.get('http://127.0.0.1:8000/api/classification/summary');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -185,7 +169,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/classification/data returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/classification/data');
+    const response = await request.get('http://127.0.0.1:8000/api/classification/data');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -201,7 +185,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/cleansing/functions returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/cleansing/functions');
+    const response = await request.get('http://127.0.0.1:8000/api/cleansing/functions');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -217,7 +201,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/cleansing/rules returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/cleansing/rules');
+    const response = await request.get('http://127.0.0.1:8000/api/cleansing/rules');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -233,7 +217,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/cleansing/summary returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/cleansing/summary');
+    const response = await request.get('http://127.0.0.1:8000/api/cleansing/summary');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -249,7 +233,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/config-manager returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/config-manager');
+    const response = await request.get('http://127.0.0.1:8000/api/config-manager');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -265,7 +249,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/config-manager/references returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/config-manager/references');
+    const response = await request.get('http://127.0.0.1:8000/api/config-manager/references');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -281,7 +265,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/notebook-config returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/notebook-config');
+    const response = await request.get('http://127.0.0.1:8000/api/notebook-config');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -297,7 +281,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/control-plane returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/control-plane');
+    const response = await request.get('http://127.0.0.1:8000/api/control-plane');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -313,7 +297,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/connections returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/connections');
+    const response = await request.get('http://127.0.0.1:8000/api/connections');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -329,7 +313,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/datasources returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/datasources');
+    const response = await request.get('http://127.0.0.1:8000/api/datasources');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -345,7 +329,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/source-config returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/source-config');
+    const response = await request.get('http://127.0.0.1:8000/api/source-config');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -361,7 +345,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/entities returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/entities');
+    const response = await request.get('http://127.0.0.1:8000/api/entities');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -377,7 +361,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/execution-matrix returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/execution-matrix');
+    const response = await request.get('http://127.0.0.1:8000/api/execution-matrix');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -393,7 +377,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/record-counts returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/record-counts');
+    const response = await request.get('http://127.0.0.1:8000/api/record-counts');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -409,7 +393,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sources returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sources');
+    const response = await request.get('http://127.0.0.1:8000/api/sources');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -425,7 +409,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/blender/tables returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/blender/tables');
+    const response = await request.get('http://127.0.0.1:8000/api/blender/tables');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -441,7 +425,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/blender/endpoints returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/blender/endpoints');
+    const response = await request.get('http://127.0.0.1:8000/api/blender/endpoints');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -457,7 +441,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/lakehouse-counts returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/lakehouse-counts');
+    const response = await request.get('http://127.0.0.1:8000/api/lakehouse-counts');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -473,7 +457,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/purview/status returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/purview/status');
+    const response = await request.get('http://127.0.0.1:8000/api/purview/status');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -489,7 +473,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/purview/search returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/purview/search');
+    const response = await request.get('http://127.0.0.1:8000/api/purview/search');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -505,7 +489,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/blender/profile returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/blender/profile');
+    const response = await request.get('http://127.0.0.1:8000/api/blender/profile');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -521,7 +505,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/blender/sample returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/blender/sample');
+    const response = await request.get('http://127.0.0.1:8000/api/blender/sample');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -537,7 +521,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/schema returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/schema');
+    const response = await request.get('http://127.0.0.1:8000/api/schema');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -553,7 +537,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/estate/overview returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/estate/overview');
+    const response = await request.get('http://127.0.0.1:8000/api/estate/overview');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -569,7 +553,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/data-manager/tables returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/data-manager/tables');
+    const response = await request.get('http://127.0.0.1:8000/api/data-manager/tables');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -585,7 +569,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/db-explorer/tables returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/db-explorer/tables');
+    const response = await request.get('http://127.0.0.1:8000/api/db-explorer/tables');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -601,7 +585,39 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/engine/status returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/engine/status');
+    const response = await request.get('http://127.0.0.1:8000/api/engine/status');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/engine/vpn-status returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/engine/vpn-status');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/engine/self-heal/status returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/engine/self-heal/status');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -617,7 +633,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/engine/plan returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/engine/plan');
+    const response = await request.get('http://127.0.0.1:8000/api/engine/plan');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -633,7 +649,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/engine/logs returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/engine/logs');
+    const response = await request.get('http://127.0.0.1:8000/api/engine/logs');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -649,7 +665,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/engine/health returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/engine/health');
+    const response = await request.get('http://127.0.0.1:8000/api/engine/health');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -665,7 +681,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/engine/metrics returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/engine/metrics');
+    const response = await request.get('http://127.0.0.1:8000/api/engine/metrics');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -681,7 +697,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/engine/runs returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/engine/runs');
+    const response = await request.get('http://127.0.0.1:8000/api/engine/runs');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -697,7 +713,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/engine/validation returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/engine/validation');
+    const response = await request.get('http://127.0.0.1:8000/api/engine/validation');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -713,7 +729,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/engine/settings returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/engine/settings');
+    const response = await request.get('http://127.0.0.1:8000/api/engine/settings');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -729,7 +745,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/engine/entities returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/engine/entities');
+    const response = await request.get('http://127.0.0.1:8000/api/engine/entities');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -745,7 +761,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/entity-digest returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/entity-digest');
+    const response = await request.get('http://127.0.0.1:8000/api/entity-digest');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -761,7 +777,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/entity-digest/build returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/entity-digest/build');
+    const response = await request.get('http://127.0.0.1:8000/api/entity-digest/build');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -777,7 +793,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/entities/cascade-impact returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/entities/cascade-impact');
+    const response = await request.get('http://127.0.0.1:8000/api/entities/cascade-impact');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -793,7 +809,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/glossary returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/glossary');
+    const response = await request.get('http://127.0.0.1:8000/api/glossary');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -809,7 +825,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/glossary/annotations/bulk returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/glossary/annotations/bulk');
+    const response = await request.get('http://127.0.0.1:8000/api/glossary/annotations/bulk');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -825,7 +841,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold/domains returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold/domains');
+    const response = await request.get('http://127.0.0.1:8000/api/gold/domains');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -841,7 +857,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold/mlvs/summary returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold/mlvs/summary');
+    const response = await request.get('http://127.0.0.1:8000/api/gold/mlvs/summary');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -857,7 +873,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold/mlvs returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold/mlvs');
+    const response = await request.get('http://127.0.0.1:8000/api/gold/mlvs');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -873,7 +889,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/specimens returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/specimens');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/specimens');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -889,7 +905,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/entities returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/entities');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/entities');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -905,7 +921,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/clusters returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/clusters');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/clusters');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -921,7 +937,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/clusters/unclustered returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/clusters/unclustered');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/clusters/unclustered');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -937,7 +953,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/canonical returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/canonical');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/canonical');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -953,7 +969,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/canonical/domains returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/canonical/domains');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/canonical/domains');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -969,7 +985,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/canonical/relationships returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/canonical/relationships');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/canonical/relationships');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -985,7 +1001,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/semantic returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/semantic');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/semantic');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1001,7 +1017,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/specs returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/specs');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/specs');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1017,7 +1033,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/catalog returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/catalog');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/catalog');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1033,7 +1049,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/jobs returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/jobs');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/jobs');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1049,7 +1065,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/audit/log returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/audit/log');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/audit/log');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1065,7 +1081,23 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/stats returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/stats');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/stats');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/workflow-shell returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/workflow-shell');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1081,7 +1113,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/field-usage returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/field-usage');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/field-usage');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1097,7 +1129,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/domains returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/domains');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/domains');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1113,7 +1145,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/report-coverage/summary returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/report-coverage/summary');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/report-coverage/summary');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1129,7 +1161,151 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gold-studio/report-coverage returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/report-coverage');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/report-coverage');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/release/coverage-map returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/release/coverage-map');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/release/proposed-model returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/release/proposed-model');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/release/coverage-appendix returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/release/coverage-appendix');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/gold-studio/source-systems returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/source-systems');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/join-discovery/status returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/join-discovery/status');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/join-discovery/candidates returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/join-discovery/candidates');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/join-discovery/cross-source returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/join-discovery/cross-source');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/join-discovery/table returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/join-discovery/table');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/join-discovery/lineage returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/join-discovery/lineage');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1145,7 +1321,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/load-center/status returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/load-center/status');
+    const response = await request.get('http://127.0.0.1:8000/api/load-center/status');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1161,7 +1337,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/load-center/source-detail returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/load-center/source-detail');
+    const response = await request.get('http://127.0.0.1:8000/api/load-center/source-detail');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1177,7 +1353,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/load-center/run-status returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/load-center/run-status');
+    const response = await request.get('http://127.0.0.1:8000/api/load-center/run-status');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1193,7 +1369,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/lmc/sources returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/lmc/sources');
+    const response = await request.get('http://127.0.0.1:8000/api/lmc/sources');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1209,7 +1385,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/lmc/entity-ids-by-source returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/lmc/entity-ids-by-source');
+    const response = await request.get('http://127.0.0.1:8000/api/lmc/entity-ids-by-source');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1225,7 +1401,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/lmc/progress returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/lmc/progress');
+    const response = await request.get('http://127.0.0.1:8000/api/lmc/progress');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1241,7 +1417,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/lmc/runs returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/lmc/runs');
+    const response = await request.get('http://127.0.0.1:8000/api/lmc/runs');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1257,7 +1433,23 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/lmc/compare returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/lmc/compare');
+    const response = await request.get('http://127.0.0.1:8000/api/lmc/compare');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/metric-contract returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/metric-contract');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1273,7 +1465,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/microscope returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/microscope');
+    const response = await request.get('http://127.0.0.1:8000/api/microscope');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1289,7 +1481,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/microscope/pks returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/microscope/pks');
+    const response = await request.get('http://127.0.0.1:8000/api/microscope/pks');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1305,7 +1497,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/live-monitor returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/live-monitor');
+    const response = await request.get('http://127.0.0.1:8000/api/live-monitor');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1321,7 +1513,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/copy-executions returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/copy-executions');
+    const response = await request.get('http://127.0.0.1:8000/api/copy-executions');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1337,7 +1529,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/notebook-executions returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/notebook-executions');
+    const response = await request.get('http://127.0.0.1:8000/api/notebook-executions');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1353,7 +1545,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/error-intelligence returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/error-intelligence');
+    const response = await request.get('http://127.0.0.1:8000/api/error-intelligence');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1369,7 +1561,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/stats returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/stats');
+    const response = await request.get('http://127.0.0.1:8000/api/stats');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1385,7 +1577,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/load-progress returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/load-progress');
+    const response = await request.get('http://127.0.0.1:8000/api/load-progress');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1401,7 +1593,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/executive returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/executive');
+    const response = await request.get('http://127.0.0.1:8000/api/executive');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1417,7 +1609,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/journey returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/journey');
+    const response = await request.get('http://127.0.0.1:8000/api/journey');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1433,7 +1625,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/mri/runs returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/mri/runs');
+    const response = await request.get('http://127.0.0.1:8000/api/mri/runs');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1449,7 +1641,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/mri/status returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/mri/status');
+    const response = await request.get('http://127.0.0.1:8000/api/mri/status');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1465,7 +1657,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/mri/baselines returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/mri/baselines');
+    const response = await request.get('http://127.0.0.1:8000/api/mri/baselines');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1481,7 +1673,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/notebook-debug/notebooks returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/notebook-debug/notebooks');
+    const response = await request.get('http://127.0.0.1:8000/api/notebook-debug/notebooks');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1497,7 +1689,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/notebook-debug/entities returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/notebook-debug/entities');
+    const response = await request.get('http://127.0.0.1:8000/api/notebook-debug/entities');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1513,7 +1705,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/notebook-debug/job-status returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/notebook-debug/job-status');
+    const response = await request.get('http://127.0.0.1:8000/api/notebook-debug/job-status');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1529,7 +1721,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/notebook/job-status returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/notebook/job-status');
+    const response = await request.get('http://127.0.0.1:8000/api/notebook/job-status');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1545,7 +1737,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/overview/kpis returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/overview/kpis');
+    const response = await request.get('http://127.0.0.1:8000/api/overview/kpis');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1561,7 +1753,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/overview/sources returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/overview/sources');
+    const response = await request.get('http://127.0.0.1:8000/api/overview/sources');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1577,7 +1769,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/overview/activity returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/overview/activity');
+    const response = await request.get('http://127.0.0.1:8000/api/overview/activity');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1593,7 +1785,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/overview/entities returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/overview/entities');
+    const response = await request.get('http://127.0.0.1:8000/api/overview/entities');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1609,7 +1801,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/pipelines returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/pipelines');
+    const response = await request.get('http://127.0.0.1:8000/api/pipelines');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1625,7 +1817,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/pipeline-view returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/pipeline-view');
+    const response = await request.get('http://127.0.0.1:8000/api/pipeline-view');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1641,7 +1833,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/bronze-view returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/bronze-view');
+    const response = await request.get('http://127.0.0.1:8000/api/bronze-view');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1657,7 +1849,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/silver-view returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/silver-view');
+    const response = await request.get('http://127.0.0.1:8000/api/silver-view');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1673,7 +1865,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/pipeline-executions returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/pipeline-executions');
+    const response = await request.get('http://127.0.0.1:8000/api/pipeline-executions');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1689,7 +1881,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/fabric-jobs returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/fabric-jobs');
+    const response = await request.get('http://127.0.0.1:8000/api/fabric-jobs');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1705,7 +1897,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/pipeline-activity-runs returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/pipeline-activity-runs');
+    const response = await request.get('http://127.0.0.1:8000/api/pipeline-activity-runs');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1721,7 +1913,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/pipeline/run-snapshot returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/pipeline/run-snapshot');
+    const response = await request.get('http://127.0.0.1:8000/api/pipeline/run-snapshot');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1737,7 +1929,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/pipeline/failure-trace returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/pipeline/failure-trace');
+    const response = await request.get('http://127.0.0.1:8000/api/pipeline/failure-trace');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1753,7 +1945,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/runner/sources returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/runner/sources');
+    const response = await request.get('http://127.0.0.1:8000/api/runner/sources');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1769,7 +1961,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/runner/entities returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/runner/entities');
+    const response = await request.get('http://127.0.0.1:8000/api/runner/entities');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1785,7 +1977,23 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/runner/state returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/runner/state');
+    const response = await request.get('http://127.0.0.1:8000/api/runner/state');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/pipeline-integrity returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/pipeline-integrity');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1801,7 +2009,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/classification/purview/status returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/classification/purview/status');
+    const response = await request.get('http://127.0.0.1:8000/api/classification/purview/status');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1817,7 +2025,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/classification/purview/mappings returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/classification/purview/mappings');
+    const response = await request.get('http://127.0.0.1:8000/api/classification/purview/mappings');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1833,7 +2041,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/classification/purview/history returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/classification/purview/history');
+    const response = await request.get('http://127.0.0.1:8000/api/classification/purview/history');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1849,7 +2057,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/quality/scores returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/quality/scores');
+    const response = await request.get('http://127.0.0.1:8000/api/quality/scores');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1865,7 +2073,23 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/mdm/quality/scores returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/mdm/quality/scores');
+    const response = await request.get('http://127.0.0.1:8000/api/mdm/quality/scores');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/labs/dq-trends returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/labs/dq-trends');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1881,7 +2105,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/requests returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/requests');
+    const response = await request.get('http://127.0.0.1:8000/api/requests');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1897,7 +2121,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/scd/summary returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/scd/summary');
+    const response = await request.get('http://127.0.0.1:8000/api/scd/summary');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1913,7 +2137,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/scd/runs returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/scd/runs');
+    const response = await request.get('http://127.0.0.1:8000/api/scd/runs');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1929,7 +2153,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/schema-validation/summary returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/schema-validation/summary');
+    const response = await request.get('http://127.0.0.1:8000/api/schema-validation/summary');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1945,7 +2169,39 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/schema-validation/coverage returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/schema-validation/coverage');
+    const response = await request.get('http://127.0.0.1:8000/api/schema-validation/coverage');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/setup/capacities returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/setup/capacities');
+    expect(response.status()).toBe(200);
+    const contentType = response.headers()['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const body = await response.json();
+      expect(body).toBeDefined();
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        if ('error' in body) expect(body.error).toBeFalsy();
+      }
+    } else {
+      const text = await response.text();
+      expect(text.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('GET /api/setup/validate returns 200 and valid JSON', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/setup/validate');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1961,7 +2217,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/gateway-connections returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gateway-connections');
+    const response = await request.get('http://127.0.0.1:8000/api/gateway-connections');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1977,7 +2233,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/workspaces returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/workspaces');
+    const response = await request.get('http://127.0.0.1:8000/api/workspaces');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -1993,7 +2249,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/lakehouses returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/lakehouses');
+    const response = await request.get('http://127.0.0.1:8000/api/lakehouses');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2009,7 +2265,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/bronze-entities returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/bronze-entities');
+    const response = await request.get('http://127.0.0.1:8000/api/bronze-entities');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2025,7 +2281,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/silver-entities returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/silver-entities');
+    const response = await request.get('http://127.0.0.1:8000/api/silver-entities');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2041,7 +2297,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/onboarding returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/onboarding');
+    const response = await request.get('http://127.0.0.1:8000/api/onboarding');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2057,7 +2313,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/analyze-source returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/analyze-source');
+    const response = await request.get('http://127.0.0.1:8000/api/analyze-source');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2073,7 +2329,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/load-config returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/load-config');
+    const response = await request.get('http://127.0.0.1:8000/api/load-config');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2089,7 +2345,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/servers returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/servers');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/servers');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2105,7 +2361,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/databases returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/databases');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/databases');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2121,7 +2377,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/schemas returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/schemas');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/schemas');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2137,7 +2393,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/tables returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/tables');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/tables');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2153,7 +2409,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/columns returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/columns');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/columns');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2169,7 +2425,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/preview returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/preview');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/preview');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2185,7 +2441,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/lakehouses returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/lakehouses');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/lakehouses');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2201,7 +2457,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/lakehouse-schemas returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/lakehouse-schemas');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/lakehouse-schemas');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2217,7 +2473,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/lakehouse-tables returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/lakehouse-tables');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/lakehouse-tables');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2233,7 +2489,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/lakehouse-columns returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/lakehouse-columns');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/lakehouse-columns');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2249,7 +2505,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/lakehouse-preview returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/lakehouse-preview');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/lakehouse-preview');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2265,7 +2521,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/lakehouse-files returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/lakehouse-files');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/lakehouse-files');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2281,7 +2537,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/lakehouse-file-tables returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/lakehouse-file-tables');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/lakehouse-file-tables');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2297,7 +2553,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/sql-explorer/lakehouse-file-detail returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sql-explorer/lakehouse-file-detail');
+    const response = await request.get('http://127.0.0.1:8000/api/sql-explorer/lakehouse-file-detail');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2313,7 +2569,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/audit/history returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/audit/history');
+    const response = await request.get('http://127.0.0.1:8000/api/audit/history');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2329,7 +2585,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/audit/status returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/audit/status');
+    const response = await request.get('http://127.0.0.1:8000/api/audit/status');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2345,7 +2601,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/test-swarm/runs returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/test-swarm/runs');
+    const response = await request.get('http://127.0.0.1:8000/api/test-swarm/runs');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2361,7 +2617,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/test returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/test');
+    const response = await request.get('http://127.0.0.1:8000/api/test');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2377,7 +2633,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/crash returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/crash');
+    const response = await request.get('http://127.0.0.1:8000/api/crash');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2393,7 +2649,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/search returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/search');
+    const response = await request.get('http://127.0.0.1:8000/api/search');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2409,7 +2665,7 @@ test.describe('API: GET endpoints — full validation', () => {
   });
 
   test('GET /api/cors-test returns 200 and valid JSON', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/cors-test');
+    const response = await request.get('http://127.0.0.1:8000/api/cors-test');
     expect(response.status()).toBe(200);
     const contentType = response.headers()['content-type'] || '';
     if (contentType.includes('application/json')) {
@@ -2427,17 +2683,9 @@ test.describe('API: GET endpoints — full validation', () => {
 
 test.describe('API: Response time validation', () => {
 
-  test('GET /api/... responds within 5 seconds', async ({ request }) => {
-    const start = Date.now();
-    const response = await request.get('http://localhost:8000/api/...');
-    const elapsed = Date.now() - start;
-    expect(response.status()).toBeLessThan(500);
-    expect(elapsed).toBeLessThan(5000);
-  });
-
   test('GET /api/things responds within 5 seconds', async ({ request }) => {
     const start = Date.now();
-    const response = await request.get('http://localhost:8000/api/things');
+    const response = await request.get('http://127.0.0.1:8000/api/things');
     const elapsed = Date.now() - start;
     expect(response.status()).toBeLessThan(500);
     expect(elapsed).toBeLessThan(5000);
@@ -2445,7 +2693,7 @@ test.describe('API: Response time validation', () => {
 
   test('GET /api/health responds within 5 seconds', async ({ request }) => {
     const start = Date.now();
-    const response = await request.get('http://localhost:8000/api/health');
+    const response = await request.get('http://127.0.0.1:8000/api/health');
     const elapsed = Date.now() - start;
     expect(response.status()).toBeLessThan(500);
     expect(elapsed).toBeLessThan(5000);
@@ -2453,7 +2701,7 @@ test.describe('API: Response time validation', () => {
 
   test('GET /api/admin/config responds within 5 seconds', async ({ request }) => {
     const start = Date.now();
-    const response = await request.get('http://localhost:8000/api/admin/config');
+    const response = await request.get('http://127.0.0.1:8000/api/admin/config');
     const elapsed = Date.now() - start;
     expect(response.status()).toBeLessThan(500);
     expect(elapsed).toBeLessThan(5000);
@@ -2461,7 +2709,7 @@ test.describe('API: Response time validation', () => {
 
   test('GET /api/fabric/workspaces responds within 5 seconds', async ({ request }) => {
     const start = Date.now();
-    const response = await request.get('http://localhost:8000/api/fabric/workspaces');
+    const response = await request.get('http://127.0.0.1:8000/api/fabric/workspaces');
     const elapsed = Date.now() - start;
     expect(response.status()).toBeLessThan(500);
     expect(elapsed).toBeLessThan(5000);
@@ -2469,7 +2717,7 @@ test.describe('API: Response time validation', () => {
 
   test('GET /api/fabric/connections responds within 5 seconds', async ({ request }) => {
     const start = Date.now();
-    const response = await request.get('http://localhost:8000/api/fabric/connections');
+    const response = await request.get('http://127.0.0.1:8000/api/fabric/connections');
     const elapsed = Date.now() - start;
     expect(response.status()).toBeLessThan(500);
     expect(elapsed).toBeLessThan(5000);
@@ -2477,7 +2725,7 @@ test.describe('API: Response time validation', () => {
 
   test('GET /api/fabric/security-groups responds within 5 seconds', async ({ request }) => {
     const start = Date.now();
-    const response = await request.get('http://localhost:8000/api/fabric/security-groups');
+    const response = await request.get('http://127.0.0.1:8000/api/fabric/security-groups');
     const elapsed = Date.now() - start;
     expect(response.status()).toBeLessThan(500);
     expect(elapsed).toBeLessThan(5000);
@@ -2485,7 +2733,7 @@ test.describe('API: Response time validation', () => {
 
   test('GET /api/setup/current-config responds within 5 seconds', async ({ request }) => {
     const start = Date.now();
-    const response = await request.get('http://localhost:8000/api/setup/current-config');
+    const response = await request.get('http://127.0.0.1:8000/api/setup/current-config');
     const elapsed = Date.now() - start;
     expect(response.status()).toBeLessThan(500);
     expect(elapsed).toBeLessThan(5000);
@@ -2493,7 +2741,7 @@ test.describe('API: Response time validation', () => {
 
   test('GET /api/alerts responds within 5 seconds', async ({ request }) => {
     const start = Date.now();
-    const response = await request.get('http://localhost:8000/api/alerts');
+    const response = await request.get('http://127.0.0.1:8000/api/alerts');
     const elapsed = Date.now() - start;
     expect(response.status()).toBeLessThan(500);
     expect(elapsed).toBeLessThan(5000);
@@ -2501,7 +2749,15 @@ test.describe('API: Response time validation', () => {
 
   test('GET /api/classification/status responds within 5 seconds', async ({ request }) => {
     const start = Date.now();
-    const response = await request.get('http://localhost:8000/api/classification/status');
+    const response = await request.get('http://127.0.0.1:8000/api/classification/status');
+    const elapsed = Date.now() - start;
+    expect(response.status()).toBeLessThan(500);
+    expect(elapsed).toBeLessThan(5000);
+  });
+
+  test('GET /api/classification/summary responds within 5 seconds', async ({ request }) => {
+    const start = Date.now();
+    const response = await request.get('http://127.0.0.1:8000/api/classification/summary');
     const elapsed = Date.now() - start;
     expect(response.status()).toBeLessThan(500);
     expect(elapsed).toBeLessThan(5000);
@@ -2511,227 +2767,247 @@ test.describe('API: Response time validation', () => {
 test.describe('API: Parameterized endpoints (smoke)', () => {
 
   test('GET /api/classification/entity/{entity_id}/columns responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/classification/entity/1/columns');
+    const response = await request.get('http://127.0.0.1:8000/api/classification/entity/1/columns');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/data-manager/table/{name} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/data-manager/table/1');
+    const response = await request.get('http://127.0.0.1:8000/api/data-manager/table/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/db-explorer/table/{name} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/db-explorer/table/1');
+    const response = await request.get('http://127.0.0.1:8000/api/db-explorer/table/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/db-explorer/table/{name}/schema responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/db-explorer/table/1/schema');
+    const response = await request.get('http://127.0.0.1:8000/api/db-explorer/table/1/schema');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/glossary/entity/{entityId} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/glossary/entity/1');
+    const response = await request.get('http://127.0.0.1:8000/api/glossary/entity/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold/mlvs/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold/mlvs/1');
+    const response = await request.get('http://127.0.0.1:8000/api/gold/mlvs/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/specimens/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/specimens/1');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/specimens/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/specimens/{id}/queries responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/specimens/1/queries');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/specimens/1/queries');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/entities/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/entities/1');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/entities/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/entities/{id}/columns responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/entities/1/columns');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/entities/1/columns');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/entities/{id}/schema responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/entities/1/schema');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/entities/1/schema');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/clusters/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/clusters/1');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/clusters/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/clusters/{id}/column-decisions responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/clusters/1/column-decisions');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/clusters/1/column-decisions');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/canonical/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/canonical/1');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/canonical/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/canonical/{id}/versions responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/canonical/1/versions');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/canonical/1/versions');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/specs/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/specs/1');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/specs/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/specs/{id}/versions responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/specs/1/versions');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/specs/1/versions');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/specs/{id}/impact responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/specs/1/impact');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/specs/1/impact');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/validation/specs/{id}/runs responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/validation/specs/1/runs');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/validation/specs/1/runs');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/validation/runs/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/validation/runs/1');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/validation/runs/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/validation/specs/{id}/reconciliation responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/validation/specs/1/reconciliation');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/validation/specs/1/reconciliation');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/catalog/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/catalog/1');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/catalog/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/catalog/{id}/versions responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/catalog/1/versions');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/catalog/1/versions');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/jobs/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/jobs/1');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/jobs/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/domains/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/domains/1');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/domains/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/gold-studio/report-coverage/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/gold-studio/report-coverage/1');
+    const response = await request.get('http://127.0.0.1:8000/api/gold-studio/report-coverage/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/lineage/columns/{entityId} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/lineage/columns/1');
+    const response = await request.get('http://127.0.0.1:8000/api/lineage/columns/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/lmc/run/{run_id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/lmc/run/1');
+    const response = await request.get('http://127.0.0.1:8000/api/lmc/run/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/lmc/run/{run_id}/entities responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/lmc/run/1/entities');
+    const response = await request.get('http://127.0.0.1:8000/api/lmc/run/1/entities');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/lmc/entity/{entity_id}/history responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/lmc/entity/1/history');
+    const response = await request.get('http://127.0.0.1:8000/api/lmc/entity/1/history');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/mri/runs/{runId}/convergence responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/mri/runs/1/convergence');
+    const response = await request.get('http://127.0.0.1:8000/api/mri/runs/1/convergence');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/mri/runs/{runId}/visual-diffs responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/mri/runs/1/visual-diffs');
+    const response = await request.get('http://127.0.0.1:8000/api/mri/runs/1/visual-diffs');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/mri/runs/{runId}/backend-results responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/mri/runs/1/backend-results');
+    const response = await request.get('http://127.0.0.1:8000/api/mri/runs/1/backend-results');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/mri/runs/{runId}/ai-analyses responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/mri/runs/1/ai-analyses');
+    const response = await request.get('http://127.0.0.1:8000/api/mri/runs/1/ai-analyses');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/mri/runs/{runId}/flake-results responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/mri/runs/1/flake-results');
+    const response = await request.get('http://127.0.0.1:8000/api/mri/runs/1/flake-results');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/mri/runs/{runId}/iteration/{n} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/mri/runs/1/iteration/1');
+    const response = await request.get('http://127.0.0.1:8000/api/mri/runs/1/iteration/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/quality/score/{entityId} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/quality/score/1');
+    const response = await request.get('http://127.0.0.1:8000/api/quality/score/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/scd/entity/{entityId} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/scd/entity/1');
+    const response = await request.get('http://127.0.0.1:8000/api/scd/entity/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/schema-validation/run/{run_id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/schema-validation/run/1');
+    const response = await request.get('http://127.0.0.1:8000/api/schema-validation/run/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/schema-validation/entity/{entity_id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/schema-validation/entity/1');
+    const response = await request.get('http://127.0.0.1:8000/api/schema-validation/entity/1');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/setup/workspaces/{workspaceId}/lakehouses responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/setup/workspaces/1/lakehouses');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/setup/workspaces/{workspaceId}/notebooks responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/setup/workspaces/1/notebooks');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/setup/workspaces/{workspaceId}/pipelines responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/setup/workspaces/1/pipelines');
+    expect([200, 404, 422]).toContain(response.status());
+  });
+
+  test('GET /api/setup/workspaces/{workspaceId}/sql-databases responds (param substituted)', async ({ request }) => {
+    const response = await request.get('http://127.0.0.1:8000/api/setup/workspaces/1/sql-databases');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/sources/import/{job_id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/sources/import/1');
+    const response = await request.get('http://127.0.0.1:8000/api/sources/import/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/audit/artifacts/{runId}/{testDir}/{fn} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/audit/artifacts/1/1/1');
+    const response = await request.get('http://127.0.0.1:8000/api/audit/artifacts/1/1/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/test-swarm/runs/{runId}/convergence responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/test-swarm/runs/1/convergence');
+    const response = await request.get('http://127.0.0.1:8000/api/test-swarm/runs/1/convergence');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/test-swarm/runs/{runId}/iteration/{n} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/test-swarm/runs/1/iteration/1');
+    const response = await request.get('http://127.0.0.1:8000/api/test-swarm/runs/1/iteration/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 
   test('GET /api/entities/{id} responds (param substituted)', async ({ request }) => {
-    const response = await request.get('http://localhost:8000/api/entities/1');
+    const response = await request.get('http://127.0.0.1:8000/api/entities/1');
     expect([200, 404, 422]).toContain(response.status());
   });
 });
@@ -2739,7 +3015,7 @@ test.describe('API: Parameterized endpoints (smoke)', () => {
 test.describe('API: Mutation endpoints (existence check)', () => {
 
   test('POST /api/admin/auth endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/admin/auth', {
+    const response = await request.post('http://127.0.0.1:8000/api/admin/auth', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2747,7 +3023,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/admin/config endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/admin/config', {
+    const response = await request.post('http://127.0.0.1:8000/api/admin/config', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2755,7 +3031,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/classification/scan endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/classification/scan', {
+    const response = await request.post('http://127.0.0.1:8000/api/classification/scan', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2767,7 +3043,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/cleansing/rules endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/cleansing/rules', {
+    const response = await request.post('http://127.0.0.1:8000/api/cleansing/rules', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2783,7 +3059,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/config-manager/update endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/config-manager/update', {
+    const response = await request.post('http://127.0.0.1:8000/api/config-manager/update', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2791,7 +3067,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/notebook-config/update endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/notebook-config/update', {
+    const response = await request.post('http://127.0.0.1:8000/api/notebook-config/update', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2799,7 +3075,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/lakehouse-counts/scan endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/lakehouse-counts/scan', {
+    const response = await request.post('http://127.0.0.1:8000/api/lakehouse-counts/scan', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2807,7 +3083,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/lakehouse-counts/refresh endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/lakehouse-counts/refresh', {
+    const response = await request.post('http://127.0.0.1:8000/api/lakehouse-counts/refresh', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2815,7 +3091,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/entity-status/sync endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/entity-status/sync', {
+    const response = await request.post('http://127.0.0.1:8000/api/entity-status/sync', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2823,7 +3099,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/blender/query endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/blender/query', {
+    const response = await request.post('http://127.0.0.1:8000/api/blender/query', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2835,7 +3111,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/db-explorer/query endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/db-explorer/query', {
+    const response = await request.post('http://127.0.0.1:8000/api/db-explorer/query', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2843,7 +3119,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/engine/start endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/engine/start', {
+    const response = await request.post('http://127.0.0.1:8000/api/engine/start', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2851,7 +3127,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/engine/stop endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/engine/stop', {
+    const response = await request.post('http://127.0.0.1:8000/api/engine/stop', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2859,7 +3135,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/engine/retry endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/engine/retry', {
+    const response = await request.post('http://127.0.0.1:8000/api/engine/retry', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2867,7 +3143,15 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/engine/abort-run endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/engine/abort-run', {
+    const response = await request.post('http://127.0.0.1:8000/api/engine/abort-run', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/engine/cleanup-runs endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:8000/api/engine/cleanup-runs', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2875,7 +3159,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/engine/resume endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/engine/resume', {
+    const response = await request.post('http://127.0.0.1:8000/api/engine/resume', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2883,7 +3167,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/engine/settings endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/engine/settings', {
+    const response = await request.post('http://127.0.0.1:8000/api/engine/settings', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2895,7 +3179,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/engine/optimize-all endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/engine/optimize-all', {
+    const response = await request.post('http://127.0.0.1:8000/api/engine/optimize-all', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2903,7 +3187,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/entities endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/entities', {
+    const response = await request.post('http://127.0.0.1:8000/api/entities', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2915,7 +3199,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/entities/bulk-delete endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/entities/bulk-delete', {
+    const response = await request.post('http://127.0.0.1:8000/api/entities/bulk-delete', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2923,7 +3207,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/glossary/seed endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/glossary/seed', {
+    const response = await request.post('http://127.0.0.1:8000/api/glossary/seed', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2931,7 +3215,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/gold-studio/specimens endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/gold-studio/specimens', {
+    const response = await request.post('http://127.0.0.1:8000/api/gold-studio/specimens', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2951,7 +3235,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/gold-studio/specimens/bulk endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/gold-studio/specimens/bulk', {
+    const response = await request.post('http://127.0.0.1:8000/api/gold-studio/specimens/bulk', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2975,7 +3259,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/gold-studio/clusters/detect endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/gold-studio/clusters/detect', {
+    const response = await request.post('http://127.0.0.1:8000/api/gold-studio/clusters/detect', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -2983,7 +3267,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/gold-studio/canonical endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/gold-studio/canonical', {
+    const response = await request.post('http://127.0.0.1:8000/api/gold-studio/canonical', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3003,7 +3287,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/gold-studio/semantic endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/gold-studio/semantic', {
+    const response = await request.post('http://127.0.0.1:8000/api/gold-studio/semantic', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3043,7 +3327,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/gold-studio/domains endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/gold-studio/domains', {
+    const response = await request.post('http://127.0.0.1:8000/api/gold-studio/domains', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3055,7 +3339,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/gold-studio/report-coverage endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/gold-studio/report-coverage', {
+    const response = await request.post('http://127.0.0.1:8000/api/gold-studio/report-coverage', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3070,8 +3354,48 @@ test.describe('API: Mutation endpoints (existence check)', () => {
     expect(true).toBe(true);
   });
 
+  test('POST /api/gold-studio/specimens/{id}/preview — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/specimens/{id}/live-describe — parameterized, skip', async () => {
+    expect(true).toBe(true);
+  });
+
+  test('POST /api/gold-studio/auto-detect endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:8000/api/gold-studio/auto-detect', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/join-discovery/validate endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:8000/api/join-discovery/validate', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/join-discovery/run-analysis endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:8000/api/join-discovery/run-analysis', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/join-discovery/analyst endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:8000/api/join-discovery/analyst', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
   test('POST /api/load-center/refresh endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/load-center/refresh', {
+    const response = await request.post('http://127.0.0.1:8000/api/load-center/refresh', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3079,7 +3403,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/load-center/run endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/load-center/run', {
+    const response = await request.post('http://127.0.0.1:8000/api/load-center/run', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3087,7 +3411,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/mri/run endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/mri/run', {
+    const response = await request.post('http://127.0.0.1:8000/api/mri/run', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3095,7 +3419,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/mri/baselines/accept-all endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/mri/baselines/accept-all', {
+    const response = await request.post('http://127.0.0.1:8000/api/mri/baselines/accept-all', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3107,7 +3431,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/mri/api-tests/run endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/mri/api-tests/run', {
+    const response = await request.post('http://127.0.0.1:8000/api/mri/api-tests/run', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3115,7 +3439,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/notebook-debug/run endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/notebook-debug/run', {
+    const response = await request.post('http://127.0.0.1:8000/api/notebook-debug/run', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3123,7 +3447,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/notebook/trigger endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/notebook/trigger', {
+    const response = await request.post('http://127.0.0.1:8000/api/notebook/trigger', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3131,7 +3455,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/pipeline/trigger endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/pipeline/trigger', {
+    const response = await request.post('http://127.0.0.1:8000/api/pipeline/trigger', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3139,7 +3463,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/deploy-pipelines endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/deploy-pipelines', {
+    const response = await request.post('http://127.0.0.1:8000/api/deploy-pipelines', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3147,7 +3471,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/runner/prepare endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/runner/prepare', {
+    const response = await request.post('http://127.0.0.1:8000/api/runner/prepare', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3155,7 +3479,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/runner/trigger endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/runner/trigger', {
+    const response = await request.post('http://127.0.0.1:8000/api/runner/trigger', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3163,7 +3487,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/runner/restore endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/runner/restore', {
+    const response = await request.post('http://127.0.0.1:8000/api/runner/restore', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3171,7 +3495,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('PUT /api/classification/purview/mappings endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.put('http://localhost:8000/api/classification/purview/mappings', {
+    const response = await request.put('http://127.0.0.1:8000/api/classification/purview/mappings', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3179,7 +3503,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/classification/purview/sync endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/classification/purview/sync', {
+    const response = await request.post('http://127.0.0.1:8000/api/classification/purview/sync', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3187,7 +3511,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/classification/purview/import endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/classification/purview/import', {
+    const response = await request.post('http://127.0.0.1:8000/api/classification/purview/import', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3195,7 +3519,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/quality/refresh endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/quality/refresh', {
+    const response = await request.post('http://127.0.0.1:8000/api/quality/refresh', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3203,7 +3527,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/requests endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/requests', {
+    const response = await request.post('http://127.0.0.1:8000/api/requests', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3215,7 +3539,47 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/schema-validation/result endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/schema-validation/result', {
+    const response = await request.post('http://127.0.0.1:8000/api/schema-validation/result', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/setup/create-workspace endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:8000/api/setup/create-workspace', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/setup/create-lakehouse endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:8000/api/setup/create-lakehouse', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/setup/create-sql-database endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:8000/api/setup/create-sql-database', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/setup/save-config endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:8000/api/setup/save-config', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/setup/provision-all endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:8000/api/setup/provision-all', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3223,7 +3587,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/connections endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/connections', {
+    const response = await request.post('http://127.0.0.1:8000/api/connections', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3231,7 +3595,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/datasources endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/datasources', {
+    const response = await request.post('http://127.0.0.1:8000/api/datasources', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3239,7 +3603,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/onboarding endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/onboarding', {
+    const response = await request.post('http://127.0.0.1:8000/api/onboarding', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3247,7 +3611,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/onboarding/step endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/onboarding/step', {
+    const response = await request.post('http://127.0.0.1:8000/api/onboarding/step', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3255,7 +3619,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/onboarding/delete endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/onboarding/delete', {
+    const response = await request.post('http://127.0.0.1:8000/api/onboarding/delete', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3263,7 +3627,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/sources/purge endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/sources/purge', {
+    const response = await request.post('http://127.0.0.1:8000/api/sources/purge', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3271,7 +3635,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/sources/import endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/sources/import', {
+    const response = await request.post('http://127.0.0.1:8000/api/sources/import', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3279,7 +3643,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/source-tables endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/source-tables', {
+    const response = await request.post('http://127.0.0.1:8000/api/source-tables', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3287,7 +3651,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/register-bronze-silver endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/register-bronze-silver', {
+    const response = await request.post('http://127.0.0.1:8000/api/register-bronze-silver', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3295,7 +3659,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/source-manager/discover-all endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/source-manager/discover-all', {
+    const response = await request.post('http://127.0.0.1:8000/api/source-manager/discover-all', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3303,7 +3667,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/load-config endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/load-config', {
+    const response = await request.post('http://127.0.0.1:8000/api/load-config', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3311,7 +3675,15 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/sql-explorer/server-label endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/sql-explorer/server-label', {
+    const response = await request.post('http://127.0.0.1:8000/api/sql-explorer/server-label', {
+      data: {},
+    });
+    expect(response.status()).not.toBe(404);
+    expect(response.status()).toBeLessThan(500);
+  });
+
+  test('POST /api/sql-explorer/register-tables endpoint exists (not 404)', async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:8000/api/sql-explorer/register-tables', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3319,7 +3691,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/audit/run endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/audit/run', {
+    const response = await request.post('http://127.0.0.1:8000/api/audit/run', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3327,7 +3699,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/fail endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/fail', {
+    const response = await request.post('http://127.0.0.1:8000/api/fail', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3335,7 +3707,7 @@ test.describe('API: Mutation endpoints (existence check)', () => {
   });
 
   test('POST /api/create endpoint exists (not 404)', async ({ request }) => {
-    const response = await request.post('http://localhost:8000/api/create', {
+    const response = await request.post('http://127.0.0.1:8000/api/create', {
       data: {},
     });
     expect(response.status()).not.toBe(404);
@@ -3349,28 +3721,28 @@ test.describe('API: Mutation endpoints (existence check)', () => {
 
 test.describe('API: Method validation', () => {
 
-  test('DELETE /api/... is rejected', async ({ request }) => {
-    const response = await request.delete('http://localhost:8000/api/...');
-    expect([404, 405]).toContain(response.status());
-  });
-
   test('DELETE /api/things is rejected', async ({ request }) => {
-    const response = await request.delete('http://localhost:8000/api/things');
+    const response = await request.delete('http://127.0.0.1:8000/api/things');
     expect([404, 405]).toContain(response.status());
   });
 
   test('DELETE /api/health is rejected', async ({ request }) => {
-    const response = await request.delete('http://localhost:8000/api/health');
+    const response = await request.delete('http://127.0.0.1:8000/api/health');
     expect([404, 405]).toContain(response.status());
   });
 
   test('DELETE /api/admin/config is rejected', async ({ request }) => {
-    const response = await request.delete('http://localhost:8000/api/admin/config');
+    const response = await request.delete('http://127.0.0.1:8000/api/admin/config');
     expect([404, 405]).toContain(response.status());
   });
 
   test('DELETE /api/fabric/workspaces is rejected', async ({ request }) => {
-    const response = await request.delete('http://localhost:8000/api/fabric/workspaces');
+    const response = await request.delete('http://127.0.0.1:8000/api/fabric/workspaces');
+    expect([404, 405]).toContain(response.status());
+  });
+
+  test('DELETE /api/fabric/connections is rejected', async ({ request }) => {
+    const response = await request.delete('http://127.0.0.1:8000/api/fabric/connections');
     expect([404, 405]).toContain(response.status());
   });
 });

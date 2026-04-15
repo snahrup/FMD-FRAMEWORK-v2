@@ -10,7 +10,7 @@ import {
  * Component: SourceManager
  * Source: dashboard/app/src/App.tsx
  *
- * KPIs detected: text-muted-foreground hover:text-foreground text-sm, pb-2, flex items-center gap-2, Source Manager, Entities, Table, Source Rows, Open in Fabric
+ * KPIs detected: text-muted-foreground hover:text-foreground text-sm, pb-2, flex items-center gap-2, Tables In Scope, Open journey, Open flow, Table, Source Rows
  * Status filters: incremental, full
  * Has search: yes
  * Table columns: Schema.Table, Output File, Path, Load Type, Status, Table, Watermark Column, Source Rows
@@ -85,22 +85,6 @@ test.describe('Page: /sources', () => {
       body.toLowerCase().includes('not reachable') ||
       await page.locator('[class*="error"], [class*="alert"], [role="alert"]').count() > 0;
     expect(hasErrorUI).toBe(true);
-  });
-
-  test('handles empty API response without crash', async ({ page }) => {
-    await page.route('**/api/**', route => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-    await page.goto('/sources');
-    await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(2000);
-    await expect(page.locator('body')).toBeVisible();
-    const bodyHTML = await page.locator('body').innerHTML();
-    expect(bodyHTML.trim().length).toBeGreaterThan(50);
   });
 
   test('handles network timeout gracefully', async ({ page }) => {

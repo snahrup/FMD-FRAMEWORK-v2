@@ -59,17 +59,26 @@ interface LzEntity {
 }
 
 interface Counts {
+  lzTotal?: string | number;
+  lzLoaded?: string | number;
+  lzPending?: string | number;
   lzRegistered?: string;
   lzPipelineTotal?: string;
   lzProcessed?: string;
+  brzTotal?: string | number;
+  brzLoaded?: string | number;
+  brzPending?: string | number;
   brzRegistered?: string;
   brzPipelineTotal?: string;
   brzProcessed?: string;
+  slvTotal?: string | number;
+  slvLoaded?: string | number;
+  slvPending?: string | number;
   slvRegistered?: string;
   slvPipelineTotal?: string;
   slvProcessed?: string;
-  brzViewPending?: string;
-  slvViewPending?: string;
+  toolReady?: string | number;
+  blocked?: string | number;
 }
 
 interface LiveData {
@@ -118,7 +127,8 @@ function fmtBytes(b: number): string {
   return `${(b / 1024 ** 3).toFixed(2)} GB`;
 }
 
-function num(v: string | undefined): number {
+function num(v: string | number | undefined): number {
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
   return parseInt(v || '0', 10) || 0;
 }
 
@@ -341,7 +351,7 @@ export default function LiveMonitor() {
             Live Pipeline Monitor
           </h1>
           <p className="text-sm mt-1" style={{ fontFamily: "var(--font-sans)", color: 'var(--bp-ink-secondary)' }}>
-            Real-time entity-level pipeline progress
+            Real-time Fabric load progress across Landing, Bronze, and Silver
             {lastRefresh && (
               <span className="ml-2 text-xs" style={{ fontFamily: "var(--font-mono)", color: 'var(--bp-ink-muted)' }}>
                 · Refresh #{refreshCount} · {lastRefresh.toLocaleTimeString()}
@@ -443,48 +453,46 @@ export default function LiveMonitor() {
           <CardContent className="space-y-5 pt-0">
             <ProgressBar
               label="Landing Zone"
-              current={num(counts.lzProcessed)}
-              total={num(counts.lzRegistered)}
+              current={num(counts.lzLoaded ?? counts.lzProcessed)}
+              total={num(counts.lzTotal ?? counts.lzRegistered)}
               color="bg-[var(--bp-copper)]"
             />
             <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: 'var(--bp-ink-muted)', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
-              <span>Registered: {num(counts.lzRegistered).toLocaleString()}</span>
+              <span>In scope: {num(counts.lzTotal ?? counts.lzRegistered).toLocaleString()}</span>
               <span>·</span>
-              <span>Queued: {num(counts.lzPipelineTotal).toLocaleString()}</span>
+              <span>Loaded: {num(counts.lzLoaded ?? counts.lzProcessed).toLocaleString()}</span>
               <span>·</span>
-              <span>Loaded: {num(counts.lzProcessed).toLocaleString()}</span>
+              <span>Remaining: {num(counts.lzPending).toLocaleString()}</span>
             </div>
 
             <ProgressBar
               label="Bronze"
-              current={num(counts.brzProcessed)}
-              total={num(counts.brzRegistered)}
+              current={num(counts.brzLoaded ?? counts.brzProcessed)}
+              total={num(counts.brzTotal ?? counts.brzRegistered)}
               color="bg-[var(--bp-caution)]"
             />
             <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: 'var(--bp-ink-muted)', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
-              <span>Registered: {num(counts.brzRegistered).toLocaleString()}</span>
+              <span>In scope: {num(counts.brzTotal ?? counts.brzRegistered).toLocaleString()}</span>
               <span>·</span>
-              <span>Queued: {num(counts.brzPipelineTotal).toLocaleString()}</span>
+              <span>Loaded: {num(counts.brzLoaded ?? counts.brzProcessed).toLocaleString()}</span>
               <span>·</span>
-              <span>Pending: {num(counts.brzViewPending).toLocaleString()}</span>
-              <span>·</span>
-              <span>Loaded: {num(counts.brzProcessed).toLocaleString()}</span>
+              <span>Remaining: {num(counts.brzPending).toLocaleString()}</span>
             </div>
 
             <ProgressBar
               label="Silver"
-              current={num(counts.slvProcessed)}
-              total={num(counts.slvRegistered)}
+              current={num(counts.slvLoaded ?? counts.slvProcessed)}
+              total={num(counts.slvTotal ?? counts.slvRegistered)}
               color="bg-[var(--bp-ink-tertiary)]"
             />
             <div className="flex items-center gap-4 text-[11px] -mt-1 pl-1" style={{ color: 'var(--bp-ink-muted)', fontFamily: "var(--font-mono)", fontFeatureSettings: '"tnum"' }}>
-              <span>Registered: {num(counts.slvRegistered).toLocaleString()}</span>
+              <span>In scope: {num(counts.slvTotal ?? counts.slvRegistered).toLocaleString()}</span>
               <span>·</span>
-              <span>Queued: {num(counts.slvPipelineTotal).toLocaleString()}</span>
+              <span>Loaded: {num(counts.slvLoaded ?? counts.slvProcessed).toLocaleString()}</span>
               <span>·</span>
-              <span>Pending: {num(counts.slvViewPending).toLocaleString()}</span>
+              <span>Remaining: {num(counts.slvPending).toLocaleString()}</span>
               <span>·</span>
-              <span>Loaded: {num(counts.slvProcessed).toLocaleString()}</span>
+              <span>Tool-ready: {num(counts.toolReady).toLocaleString()}</span>
             </div>
           </CardContent>
         )}

@@ -48,8 +48,12 @@ export function hasFullPipelineCoverage(entity: DigestEntity): boolean {
   return getEntityMissingLayers(entity).length === 0;
 }
 
+export function isEntityInPipelineScope(entity: DigestEntity): boolean {
+  return Boolean(entity.isActive);
+}
+
 export function isEntityToolReady(entity: DigestEntity): boolean {
-  return hasFullPipelineCoverage(entity) && !entity.lastError;
+  return isEntityInPipelineScope(entity) && hasFullPipelineCoverage(entity) && !entity.lastError;
 }
 
 export function getToolReadyEntities(entities: DigestEntity[]): DigestEntity[] {
@@ -57,7 +61,7 @@ export function getToolReadyEntities(entities: DigestEntity[]): DigestEntity[] {
 }
 
 export function getBlockedEntities(entities: DigestEntity[]): DigestEntity[] {
-  return entities.filter((entity) => !isEntityToolReady(entity));
+  return entities.filter((entity) => isEntityInPipelineScope(entity) && !isEntityToolReady(entity));
 }
 
 export function getEntityLakehouseSchema(entity: DigestEntity): string {

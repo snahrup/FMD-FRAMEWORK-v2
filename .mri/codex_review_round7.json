@@ -1,0 +1,15 @@
+I couldn’t inspect the repository state from this session, so I can’t give you a credible review of the uncommitted changes yet.
+
+The blocker is tool access, not the review itself:
+- Local process execution is failing with `CreateProcessAsUserW failed: 1920`.
+- The desktop file/process bridge tools are returning `user cancelled MCP tool call`, so I can’t read files or diff hunks.
+
+If you want the review in this thread, paste:
+```powershell
+git status --short
+git diff --stat
+git diff
+git diff --staged
+```
+
+With that, I’ll review it as requested: findings first, ordered by severity, with concrete file/line references and skepticism about regressions, edge cases, and missing tests.

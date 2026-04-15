@@ -1,44 +1,33 @@
 // ============================================================================
-// Business Overview — The default landing page for Business Portal mode.
+// Business Overview — Shared landing page for Business and Engineering personas.
 //
 // Design system: Industrial Precision, Light Mode
-// Matches wireframe: .superpowers/brainstorm/130-1773660833/bp-overview.html
-// Font: Manrope (all weights). All styles use BP CSS custom properties (--bp-*)
-// Data: /api/overview/kpis, /api/overview/sources, /api/overview/activity
+// Data: /api/metric-contract, /api/overview/sources, /api/overview/activity
 // ============================================================================
 
-import { useState, useEffect } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import {
   Crown,
-  Globe,
   Network,
   Radar,
   RefreshCw,
   Play,
 } from "lucide-react";
+import { useMetricContract } from "@/hooks/useMetricContract";
 import { useTerminology } from "@/hooks/useTerminology";
 import { resolveSourceLabel, getSourceColor } from "@/hooks/useSourceConfig";
-import { ProgressRing, StatusRail, toRailStatus, SourceBadge, SeverityBadge, toSeverity } from "@/components/business";
-import { LaunchTile } from "@/components/navigation/LaunchTile";
+import {
+  StatusRail,
+  toRailStatus,
+  SourceBadge,
+  SeverityBadge,
+  toSeverity,
+} from "@/components/business";
+import OverviewEstateCard from "@/components/overview/OverviewEstateCard";
+import OverviewWorkbenchCard from "@/components/overview/OverviewWorkbenchCard";
 
 const API = import.meta.env.VITE_API_URL || "";
-
-// ── Types ──
-
-interface KPIData {
-  freshness_pct: number;
-  freshness_on_time: number;
-  freshness_total: number;
-  freshness_ever_loaded: number;
-  freshness_last_success: string | null;
-  open_alerts: number;
-  sources_online: number;
-  sources_total: number;
-  total_entities: number;
-  loaded_entities: number;
-  quality_avg: number;
-}
 
 interface SourceHealth {
   name: string;
@@ -56,8 +45,6 @@ interface ActivityEvent {
   lastLoadDate: string | null;
 }
 
-// ── Helpers ──
-
 function relativeTime(dateStr: string | null): string {
   if (!dateStr) return "—";
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -69,14 +56,13 @@ function relativeTime(dateStr: string | null): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-// ── Skeleton ──
-
 function Skeleton({ className }: { className?: string }) {
   return (
     <div
       className={`rounded ${className ?? ""}`}
       style={{
-        background: "linear-gradient(90deg, var(--bp-surface-inset) 25%, var(--bp-surface-2) 50%, var(--bp-surface-inset) 75%)",
+        background:
+          "linear-gradient(90deg, var(--bp-surface-inset) 25%, var(--bp-surface-2) 50%, var(--bp-surface-inset) 75%)",
         backgroundSize: "200% 100%",
         animation: "bp-skeleton-shimmer 2s ease-in-out infinite",
       }}
@@ -84,26 +70,127 @@ function Skeleton({ className }: { className?: string }) {
   );
 }
 
-function KPIRowSkeleton() {
+function OverviewMetricCard({
+  label,
+  value,
+  denominator,
+  detail,
+  tone,
+  index,
+}: {
+  label: string;
+  value: number;
+  denominator: number;
+  detail: string;
+  tone: string;
+  index: number;
+}) {
+  const progress = denominator > 0 ? Math.max(0, Math.min(1, value / denominator)) : 0;
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
-      {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="bp-card" style={{ padding: 20 }}>
-          <Skeleton className="h-3 w-24 mb-3" />
-          <Skeleton className="h-10 w-20 mb-2" />
-          <Skeleton className="h-3 w-32" />
+    <div
+      className="bp-card gs-stagger-card"
+      style={{
+        "--i": index,
+        padding: 16,
+        minHeight: 132,
+        background: `linear-gradient(180deg, color-mix(in srgb, ${tone} 4%, var(--bp-surface-1)) 0%, var(--bp-surface-1) 100%)`,
+      } as CSSProperties}
+    >
+      <div className="bp-rail" style={{ background: tone, top: 12, bottom: 12 }} />
+      <div style={{ paddingLeft: 6 }}>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--bp-ink-secondary)",
+            marginBottom: 8,
+          }}
+        >
+          {label}
         </div>
-      ))}
+        <div
+          className="bp-mono"
+          style={{
+            fontSize: 22,
+            fontWeight: 700,
+            lineHeight: 1,
+            color: "var(--bp-ink-primary)",
+          }}
+        >
+          {value.toLocaleString("en-US")}
+          <span
+            style={{
+              marginLeft: 6,
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--bp-ink-tertiary)",
+            }}
+          >
+            / {denominator.toLocaleString("en-US")}
+          </span>
+        </div>
+        <div
+          style={{
+            marginTop: 8,
+            fontSize: 11,
+            lineHeight: 1.35,
+            color: "var(--bp-ink-muted)",
+          }}
+        >
+          {detail}
+        </div>
+        <div
+          style={{
+            marginTop: 14,
+            height: 6,
+            width: "100%",
+            borderRadius: 999,
+            background: "rgba(120,113,108,0.12)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              width: `${progress * 100}%`,
+              height: "100%",
+              borderRadius: 999,
+              background: tone,
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }
 
-// ── Main Component ──
+function MetricSkeletonCard({ index }: { index: number }) {
+  return (
+    <div
+      className="bp-card"
+      style={{
+        "--i": index,
+        padding: 16,
+        minHeight: 132,
+      } as CSSProperties}
+    >
+      <Skeleton className="h-3 w-24 mb-3" />
+      <Skeleton className="h-7 w-28 mb-2" />
+      <Skeleton className="h-3 w-32 mb-4" />
+      <Skeleton className="h-1.5 w-full" />
+    </div>
+  );
+}
 
 export default function BusinessOverview() {
   const { t, layer } = useTerminology();
+  const {
+    data: metrics,
+    loading: contractLoading,
+    error: contractError,
+    refresh: refreshMetrics,
+  } = useMetricContract();
 
-  const [kpis, setKpis] = useState<KPIData | null>(null);
   const [sources, setSources] = useState<SourceHealth[]>([]);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -111,189 +198,307 @@ export default function BusinessOverview() {
 
   async function fetchAll() {
     try {
-      const [kpiResult, srcResult, actResult] = await Promise.allSettled([
-        fetch(`${API}/api/overview/kpis`).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
-        fetch(`${API}/api/overview/sources`).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
-        fetch(`${API}/api/overview/activity`).then((r) => r.ok ? r.json() : Promise.reject(r.statusText)),
+      const [srcResult, actResult] = await Promise.allSettled([
+        fetch(`${API}/api/overview/sources`).then((r) =>
+          r.ok ? r.json() : Promise.reject(r.statusText)
+        ),
+        fetch(`${API}/api/overview/activity`).then((r) =>
+          r.ok ? r.json() : Promise.reject(r.statusText)
+        ),
       ]);
 
-      if (kpiResult.status === "fulfilled") setKpis(kpiResult.value);
       if (srcResult.status === "fulfilled") setSources(srcResult.value);
       if (actResult.status === "fulfilled") setActivity(actResult.value);
 
-      const failures = [kpiResult, srcResult, actResult].filter((r) => r.status === "rejected");
-      if (failures.length === 3) {
-        setError("All overview endpoints failed");
-      } else if (failures.length > 0) {
-        setError(null); // partial data is better than no data
+      const failures = [srcResult, actResult].filter(
+        (result) => result.status === "rejected"
+      );
+      if (failures.length === 2) {
+        setError("Overview activity and source health failed");
       } else {
         setError(null);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load overview data");
+    } catch (fetchError) {
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : "Failed to load overview data"
+      );
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    fetchAll();
-    const timer = setInterval(fetchAll, 30_000);
+    void fetchAll();
+    const timer = setInterval(() => {
+      void fetchAll();
+      void refreshMetrics();
+    }, 30_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [refreshMetrics]);
 
   const alerts = activity
     .filter((a) => a.status === "error" || a.status === "warning")
     .slice(0, 5);
 
   const recentActivity = activity
-    .filter((a) => a.status === "success" || a.status === "running" || a.status === "pending")
+    .filter(
+      (a) =>
+        a.status === "success" ||
+        a.status === "running" ||
+        a.status === "pending"
+    )
     .slice(0, 8);
-  const sourceCount = sources.length;
-  const totalEntities = sourceCount > 0 ? sources.reduce((sum, source) => sum + source.entityCount, 0) : 0;
-  const totalLoaded = kpis?.loaded_entities ?? 0;
-  const totalErrors = alerts.length;
-  const healthySources = sourceCount > 0 ? sources.filter((source) => source.status === "operational").length : 0;
-  const outstandingLoads = Math.max((kpis?.total_entities || 0) - (kpis?.loaded_entities || 0), 0);
-  const launchCards = [
+
+  const sourceCount = metrics?.sources.total ?? sources.length;
+  const healthySources =
+    metrics?.sources.operational ??
+    (sourceCount > 0
+      ? sources.filter((source) => source.status === "operational").length
+      : 0);
+  const tablesInScope = metrics?.tables.inScope.value ?? 0;
+  const landingLoaded = metrics?.tables.landingLoaded.value ?? 0;
+  const bronzeLoaded = metrics?.tables.bronzeLoaded.value ?? 0;
+  const silverLoaded = metrics?.tables.silverLoaded.value ?? 0;
+  const toolReady = metrics?.tables.toolReady.value ?? 0;
+  const blockedTables = metrics?.tables.blocked.value ?? 0;
+  const pageLoading = loading || contractLoading;
+  const pageError = contractError || error;
+  const contractReady = Boolean(metrics);
+  const latestActivity = recentActivity[0] ?? null;
+
+  const latestSignal = latestActivity
+    ? `${latestActivity.entityName} ${
+        latestActivity.status === "running"
+          ? "loading"
+          : latestActivity.status === "pending"
+            ? "waiting"
+            : "refreshed"
+      } · ${resolveSourceLabel(latestActivity.source)} · ${layer(latestActivity.layer)}`
+    : metrics?.lastSuccess.silver
+      ? `Silver last moved ${relativeTime(metrics.lastSuccess.silver)}`
+      : "Waiting for fresh activity";
+
+  const overviewCards = [
     {
       to: "/load-center",
       icon: Play,
       eyebrow: "Finish the pipeline",
       title: "Load Center",
-      summary: "Start and finish imports in one place, see missing layers clearly, and stop guessing what still has not landed in the managed path.",
+      summary:
+        "Start and finish imports in one place, see missing layers clearly, and stop guessing what still has not landed in the managed path.",
       ctaLabel: "Open Load Center",
       accent: "var(--bp-copper)",
-      statLabel: "Outstanding",
-      statValue: outstandingLoads.toLocaleString("en-US"),
-      features: ["Completion plan", "Gap queue", "Single entry point"],
-    },
-    {
-      to: "/explore",
-      icon: Network,
-      eyebrow: "Choose the right tool",
-      title: "Explore",
-      summary: "Start here when the question is which investigative surface to use, then jump into catalog, lineage, profiler, blender, or SQL Explorer with less explanation on each page.",
-      ctaLabel: "Open Explore",
-      accent: "var(--bp-operational)",
-      statLabel: "Usable now",
-      statValue: (kpis?.loaded_entities || 0).toLocaleString("en-US"),
-      features: ["Tool previews", "Direct launch", "Lower page clutter"],
+      statLabel: "Landing Loaded",
+      statValue: contractReady ? landingLoaded.toLocaleString("en-US") : "—",
+      statDetail: contractReady
+        ? `${tablesInScope.toLocaleString("en-US")} in scope`
+        : undefined,
     },
     {
       to: "/load-mission-control",
       icon: Radar,
       eyebrow: "Watch active work",
       title: "Mission Control",
-      summary: "Use the monitoring workspace after execution starts to watch run state, inspect failures, and understand what happened during the load.",
+      summary:
+        "Use the monitoring workspace after execution starts to inspect failures, execution state, and what changed during the load.",
       ctaLabel: "Open Mission Control",
       accent: "var(--bp-silver)",
-      statLabel: "Blockers",
-      statValue: (kpis?.open_alerts || 0).toLocaleString("en-US"),
-      features: ["Run telemetry", "Failure triage", "Execution evidence"],
+      statLabel: "Silver Loaded",
+      statValue: contractReady ? silverLoaded.toLocaleString("en-US") : "—",
+      statDetail: contractReady
+        ? `${tablesInScope.toLocaleString("en-US")} in scope`
+        : undefined,
     },
     {
-      to: "/estate",
-      icon: Globe,
-      eyebrow: "See the whole map",
-      title: "Data Estate",
-      summary: "Use the estate map when the question is coverage, source posture, or whether a weak zone upstream is making every downstream tool feel inconsistent.",
-      ctaLabel: "Open Estate",
-      accent: "var(--bp-ink-primary)",
-      statLabel: "Healthy sources",
-      statValue: `${healthySources.toLocaleString("en-US")}/${sourceCount.toLocaleString("en-US")}`,
-      features: ["Source posture", "Layer coverage", "Governance map"],
+      to: "/explore",
+      icon: Network,
+      eyebrow: "Choose the right tool",
+      title: "Explore",
+      summary:
+        "Start here when the question is which investigative surface to use before moving into catalog, lineage, profiler, blender, or SQL Explorer.",
+      ctaLabel: "Open Explore",
+      accent: "var(--bp-operational)",
+      statLabel: "Tool-Ready",
+      statValue: contractReady ? toolReady.toLocaleString("en-US") : "—",
+      statDetail: contractReady
+        ? `${tablesInScope.toLocaleString("en-US")} in scope`
+        : undefined,
     },
     {
       to: "/gold/intake",
       icon: Crown,
       eyebrow: "Build the publish path",
       title: "Gold Studio",
-      summary: "Open the guided gold workflow when the question is how to take a curated asset from intake through release and serving without losing context.",
+      summary:
+        "Open the guided gold workflow when the question is how to take a curated asset from intake through release and serving without losing context.",
       ctaLabel: "Open Gold Studio",
-      accent: "var(--bp-copper-hover)",
-      statLabel: "Quality avg",
-      statValue: kpis ? `${kpis.quality_avg.toFixed(0)}%` : "—",
-      features: ["Guided stages", "Context carry-forward", "Release evidence"],
+      accent: "var(--bp-gold)",
+      statLabel: "Quality Avg",
+      statValue: metrics
+        ? `${metrics.quality.averageScore.toFixed(0)}%`
+        : "—",
+      statDetail: blockedTables > 0 ? `${blockedTables.toLocaleString("en-US")} blocked` : "Release posture",
     },
   ];
 
   return (
-    <div style={{ padding: 32, maxWidth: 1280 }}>
+    <div className="bp-page-shell-wide space-y-6">
       <div
-        className="bp-card"
+        className="bp-card gs-page-enter"
         style={{
-          padding: 22,
-          marginBottom: 20,
-          background: "linear-gradient(135deg, rgba(180,86,36,0.05) 0%, rgba(255,255,255,0.98) 44%, rgba(244,242,237,0.98) 100%)",
+          padding: 18,
+          background:
+            "linear-gradient(135deg, rgba(180,86,36,0.05) 0%, rgba(250,247,243,0.98) 58%, rgba(255,255,255,0.98) 100%)",
         }}
       >
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div style={{ maxWidth: 860 }}>
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                color: "var(--bp-copper)",
-              }}
-            >
-              Front Door
+        <div className="bp-rail bp-rail-caution" style={{ top: 14, bottom: 14 }} />
+        <div style={{ paddingLeft: 6 }}>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div style={{ minWidth: 0, maxWidth: 820 }}>
+              <div
+                style={{
+                  fontFamily: "var(--bp-font-mono)",
+                  fontSize: 10,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "var(--bp-copper)",
+                }}
+              >
+                Primary KPIs
+              </div>
+              <h1
+                className="bp-display"
+                style={{
+                  margin: "8px 0 0",
+                  fontSize: 28,
+                  lineHeight: 1.08,
+                  color: "var(--bp-ink-primary)",
+                }}
+              >
+                System Overview
+              </h1>
+              <p
+                style={{
+                  margin: "10px 0 0",
+                  maxWidth: 760,
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  color: "var(--bp-ink-secondary)",
+                }}
+              >
+                Start here to understand estate posture, see what is usable now,
+                and route into Load Center, Mission Control, Explore, or Gold
+                Studio without carrying the full explanation on every page.
+              </p>
             </div>
-            <h1
-              className="bp-display"
-              style={{
-                margin: "10px 0 0",
-                fontSize: 34,
-                lineHeight: 1.06,
-                color: "var(--bp-ink-primary)",
-              }}
-            >
-              Start here, then move into the right workspace
-            </h1>
-            <p
-              style={{
-                margin: "10px 0 0",
-                fontSize: 14,
-                lineHeight: 1.6,
-                color: "var(--bp-ink-secondary)",
-              }}
-            >
-              Use Overview to see what needs attention, understand what each major section is for, and jump directly into the next surface without every page carrying a giant instructional billboard.
-            </p>
-          </div>
-          <button
-            onClick={fetchAll}
-            className="inline-flex items-center gap-2 rounded-full px-4 py-2.5 transition-transform hover:-translate-y-0.5"
-            style={{
-              border: "1px solid var(--bp-border)",
-              background: "rgba(255,255,255,0.82)",
-              color: "var(--bp-ink-secondary)",
-              fontSize: 12,
-              fontWeight: 700,
-            }}
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            Refresh overview
-          </button>
-        </div>
 
-        <div
-          className="grid gap-4"
-          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", marginTop: 18 }}
-        >
-          {launchCards.map((card) => (
-            <LaunchTile key={card.to} {...card} />
-          ))}
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <div
+                className="rounded-full px-3 py-2"
+                style={{
+                  border: "1px solid var(--bp-border)",
+                  background: "rgba(255,255,255,0.78)",
+                  maxWidth: 340,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: "var(--bp-font-mono)",
+                    fontSize: 10,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: "var(--bp-ink-tertiary)",
+                  }}
+                >
+                  Latest Signal
+                </span>
+                <span
+                  style={{
+                    marginLeft: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--bp-ink-primary)",
+                  }}
+                >
+                  {latestSignal}
+                </span>
+              </div>
+
+              <button
+                onClick={() => {
+                  void refreshMetrics();
+                  void fetchAll();
+                }}
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2.5 transition-transform hover:-translate-y-0.5"
+                style={{
+                  border: "1px solid rgba(120,113,108,0.1)",
+                  background: "rgba(255,255,255,0.78)",
+                  color: "var(--bp-ink-secondary)",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                <RefreshCw size={14} className={pageLoading ? "animate-spin" : ""} />
+                Refresh overview
+              </button>
+            </div>
+          </div>
+
+          <div
+            className="grid grid-cols-2 gap-3 xl:grid-cols-4"
+            style={{ marginTop: 18 }}
+          >
+            {pageLoading && !metrics ? (
+              [0, 1, 2, 3].map((index) => <MetricSkeletonCard key={index} index={index} />)
+            ) : (
+              <>
+                <OverviewMetricCard
+                  label="Landing Loaded"
+                  value={landingLoaded}
+                  denominator={tablesInScope}
+                  detail="Tables confirmed in Landing"
+                  tone="var(--bp-copper)"
+                  index={0}
+                />
+                <OverviewMetricCard
+                  label="Bronze Loaded"
+                  value={bronzeLoaded}
+                  denominator={tablesInScope}
+                  detail="Tables materialized in Bronze"
+                  tone="var(--bp-bronze)"
+                  index={1}
+                />
+                <OverviewMetricCard
+                  label="Silver Loaded"
+                  value={silverLoaded}
+                  denominator={tablesInScope}
+                  detail="Tables available in Silver"
+                  tone="var(--bp-silver)"
+                  index={2}
+                />
+                <OverviewMetricCard
+                  label="Tool-Ready"
+                  value={toolReady}
+                  denominator={tablesInScope}
+                  detail={
+                    blockedTables > 0
+                      ? `${blockedTables.toLocaleString("en-US")} still blocked before tool mode`
+                      : `${t("Tables")} are clear for downstream investigation`
+                  }
+                  tone="var(--bp-operational)"
+                  index={3}
+                />
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ── Error banner ── */}
-      {error && (
+      {pageError ? (
         <div
           style={{
-            marginBottom: 20,
             display: "flex",
             alignItems: "center",
             gap: 8,
@@ -305,429 +510,275 @@ export default function BusinessOverview() {
             border: "1px solid rgba(185, 58, 42, 0.2)",
           }}
         >
-          {error}
+          {pageError}
         </div>
-      )}
+      ) : null}
 
-      {/* ── KPI Row — asymmetric: freshness 1.5x wider ── */}
-      {loading ? (
-        <KPIRowSkeleton />
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
-          {/* Freshness — hero value + progress ring */}
-          <div className="bp-card" style={{ padding: 20 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-              <div style={{ flex: 1 }}>
-                <div
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 500,
-                    color: "var(--bp-ink-tertiary)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                    marginBottom: 8,
-                  }}
-                >
-                  Data Freshness
-                </div>
-                {kpis && kpis.freshness_total > 0 ? (
-                  <>
-                    <div
-                      className="bp-mono"
-                      style={{
-                        fontSize: 42,
-                        fontWeight: 500,
-                        color: "var(--bp-ink-primary)",
-                        lineHeight: 1,
-                      }}
-                    >
-                      {kpis.freshness_pct.toFixed(1)}%
-                    </div>
-                    {kpis.freshness_on_time > 0 ? (
-                      <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
-                        {kpis.freshness_on_time.toLocaleString()} of {kpis.freshness_total.toLocaleString()} {t("tables")} refreshed in last 24h
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
-                        {kpis.freshness_ever_loaded.toLocaleString()} of {kpis.freshness_total.toLocaleString()} {t("tables")} ever loaded
-                        {kpis.freshness_last_success && (
-                          <span style={{ display: "block", marginTop: 2, fontSize: 12, color: "var(--bp-ink-muted)" }}>
-                            Last success: {relativeTime(kpis.freshness_last_success)}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <div
-                      className="bp-mono"
-                      style={{
-                        fontSize: 42,
-                        fontWeight: 500,
-                        color: "var(--bp-ink-muted)",
-                        lineHeight: 1,
-                      }}
-                    >
-                      —
-                    </div>
-                    <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
-                      No load data yet
-                    </div>
-                  </>
-                )}
-              </div>
-              <ProgressRing pct={kpis && kpis.freshness_total > 0 ? kpis.freshness_pct : 0} size={72} strokeWidth={5} />
-            </div>
-          </div>
-
-          {/* Open Blockers */}
-          <div className="bp-card" style={{ padding: 20 }}>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color: "var(--bp-ink-tertiary)",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-                marginBottom: 8,
-              }}
-            >
-              Open Blockers
-            </div>
-            <div
-              className="bp-mono"
-              style={{
-                fontSize: 42,
-                fontWeight: 500,
-                lineHeight: 1,
-                color: kpis && kpis.open_alerts > 0 ? "var(--bp-fault)" : "var(--bp-ink-primary)",
-              }}
-            >
-              {kpis?.open_alerts ?? "—"}
-            </div>
-            <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
-              {kpis?.open_alerts === 0
-                ? "All clear"
-                : `${kpis?.open_alerts} outstanding in the chain`}
-            </div>
-          </div>
-
-          {/* Sources Online — split size for "N / M" */}
-          <div className="bp-card" style={{ padding: 20 }}>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color: "var(--bp-ink-tertiary)",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-                marginBottom: 8,
-              }}
-            >
-              Sources Online
-            </div>
-            <div className="bp-mono" style={{ fontSize: 42, fontWeight: 500, lineHeight: 1, color: "var(--bp-ink-primary)" }}>
-              {kpis ? (
-                <>
-                  {kpis.sources_online}
-                  <span style={{ fontSize: 24, color: "var(--bp-ink-tertiary)" }}> / {kpis.sources_total}</span>
-                </>
-              ) : (
-                "—"
-              )}
-            </div>
-            <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
-              {kpis && kpis.sources_online === kpis.sources_total
-                ? "All sources connected"
-                : kpis
-                ? `${kpis.sources_total - kpis.sources_online} offline`
-                : "—"}
-            </div>
-          </div>
-
-          {/* Total Tables */}
-          <div className="bp-card" style={{ padding: 20 }}>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color: "var(--bp-ink-tertiary)",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-                marginBottom: 8,
-              }}
-            >
-              {t("Tables")}
-            </div>
-            <div className="bp-mono" style={{ fontSize: 42, fontWeight: 500, lineHeight: 1, color: "var(--bp-ink-primary)" }}>
-              {kpis ? (
-                <>
-                  {kpis.loaded_entities.toLocaleString()}
-                  <span style={{ fontSize: 24, color: "var(--bp-ink-tertiary)" }}> / {kpis.total_entities.toLocaleString()}</span>
-                </>
-              ) : "—"}
-            </div>
-            <div style={{ fontSize: 13, color: "var(--bp-ink-tertiary)", marginTop: 6 }}>
-              {kpis ? `${kpis.loaded_entities.toLocaleString()} loaded of ${kpis.total_entities.toLocaleString()} registered` : "—"}
-            </div>
-          </div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(252px,0.9fr)_minmax(0,1.55fr)_minmax(252px,0.9fr)]">
+        <div className="order-2 grid grid-cols-2 gap-4 xl:order-1 xl:grid-cols-1">
+          {overviewCards.slice(0, 2).map((card, index) => (
+            <OverviewWorkbenchCard key={card.to} {...card} />
+          ))}
         </div>
-      )}
 
-      {/* ── Content: 60/40 split ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 24 }}>
-        {/* ── Left: Recent Alerts ── */}
-        <div className="bp-card">
+        <div className="order-1 xl:order-2 xl:row-span-2">
+          <OverviewEstateCard
+            tablesInScope={tablesInScope}
+            landingLoaded={landingLoaded}
+            bronzeLoaded={bronzeLoaded}
+            silverLoaded={silverLoaded}
+            toolReady={toolReady}
+            blockedTables={blockedTables}
+            healthySources={healthySources}
+            sourceCount={sourceCount}
+          />
+        </div>
+
+        <div className="order-3 grid grid-cols-2 gap-4 xl:grid-cols-1">
+          {overviewCards.slice(2).map((card) => (
+            <OverviewWorkbenchCard key={card.to} {...card} />
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bp-card" style={{ minHeight: 240 }}>
           <div className="bp-panel-header">
-            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--bp-ink-primary)",
+              }}
+            >
               Recent Alerts
             </span>
-            <Link to="/alerts" className="bp-link" style={{ fontSize: 13 }}>
+            <Link to="/errors" className="bp-link" style={{ fontSize: 13 }}>
               View all alerts →
             </Link>
           </div>
 
           {loading ? (
             <div>
-              {[0, 1, 2, 3].map((i) => (
+              {[0, 1, 2].map((i) => (
                 <div
                   key={i}
-                  style={{ padding: "14px 20px", borderBottom: "1px solid var(--bp-border-subtle)" }}
+                  style={{
+                    padding: "14px 18px",
+                    borderBottom: "1px solid var(--bp-border-subtle)",
+                  }}
                 >
-                  <Skeleton className="h-3 w-40 mb-2" />
-                  <Skeleton className="h-4 w-64 mb-1.5" />
-                  <Skeleton className="h-3 w-32" />
+                  <Skeleton className="h-3 w-28 mb-2" />
+                  <Skeleton className="h-4 w-44 mb-1.5" />
+                  <Skeleton className="h-3 w-20" />
                 </div>
               ))}
             </div>
           ) : alerts.length === 0 ? (
             <div
-              style={{ padding: "48px 20px", textAlign: "center", fontSize: 14, color: "var(--bp-ink-muted)" }}
+              style={{
+                padding: "52px 20px",
+                textAlign: "center",
+                fontSize: 13,
+                lineHeight: 1.55,
+                color: "var(--bp-ink-secondary)",
+              }}
             >
-              No active alerts — all systems normal
+              <div
+                className="bp-display"
+                style={{
+                  fontSize: 16,
+                  lineHeight: 1.05,
+                  color: "var(--bp-ink-primary)",
+                }}
+              >
+                No active alerts
+              </div>
+              <div style={{ marginTop: 6 }}>All systems normal</div>
             </div>
           ) : (
             <div>
-              {alerts.map((alert, i) => (
+              {alerts.map((alert, index) => (
                 <div
-                  key={i}
+                  key={`${alert.entityName}-${index}`}
                   style={{
                     display: "flex",
                     gap: 12,
-                    padding: "14px 20px",
-                    borderBottom: i < alerts.length - 1 ? "1px solid var(--bp-border-subtle)" : "none",
+                    padding: "14px 18px",
+                    borderBottom:
+                      index < alerts.length - 1
+                        ? "1px solid var(--bp-border-subtle)"
+                        : "none",
                     position: "relative",
                   }}
                 >
-                  {/* Status rail */}
                   <StatusRail status={toRailStatus(alert.status)} />
 
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 4,
+                        flexWrap: "wrap",
+                      }}
+                    >
                       <SeverityBadge severity={toSeverity(alert.status)} />
                       <SourceBadge source={alert.source} />
                     </div>
                     <div
                       style={{
-                        fontSize: 14,
-                        fontWeight: 500,
+                        fontSize: 13,
+                        fontWeight: 600,
                         color: "var(--bp-ink-primary)",
-                        lineHeight: 1.3,
+                        lineHeight: 1.25,
                       }}
                     >
                       {alert.entityName}
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--bp-ink-muted)", marginTop: 4 }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--bp-ink-muted)",
+                        marginTop: 4,
+                      }}
+                    >
                       {layer(alert.layer)} layer
-                      {alert.lastLoadDate ? ` · First seen ${relativeTime(alert.lastLoadDate)}` : ""}
+                      {alert.lastLoadDate
+                        ? ` · First seen ${relativeTime(alert.lastLoadDate)}`
+                        : ""}
                     </div>
                   </div>
-
-                  <span
-                    className="bp-mono"
-                    style={{
-                      fontSize: 11,
-                      color: "var(--bp-ink-muted)",
-                      whiteSpace: "nowrap",
-                      alignSelf: "flex-start",
-                      marginTop: 2,
-                    }}
-                  >
-                    {relativeTime(alert.lastLoadDate)}
-                  </span>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* ── Right: Stacked panels ── */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-          {/* Source Health */}
-          <div className="bp-card">
-            <div className="bp-panel-header">
-              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
-                Source Health
-              </span>
-              <Link to="/sources-portal" className="bp-link" style={{ fontSize: 13 }}>
-                All sources →
-              </Link>
-            </div>
+        <div className="bp-card" style={{ minHeight: 240 }}>
+          <div className="bp-panel-header">
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--bp-ink-primary)",
+              }}
+            >
+              Source Health
+            </span>
+            <Link to="/sources" className="bp-link" style={{ fontSize: 13 }}>
+              All sources →
+            </Link>
+          </div>
 
-            <div style={{ maxHeight: 220, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--bp-border-strong) transparent" }}>
-              {loading ? (
-                <div>
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "10px 20px",
-                        borderBottom: "1px solid var(--bp-border-subtle)",
-                      }}
-                    >
-                      <Skeleton className="h-2.5 w-2.5 rounded-full" />
-                      <Skeleton className="h-3 w-24 flex-1" />
-                      <Skeleton className="h-3 w-16" />
-                      <Skeleton className="h-3 w-8" />
-                    </div>
-                  ))}
-                </div>
-              ) : sources.length === 0 ? (
-                <div
-                  style={{ padding: "32px 20px", textAlign: "center", fontSize: 13, color: "var(--bp-ink-muted)" }}
-                >
-                  No sources configured
-                </div>
-              ) : (
-                <div>
-                  {sources.map((src, i) => {
-                    const srcColor = getSourceColor(src.name);
-                    const label = src.displayName || resolveSourceLabel(src.name);
-                    const statusColor =
-                      src.status === "operational"
-                        ? "var(--bp-operational)"
-                        : src.status === "degraded"
+          <div
+            style={{
+              maxHeight: 268,
+              overflowY: "auto",
+              scrollbarWidth: "thin",
+              scrollbarColor: "var(--bp-border-strong) transparent",
+            }}
+          >
+            {loading ? (
+              <div>
+                {[0, 1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "12px 18px",
+                      borderBottom: "1px solid var(--bp-border-subtle)",
+                    }}
+                  >
+                    <Skeleton className="h-2.5 w-2.5 rounded-full" />
+                    <Skeleton className="h-3 w-24 flex-1" />
+                    <Skeleton className="h-3 w-14" />
+                    <Skeleton className="h-3 w-8" />
+                  </div>
+                ))}
+              </div>
+            ) : sources.length === 0 ? (
+              <div
+                style={{
+                  padding: "40px 20px",
+                  textAlign: "center",
+                  fontSize: 13,
+                  color: "var(--bp-ink-muted)",
+                }}
+              >
+                No sources configured
+              </div>
+            ) : (
+              <div>
+                {sources.map((source, index) => {
+                  const srcColor = getSourceColor(source.name);
+                  const label = source.displayName || resolveSourceLabel(source.name);
+                  const statusColor =
+                    source.status === "operational"
+                      ? "var(--bp-operational)"
+                      : source.status === "degraded"
                         ? "var(--bp-caution)"
                         : "var(--bp-fault)";
 
-                    return (
-                      <div
-                        key={src.name}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          padding: "10px 20px",
-                          borderBottom: i < sources.length - 1 ? "1px solid var(--bp-border-subtle)" : "none",
-                          fontSize: 13,
-                        }}
-                      >
-                        <span className="bp-source-dot" style={{ backgroundColor: srcColor.hex }} />
-                        <span style={{ flex: 1, fontWeight: 500, color: "var(--bp-ink-primary)" }}>
-                          {label}
-                        </span>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: statusColor, textTransform: "capitalize" }}>
-                          {src.status}
-                        </span>
-                        <span
-                          className="bp-mono"
-                          style={{
-                            fontSize: 12,
-                            color: "var(--bp-ink-tertiary)",
-                            minWidth: 48,
-                            textAlign: "right",
-                          }}
-                        >
-                          {src.entityCount.toLocaleString()}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Recent Activity */}
-          <div className="bp-card">
-            <div className="bp-panel-header">
-              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
-                Recent Activity
-              </span>
-            </div>
-
-            <div style={{ maxHeight: 200, overflowY: "auto", scrollbarWidth: "thin", scrollbarColor: "var(--bp-border-strong) transparent" }}>
-              {loading ? (
-                <div>
-                  {[0, 1, 2, 3, 4].map((i) => (
+                  return (
                     <div
-                      key={i}
-                      style={{ padding: "10px 20px", borderBottom: "1px solid var(--bp-border-subtle)" }}
+                      key={source.name}
+                      className="gs-stagger-row"
+                      style={{
+                        "--i": index,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "12px 18px",
+                        borderBottom:
+                          index < sources.length - 1
+                            ? "1px solid var(--bp-border-subtle)"
+                            : "none",
+                        fontSize: 13,
+                      } as CSSProperties}
                     >
-                      <Skeleton className="h-3 w-48 mb-1.5" />
-                      <Skeleton className="h-2.5 w-16" />
-                    </div>
-                  ))}
-                </div>
-              ) : recentActivity.length === 0 ? (
-                <div
-                  style={{ padding: "32px 20px", textAlign: "center", fontSize: 13, color: "var(--bp-ink-muted)" }}
-                >
-                  No recent activity
-                </div>
-              ) : (
-                <div>
-                  {recentActivity.map((evt, i) => {
-                    const srcLabel = resolveSourceLabel(evt.source);
-                    const statusLabel =
-                      evt.status === "success"
-                        ? "refreshed"
-                        : evt.status === "running"
-                        ? "loading"
-                        : "pending";
-                    const statusColor =
-                      evt.status === "running"
-                        ? "var(--bp-caution)"
-                        : evt.status === "pending"
-                        ? "var(--bp-ink-muted)"
-                        : undefined;
-                    return (
-                      <div
-                        key={i}
+                      <span
+                        className="bp-source-dot"
+                        style={{ backgroundColor: srcColor.hex }}
+                      />
+                      <span
                         style={{
-                          padding: "10px 20px",
-                          borderBottom: i < recentActivity.length - 1 ? "1px solid var(--bp-border-subtle)" : "none",
-                          fontSize: 13,
-                          color: "var(--bp-ink-secondary)",
-                          lineHeight: 1.4,
-                          opacity: evt.status === "pending" ? 0.65 : 1,
+                          flex: 1,
+                          fontWeight: 600,
+                          color: "var(--bp-ink-primary)",
                         }}
                       >
-                        <span style={{ fontWeight: 500, color: statusColor ?? "var(--bp-ink-primary)" }}>
-                          {evt.entityName}
-                        </span>
-                        {" "}{statusLabel} from {srcLabel} · {layer(evt.layer)}
-                        <br />
-                        <span
-                          className="bp-mono"
-                          style={{ fontSize: 11, color: "var(--bp-ink-muted)" }}
-                        >
-                          {evt.status === "running"
-                            ? "In progress"
-                            : evt.status === "pending"
-                            ? "Not started"
-                            : relativeTime(evt.lastLoadDate)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                        {label}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: statusColor,
+                          textTransform: "capitalize",
+                        }}
+                      >
+                        {source.status}
+                      </span>
+                      <span
+                        className="bp-mono"
+                        style={{
+                          fontSize: 12,
+                          color: "var(--bp-ink-tertiary)",
+                          minWidth: 40,
+                          textAlign: "right",
+                        }}
+                      >
+                        {source.entityCount.toLocaleString("en-US")}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

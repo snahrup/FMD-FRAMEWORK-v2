@@ -21,10 +21,10 @@ export default defineConfig({
     timeout: 15_000,
   },
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://127.0.0.1:5173',
     trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    screenshot: 'on',
+    video: 'on',
     actionTimeout: 10_000,
     navigationTimeout: 20_000,
   },

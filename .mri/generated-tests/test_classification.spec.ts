@@ -10,7 +10,7 @@ import {
  * Component: DataClassification
  * Source: dashboard/app/src/App.tsx
  *
- * KPIs detected: Total Entities, Est. Columns, PII Detected, Confidential, py-4, pb-3, text-sm, p-0
+ * KPIs detected: Tables In Scope, Est. Columns, PII Detected, Confidential, py-4, pb-3, text-sm, p-0
  * Has search: yes
  * Table columns: Source, {level}, Unclassified, Entity, Schema, Layers, Classification, Rows
  *

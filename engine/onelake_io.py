@@ -19,6 +19,7 @@ Filesystem paths:
 import io
 import logging
 import os
+import shutil
 import time
 from pathlib import Path
 from typing import Optional
@@ -43,6 +44,20 @@ def _strip_tz(df: pl.DataFrame) -> pl.DataFrame:
     if cast_cols:
         df = df.with_columns(cast_cols)
     return df
+
+
+def _should_reset_delta_table(exc: Exception, mode: str) -> bool:
+    """Return True when overwrite can safely recover by recreating the table."""
+    if str(mode).lower() != "overwrite":
+        return False
+    msg = str(exc).lower()
+    reset_markers = (
+        "invalid table version",
+        "unsupported reader version",
+        "unsupported writer version",
+        "invalid protocol",
+    )
+    return any(marker in msg for marker in reset_markers)
 
 
 class OneLakeIO:
@@ -300,7 +315,13 @@ class OneLakeIO:
             return self._write_delta_fs(table_path, df, mode)
         return self._write_delta_adls(workspace_id, table_path, df, mode)
 
-    def _write_delta_fs(self, table_path: str, df: pl.DataFrame, mode: str) -> bool:
+    def _write_delta_fs(
+        self,
+        table_path: str,
+        df: pl.DataFrame,
+        mode: str,
+        _allow_reset: bool = True,
+    ) -> bool:
         """Write Delta table to local OneLake Explorer mount."""
         t0 = time.perf_counter()
         local_path = self._resolve_local_path(table_path)
@@ -333,11 +354,28 @@ class OneLakeIO:
                      os.path.basename(local_path), expected_rows, elapsed, mode, verified)
             return True
         except Exception as exc:
+            if _allow_reset and _should_reset_delta_table(exc, mode):
+                log.warning(
+                    "Resetting incompatible Delta table (fs) %s after write failure: %s",
+                    local_path, exc,
+                )
+                try:
+                    self._reset_delta_fs(local_path)
+                    return self._write_delta_fs(
+                        table_path, df, mode="overwrite", _allow_reset=False
+                    )
+                except Exception as reset_exc:
+                    log.error("Failed to reset Delta table (fs) %s: %s", local_path, reset_exc)
             log.error("Failed to write delta (fs) %s: %s", local_path, exc)
             return False
 
     def _write_delta_adls(
-        self, workspace_id: str, table_path: str, df: pl.DataFrame, mode: str
+        self,
+        workspace_id: str,
+        table_path: str,
+        df: pl.DataFrame,
+        mode: str,
+        _allow_reset: bool = True,
     ) -> bool:
         """Write Delta table via ADLS SDK."""
         t0 = time.perf_counter()
@@ -362,8 +400,38 @@ class OneLakeIO:
                      table_path.split("/")[-1], expected_rows, elapsed, mode, verified)
             return True
         except Exception as exc:
+            if _allow_reset and _should_reset_delta_table(exc, mode):
+                log.warning(
+                    "Resetting incompatible Delta table (adls) %s after write failure: %s",
+                    table_path, exc,
+                )
+                try:
+                    self._reset_delta_adls(workspace_id, table_path)
+                    return self._write_delta_adls(
+                        workspace_id, table_path, df, mode="overwrite", _allow_reset=False
+                    )
+                except Exception as reset_exc:
+                    log.error("Failed to reset Delta table (adls) %s: %s", table_path, reset_exc)
             log.error("Failed to write delta (adls) %s: %s", table_path, exc)
             return False
+
+    def _reset_delta_fs(self, local_path: str) -> None:
+        """Delete and recreate a local Delta table directory."""
+        if os.path.isdir(local_path):
+            shutil.rmtree(local_path)
+        os.makedirs(local_path, exist_ok=True)
+
+    def _reset_delta_adls(self, workspace_id: str, table_path: str) -> None:
+        """Delete a remote Delta table directory so overwrite can recreate it cleanly."""
+        self._ensure_adls_client()
+        fs = self._service_client.get_file_system_client(workspace_id)
+        directory = fs.get_directory_client(table_path)
+        try:
+            directory.delete_directory()
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "not found" not in msg and "pathnotfound" not in msg and "resourcenotfound" not in msg:
+                raise
 
     def delta_table_exists(self, workspace_id: str, table_path: str) -> bool:
         """Check if a Delta table exists on OneLake."""

@@ -222,7 +222,7 @@ export default function SchemaValidation() {
           value={`${s.coverage_pct}%`}
           icon={Shield}
           color={s.coverage_pct > 50 ? "var(--bp-accent-green, #27ae60)" : "var(--bp-accent, #b8612b)"}
-          sub={`${c.entities_with_schemas} schemas registered`}
+          sub={`${c.entities_with_schemas} schemas on file`}
         />
       </div>
 
@@ -239,7 +239,7 @@ export default function SchemaValidation() {
           style={{ borderColor: "var(--bp-border)" }}
         >
           <h2 className="text-sm font-semibold" style={{ color: "var(--bp-ink)" }}>
-            Registered Schemas ({c.entities_with_schemas})
+            Schemas On File ({c.entities_with_schemas})
           </h2>
           <span className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>
             Tables without schemas pass validation with a warning
@@ -249,7 +249,7 @@ export default function SchemaValidation() {
         {c.covered.length === 0 ? (
           <div className="p-8 text-center" style={{ color: "var(--bp-ink-muted)" }}>
             <Shield className="mx-auto mb-2 opacity-30" size={32} />
-            <p className="text-sm">No schemas registered yet</p>
+            <p className="text-sm">No schemas are on file yet</p>
             <p className="text-xs mt-1">
               Schemas are defined in <code className="text-xs">engine/schemas/</code> and
               validated during extraction. Run a load to see results.

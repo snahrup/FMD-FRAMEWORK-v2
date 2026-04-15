@@ -57,17 +57,18 @@ export function GoldStageRail({
 }) {
   return (
     <nav
-      className="grid gap-2 px-6 pb-3 sm:grid-cols-2 xl:grid-cols-6"
+      className="grid gap-2 px-6 pb-2 sm:grid-cols-2 xl:grid-cols-6"
       style={{ borderBottom: "1px solid var(--bp-border)" }}
     >
       {items.map((item, index) => {
         const isActive = item.id === activeId;
         const status = STATUS_STYLE[item.status ?? "not_started"];
+        const summary = isActive ? item.summary ?? item.hint : item.hint;
         return (
           <Link
             key={item.id}
             to={`${item.path}${search}`}
-            className={cn("rounded-lg px-3 py-3 transition-all", isActive ? "text-[var(--bp-copper)]" : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-secondary)]")}
+            className={cn("rounded-lg px-3 py-2.5 transition-all", isActive ? "text-[var(--bp-copper)]" : "text-[var(--bp-ink-muted)] hover:text-[var(--bp-ink-secondary)]")}
             style={{
               border: `1px solid ${isActive ? "rgba(180,86,36,0.22)" : "var(--bp-border)"}`,
               background: isActive ? "rgba(180,86,36,0.05)" : "var(--bp-surface-1)",
@@ -115,24 +116,14 @@ export function GoldStageRail({
                 color: "var(--bp-ink-tertiary)",
                 marginTop: 4,
                 lineHeight: 1.35,
+                display: "-webkit-box",
+                WebkitBoxOrient: "vertical",
+                WebkitLineClamp: isActive ? 2 : 1,
+                overflow: "hidden",
               }}
             >
-              {item.summary ?? item.hint}
+              {summary}
             </div>
-            {item.detail ? (
-              <div
-                style={{
-                  fontFamily: "var(--bp-font-mono)",
-                  fontSize: 10,
-                  color: "var(--bp-ink-muted)",
-                  marginTop: 8,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                }}
-              >
-                {item.detail}
-              </div>
-            ) : null}
           </Link>
         );
       })}

@@ -659,7 +659,7 @@ export default function DataCatalog() {
                   Blocked assets stay out of Explore until Load Center finishes the path
                 </h2>
                 <p className="mt-2 text-sm" style={{ color: "var(--bp-ink-secondary)", lineHeight: 1.65 }}>
-                  {formatRowCount(blockedEntities.length)} registered assets are currently held out of tool mode so users do not land on dead-end pages. {formatRowCount(blockedLandingCount)} still have not reached landing, and {formatRowCount(blockedPipelineCount)} still need bronze or silver completion. Load Center is now the single place that finishes those imports.
+                  {formatRowCount(blockedEntities.length)} tables in scope are currently held out of tool mode so users do not land on dead-end pages. {formatRowCount(blockedLandingCount)} still have not reached landing, and {formatRowCount(blockedPipelineCount)} still need bronze or silver completion. Load Center is now the single place that finishes those imports.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -773,7 +773,7 @@ export default function DataCatalog() {
             <PipelineResolutionPanel
               entity={blockedSelectedEntity}
               action={resolutionAction}
-              summary="This asset is registered, but it is still missing part of the managed load path. Catalog stops here instead of pretending the downstream tool stack is usable."
+              summary="This table is in scope, but it is still missing part of the managed load path. Catalog stops here instead of pretending the downstream tool stack is usable."
             />
           ) : (
             <>

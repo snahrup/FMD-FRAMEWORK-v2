@@ -26,14 +26,19 @@ import {
 } from "react";
 import {
   Activity, AlertTriangle, ArrowRight, Check, CheckCircle2,
-  ChevronDown, Circle, Database, HelpCircle,
+  ChevronDown, ChevronRight, Circle, Database, HelpCircle,
   Layers, Loader2, Pause, Play, RefreshCw,
   RotateCcw, Search, Server, Square, Timer, X, XCircle, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AreaChart, Area, ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import CompactPageHeader from "@/components/layout/CompactPageHeader";
 
 const API = import.meta.env.VITE_API_URL || "";
+
+function shortRunId(runId: string): string {
+  return runId.length > 8 ? runId.slice(0, 8) : runId;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // §1  TYPES — matched exactly to backend response shapes
@@ -49,6 +54,9 @@ interface LmcRun {
   startedAt: string | null;
   endedAt: string | null;
   errorSummary: string;
+  sourceFilter?: string[];
+  entityFilter?: number[];
+  resolvedEntityCount?: number;
 }
 
 interface LayerStats {
@@ -137,6 +145,64 @@ interface SourceLayerProgress {
   bytes: number;
 }
 
+interface SelfHealEvent {
+  id: number;
+  attemptNumber: number;
+  step: string;
+  status: string;
+  message: string;
+  createdAt: string | null;
+}
+
+interface SelfHealCase {
+  id: number;
+  parentRunId: string | null;
+  retryRunId: string | null;
+  landingEntityId: number;
+  targetEntityId: number;
+  layer: string;
+  status: string;
+  currentStep: string;
+  attemptCount: number;
+  maxAttempts: number;
+  latestError?: string | null;
+  resolutionSummary?: string | null;
+  source: string;
+  schema: string;
+  table: string;
+  patchFiles: string[];
+  createdAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  events: SelfHealEvent[];
+}
+
+interface SelfHealPayload {
+  enabled: boolean;
+  configured: boolean;
+  availableAgents: string[];
+  selectedAgent?: string | null;
+  note?: string | null;
+  runtime: {
+    status: string;
+    currentCaseId: number | null;
+    workerPid: number | null;
+    agentName?: string | null;
+    heartbeatAt: string | null;
+    lastMessage?: string | null;
+    healthy: boolean;
+  };
+  summary: {
+    queuedCount: number;
+    activeCount: number;
+    succeededCount: number;
+    exhaustedCount: number;
+    disabledCount: number;
+    totalCount: number;
+  };
+  cases: SelfHealCase[];
+}
+
 interface ProgressResponse {
   run: LmcRun | null;
   totalActiveEntities: number;
@@ -147,8 +213,76 @@ interface ProgressResponse {
   loadTypeBreakdown: Array<{ LoadType: string; cnt: number; total_rows: number }>;
   throughput: { rows_per_sec: number; bytes_per_sec: number };
   verification: Verification;
+  selfHeal: SelfHealPayload;
   lakehouseState: Record<string, LakehouseLayerState>;
   lakehouseBySource: LakehouseBySourceItem[];
+  serverTime: string;
+}
+
+interface RunScopeInventoryLayerStatus {
+  status: string;
+  at: string | null;
+  runId: string | null;
+  errorMessage: string | null;
+  rowsRead: number;
+  rowsWritten: number;
+}
+
+interface RunScopeHistoryLayerStatus {
+  latestStatus: string | null;
+  latestAt: string | null;
+  latestRunId: string | null;
+  everSucceeded: boolean;
+  lastSuccessAt: string | null;
+  lastSuccessRunId: string | null;
+}
+
+interface RunScopePhysicalLayerStatus {
+  exists: boolean;
+  rowCount: number | null;
+  scannedAt: string | null;
+  scanFailed: boolean;
+}
+
+interface RunScopeInventoryEntity {
+  entityId: number;
+  source: string;
+  sourceDisplay: string;
+  schema: string;
+  table: string;
+  isIncremental: boolean;
+  watermarkColumn: string | null;
+  lastWatermark: string | null;
+  runAttempted: boolean;
+  runMissingLayers: string[];
+  neverSucceededLayers: string[];
+  missingPhysicalLayers: string[];
+  nextAction: string;
+  nextActionLabel: string;
+  nextActionReason: string;
+  runLayerStatus: Record<string, RunScopeInventoryLayerStatus>;
+  historyLayerStatus: Record<string, RunScopeHistoryLayerStatus>;
+  physicalLayerStatus: Record<string, RunScopePhysicalLayerStatus>;
+}
+
+interface RunScopeInventoryResponse {
+  run: {
+    runId: string;
+    status: string;
+    layersInScope: string[];
+    sourceFilter: string[];
+    entityFilter: number[];
+    resolvedEntityCount: number;
+  };
+  summary: {
+    scopeEntityCount: number;
+    attemptedInRunCount: number;
+    runGapCount: number;
+    runMissingByLayer: Record<string, number>;
+    historicalMissingByLayer: Record<string, number>;
+    physicalMissingByLayer: Record<string, number>;
+  };
+  entities: RunScopeInventoryEntity[];
   serverTime: string;
 }
 
@@ -177,6 +311,7 @@ interface RunDetailResponse {
   loadTypes: Array<{ load_type: string; count: number }>;
   watermarkUpdates: number;
   timeline: Array<{ ts: string; event: string; detail: string }>;
+  selfHeal: SelfHealPayload;
 }
 
 // Source × Layer matrix cell data (computed client-side)
@@ -191,6 +326,18 @@ interface MatrixCell {
   verified: boolean;
   physicalRows: number | null;
 }
+
+const SELF_HEAL_WORKFLOW = [
+  { key: "queued", label: "Queue failure" },
+  { key: "collecting_context", label: "Collect context" },
+  { key: "invoking_agent", label: "Invoke local CLI" },
+  { key: "validating_patch", label: "Validate patch" },
+  { key: "retrying", label: "Retry entity" },
+  { key: "resolved", label: "Return to run" },
+] as const;
+
+const RETRY_BLOCKED_MESSAGE =
+  "Retry is unavailable while a run is active. Wait for the current run to finish or stop it first.";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // §2  SHARED SCOPE STATE — context + reducer
@@ -333,6 +480,9 @@ function useRuns(limit = 20) {
         startedAt: r.StartedAt ?? r.startedAt ?? null,
         endedAt: r.EndedAt ?? r.endedAt ?? null,
         errorSummary: r.ErrorSummary ?? r.errorSummary ?? "",
+        sourceFilter: r.SourceFilter ?? r.sourceFilter ?? [],
+        entityFilter: r.EntityFilter ?? r.entityFilter ?? [],
+        resolvedEntityCount: r.ResolvedEntityCount ?? r.resolvedEntityCount ?? 0,
       })) as LmcRun[];
       setRuns(mapped);
     } catch { /* swallow */ }
@@ -423,6 +573,35 @@ function useEntities(
 
   useEffect(() => { fetch_(); }, [fetch_]);
   return { ...data, loading, refetch: fetch_ };
+}
+
+function useRunScopeInventory(runId: string | null, enabled: boolean, pollMs = 15000) {
+  const [data, setData] = useState<RunScopeInventoryResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetch_ = useCallback(async () => {
+    if (!enabled || !runId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/api/lmc/run/${runId}/scope-inventory`);
+      if (!res.ok) return;
+      setData(await res.json());
+    } catch { /* swallow */ }
+    finally { setLoading(false); }
+  }, [enabled, runId]);
+
+  useEffect(() => {
+    fetch_();
+    if (!enabled || !runId || pollMs <= 0) return;
+    const iv = setInterval(fetch_, pollMs);
+    return () => clearInterval(iv);
+  }, [enabled, fetch_, pollMs, runId]);
+
+  return { data, loading, refetch: fetch_ };
 }
 
 function useSSE(enabled: boolean) {
@@ -694,8 +873,18 @@ function CommandBand({
   const [bulkMode, setBulkMode] = useState(false);
 
   const currentRun = runs.find(r => r.runId === scope.selectedRunId) ?? null;
-  const canResume = engine?.last_run?.resumable === true && scope.engineStatus === "idle";
-  const canRetry = currentRun?.status === "completed" || currentRun?.status === "failed";
+  const canResume = Boolean(
+    currentRun &&
+    scope.engineStatus === "idle" &&
+    ["interrupted", "aborted", "failed"].includes(currentRun.status.toLowerCase())
+  );
+  const canRetry = Boolean(currentRun && ["completed", "failed"].includes(currentRun.status.toLowerCase()));
+  const viewingHistoricalRun = Boolean(
+    engine?.status === "running" &&
+    engine.current_run_id &&
+    scope.selectedRunId &&
+    engine.current_run_id !== scope.selectedRunId
+  );
 
   const allLayers = ["landing", "bronze", "silver"] as const;
 
@@ -767,6 +956,23 @@ function CommandBand({
 
         {/* Status badge — shows selected run's status, or engine status if no run selected */}
         <StatusBadge currentRun={currentRun} engineStatus={scope.engineStatus} />
+
+        {viewingHistoricalRun && engine?.current_run_id && (
+          <button
+            onClick={() => dispatch({ type: "SET_RUN", runId: engine.current_run_id ?? null })}
+            style={{
+              ...S.badge,
+              cursor: "pointer",
+              border: "1px solid rgba(180,86,36,0.18)",
+              background: "rgba(180,86,36,0.08)",
+              color: "var(--bp-copper)",
+              padding: "6px 10px",
+              fontSize: 11,
+            }}
+          >
+            <Activity size={12} /> View Active {shortRunId(engine.current_run_id)}
+          </button>
+        )}
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />
@@ -1096,8 +1302,6 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
       ? scopedSources.reduce((a, s) => a + (s.rows_read ?? 0), 0)
       : allLayers.reduce((a, l) => a + l.total_rows_written, 0);
   const totalDuration = allLayers.reduce((a, l) => a + l.total_duration, 0);
-  const verified = (progress.verification?.lz_verified ?? 0) + (progress.verification?.brz_verified ?? 0) + (progress.verification?.slv_verified ?? 0);
-  const totalActive = progress.verification?.total_active ?? progress.totalActiveEntities;
 
   return (
     <div style={{
@@ -1114,13 +1318,13 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
           animation: "slideInUp 0.5s ease-out 0s",
         }}>
           <div style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10 }}>
-            Entities Loaded
+            This Run Loaded
           </div>
           <div style={{ ...S.data, fontSize: 32, fontWeight: 700, color: "var(--bp-operational)", lineHeight: 1, marginBottom: 6 }} className="metric-value">
             {formatNumber(succeeded)}
           </div>
           <div style={{ ...S.data, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
-            of {formatNumber(scopedTotal)} {hasRunScope ? `(${scope.runSources.join(", ")})` : "total"}
+            of {formatNumber(scopedTotal)} targeted table{scopedTotal === 1 ? "" : "s"}
           </div>
         </div>
 
@@ -1131,7 +1335,7 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
           animation: "slideInUp 0.5s ease-out 0.08s backwards",
         }}>
           <div style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10 }}>
-            Failed Entities
+            This Run Failed
           </div>
           <div style={{ ...S.data, fontSize: 32, fontWeight: 700, color: failed > 0 ? "var(--bp-fault)" : "var(--bp-ink-tertiary)", lineHeight: 1, marginBottom: 6 }} className="metric-value">
             {formatNumber(failed)}
@@ -1148,7 +1352,7 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
           animation: "slideInUp 0.5s ease-out 0.16s backwards",
         }}>
           <div style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10 }}>
-            In Progress
+            This Run Remaining
           </div>
           <div style={{ ...S.data, fontSize: 32, fontWeight: 700, color: pending > 0 ? "var(--bp-caution)" : "var(--bp-ink-tertiary)", lineHeight: 1, marginBottom: 6 }} className="metric-value">
             {formatNumber(pending > 0 ? pending : 0)}
@@ -1165,7 +1369,7 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
       }}>
         {/* Rows */}
         <div style={{ ...S.card, padding: "12px 16px" }}>
-          <div style={{ ...S.sans, fontSize: 10, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>Rows</div>
+          <div style={{ ...S.sans, fontSize: 10, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>Rows This Run</div>
           <div style={{ ...S.data, fontSize: 18, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
             {formatNumber(totalRows)}
           </div>
@@ -1207,11 +1411,14 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
             ) : null;
           })()}
         </div>
-        {/* Verified */}
+        {/* Run scope */}
         <div style={{ ...S.card, padding: "12px 16px", borderLeft: `3px solid var(--bp-operational)` }}>
-          <div style={{ ...S.sans, fontSize: 10, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>Verified</div>
-          <div style={{ ...S.data, fontSize: 18, fontWeight: 600, color: verified > 0 ? "var(--bp-operational)" : "var(--bp-ink-muted)" }}>
-            {formatNumber(verified)}/{formatNumber(totalActive)}
+          <div style={{ ...S.sans, fontSize: 10, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>Run Scope</div>
+          <div style={{ ...S.data, fontSize: 18, fontWeight: 600, color: "var(--bp-operational)" }}>
+            {formatNumber(scopedTotal)}
+          </div>
+          <div style={{ ...S.data, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
+            {hasRunScope ? `${scope.runSources.length} selected source${scope.runSources.length === 1 ? "" : "s"}` : "all active sources"}
           </div>
         </div>
       </div>
@@ -1279,6 +1486,223 @@ function PhaseRail({ progress, engine }: { progress: ProgressResponse | null; en
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// §9  SELF-HEAL RAIL — queued/active/resolved bounded self-heal visibility
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function SelfHealRail({
+  selfHeal,
+  expanded,
+  onToggle,
+}: {
+  selfHeal: SelfHealPayload | null | undefined;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  if (!selfHeal || !(selfHeal.configured || selfHeal.selectedAgent || selfHeal.summary.totalCount > 0)) return null;
+
+  const focus = selfHeal.cases.find((item) =>
+    ["collecting_context", "invoking_agent", "validating_patch", "retrying"].includes(item.status),
+  ) ?? selfHeal.cases[0];
+  const daemonTone = !selfHeal.runtime.workerPid && selfHeal.runtime.status === "idle"
+    ? { background: "rgba(59,130,246,0.12)", color: "#1d4ed8", label: "armed" }
+    : selfHeal.runtime.healthy
+      ? { background: "rgba(34,197,94,0.12)", color: "#15803d", label: selfHeal.runtime.status.replaceAll("_", " ") }
+      : { background: "rgba(245,158,11,0.12)", color: "#b45309", label: selfHeal.runtime.status.replaceAll("_", " ") };
+  const activeIndex = focus
+    ? Math.max(
+        0,
+        SELF_HEAL_WORKFLOW.findIndex((step) =>
+          step.key === "resolved"
+            ? ["succeeded", "resolved"].includes(focus.status) || focus.currentStep === "resolved"
+            : focus.status === step.key || focus.currentStep === step.key,
+        ),
+      )
+    : -1;
+  const compactSignal = focus
+    ? focus.status.replaceAll("_", " ")
+    : selfHeal.summary.queuedCount > 0
+      ? `${selfHeal.summary.queuedCount} queued`
+      : daemonTone.label;
+
+  return (
+    <div style={{
+      width: "100%",
+      border: "1px solid rgba(59,130,246,0.18)",
+      borderRadius: 12,
+      background: "rgba(255,255,255,0.92)",
+      overflow: "hidden",
+      boxShadow: "0 8px 24px rgba(15,23,42,0.04)",
+    }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          width: "100%",
+          padding: expanded ? "14px 14px 12px" : "12px 10px",
+          display: "flex",
+          flexDirection: expanded ? "row" : "column",
+          alignItems: expanded ? "center" : "flex-start",
+          justifyContent: "space-between",
+          gap: expanded ? 12 : 8,
+          border: "none",
+          background: "rgba(248,250,252,0.8)",
+          borderBottom: expanded ? "1px solid rgba(91,84,76,0.10)" : "none",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        <div style={{ display: "grid", gap: 4 }}>
+          <span style={{ ...S.sans, fontSize: 10, fontWeight: 700, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            Self-Heal
+          </span>
+          <span style={{ ...S.display, fontSize: expanded ? 14 : 24, fontWeight: 700, color: "var(--bp-ink-primary)", lineHeight: 1 }}>
+            {expanded ? "Queue" : selfHeal.summary.totalCount}
+          </span>
+          <span style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-secondary)", lineHeight: 1.4 }}>
+            {expanded ? "Bounded repair flow outside the main rail." : compactSignal}
+          </span>
+        </div>
+        <div style={{ display: "flex", flexDirection: expanded ? "row" : "column", alignItems: expanded ? "center" : "flex-start", gap: 8 }}>
+          {!expanded && (
+            <span style={{
+              padding: "4px 8px",
+              borderRadius: 999,
+              background: daemonTone.background,
+              color: daemonTone.color,
+              fontSize: 10,
+              fontWeight: 700,
+            }}>
+              {daemonTone.label}
+            </span>
+          )}
+          {expanded ? <ChevronDown size={16} style={{ color: "var(--bp-ink-muted)" }} /> : <ChevronRight size={16} style={{ color: "var(--bp-ink-muted)" }} />}
+        </div>
+      </button>
+
+      {expanded && (
+        <div style={{ padding: "12px 14px 14px", display: "grid", gap: 12 }}>
+          <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)", lineHeight: 1.6 }}>
+            {selfHeal.note}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {[
+              { label: "Queued", value: selfHeal.summary.queuedCount, color: "#1d4ed8" },
+              { label: "Working", value: selfHeal.summary.activeCount, color: "var(--bp-copper)" },
+              { label: "Resolved", value: selfHeal.summary.succeededCount, color: "var(--bp-operational)" },
+              { label: "Exhausted", value: selfHeal.summary.exhaustedCount, color: "var(--bp-fault)" },
+            ].map((item) => (
+              <span key={item.label} style={{
+                padding: "4px 8px",
+                borderRadius: 999,
+                background: `${item.color}12`,
+                color: item.color,
+                fontSize: 11,
+                fontWeight: 700,
+              }}>
+                {item.label}: {item.value}
+              </span>
+            ))}
+            <span style={{
+              padding: "4px 8px",
+              borderRadius: 999,
+              background: daemonTone.background,
+              color: daemonTone.color,
+              fontSize: 11,
+              fontWeight: 700,
+            }}>
+              Daemon: {daemonTone.label}
+            </span>
+            <span style={{
+              padding: "4px 8px",
+              borderRadius: 999,
+              background: "rgba(148,163,184,0.12)",
+              color: "var(--bp-ink-secondary)",
+              fontSize: 11,
+              fontWeight: 700,
+            }}>
+              Agent: {(selfHeal.selectedAgent || "not detected").replaceAll("_", " ")}
+            </span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {SELF_HEAL_WORKFLOW.map((step, index) => {
+              const state = focus
+                ? index < activeIndex
+                  ? "done"
+                  : index === activeIndex
+                    ? "active"
+                    : "pending"
+                : selfHeal.summary.totalCount
+                  ? "pending"
+                  : "standby";
+              const tone =
+                state === "done"
+                  ? { background: "rgba(34,197,94,0.12)", color: "var(--bp-operational)" }
+                  : state === "active"
+                    ? { background: "rgba(196,122,90,0.14)", color: "var(--bp-copper)" }
+                    : state === "standby"
+                      ? { background: "rgba(148,163,184,0.12)", color: "var(--bp-ink-secondary)" }
+                      : { background: "rgba(59,130,246,0.10)", color: "#1d4ed8" };
+              return (
+                <span key={step.key} style={{ padding: "4px 8px", borderRadius: 999, background: tone.background, color: tone.color, fontSize: 11, fontWeight: 700 }}>
+                  {step.label}
+                </span>
+              );
+            })}
+          </div>
+          {focus ? (
+            <div style={{ border: "1px solid rgba(91,84,76,0.12)", borderRadius: 12, background: "rgba(255,255,255,0.88)", padding: "12px 12px 10px", display: "grid", gap: 10 }}>
+              <div style={{ ...S.sans, fontSize: 12, fontWeight: 700, color: "var(--bp-ink-primary)" }}>
+                Focus case
+              </div>
+              <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)", lineHeight: 1.55 }}>
+                {focus.source}.{focus.schema}.{focus.table} · {focus.layer}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <span style={{ padding: "4px 8px", borderRadius: 999, background: "rgba(59,130,246,0.12)", color: "#1d4ed8", fontSize: 11, fontWeight: 700 }}>
+                  {focus.status.replaceAll("_", " ")}
+                </span>
+                <span style={{ padding: "4px 8px", borderRadius: 999, background: "rgba(148,163,184,0.12)", color: "var(--bp-ink-secondary)", fontSize: 11, fontWeight: 700 }}>
+                  attempt {focus.attemptCount}/{focus.maxAttempts}
+                </span>
+                {focus.retryRunId && (
+                  <span style={{ padding: "4px 8px", borderRadius: 999, background: "rgba(196,122,90,0.12)", color: "var(--bp-copper)", fontSize: 11, fontWeight: 700 }}>
+                    retry {focus.retryRunId.slice(0, 8)}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {focus.events.slice(0, 4).map((event) => (
+                  <div key={event.id} style={{ borderLeft: "2px solid rgba(59,130,246,0.28)", paddingLeft: 10 }}>
+                    <div style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-primary)" }}>
+                      {event.step.replaceAll("_", " ")}
+                    </div>
+                    <div style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-secondary)", lineHeight: 1.5, marginTop: 2 }}>
+                      {event.message}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={{ border: "1px solid rgba(91,84,76,0.12)", borderRadius: 12, background: "rgba(255,255,255,0.88)", padding: "12px 12px 10px", display: "grid", gap: 10 }}>
+              <div style={{ ...S.sans, fontSize: 12, fontWeight: 700, color: "var(--bp-ink-primary)" }}>
+                Self-heal standing by
+              </div>
+              <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)", lineHeight: 1.6 }}>
+                The engine queues failed entities immediately. Once the active run is idle, the daemon gathers context, invokes the local `claude` or `codex` CLI, validates the patch, launches a targeted retry, then returns operators to the original run truth when the retry passes.
+              </div>
+              <div style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-muted)" }}>
+                {selfHeal.runtime.lastMessage || "No queued self-heal cases yet."}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // §9  SOURCE × LAYER MATRIX
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1298,7 +1722,7 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
   const sources = useMemo(() => {
     if (!progress?.bySource) return [];
     return progress.bySource.map(s => s.source).sort();
-  }, [progress?.bySource]);
+  }, [progress]);
 
   const layerKeys = ["landing", "bronze", "silver"] as const;
   const currentLayer = engine?.last_run?.current_layer?.toLowerCase() ?? null;
@@ -1312,7 +1736,7 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
       }
     }
     return map;
-  }, [progress?.lakehouseBySource]);
+  }, [progress]);
 
   const lhNameForLayer = (layer: string) => {
     switch (layer) {
@@ -1330,36 +1754,34 @@ function SourceLayerMatrix({ progress, engine, sourceNames }: { progress: Progre
       map[`${item.source}|${item.layer}`] = item;
     }
     return map;
-  }, [progress?.bySourceByLayer]);
+  }, [progress]);
 
-  const cells = useMemo((): MatrixCell[][] => {
-    if (!progress) return [];
+  const cells: MatrixCell[][] = !progress
+    ? []
+    : sources.map(source => {
+        return layerKeys.map(layer => {
+          const srcData = progress.bySource?.find(s => s.source === source);
+          const srcTotal = srcData?.total_entities ?? 0;
+          // Layer-accurate run data (from bySourceByLayer)
+          const layerData = srcLayerLookup[`${source}|${layer}`];
+          // Lakehouse physical data for this source × layer
+          const lhItem = lhLookup[`${source}|${lhNameForLayer(layer)}`];
 
-    return sources.map(source => {
-      return layerKeys.map(layer => {
-        const srcData = progress.bySource?.find(s => s.source === source);
-        const srcTotal = srcData?.total_entities ?? 0;
-        // Layer-accurate run data (from bySourceByLayer)
-        const layerData = srcLayerLookup[`${source}|${layer}`];
-        // Lakehouse physical data for this source × layer
-        const lhItem = lhLookup[`${source}|${lhNameForLayer(layer)}`];
-
-        return {
-          source,
-          layer,
-          total: srcTotal,
-          // Use layer-specific counts when available, otherwise 0
-          // This ensures bulk (landing-only) runs don't show counts in Bronze/Silver
-          succeeded: layerData?.succeeded ?? 0,
-          failed: layerData?.failed ?? 0,
-          skipped: layerData?.skipped ?? 0,
-          inProgress: currentLayer != null && currentLayer.includes(layer),
-          verified: lhItem != null && lhItem.tables_loaded > 0,
-          physicalRows: lhItem?.total_rows ?? null,
-        } as MatrixCell;
+          return {
+            source,
+            layer,
+            total: srcTotal,
+            // Use layer-specific counts when available, otherwise 0
+            // This ensures bulk (landing-only) runs don't show counts in Bronze/Silver
+            succeeded: layerData?.succeeded ?? 0,
+            failed: layerData?.failed ?? 0,
+            skipped: layerData?.skipped ?? 0,
+            inProgress: currentLayer != null && currentLayer.includes(layer),
+            verified: lhItem != null && lhItem.tables_loaded > 0,
+            physicalRows: lhItem?.total_rows ?? null,
+          } as MatrixCell;
+        });
       });
-    });
-  }, [progress, sources, currentLayer, lhLookup]);
 
   if (sources.length === 0) return null;
 
@@ -1977,10 +2399,11 @@ interface EntitiesTabProps {
   entities: TaskEntity[];
   total: number;
   loading: boolean;
+  retryDisabled: boolean;
   onRetryEntity: (entityId: number) => void;
 }
 
-function EntitiesTab({ entities, total, loading, onRetryEntity }: EntitiesTabProps) {
+function EntitiesTab({ entities, total, loading, retryDisabled, onRetryEntity }: EntitiesTabProps) {
   const scope = useScope();
   const dispatch = useScopeDispatch();
   const [localSearch, setLocalSearch] = useState(scope.searchQuery);
@@ -2143,11 +2566,19 @@ function EntitiesTab({ entities, total, loading, onRetryEntity }: EntitiesTabPro
                       <div style={{ display: "flex", gap: 4 }}>
                         {isFailed && (
                           <button
-                            onClick={(ev) => { ev.stopPropagation(); onRetryEntity(e.EntityId); }}
+                            type="button"
+                            disabled={retryDisabled}
+                            title={retryDisabled ? RETRY_BLOCKED_MESSAGE : `Retry only ${e.SourceTable}`}
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              if (!retryDisabled) onRetryEntity(e.EntityId);
+                            }}
                             style={{
-                              ...S.badge, fontSize: 10, padding: "2px 8px", cursor: "pointer",
+                              ...S.badge, fontSize: 10, padding: "2px 8px",
+                              cursor: retryDisabled ? "not-allowed" : "pointer",
                               background: "var(--bp-copper-soft)", color: "var(--bp-copper)",
                               border: "1px solid var(--bp-copper)",
+                              opacity: retryDisabled ? 0.5 : 1,
                             }}
                           >
                             <RotateCcw size={9} /> Retry
@@ -2253,10 +2684,11 @@ const ERROR_KNOWLEDGE: Record<string, { why: string; fix: string }> = {
 
 interface TriageTabProps {
   progress: ProgressResponse | null;
+  retryDisabled: boolean;
   onRetryErrorType: (errorType: string) => void;
 }
 
-function TriageTab({ progress, onRetryErrorType }: TriageTabProps) {
+function TriageTab({ progress, retryDisabled, onRetryErrorType }: TriageTabProps) {
   const dispatch = useScopeDispatch();
   const errors = progress?.errorBreakdown ?? [];
 
@@ -2299,6 +2731,21 @@ function TriageTab({ progress, onRetryErrorType }: TriageTabProps) {
         </div>
       </div>
 
+      {retryDisabled && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "10px 14px",
+          borderRadius: 6,
+          border: "1px solid var(--bp-caution)",
+          background: "var(--bp-caution)" + "12",
+        }}>
+          <Pause size={14} style={{ color: "var(--bp-caution)", flexShrink: 0 }} />
+          <span style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-primary)" }}>
+            {RETRY_BLOCKED_MESSAGE}
+          </span>
+        </div>
+      )}
+
       {/* Error type cards */}
       {errors.map(err => {
         const knowledge = ERROR_KNOWLEDGE[err.ErrorType] ?? ERROR_KNOWLEDGE[err.ErrorType.toLowerCase()] ?? {
@@ -2332,11 +2779,16 @@ function TriageTab({ progress, onRetryErrorType }: TriageTabProps) {
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 <button
-                  onClick={() => onRetryErrorType(err.ErrorType)}
+                  type="button"
+                  disabled={retryDisabled}
+                  title={retryDisabled ? RETRY_BLOCKED_MESSAGE : `Retry all failed ${err.ErrorType} entities`}
+                  onClick={() => { if (!retryDisabled) onRetryErrorType(err.ErrorType); }}
                   style={{
-                    ...S.badge, cursor: "pointer", fontSize: 11,
+                    ...S.badge, fontSize: 11,
+                    cursor: retryDisabled ? "not-allowed" : "pointer",
                     background: "var(--bp-copper-soft)", color: "var(--bp-copper)",
                     border: "1px solid var(--bp-copper)", padding: "4px 12px",
+                    opacity: retryDisabled ? 0.5 : 1,
                   }}
                 >
                   <RotateCcw size={10} /> Retry these
@@ -2388,148 +2840,439 @@ function TriageTab({ progress, onRetryErrorType }: TriageTabProps) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function InventoryTab({ progress }: { progress: ProgressResponse | null }) {
-  if (!progress) {
+  const scope = useScope();
+  const dispatch = useScopeDispatch();
+  const [inventoryFilter, setInventoryFilter] = useState<"run_gap" | "never_loaded" | "missing_physical" | "all">("run_gap");
+  const [loadFilter, setLoadFilter] = useState<"all" | "incremental" | "full">("all");
+  const [search, setSearch] = useState("");
+  const { data: inventory, loading, refetch } = useRunScopeInventory(
+    scope.selectedRunId,
+    Boolean(scope.selectedRunId),
+    scope.isRunActive ? 5000 : 15000,
+  );
+
+  const entities = inventory?.entities ?? [];
+  const runLayers = inventory?.run.layersInScope ?? ["landing", "bronze", "silver"];
+  const entityGapCount = useMemo(
+    () => entities.filter((entity) => entity.runMissingLayers.length > 0).length,
+    [entities],
+  );
+  const neverLoadedCount = useMemo(
+    () => entities.filter((entity) => entity.neverSucceededLayers.length > 0).length,
+    [entities],
+  );
+  const missingPhysicalCount = useMemo(
+    () => entities.filter((entity) => entity.missingPhysicalLayers.length > 0).length,
+    [entities],
+  );
+
+  const filteredEntities = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return entities.filter((entity) => {
+      if (inventoryFilter === "run_gap" && entity.runMissingLayers.length === 0) return false;
+      if (inventoryFilter === "never_loaded" && entity.neverSucceededLayers.length === 0) return false;
+      if (inventoryFilter === "missing_physical" && entity.missingPhysicalLayers.length === 0) return false;
+      if (loadFilter === "incremental" && !entity.isIncremental) return false;
+      if (loadFilter === "full" && entity.isIncremental) return false;
+      if (!needle) return true;
+      const haystack = [
+        entity.sourceDisplay,
+        entity.source,
+        entity.schema,
+        entity.table,
+        entity.entityId,
+        entity.watermarkColumn ?? "",
+      ].join(" ").toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [entities, inventoryFilter, loadFilter, search]);
+
+  if (!scope.selectedRunId) {
     return (
       <div style={{ ...S.card, padding: 32, textAlign: "center", color: "var(--bp-ink-muted)", ...S.sans, fontSize: 13 }}>
-        Select a run to view inventory data
+        Select a run to inspect the original run scope and its missing tables.
       </div>
     );
   }
 
-  const incremental = (progress.loadTypeBreakdown ?? [])
-    .filter(lt => lt.LoadType?.toLowerCase().includes("incremental"))
-    .reduce((a, lt) => a + lt.cnt, 0);
-  const fullOnly = (progress.loadTypeBreakdown ?? [])
-    .filter(lt => !lt.LoadType?.toLowerCase().includes("incremental"))
-    .reduce((a, lt) => a + lt.cnt, 0);
-  const v = progress.verification;
-  const verifiedTotal = (v?.lz_verified ?? 0) + (v?.brz_verified ?? 0) + (v?.slv_verified ?? 0);
-  const verifiedPossible = (v?.total_active ?? 0) * 3;
+  if (!inventory && loading) {
+    return (
+      <div style={{ ...S.card, padding: 32, textAlign: "center", color: "var(--bp-ink-muted)", ...S.sans, fontSize: 13 }}>
+        Loading scoped inventory…
+      </div>
+    );
+  }
+
+  if (!inventory) {
+    return (
+      <div style={{ ...S.card, padding: 32, textAlign: "center", color: "var(--bp-ink-muted)", ...S.sans, fontSize: 13 }}>
+        Inventory data is unavailable for this run.
+      </div>
+    );
+  }
 
   const summaryCards = [
-    { label: "Total Registered", value: formatNumber(progress.totalActiveEntities), color: "var(--bp-ink-primary)", icon: Database },
-    { label: "Incremental-Ready", value: formatNumber(incremental), color: "var(--bp-operational)", icon: Zap },
-    { label: "Full-Load Only", value: formatNumber(fullOnly), color: "var(--bp-caution)", icon: Layers },
-    { label: "Verification Coverage", value: verifiedPossible > 0 ? `${Math.round((verifiedTotal / verifiedPossible) * 100)}%` : "—", color: "var(--bp-lz)", icon: CheckCircle2 },
+    { label: "Original Scope", value: formatNumber(inventory.summary.scopeEntityCount), detail: "Tables captured in the run scope", color: "var(--bp-ink-primary)", icon: Database },
+    { label: "Missed This Run", value: formatNumber(entityGapCount), detail: "Scoped tables that did not finish all scoped layers", color: "var(--bp-copper)", icon: AlertTriangle },
+    { label: "Never Loaded", value: formatNumber(neverLoadedCount), detail: "Tables with at least one layer never succeeding historically", color: "var(--bp-fault)", icon: XCircle },
+    { label: "Not In Lakehouse", value: formatNumber(missingPhysicalCount), detail: "Tables physically absent from at least one layer", color: "var(--bp-silver)", icon: Layers },
   ];
 
-  const layerEntries = [
-    { key: "LandingZone", label: "Landing Zone", color: "var(--bp-lz)" },
-    { key: "Bronze", label: "Bronze", color: "var(--bp-bronze)" },
-    { key: "Silver", label: "Silver", color: "var(--bp-silver)" },
+  const filterButtons = [
+    { key: "run_gap" as const, label: "Run Gaps", count: entityGapCount },
+    { key: "never_loaded" as const, label: "Never Loaded", count: neverLoadedCount },
+    { key: "missing_physical" as const, label: "Missing Physically", count: missingPhysicalCount },
+    { key: "all" as const, label: "All Scoped", count: inventory.summary.scopeEntityCount },
   ];
+
+  const loadButtons = [
+    { key: "all" as const, label: "All" },
+    { key: "incremental" as const, label: "Incremental" },
+    { key: "full" as const, label: "Full Load" },
+  ];
+
+  const formatStamp = (value: string | null | undefined) =>
+    value ? new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+
+  const layerBadge = (layer: string, tone: "missing" | "good" | "neutral") => (
+    <span
+      key={`${layer}-${tone}`}
+      style={{
+        ...S.badge,
+        fontSize: 10,
+        padding: "2px 8px",
+        background:
+          tone === "missing"
+            ? `${layerColor(layer)}18`
+            : tone === "good"
+              ? "var(--bp-operational)" + "12"
+              : "var(--bp-surface-inset)",
+        color:
+          tone === "missing"
+            ? layerColor(layer)
+            : tone === "good"
+              ? "var(--bp-operational)"
+              : "var(--bp-ink-secondary)",
+        border: `1px solid ${tone === "neutral" ? "var(--bp-border-subtle)" : `${tone === "good" ? "var(--bp-operational)" : layerColor(layer)}30`}`,
+      }}
+    >
+      {layer.toUpperCase()}
+    </span>
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Summary cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-        {summaryCards.map(c => {
-          const Icon = c.icon;
+      <div style={{ ...S.card, padding: "18px 20px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+        <div style={{ flex: "1 1 420px", minWidth: 280 }}>
+          <div style={{ ...S.sans, fontSize: 12, fontWeight: 700, color: "var(--bp-copper)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+            Run Scope Truth
+          </div>
+          <div style={{ ...S.display, fontSize: 24, fontWeight: 700, color: "var(--bp-ink-primary)", marginBottom: 8 }}>
+            What this run did not finish
+          </div>
+          <div style={{ ...S.sans, fontSize: 13, color: "var(--bp-ink-secondary)", lineHeight: 1.6 }}>
+            This view starts from the original scoped tables, then shows what this run missed, what has never succeeded historically, and which lakehouse layers are still physically absent.
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10, minWidth: 260 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 }}>
+            <span style={{ ...S.badge, background: "var(--bp-surface-inset)", color: "var(--bp-ink-secondary)" }}>
+              Run {shortRunId(inventory.run.runId)}
+            </span>
+            <span style={{ ...S.badge, background: statusColor(inventory.run.status) + "18", color: statusColor(inventory.run.status) }}>
+              {inventory.run.status}
+            </span>
+            <span style={{ ...S.badge, background: "var(--bp-surface-inset)", color: "var(--bp-ink-secondary)" }}>
+              Layers {runLayers.map((layer) => layer[0].toUpperCase()).join(" / ")}
+            </span>
+          </div>
+          <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-muted)", textAlign: "right" }}>
+            Source scope: {inventory.run.sourceFilter.length > 0 ? inventory.run.sourceFilter.join(", ") : "All active sources"}
+          </div>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            style={{
+              ...S.badge,
+              cursor: "pointer",
+              padding: "6px 12px",
+              background: "transparent",
+              color: "var(--bp-ink-secondary)",
+              border: "1px solid var(--bp-border)",
+            }}
+          >
+            <RefreshCw size={12} /> Refresh inventory
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+        {summaryCards.map((card) => {
+          const Icon = card.icon;
           return (
-            <div key={c.label} style={{ ...S.card, padding: "16px 14px" }}>
+            <div key={card.label} style={{ ...S.card, padding: "16px 14px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <Icon size={14} style={{ color: c.color, opacity: 0.7 }} />
-                <span style={{ ...S.sans, fontSize: 11, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                  {c.label}
+                <Icon size={14} style={{ color: card.color, opacity: 0.8 }} />
+                <span style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  {card.label}
                 </span>
               </div>
-              <div style={{ ...S.data, fontSize: 24, fontWeight: 700, color: c.color }}>
-                {c.value}
+              <div style={{ ...S.data, fontSize: 24, fontWeight: 700, color: card.color, marginBottom: 6 }}>
+                {card.value}
+              </div>
+              <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)", lineHeight: 1.4 }}>
+                {card.detail}
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Per-layer lakehouse state */}
-      <div style={{ ...S.card, overflow: "hidden" }}>
-        <div style={{
-          padding: "12px 16px", borderBottom: "1px solid var(--bp-border-subtle)",
-          ...S.sans, fontSize: 13, fontWeight: 600, color: "var(--bp-ink-secondary)",
-        }}>
-          Lakehouse Physical State
+      <div style={{ ...S.card, padding: "14px 16px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {filterButtons.map((button) => (
+            <button
+              key={button.key}
+              type="button"
+              onClick={() => setInventoryFilter(button.key)}
+              style={{
+                ...S.badge,
+                cursor: "pointer",
+                padding: "6px 12px",
+                background: inventoryFilter === button.key ? "var(--bp-copper-soft)" : "var(--bp-surface-inset)",
+                color: inventoryFilter === button.key ? "var(--bp-copper)" : "var(--bp-ink-secondary)",
+                border: `1px solid ${inventoryFilter === button.key ? "var(--bp-copper)" : "var(--bp-border-subtle)"}`,
+              }}
+            >
+              {button.label} {formatNumber(button.count)}
+            </button>
+          ))}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0 }}>
-          {layerEntries.map((le, idx) => {
-            const state = progress.lakehouseState?.[le.key] ?? progress.lakehouseState?.[le.key.toLowerCase()] ?? null;
-            return (
-              <div key={le.key} style={{
-                padding: "16px 20px",
-                borderRight: idx < 2 ? "1px solid var(--bp-border-subtle)" : "none",
-              }}>
-                <div style={{
-                  ...S.sans, fontSize: 12, fontWeight: 700, color: le.color,
-                  textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 12,
-                }}>
-                  {le.label}
-                </div>
-                {state ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)" }}>Tables with data</span>
-                      <span style={{ ...S.data, fontSize: 12, fontWeight: 600, color: "var(--bp-operational)" }}>{formatNumber(state.tablesWithData)}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)" }}>Empty tables</span>
-                      <span style={{ ...S.data, fontSize: 12, color: state.emptyTables > 0 ? "var(--bp-caution)" : "var(--bp-ink-muted)" }}>{formatNumber(state.emptyTables)}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)" }}>Scan failed</span>
-                      <span style={{ ...S.data, fontSize: 12, color: state.scanFailed > 0 ? "var(--bp-fault)" : "var(--bp-ink-muted)" }}>{formatNumber(state.scanFailed)}</span>
-                    </div>
-                    <div style={{ height: 1, background: "var(--bp-border-subtle)", margin: "4px 0" }} />
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)" }}>Total rows</span>
-                      <span style={{ ...S.data, fontSize: 12, fontWeight: 600, color: "var(--bp-ink-primary)" }}>{formatNumber(state.totalRows)}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)" }}>Size</span>
-                      <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-secondary)" }}>{formatBytes(state.totalBytes)}</span>
-                    </div>
-                    {state.lastScan && (
-                      <div style={{ ...S.data, fontSize: 10, color: "var(--bp-ink-muted)", marginTop: 4 }}>
-                        Last scan: {new Date(state.lastScan).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-muted)" }}>
-                    No scan data available
-                  </div>
-                )}
-              </div>
-            );
-          })}
+        <div style={{ width: 1, alignSelf: "stretch", background: "var(--bp-border-subtle)" }} />
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {loadButtons.map((button) => (
+            <button
+              key={button.key}
+              type="button"
+              onClick={() => setLoadFilter(button.key)}
+              style={{
+                ...S.badge,
+                cursor: "pointer",
+                padding: "6px 12px",
+                background: loadFilter === button.key ? "var(--bp-operational)" + "12" : "var(--bp-surface-inset)",
+                color: loadFilter === button.key ? "var(--bp-operational)" : "var(--bp-ink-secondary)",
+                border: `1px solid ${loadFilter === button.key ? "var(--bp-operational)" : "var(--bp-border-subtle)"}`,
+              }}
+            >
+              {button.label}
+            </button>
+          ))}
         </div>
+        <div style={{ flex: 1 }} />
+        <label style={{ position: "relative", minWidth: 260 }}>
+          <Search size={14} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--bp-ink-muted)" }} />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search source, schema, table, entity id"
+            style={{
+              width: "100%",
+              padding: "9px 12px 9px 34px",
+              borderRadius: 6,
+              border: "1px solid var(--bp-border)",
+              background: "var(--bp-surface-inset)",
+              color: "var(--bp-ink-primary)",
+              ...S.sans,
+              fontSize: 13,
+            }}
+          />
+        </label>
       </div>
 
-      {/* Load type breakdown */}
-      {(progress.loadTypeBreakdown ?? []).length > 0 && (
-        <div style={{ ...S.card, overflow: "hidden" }}>
-          <div style={{
-            padding: "12px 16px", borderBottom: "1px solid var(--bp-border-subtle)",
-            ...S.sans, fontSize: 13, fontWeight: 600, color: "var(--bp-ink-secondary)",
-          }}>
-            Load Type Distribution
+      <div style={{ ...S.card, overflow: "hidden" }}>
+        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--bp-border-subtle)", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+          <div style={{ ...S.sans, fontSize: 13, fontWeight: 700, color: "var(--bp-ink-primary)" }}>
+            Scoped Table Inventory
           </div>
-          <div style={{ padding: "8px 0" }}>
-            {progress.loadTypeBreakdown.map(lt => (
-              <div key={lt.LoadType} style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "6px 16px",
-              }}>
-                <span style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-primary)" }}>{lt.LoadType || "Unknown"}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                  <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-secondary)" }}>
-                    {formatNumber(lt.cnt)} entities
-                  </span>
-                  <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
-                    {formatNumber(lt.total_rows)} rows
-                  </span>
-                </div>
-              </div>
-            ))}
+          <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)" }}>
+            Showing {formatNumber(filteredEntities.length)} of {formatNumber(inventory.summary.scopeEntityCount)} tables from the original scope
           </div>
+          <div style={{ flex: 1 }} />
+          <button
+            type="button"
+            onClick={() => {
+              dispatch({ type: "SET_TAB", tab: "history" });
+              dispatch({ type: "SET_STATUSES", statuses: ["failed"] });
+            }}
+            style={{
+              ...S.badge,
+              cursor: "pointer",
+              padding: "6px 10px",
+              background: "transparent",
+              color: "var(--bp-ink-secondary)",
+              border: "1px solid var(--bp-border)",
+            }}
+          >
+            Open run history
+          </button>
+        </div>
+
+        {filteredEntities.length === 0 ? (
+          <div style={{ padding: 32, textAlign: "center", ...S.sans, fontSize: 13, color: "var(--bp-ink-muted)" }}>
+            No scoped tables match the current filters.
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}>
+              <thead>
+                <tr style={{ background: "var(--bp-surface-inset)" }}>
+                  {["Table", "Next Load", "Selected Run", "Historical Truth", "Physical Presence"].map((header) => (
+                    <th
+                      key={header}
+                      style={{
+                        padding: "10px 12px",
+                        textAlign: "left",
+                        borderBottom: "1px solid var(--bp-border-subtle)",
+                        ...S.sans,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "var(--bp-ink-tertiary)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                      }}
+                    >
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredEntities.map((entity) => {
+                  const lastHistoricalSuccess = runLayers
+                    .map((layer) => entity.historyLayerStatus[layer]?.lastSuccessAt)
+                    .filter(Boolean)
+                    .sort()
+                    .at(-1) ?? null;
+
+                  return (
+                    <tr key={entity.entityId} style={{ borderBottom: "1px solid var(--bp-border-subtle)", verticalAlign: "top" }}>
+                      <td style={{ padding: "14px 12px", width: "22%" }}>
+                        <div style={{ ...S.sans, fontSize: 12, fontWeight: 700, color: "var(--bp-copper)", marginBottom: 4 }}>
+                          {entity.sourceDisplay}
+                        </div>
+                        <div style={{ ...S.sans, fontSize: 14, fontWeight: 600, color: "var(--bp-ink-primary)", marginBottom: 4 }}>
+                          {entity.schema}.{entity.table}
+                        </div>
+                        <div style={{ ...S.data, fontSize: 11, color: "var(--bp-ink-muted)" }}>
+                          Entity {entity.entityId}
+                        </div>
+                      </td>
+                      <td style={{ padding: "14px 12px", width: "18%" }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                          <span style={{ ...S.badge, background: entity.isIncremental ? "var(--bp-operational)" + "12" : "var(--bp-copper-soft)", color: entity.isIncremental ? "var(--bp-operational)" : "var(--bp-copper)" }}>
+                            {entity.nextActionLabel}
+                          </span>
+                        </div>
+                        <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)", lineHeight: 1.5 }}>
+                          {entity.nextActionReason}
+                        </div>
+                        <div style={{ ...S.data, fontSize: 11, color: "var(--bp-ink-muted)", marginTop: 8 }}>
+                          Watermark: {entity.watermarkColumn ? `${entity.watermarkColumn} · ${entity.lastWatermark ?? "none yet"}` : "none"}
+                        </div>
+                      </td>
+                      <td style={{ padding: "14px 12px", width: "20%" }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                          <span style={{ ...S.badge, background: entity.runAttempted ? "var(--bp-operational)" + "12" : "var(--bp-fault)" + "12", color: entity.runAttempted ? "var(--bp-operational)" : "var(--bp-fault)" }}>
+                            {entity.runAttempted ? "Attempted" : "Not attempted"}
+                          </span>
+                          {entity.runMissingLayers.length > 0
+                            ? entity.runMissingLayers.map((layer) => layerBadge(layer, "missing"))
+                            : [<span key="clean-run" style={{ ...S.badge, background: "var(--bp-operational)" + "12", color: "var(--bp-operational)" }}>No scoped gaps</span>]}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {runLayers.map((layer) => {
+                            const status = entity.runLayerStatus[layer];
+                            return (
+                              <div key={layer} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                <span style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-secondary)" }}>{layer}</span>
+                                <span style={{ ...S.data, fontSize: 11, color: statusColor(status.status) }}>
+                                  {status.status.replace(/_/g, " ")}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td style={{ padding: "14px 12px", width: "20%" }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                          {entity.neverSucceededLayers.length > 0
+                            ? entity.neverSucceededLayers.map((layer) => layerBadge(layer, "missing"))
+                            : [<span key="history-clean" style={{ ...S.badge, background: "var(--bp-operational)" + "12", color: "var(--bp-operational)" }}>Loaded across layers</span>]}
+                        </div>
+                        <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)", lineHeight: 1.5 }}>
+                          Last success anywhere: {formatStamp(lastHistoricalSuccess)}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                          {runLayers.map((layer) => {
+                            const history = entity.historyLayerStatus[layer];
+                            return (
+                              <div key={layer} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                <span style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-secondary)" }}>{layer}</span>
+                                <span style={{ ...S.data, fontSize: 11, color: history.everSucceeded ? "var(--bp-operational)" : "var(--bp-fault)" }}>
+                                  {history.everSucceeded ? `Succeeded ${formatStamp(history.lastSuccessAt)}` : "Never succeeded"}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td style={{ padding: "14px 12px", width: "20%" }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                          {entity.missingPhysicalLayers.length > 0
+                            ? entity.missingPhysicalLayers.map((layer) => layerBadge(layer, "missing"))
+                            : [<span key="physical-clean" style={{ ...S.badge, background: "var(--bp-operational)" + "12", color: "var(--bp-operational)" }}>Present in lakehouse</span>]}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {runLayers.map((layer) => {
+                            const physical = entity.physicalLayerStatus[layer];
+                            return (
+                              <div key={layer} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                <span style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-secondary)" }}>{layer}</span>
+                                <span style={{ ...S.data, fontSize: 11, color: physical.exists ? "var(--bp-operational)" : "var(--bp-fault)" }}>
+                                  {physical.scanFailed
+                                    ? "Scan failed"
+                                    : physical.exists
+                                      ? `${formatNumber(physical.rowCount)} rows`
+                                      : "Missing"}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {progress && (
+        <div style={{ ...S.cardInset, padding: "12px 14px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+          <span style={{ ...S.sans, fontSize: 12, fontWeight: 700, color: "var(--bp-ink-secondary)" }}>
+            Lakehouse scan snapshot
+          </span>
+          {(["LandingZone", "Bronze", "Silver"] as const).map((layerKey) => {
+            const state = progress.lakehouseState?.[layerKey] ?? progress.lakehouseState?.[layerKey.toLowerCase()] ?? null;
+            const label = layerKey === "LandingZone" ? "Landing" : layerKey;
+            return (
+              <span key={layerKey} style={{ ...S.badge, background: "var(--bp-surface-1)", color: "var(--bp-ink-secondary)", border: "1px solid var(--bp-border-subtle)" }}>
+                {label}: {state ? `${formatNumber(state.tablesWithData)} loaded` : "no scan"}
+              </span>
+            );
+          })}
         </div>
       )}
     </div>
@@ -2540,7 +3283,15 @@ function InventoryTab({ progress }: { progress: ProgressResponse | null }) {
 // §10f  CONTEXT PANEL — Slide-out detail/failure/verification panel
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function ContextPanel({ entity }: { entity: TaskEntity | null }) {
+function ContextPanel({
+  entity,
+  retryDisabled,
+  onRetryEntity,
+}: {
+  entity: TaskEntity | null;
+  retryDisabled: boolean;
+  onRetryEntity: (entityId: number) => void;
+}) {
   const scope = useScope();
   const dispatch = useScopeDispatch();
 
@@ -2707,22 +3458,31 @@ function ContextPanel({ entity }: { entity: TaskEntity | null }) {
                   </div>
                 )}
                 {/* Retry button */}
+                {retryDisabled && (
+                  <div style={{
+                    ...S.cardInset,
+                    padding: "10px 12px",
+                    border: "1px solid var(--bp-caution)",
+                    background: "var(--bp-caution)" + "10",
+                  }}>
+                    <div style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-primary)", lineHeight: 1.5 }}>
+                      {RETRY_BLOCKED_MESSAGE}
+                    </div>
+                  </div>
+                )}
                 <button
-                  onClick={() => {
-                    if (entity.EntityId) {
-                      fetch(`${API}/api/engine/retry`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ entity_ids: [entity.EntityId] }),
-                      }).catch(() => {});
-                    }
-                  }}
+                  type="button"
+                  disabled={retryDisabled}
+                  title={retryDisabled ? RETRY_BLOCKED_MESSAGE : `Retry only ${entity.SourceTable}`}
+                  onClick={() => { if (entity.EntityId && !retryDisabled) onRetryEntity(entity.EntityId); }}
                   style={{
-                    ...S.badge, cursor: "pointer",
+                    ...S.badge,
+                    cursor: retryDisabled ? "not-allowed" : "pointer",
                     background: "var(--bp-copper-soft)", color: "var(--bp-copper)",
                     border: "1px solid var(--bp-copper)",
                     padding: "8px 16px", fontSize: 12,
                     justifyContent: "center", marginTop: 4,
+                    opacity: retryDisabled ? 0.5 : 1,
                   }}
                 >
                   <RotateCcw size={12} /> Retry this entity
@@ -2812,6 +3572,10 @@ function ContextPanel({ entity }: { entity: TaskEntity | null }) {
 function LoadMissionControlInner() {
   const scope = useScope();
   const dispatch = useScopeDispatch();
+  const [retryFeedback, setRetryFeedback] = useState<{
+    tone: "success" | "error";
+    message: string;
+  } | null>(null);
 
   // Fetch runs list
   const { runs, loading: runsLoading, refetch: refetchRuns } = useRuns(20);
@@ -2822,6 +3586,7 @@ function LoadMissionControlInner() {
   const [compareRunB, setCompareRunB] = useState("");
   const [compareData, setCompareData] = useState<any>(null);
   const [compareLoading, setCompareLoading] = useState(false);
+  const [selfHealExpanded, setSelfHealExpanded] = useState(false);
 
   // Engine status (polls every 5s) — must be before useEffects that reference it
   const { engine } = useEngineStatus(scope.isRunActive ? 3000 : 10000);
@@ -2831,15 +3596,53 @@ function LoadMissionControlInner() {
     scope.selectedRunId,
     scope.isRunActive ? 3000 : 15000,
   );
+  const selectedRunMeta = useMemo(
+    () => runs.find(r => r.runId === scope.selectedRunId) ?? null,
+    [runs, scope.selectedRunId],
+  );
+  const selectedRunStatus = (progress?.run?.status ?? selectedRunMeta?.status ?? "").toLowerCase();
+  const retryDisabled = scope.isRunActive || selectedRunStatus === "inprogress" || selectedRunStatus === "running";
+  const showSelfHealRail = Boolean(progress?.selfHeal && (progress.selfHeal.configured || progress.selfHeal.selectedAgent || progress.selfHeal.summary.totalCount > 0));
+  const hasActiveSelfHeal = useMemo(
+    () => Boolean(progress?.selfHeal?.cases?.some((item) => ["collecting_context", "invoking_agent", "validating_patch", "retrying"].includes(item.status))),
+    [progress?.selfHeal?.cases],
+  );
+  const selectedRunSourceFilter = useMemo(() => {
+    const raw = progress?.run?.sourceFilter ?? selectedRunMeta?.sourceFilter ?? [];
+    return Array.isArray(raw) ? raw.filter(Boolean) : [];
+  }, [progress?.run?.sourceFilter, selectedRunMeta?.sourceFilter]);
+  const rightRailWidth = scope.contextOpen || selfHealExpanded ? 320 : 96;
 
   // Auto-select a run if the engine is actively running one
-  // Otherwise stay on "New Run" (selectedRunId = null)
+  // Only do this when the user has not manually selected a different run.
   useEffect(() => {
-    if (engine?.status === "running" && engine?.current_run_id && engine.current_run_id !== scope.selectedRunId) {
+    if (!scope.selectedRunId && engine?.status === "running" && engine?.current_run_id) {
       dispatch({ type: "SET_RUN", runId: engine.current_run_id });
       refetchRuns();
     }
   }, [engine?.status, engine?.current_run_id, scope.selectedRunId, dispatch, refetchRuns]);
+
+  useEffect(() => {
+    const next = selectedRunSourceFilter;
+    const current = scope.runSources;
+    if (next.length === current.length && next.every((value, index) => value === current[index])) return;
+    dispatch({ type: "SET_RUN_SOURCES", sources: next });
+  }, [selectedRunSourceFilter, scope.runSources, dispatch]);
+
+  useEffect(() => {
+    if (!retryFeedback) return;
+    const timeoutId = window.setTimeout(() => setRetryFeedback(null), 8000);
+    return () => window.clearTimeout(timeoutId);
+  }, [retryFeedback]);
+  useEffect(() => {
+    if (!showSelfHealRail) {
+      setSelfHealExpanded(false);
+      return;
+    }
+    if (hasActiveSelfHeal) {
+      setSelfHealExpanded(true);
+    }
+  }, [hasActiveSelfHeal, showSelfHealRail]);
 
   // ── Compare fetch effect (Task 9) ──
   useEffect(() => {
@@ -2917,17 +3720,71 @@ function LoadMissionControlInner() {
     try { await fetch(`${API}/api/engine/stop`, { method: "POST" }); } catch { /* swallow */ }
   }, []);
 
-  const handleRetry = useCallback(async () => {
-    if (!scope.selectedRunId) return;
+  const submitScopedRetry = useCallback(async (request?: { entityIds?: number[]; layers?: string[] }) => {
+    if (!scope.selectedRunId) {
+      setRetryFeedback({ tone: "error", message: "Select a run before retrying failed work." });
+      return false;
+    }
+    if (retryDisabled) {
+      setRetryFeedback({ tone: "error", message: RETRY_BLOCKED_MESSAGE });
+      return false;
+    }
     try {
-      await fetch(`${API}/api/engine/retry`, {
+      const res = await fetch(`${API}/api/engine/retry`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ run_id: scope.selectedRunId, layers: scope.selectedLayers.length > 0 ? scope.selectedLayers : undefined }),
+        body: JSON.stringify({
+          run_id: scope.selectedRunId,
+          entity_ids: request?.entityIds,
+          layers: request?.layers,
+        }),
       });
+      const payload = await res.json().catch(() => ({} as Record<string, unknown>));
+      if (!res.ok) {
+        let message = typeof payload.message === "string" ? payload.message : `Retry failed (${res.status})`;
+        if (typeof payload.error === "string") {
+          message = payload.error;
+          try {
+            const nested = JSON.parse(payload.error) as Record<string, unknown>;
+            if (typeof nested.error === "string") {
+              message = nested.error;
+              if (typeof nested.current_run_id === "string") {
+                message = `${nested.error} (${nested.current_run_id.slice(0, 8)})`;
+              }
+            }
+          } catch {
+            // Leave the raw string in place when the route returned a plain-text error.
+          }
+        }
+        setRetryFeedback({ tone: "error", message });
+        return false;
+      }
+      const retryRunId = typeof payload.run_id === "string" ? payload.run_id : null;
+      const retryCount = typeof payload.retrying === "number"
+        ? payload.retrying
+        : request?.entityIds?.length ?? 0;
+      if (retryRunId) {
+        dispatch({ type: "SET_RUN", runId: retryRunId });
+      }
       refetchRuns();
-    } catch { /* swallow */ }
-  }, [scope.selectedRunId, scope.selectedLayers, refetchRuns]);
+      setRetryFeedback({
+        tone: "success",
+        message: retryRunId
+          ? `Started scoped retry run ${retryRunId.slice(0, 8)} for ${retryCount || "the selected"} failed ${retryCount === 1 ? "entity" : "entities"}.`
+          : "Started scoped retry run for the selected failed work.",
+      });
+      return true;
+    } catch {
+      setRetryFeedback({ tone: "error", message: "Retry request failed before the API could respond." });
+      return false;
+    }
+  }, [scope.selectedRunId, retryDisabled, dispatch, refetchRuns]);
+
+  const handleRetry = useCallback(async () => {
+    await submitScopedRetry({
+      layers: scope.selectedLayers.length > 0 ? scope.selectedLayers : undefined,
+    });
+  }, [scope.selectedLayers, submitScopedRetry]);
 
   const handleResume = useCallback(async () => {
     if (!scope.selectedRunId) return;
@@ -2998,40 +3855,45 @@ function LoadMissionControlInner() {
 
   // Entity-level retry handler
   const handleRetryEntity = useCallback(async (entityId: number) => {
-    if (!scope.selectedRunId) return;
-    try {
-      await fetch(`${API}/api/engine/retry`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ run_id: scope.selectedRunId, entity_ids: [entityId] }),
-      });
+    const started = await submitScopedRetry({ entityIds: [entityId] });
+    if (started) {
       refetchEntities();
-    } catch { /* swallow */ }
-  }, [scope.selectedRunId, refetchEntities]);
+    }
+  }, [refetchEntities, submitScopedRetry]);
 
   // Error-type batch retry handler — queries ALL failed (not capped by client page size)
   const handleRetryErrorType = useCallback(async (errorType: string) => {
     if (!scope.selectedRunId) return;
+    if (retryDisabled) {
+      setRetryFeedback({ tone: "error", message: RETRY_BLOCKED_MESSAGE });
+      return;
+    }
     try {
       // Fetch all failed entities of this error type from backend (uncapped)
       const failedRes = await fetch(
         `${API}/api/lmc/run/${scope.selectedRunId}/entities?status=failed&limit=5000`
       );
-      if (!failedRes.ok) return;
+      if (!failedRes.ok) {
+        setRetryFeedback({ tone: "error", message: `Failed to load failed entities for ${errorType}.` });
+        return;
+      }
       const failedData = await failedRes.json();
       const failed = (failedData.entities ?? [])
         .filter((e: TaskEntity) => e.ErrorType === errorType)
         .map((e: TaskEntity) => e.EntityId);
-      if (failed.length === 0) return;
+      if (failed.length === 0) {
+        setRetryFeedback({ tone: "error", message: `No failed entities are currently tagged as ${errorType}.` });
+        return;
+      }
 
-      await fetch(`${API}/api/engine/retry`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ run_id: scope.selectedRunId, entity_ids: failed }),
-      });
-      refetchEntities();
-    } catch { /* swallow */ }
-  }, [scope.selectedRunId, refetchEntities]);
+      const started = await submitScopedRetry({ entityIds: failed });
+      if (started) {
+        refetchEntities();
+      }
+    } catch {
+      setRetryFeedback({ tone: "error", message: `Retry lookup failed for ${errorType}.` });
+    }
+  }, [scope.selectedRunId, retryDisabled, refetchEntities, submitScopedRetry]);
 
   return (
     <div style={{
@@ -3054,222 +3916,298 @@ function LoadMissionControlInner() {
         .metric-value:hover { color: var(--bp-copper); }
       `}</style>
 
-      {/* Page heading */}
-      <div style={{
-        padding: "28px 32px 16px",
-        display: "flex", alignItems: "baseline", gap: 12,
-      }}>
-        <h1 style={{ fontFamily: "var(--bp-font-display)", fontSize: "32px", fontWeight: 400, color: "var(--bp-ink-primary)", lineHeight: "1.1", margin: 0 }}>
-          Load Mission Control
-        </h1>
-        <span style={{ ...S.sans, fontSize: 13, color: "var(--bp-ink-muted)" }}>
-          Pipeline operations workbench
-        </span>
-      </div>
-
-      {/* §6 Command Band */}
-      <CommandBand
-        runs={runs}
-        engine={engine}
-        sources={availableSources}
-        onStart={handleStart}
-        onStop={handleStop}
-        onRetry={handleRetry}
-        onResume={handleResume}
-      />
-
-      {/* Scoped-run banner — shows when run is filtered to specific sources */}
-      {scope.runSources.length > 0 && (
-        <div style={{
-          display: "flex", alignItems: "center", gap: 12,
-          padding: "10px 32px",
-          background: "var(--bp-copper-soft)",
-          borderBottom: "1px solid var(--bp-copper)",
-          animation: "slideInDown 0.4s var(--ease-claude, ease-out)",
-        }}>
-          <Server size={14} style={{ color: "var(--bp-copper)", flexShrink: 0 }} />
-          <span style={{ ...S.sans, fontSize: 13, fontWeight: 600, color: "var(--bp-copper)" }}>
-            Scoped to:
-          </span>
-          {scope.runSources.map(s => (
-            <span key={s} style={{
-              ...S.badge,
-              background: "var(--bp-copper)", color: "#fff",
-              fontSize: 12, padding: "3px 10px",
-            }}>
-              {availableSources.find(src => src.name === s)?.displayName || s}
-            </span>
-          ))}
-          <div style={{ flex: 1 }} />
-          <button
-            onClick={() => dispatch({ type: "SET_RUN_SOURCES", sources: [] })}
-            style={{
-              ...S.badge, cursor: "pointer", fontSize: 11,
-              background: "transparent", color: "var(--bp-copper)",
-              border: "1px solid var(--bp-copper)", padding: "4px 12px",
-            }}
-          >
-            Show All Sources
-          </button>
-        </div>
-      )}
-
-      {/* §7 KPI Strip + Matrix — only when a run is selected */}
-      {!scope.selectedRunId ? (
-        <div style={{
-          padding: "48px 32px", display: "flex", flexDirection: "column",
-          alignItems: "center", gap: 20, color: "var(--bp-ink-muted)",
-          background: "var(--bp-surface-inset)",
-          minHeight: "600px", justifyContent: "center",
-        }}>
-          <div style={{
-            width: 64, height: 64, borderRadius: 12,
-            background: "var(--bp-operational)" + "12",
-            border: "2px solid var(--bp-operational)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            animation: "float 3s ease-in-out infinite",
-          }}>
-            <Play size={32} style={{ color: "var(--bp-operational)" }} />
-          </div>
-          <div style={{ textAlign: "center", maxWidth: 480 }}>
-            <div style={{ ...S.display, fontSize: 32, fontWeight: 700, color: "var(--bp-ink-primary)", marginBottom: 12, lineHeight: 1.2 }}>
-              Ready to Go
-            </div>
-            <div style={{ ...S.sans, fontSize: 15, color: "var(--bp-ink-secondary)", lineHeight: 1.6, marginBottom: 20 }}>
-              Use Load Center to start or finish imports. Mission Control stays here as the place to watch the run, inspect failures, and understand what happened after execution starts.
-            </div>
-            <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-              <div style={{ ...S.cardInset, padding: "12px 16px", textAlign: "left" }}>
-                <div style={{ ...S.sans, fontSize: 11, fontWeight: 600, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 4 }}>
-                  Execution Ownership
-                </div>
-                <div style={{ ...S.sans, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
-                  Start and finish imports in Load Center, then come back here to monitor and triage the run
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-      <div style={{ position: "relative" }}>
-        {progressLoading && (
-          <div style={{
-            position: "absolute", inset: 0, zIndex: 10,
-            background: "rgba(244,242,237,0.85)",
-            backdropFilter: "blur(4px)",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-            ...S.sans, fontSize: 14, color: "var(--bp-ink-secondary)",
-            transition: "opacity 0.3s ease",
-          }}>
-            <Loader2 size={16} style={{ animation: "spin 1s linear infinite", color: "var(--bp-copper)" }} />
-            {progress ? "Refreshing…" : "Loading pipeline data…"}
-          </div>
-        )}
-        <KpiStrip progress={progress} bulkProgress={bulkProgress} />
-
-        {/* Bulk progress ETA banner — visible during active bulk runs */}
-        {bulkProgress && bulkProgress.total > 0 && scope.isRunActive && (
-          <div style={{
-            margin: "0 32px", padding: "12px 20px",
-            background: "var(--bp-surface-1)", border: "1px solid var(--bp-operational)",
-            borderRadius: 8, display: "flex", alignItems: "center", gap: 16,
-          }}>
-            <Zap size={16} style={{ color: "var(--bp-operational)", flexShrink: 0 }} />
-            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 20 }}>
-              <span style={{ ...S.sans, fontSize: 13, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
-                Bulk Snapshot
-              </span>
-              <span style={{ ...S.data, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
-                {bulkProgress.completed} / {bulkProgress.total} entities ({bulkProgress.pct}%)
-              </span>
-              {bulkProgress.totalRows > 0 && (
-                <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
-                  {formatNumber(bulkProgress.totalRows)} rows
-                </span>
-              )}
-              {bulkProgress.totalBytes > 0 && (
-                <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
-                  {(bulkProgress.totalBytes / (1024 * 1024)).toFixed(1)} MB
-                </span>
-              )}
-              {bulkProgress.activeWorkers != null && (
-                <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
-                  {bulkProgress.activeWorkers}w
-                </span>
-              )}
-            </div>
-            {bulkProgress.etaSeconds != null && bulkProgress.etaSeconds > 0 && (
-              <div style={{
-                ...S.data, fontSize: 14, fontWeight: 700, color: "var(--bp-operational)",
-                display: "flex", alignItems: "center", gap: 6,
-              }}>
-                <Timer size={14} />
-                ETA {Math.ceil(bulkProgress.etaSeconds / 60)}m
-              </div>
-            )}
-            {/* Progress bar */}
-            <div style={{
-              width: 120, height: 6, borderRadius: 3,
-              background: "var(--bp-border)", overflow: "hidden", flexShrink: 0,
-            }}>
-              <div style={{
-                height: "100%", borderRadius: 3,
-                width: `${bulkProgress.pct}%`,
-                background: "var(--bp-operational)",
-                transition: "width 0.5s ease",
-              }} />
-            </div>
-          </div>
-        )}
-
-        <PhaseRail progress={progress} engine={engine} />
-        <SourceLayerMatrix progress={progress} engine={engine} sourceNames={availableSources} />
-      </div>
-      )}
-
-      {/* Section divider */}
-      <div style={{ height: 1, background: "var(--bp-border)", margin: "20px 0 0" }} />
-
-      {/* Tab bar — Redesigned with premium appearance and motion */}
-      <div style={{
-        display: "flex", gap: 0, padding: "24px 32px 0",
-        borderBottom: "1px solid var(--bp-border)",
-      }}>
-        {(["live", "history", "entities", "triage", "inventory"] as const).map((tab, idx) => (
-          <div key={tab} style={{ position: "relative" }}>
-            <button
-              onClick={() => dispatch({ type: "SET_TAB", tab })}
+      <div className="bp-page-shell-wide space-y-4" style={{ paddingBottom: 24 }}>
+        <CompactPageHeader
+          eyebrow="Monitor"
+          title="Load Mission Control"
+          summary="Watch the active run, inspect failures as they emerge, and keep the operator in one place while execution, triage, and verification move forward."
+          meta={
+            scope.selectedRunId
+              ? `Monitoring run ${shortRunId(scope.selectedRunId)}`
+              : "Pipeline operations workbench"
+          }
+          guideItems={[
+            {
+              label: "What This Page Is",
+              value: "Live operations workbench",
+              detail: "Mission Control is the live monitoring surface for active and recently completed runs, including execution posture, source-layer progress, failures, and verification context.",
+            },
+            {
+              label: "Why It Matters",
+              value: "One place during execution",
+              detail: "Operators should not need to jump between half a dozen pages while a run is active. This page carries the live state, the triage context, and the verification trail in one workspace.",
+            },
+            {
+              label: "What Happens Next",
+              value: "Observe, diagnose, verify",
+              detail: "Start or finish the run in Load Center, watch the run here, then use the entity and failure context to decide whether to retry, wait, or move into a deeper diagnostic page.",
+            },
+          ]}
+          guideLinks={[
+            { label: "Open Load Center", to: "/load-center" },
+            { label: "Open Execution Matrix", to: "/matrix" },
+            { label: "Open Error Intelligence", to: "/errors" },
+          ]}
+          status={
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5"
               style={{
-                padding: "12px 20px 16px",
-                ...S.sans, fontSize: 14, fontWeight: scope.activeTab === tab ? 700 : 500,
-                color: scope.activeTab === tab ? "var(--bp-ink-primary)" : "var(--bp-ink-tertiary)",
-                background: "none", border: "none",
-                cursor: "pointer",
-                textTransform: "capitalize",
-                transition: "color 0.2s ease",
-                display: "flex", alignItems: "center", gap: 8,
+                fontSize: 11,
+                fontWeight: 700,
+                color: scope.isRunActive ? "var(--bp-copper)" : "var(--bp-ink-secondary)",
+                background: scope.isRunActive ? "rgba(180,86,36,0.08)" : "rgba(255,255,255,0.72)",
+                border: scope.isRunActive ? "1px solid rgba(180,86,36,0.16)" : "1px solid rgba(120,113,108,0.1)",
               }}
             >
-              {tab === "live" && <Activity size={16} style={{ opacity: 0.7 }} />}
-              {tab}
-            </button>
-            {scope.activeTab === tab && (
-              <div style={{
-                position: "absolute", bottom: -1, left: 0, right: 0,
-                height: 2, background: "var(--bp-copper)",
-                animation: "slideInUp 0.3s ease-out",
-              }} />
-            )}
-          </div>
-        ))}
-      </div>
+              {scope.isRunActive ? <Activity size={12} /> : <Circle size={12} />}
+              {scope.isRunActive ? "Run Active" : "Standing By"}
+            </span>
+          }
+          facts={[
+            { label: "Run", value: scope.selectedRunId ? shortRunId(scope.selectedRunId) : "Not selected", tone: scope.selectedRunId ? "accent" : "neutral" },
+            { label: "Sources", value: availableSources.length.toLocaleString(), tone: "accent" },
+            { label: "Scope", value: scope.runSources.length > 0 ? `${scope.runSources.length} sources` : "All sources", tone: scope.runSources.length > 0 ? "accent" : "neutral" },
+            { label: "Status", value: scope.selectedRunId ? (selectedRunStatus || "pending").replaceAll("_", " ") : "Waiting", tone: scope.isRunActive ? "warning" : scope.selectedRunId ? "positive" : "neutral" },
+          ]}
+        />
+        <div style={{
+          background: "var(--bp-surface-1)",
+          border: "1px solid var(--bp-border)",
+          borderRadius: 18,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+        }}>
+          {/* §6 Command Band */}
+          <CommandBand
+            runs={runs}
+            engine={engine}
+            sources={availableSources}
+            onStart={handleStart}
+            onStop={handleStop}
+            onRetry={handleRetry}
+            onResume={handleResume}
+          />
 
-      {/* Tab content + Context panel */}
-      <div style={{ display: "flex", padding: "24px 32px 40px", gap: 20, minHeight: 520 }}>
-        <div style={{ flex: 1, minWidth: 0, animation: "slideInUp 0.5s ease-out 0.1s backwards" }}>
-          {scope.activeTab === "live" && <LiveTailTab events={sseEvents} onClear={clearSse} />}
-          {scope.activeTab === "history" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {retryFeedback && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              margin: "14px 32px 0",
+              padding: "10px 14px",
+              borderRadius: 8,
+              border: `1px solid ${retryFeedback.tone === "error" ? "var(--bp-fault)" : "var(--bp-operational)"}`,
+              background: retryFeedback.tone === "error"
+                ? "var(--bp-fault)" + "12"
+                : "var(--bp-operational)" + "12",
+            }}>
+              {retryFeedback.tone === "error" ? (
+                <AlertTriangle size={14} style={{ color: "var(--bp-fault)", flexShrink: 0 }} />
+              ) : (
+                <CheckCircle2 size={14} style={{ color: "var(--bp-operational)", flexShrink: 0 }} />
+              )}
+              <span style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-primary)", flex: 1 }}>
+                {retryFeedback.message}
+              </span>
+              <button
+                type="button"
+                onClick={() => setRetryFeedback(null)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--bp-ink-muted)", padding: 0 }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* Scoped-run banner — shows when run is filtered to specific sources */}
+          {scope.runSources.length > 0 && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 12,
+              padding: "10px 32px",
+              background: "var(--bp-copper-soft)",
+              borderBottom: "1px solid var(--bp-copper)",
+              animation: "slideInDown 0.4s var(--ease-claude, ease-out)",
+            }}>
+              <Server size={14} style={{ color: "var(--bp-copper)", flexShrink: 0 }} />
+              <span style={{ ...S.sans, fontSize: 13, fontWeight: 600, color: "var(--bp-copper)" }}>
+                Scoped to:
+              </span>
+              {scope.runSources.map(s => (
+                <span key={s} style={{
+                  ...S.badge,
+                  background: "var(--bp-copper)", color: "#fff",
+                  fontSize: 12, padding: "3px 10px",
+                }}>
+                  {availableSources.find(src => src.name === s)?.displayName || s}
+                </span>
+              ))}
+              <div style={{ flex: 1 }} />
+              <button
+                onClick={() => dispatch({ type: "SET_RUN_SOURCES", sources: [] })}
+                style={{
+                  ...S.badge, cursor: "pointer", fontSize: 11,
+                  background: "transparent", color: "var(--bp-copper)",
+                  border: "1px solid var(--bp-copper)", padding: "4px 12px",
+                }}
+              >
+                Show All Sources
+              </button>
+            </div>
+          )}
+
+          {/* §7 KPI Strip + Matrix — only when a run is selected */}
+          {!scope.selectedRunId ? (
+            <div style={{
+              padding: "48px 32px", display: "flex", flexDirection: "column",
+              alignItems: "center", gap: 20, color: "var(--bp-ink-muted)",
+              background: "var(--bp-surface-inset)",
+              minHeight: "600px", justifyContent: "center",
+            }}>
+              <div style={{
+                width: 64, height: 64, borderRadius: 12,
+                background: "var(--bp-operational)" + "12",
+                border: "2px solid var(--bp-operational)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                animation: "float 3s ease-in-out infinite",
+              }}>
+                <Play size={32} style={{ color: "var(--bp-operational)" }} />
+              </div>
+              <div style={{ textAlign: "center", maxWidth: 480 }}>
+                <div style={{ ...S.display, fontSize: 32, fontWeight: 700, color: "var(--bp-ink-primary)", marginBottom: 12, lineHeight: 1.2 }}>
+                  Ready to Go
+                </div>
+                <div style={{ ...S.sans, fontSize: 15, color: "var(--bp-ink-secondary)", lineHeight: 1.6, marginBottom: 20 }}>
+                  Use Load Center to start or finish imports. Mission Control stays here as the place to watch the run, inspect failures, and understand what happened after execution starts.
+                </div>
+                <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+                  <div style={{ ...S.cardInset, padding: "12px 16px", textAlign: "left" }}>
+                    <div style={{ ...S.sans, fontSize: 11, fontWeight: 600, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 4 }}>
+                      Execution Ownership
+                    </div>
+                    <div style={{ ...S.sans, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
+                      Start and finish imports in Load Center, then come back here to monitor and triage the run
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ position: "relative" }}>
+              {progressLoading && (
+                <div style={{
+                  position: "absolute", inset: 0, zIndex: 10,
+                  background: "rgba(244,242,237,0.85)",
+                  backdropFilter: "blur(4px)",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                  ...S.sans, fontSize: 14, color: "var(--bp-ink-secondary)",
+                  transition: "opacity 0.3s ease",
+                }}>
+                  <Loader2 size={16} style={{ animation: "spin 1s linear infinite", color: "var(--bp-copper)" }} />
+                  {progress ? "Refreshing…" : "Loading pipeline data…"}
+                </div>
+              )}
+              <KpiStrip progress={progress} bulkProgress={bulkProgress} />
+
+              {/* Bulk progress ETA banner — visible during active bulk runs */}
+              {bulkProgress && bulkProgress.total > 0 && scope.isRunActive && (
+                <div style={{
+                  margin: "0 32px", padding: "12px 20px",
+                  background: "var(--bp-surface-1)", border: "1px solid var(--bp-operational)",
+                  borderRadius: 8, display: "flex", alignItems: "center", gap: 16,
+                }}>
+                  <Zap size={16} style={{ color: "var(--bp-operational)", flexShrink: 0 }} />
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 20 }}>
+                    <span style={{ ...S.sans, fontSize: 13, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
+                      Bulk Snapshot
+                    </span>
+                    <span style={{ ...S.data, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
+                      {bulkProgress.completed} / {bulkProgress.total} entities ({bulkProgress.pct}%)
+                    </span>
+                    {bulkProgress.totalRows > 0 && (
+                      <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
+                        {formatNumber(bulkProgress.totalRows)} rows
+                      </span>
+                    )}
+                    {bulkProgress.totalBytes > 0 && (
+                      <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
+                        {(bulkProgress.totalBytes / (1024 * 1024)).toFixed(1)} MB
+                      </span>
+                    )}
+                    {bulkProgress.activeWorkers != null && (
+                      <span style={{ ...S.data, fontSize: 12, color: "var(--bp-ink-muted)" }}>
+                        {bulkProgress.activeWorkers}w
+                      </span>
+                    )}
+                  </div>
+                  {bulkProgress.etaSeconds != null && bulkProgress.etaSeconds > 0 && (
+                    <div style={{
+                      ...S.data, fontSize: 14, fontWeight: 700, color: "var(--bp-operational)",
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}>
+                      <Timer size={14} />
+                      ETA {Math.ceil(bulkProgress.etaSeconds / 60)}m
+                    </div>
+                  )}
+                  {/* Progress bar */}
+                  <div style={{
+                    width: 120, height: 6, borderRadius: 3,
+                    background: "var(--bp-border)", overflow: "hidden", flexShrink: 0,
+                  }}>
+                    <div style={{
+                      height: "100%", borderRadius: 3,
+                      width: `${bulkProgress.pct}%`,
+                      background: "var(--bp-operational)",
+                      transition: "width 0.5s ease",
+                    }} />
+                  </div>
+                </div>
+              )}
+
+              <PhaseRail progress={progress} engine={engine} />
+              <SourceLayerMatrix progress={progress} engine={engine} sourceNames={availableSources} />
+            </div>
+          )}
+
+          {/* Section divider */}
+          <div style={{ height: 1, background: "var(--bp-border)", margin: "20px 0 0" }} />
+
+          {/* Tab bar — Redesigned with premium appearance and motion */}
+          <div style={{
+            display: "flex", gap: 0, padding: "24px 32px 0",
+            borderBottom: "1px solid var(--bp-border)",
+          }}>
+            {(["live", "history", "entities", "triage", "inventory"] as const).map((tab, idx) => (
+              <div key={tab} style={{ position: "relative" }}>
+                <button
+                  onClick={() => dispatch({ type: "SET_TAB", tab })}
+                  style={{
+                    padding: "12px 20px 16px",
+                    ...S.sans, fontSize: 14, fontWeight: scope.activeTab === tab ? 700 : 500,
+                    color: scope.activeTab === tab ? "var(--bp-ink-primary)" : "var(--bp-ink-tertiary)",
+                    background: "none", border: "none",
+                    cursor: "pointer",
+                    textTransform: "capitalize",
+                    transition: "color 0.2s ease",
+                    display: "flex", alignItems: "center", gap: 8,
+                  }}
+                >
+                  {tab === "live" && <Activity size={16} style={{ opacity: 0.7 }} />}
+                  {tab}
+                </button>
+                {scope.activeTab === tab && (
+                  <div style={{
+                    position: "absolute", bottom: -1, left: 0, right: 0,
+                    height: 2, background: "var(--bp-copper)",
+                    animation: "slideInUp 0.3s ease-out",
+                  }} />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Tab content + right rail */}
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", padding: "24px 32px 40px", gap: 20, minHeight: 520 }}>
+            <div style={{ flex: 1, minWidth: 0, animation: "slideInUp 0.5s ease-out 0.1s backwards" }}>
+              {scope.activeTab === "live" && <LiveTailTab events={sseEvents} onClear={clearSse} />}
+              {scope.activeTab === "history" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {/* ── Extraction Performance Comparison (Task 9) ── */}
               <div style={{ ...S.card, overflow: "hidden" }}>
                 <button
@@ -3421,18 +4359,29 @@ function LoadMissionControlInner() {
                 )}
               </div>
 
-              <HistoryTab entities={entities} total={entityTotal} loading={entitiesLoading} />
+                  <HistoryTab entities={entities} total={entityTotal} loading={entitiesLoading} />
+                </div>
+              )}
+              {scope.activeTab === "entities" && <EntitiesTab entities={entities} total={entityTotal} loading={entitiesLoading} retryDisabled={retryDisabled} onRetryEntity={handleRetryEntity} />}
+              {scope.activeTab === "triage" && <TriageTab progress={progress} retryDisabled={retryDisabled} onRetryErrorType={handleRetryErrorType} />}
+              {scope.activeTab === "inventory" && <InventoryTab progress={progress} />}
             </div>
-          )}
-          {scope.activeTab === "entities" && <EntitiesTab entities={entities} total={entityTotal} loading={entitiesLoading} onRetryEntity={handleRetryEntity} />}
-          {scope.activeTab === "triage" && <TriageTab progress={progress} onRetryErrorType={handleRetryErrorType} />}
-          {scope.activeTab === "inventory" && <InventoryTab progress={progress} />}
-        </div>
-        {scope.contextOpen && (
-          <div style={{ animation: "slideInDown 0.4s ease-out" }}>
-            <ContextPanel entity={selectedEntity} />
+            {(showSelfHealRail || scope.contextOpen) && (
+              <div style={{ width: rightRailWidth, flex: `0 0 ${rightRailWidth}px`, display: "grid", gap: 16, alignSelf: "flex-start", animation: "slideInDown 0.4s ease-out" }}>
+                {showSelfHealRail && (
+                  <SelfHealRail
+                    selfHeal={progress?.selfHeal}
+                    expanded={selfHealExpanded}
+                    onToggle={() => setSelfHealExpanded((value) => !value)}
+                  />
+                )}
+                {scope.contextOpen && (
+                  <ContextPanel entity={selectedEntity} retryDisabled={retryDisabled} onRetryEntity={handleRetryEntity} />
+                )}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

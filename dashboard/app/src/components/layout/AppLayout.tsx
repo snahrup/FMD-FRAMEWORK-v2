@@ -77,8 +77,8 @@ const CORE_GROUPS: NavGroup[] = [
   {
     label: "Estate",
     items: [
-      { icon: Globe, label: "Data Estate", href: "/estate" },
       { icon: LayoutDashboard, label: "Overview", href: "/overview" },
+      { icon: Globe, label: "Data Estate", href: "/estate" },
     ],
   },
   {
@@ -280,6 +280,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const sidebarWidth = "w-64";
   const mainMargin = "md:ml-64";
+  const managedShellRoutes = new Set([
+    "/estate",
+    "/overview",
+    "/load-center",
+    "/sources",
+    "/load-mission-control",
+    "/matrix",
+    "/errors",
+    "/logs",
+    "/explore",
+  ]);
+  const usesManagedShell = managedShellRoutes.has(location.pathname);
 
   // ── Business Portal sidebar — matches wireframe exactly ──
   const BPNavContent = (
@@ -600,7 +612,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               ? "p-0 h-full"
               : isBusiness
                 ? "" /* Business pages handle their own padding/max-width */
-                : "p-6"
+                : usesManagedShell
+                  ? "p-0"
+                  : "p-6"
           )}>
             {children}
           </div>

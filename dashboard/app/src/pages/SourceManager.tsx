@@ -35,6 +35,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SourceOnboardingWizard } from '@/components/sources/SourceOnboardingWizard';
 import { useEntityDigest, invalidateDigestCache } from '@/hooks/useEntityDigest';
 import type { DigestEntity } from '@/hooks/useEntityDigest';
+import { useMetricContract } from '@/hooks/useMetricContract';
 import { resolveSourceLabel } from '@/hooks/useSourceConfig';
 import CompactPageHeader from '@/components/layout/CompactPageHeader';
 import TableCardList from '@/components/ui/TableCardList';
@@ -142,9 +143,16 @@ export default function SourceManager() {
     refresh: refreshDigest,
     loading: digestLoading,
   } = useEntityDigest();
+  const { data: metricContract, loading: contractLoading } = useMetricContract();
 
   // Derive registeredEntities from the digest
   const registeredEntities = digestEntities.map(digestToRegistered);
+  const tablesInScope = metricContract?.tables.inScope.value ?? registeredEntities.length;
+  const landingLoaded = metricContract?.tables.landingLoaded.value ?? 0;
+  const bronzeLoaded = metricContract?.tables.bronzeLoaded.value ?? 0;
+  const silverLoaded = metricContract?.tables.silverLoaded.value ?? 0;
+  const fabricCountsReady = Boolean(metricContract);
+  const fabricCountsPending = contractLoading && !metricContract;
 
   // ── Data state (live from API — everything except entities) ──
   const [gatewayConnections, setGatewayConnections] = useState<GatewayConnection[]>([]);
@@ -181,9 +189,9 @@ export default function SourceManager() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeTarget, setAnalyzeTarget] = useState<string | null>(null);
   const [optimizingAll, setOptimizingAll] = useState(false);
-  const [optimizeAllResult, setOptimizeAllResult] = useState<{ pk: number; wm: number; total: number; incr: number; errors: string[] } | null>(null);
+  const [, setOptimizeAllResult] = useState<{ pk: number; wm: number; total: number; incr: number; errors: string[] } | null>(null);
   const [discoveringAll, setDiscoveringAll] = useState(false);
-  const [discoverResult, setDiscoverResult] = useState<{ sources: number; discovered: number; already: number; registered: number; trimmed: number; errors: string[] } | null>(null);
+  const [, setDiscoverResult] = useState<{ sources: number; discovered: number; already: number; registered: number; trimmed: number; errors: string[] } | null>(null);
   const [registering, setRegistering] = useState(false);
   const [pendingUpdates, setPendingUpdates] = useState<Map<number, { isIncremental?: boolean; column?: string }>>(new Map());
   const [savingConfig, setSavingConfig] = useState(false);
@@ -438,7 +446,7 @@ export default function SourceManager() {
         return;
       }
 
-      setActionStatus({ type: 'loading', message: `${dsName}: Found ${result.tablesAnalyzed} tables — registering Bronze/Silver entities...` });
+      setActionStatus({ type: 'loading', message: `${dsName}: Found ${result.tablesAnalyzed} tables — preparing Bronze and Silver load paths...` });
 
       // Step 2: Auto-register Bronze/Silver (silent — user doesn't need to know)
       await fetch('/api/register-bronze-silver', {
@@ -449,7 +457,7 @@ export default function SourceManager() {
 
       setActionStatus({
         type: 'success',
-        message: `${dsName}: ${result.tablesAnalyzed} tables found on ${result.server || 'source'}. Bronze/Silver entities registered. Use "Optimize All" to discover PKs and watermarks.`,
+        message: `${dsName}: ${result.tablesAnalyzed} tables found on ${result.server || 'source'}. Bronze and Silver load paths are ready. Use "Optimize All" to discover PKs and watermarks.`,
       });
       invalidateDigestCache();
       refreshDigest();
@@ -465,7 +473,7 @@ export default function SourceManager() {
   const handleOptimizeAll = async () => {
     setOptimizingAll(true);
     setOptimizeAllResult(null);
-    setActionStatus({ type: 'loading', message: 'Optimizing ALL entities — connecting to all 5 source databases, discovering PKs and watermarks...' });
+    setActionStatus({ type: 'loading', message: 'Optimizing all tables in scope — connecting to source databases and discovering PKs and watermarks...' });
     try {
       const res = await fetch('/api/engine/optimize-all', { method: 'POST' });
       if (!res.ok) {
@@ -498,7 +506,7 @@ export default function SourceManager() {
   const handleDiscoverAll = async () => {
     setDiscoveringAll(true);
     setDiscoverResult(null);
-    setActionStatus({ type: 'loading', message: 'Discovering tables across all source databases — connecting via VPN, scanning for unregistered tables...' });
+    setActionStatus({ type: 'loading', message: 'Discovering tables across all source databases — connecting via VPN and scanning for new tables...' });
     try {
       const res = await fetch('/api/source-manager/discover-all', { method: 'POST' });
       if (!res.ok) {
@@ -518,9 +526,9 @@ export default function SourceManager() {
       const msgs: string[] = [];
       msgs.push(`Scanned ${result.sources_processed} sources`);
       msgs.push(`${result.tables_discovered} tables found`);
-      if (result.newly_registered > 0) msgs.push(`${result.newly_registered} NEW entities registered (LZ+Bronze+Silver)`);
+      if (result.newly_registered > 0) msgs.push(`${result.newly_registered} new tables added to scope`);
       if (result.whitespace_fixed > 0) msgs.push(`${result.whitespace_fixed} names trimmed`);
-      if (result.already_registered > 0) msgs.push(`${result.already_registered} already registered`);
+      if (result.already_registered > 0) msgs.push(`${result.already_registered} already in scope`);
       if (result.errors?.length) msgs.push(`${result.errors.length} errors`);
       setActionStatus({
         type: result.newly_registered > 0 ? 'success' : 'success',
@@ -643,12 +651,12 @@ export default function SourceManager() {
       });
       const data = await res.json();
       if (res.ok) {
-        setActionStatus({ type: 'success', message: data.message || `Registered ${fmdName}` });
+        setActionStatus({ type: 'success', message: data.message || `Configured ${fmdName}` });
         invalidateDigestCache();
         refreshDigest();
         await loadData(true);
       } else {
-        setActionStatus({ type: 'error', message: data.error || 'Registration failed' });
+        setActionStatus({ type: 'error', message: data.error || 'Connection setup failed' });
       }
     } catch (e) {
       setActionStatus({ type: 'error', message: e instanceof Error ? e.message : 'Network error' });
@@ -666,7 +674,6 @@ export default function SourceManager() {
 
   const registeredCount = gatewayConnections.filter(c => isRegistered(c)).length;
   const externalSources = registeredDataSources.filter(ds => ds.Type === 'ASQL_01');
-  const sqlConnections = registeredConnections.filter(c => c.Type === 'SqlServer');
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -679,7 +686,7 @@ export default function SourceManager() {
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
           <p className="text-muted-foreground">Connecting to Fabric SQL Database...</p>
-          <p className="text-xs text-muted-foreground mt-1">Loading gateway connections and registered sources</p>
+          <p className="text-xs text-muted-foreground mt-1">Loading gateway connections and configured sources</p>
         </div>
       </div>
     );
@@ -706,12 +713,18 @@ export default function SourceManager() {
   }
 
   return (
-    <div className="bp-page-shell space-y-6">
+    <div className="bp-page-shell-wide space-y-6">
       <CompactPageHeader
         eyebrow="Load"
         title="Source Manager"
-        summary="Own connection setup, entity registration, and load configuration from one place instead of scattering onboarding and optimization across separate tools."
-        meta={digestLoading ? "refreshing source registry" : "source onboarding and configuration"}
+        summary="Connect source systems, decide which tables belong in scope, and tune load behavior from one place."
+        meta={
+          digestLoading
+            ? "refreshing source scope"
+            : fabricCountsPending
+            ? "loading canonical Fabric counts"
+            : "source onboarding and configuration"
+        }
         actions={
           <button
             onClick={() => setShowOnboarding(true)}
@@ -722,10 +735,10 @@ export default function SourceManager() {
           </button>
         }
         facts={[
-          { label: "Sources", value: `${registeredDataSources.length} registered`, tone: "accent" },
-          { label: "Entities", value: `${registeredEntities.length} total`, tone: "neutral" },
-          { label: "Incremental", value: `${incrementalCount} optimized`, tone: incrementalCount > 0 ? "positive" : "warning" },
-          { label: "Connections", value: `${registeredCount}/${gatewayConnections.length} registered`, tone: registeredCount === gatewayConnections.length ? "positive" : "warning" },
+          { label: "Tables In Scope", value: `${tablesInScope}`, tone: "accent" },
+          { label: "Landing Loaded", value: fabricCountsReady ? `${landingLoaded}` : "Loading...", tone: fabricCountsReady ? (landingLoaded >= tablesInScope && tablesInScope > 0 ? "positive" : "warning") : "neutral" },
+          { label: "Bronze Loaded", value: fabricCountsReady ? `${bronzeLoaded}` : "Loading...", tone: fabricCountsReady ? (bronzeLoaded >= tablesInScope && tablesInScope > 0 ? "positive" : "warning") : "neutral" },
+          { label: "Silver Loaded", value: fabricCountsReady ? `${silverLoaded}` : "Loading...", tone: fabricCountsReady ? (silverLoaded >= tablesInScope && tablesInScope > 0 ? "positive" : "warning") : "neutral" },
         ]}
       />
 
@@ -764,7 +777,7 @@ export default function SourceManager() {
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
               <Database className="w-4 h-4 text-[var(--bp-ink-secondary)]" />
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Data Sources</span>
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Connected Sources</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -779,13 +792,17 @@ export default function SourceManager() {
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
               <TableProperties className="w-4 h-4 text-[var(--bp-caution)]" />
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Entities</span>
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Tables In Scope</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-ink-primary)" }}>{registeredEntities.length}</div>
+            <div className="text-2xl font-bold" style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-ink-primary)" }}>{tablesInScope}</div>
             <div className="text-[10px] text-muted-foreground mt-1">
-              {registeredEntities.filter(e => e.IsActive === 'True').length} active · {registeredEntities.filter(e => e.IsActive !== 'True').length} inactive
+              {fabricCountsReady
+                ? `${landingLoaded} landing · ${bronzeLoaded} bronze · ${silverLoaded} silver`
+                : fabricCountsPending
+                ? "Loading Fabric counts..."
+                : "Fabric counts unavailable"}
             </div>
           </CardContent>
         </Card>
@@ -794,7 +811,7 @@ export default function SourceManager() {
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-[var(--bp-copper)]" />
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Incremental</span>
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Incremental Loads</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -809,19 +826,19 @@ export default function SourceManager() {
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
               <Cable className="w-4 h-4 text-[var(--bp-operational)]" />
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Connections</span>
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Gateway Connections</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" style={{ fontFamily: "var(--bp-font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--bp-ink-primary)" }}>{gatewayConnections.length}</div>
             <div className="text-[10px] text-muted-foreground mt-1">
-              <span className="text-[var(--bp-operational)] font-medium">{registeredCount}</span> registered · {gatewayConnections.length - registeredCount} available
+              <span className="text-[var(--bp-operational)] font-medium">{registeredCount}</span> configured · {gatewayConnections.length - registeredCount} available
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Registered Entities — Grouped by Data Source */}
+      {/* Tables in scope — grouped by source */}
       <div className="bg-card rounded-xl border border-border p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-1">
@@ -834,7 +851,7 @@ export default function SourceManager() {
               }`}
             >
               <Database className="w-4 h-4" />
-              Entity Registry
+              Pipeline Scope
               <span className={`text-xs ml-1 ${entityViewMode === 'registry' ? 'opacity-80' : ''}`}>({registeredEntities.length})</span>
             </button>
             <button
@@ -879,7 +896,7 @@ export default function SourceManager() {
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[var(--bp-caution)] hover:bg-[#A86917] text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {discoveringAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
-                  Discover &amp; Register
+                  Discover &amp; Add to Scope
                 </button>
                 <button
                   onClick={handleOptimizeAll}
@@ -911,11 +928,11 @@ export default function SourceManager() {
             )}
           </div>
         </div>
-        {/* ── Entity Registry Tab ── */}
+        {/* ── Pipeline Scope Tab ── */}
         {entityViewMode === 'registry' && (
         <>
         {registeredEntities.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-8 text-center">No entities registered yet. Use "New Data Source" to onboard one.</p>
+          <p className="text-sm text-muted-foreground py-8 text-center">No tables are in scope yet. Use "New Data Source" to onboard one.</p>
         ) : (
           <div className="space-y-2">
             {Object.entries(entityGroups).sort(([a], [b]) => a.localeCompare(b)).map(([sourceName, entities]) => {
@@ -1123,7 +1140,7 @@ export default function SourceManager() {
             {/* Summary bar */}
             <div className="flex items-center justify-between bg-muted rounded-lg border border-border p-3">
               <div className="flex items-center gap-4 text-sm">
-                <span className="text-foreground font-medium">{loadConfigData.length} entities</span>
+                <span className="text-foreground font-medium">{loadConfigData.length} tables in scope</span>
                 <span className="text-[var(--bp-copper)] flex items-center gap-1">
                   <TrendingUp className="w-3.5 h-3.5" />
                   {incrementalCount} incremental
@@ -1134,7 +1151,7 @@ export default function SourceManager() {
                 </span>
                 <span className="text-[var(--bp-operational)] flex items-center gap-1">
                   <Layers className="w-3.5 h-3.5" />
-                  {bronzeRegistered} Bronze / {silverRegistered} Silver
+                  {bronzeRegistered} Bronze-ready / {silverRegistered} Silver-ready
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -1189,7 +1206,7 @@ export default function SourceManager() {
               <div className="text-center py-12">
                 <Settings2 className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground mb-2">No load configuration data available</p>
-                <p className="text-xs text-muted-foreground">Register entities first, then switch to this tab to configure load optimization.</p>
+                <p className="text-xs text-muted-foreground">Add tables to scope first, then switch to this tab to configure load optimization.</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -1540,15 +1557,15 @@ export default function SourceManager() {
           onClick={() => setGatewayExpanded(!gatewayExpanded)}
           className="w-full flex items-center justify-between p-5 hover:bg-muted/50 transition-colors text-left rounded-xl"
         >
-          <div className="flex items-center gap-3">
-            <Cable className="w-5 h-5 text-muted-foreground" />
-            <div>
-              <h2 style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, fontSize: 18, color: "var(--bp-ink-primary)" }}>Gateway Connections</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {registeredCount} registered · {gatewayConnections.length} total — on-premises SQL via PowerBIGateway
-              </p>
-            </div>
-          </div>
+              <div className="flex items-center gap-3">
+                <Cable className="w-5 h-5 text-muted-foreground" />
+                <div>
+                  <h2 style={{ fontFamily: "var(--bp-font-body)", fontWeight: 600, fontSize: 18, color: "var(--bp-ink-primary)" }}>Gateway Connections</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                {registeredCount} configured · {gatewayConnections.length} total — on-premises SQL via PowerBIGateway
+                  </p>
+                </div>
+              </div>
           {gatewayExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
         </button>
 
@@ -1608,7 +1625,7 @@ export default function SourceManager() {
                               ? 'bg-[var(--bp-operational-light)] text-[var(--bp-operational)]'
                               : 'bg-muted text-muted-foreground'
                           }`}>
-                            {regConn ? 'Registered' : 'Available'}
+                            {regConn ? 'Configured' : 'Available'}
                           </span>
                         </div>
                         <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">{conn.authType}</span>
@@ -1687,7 +1704,7 @@ export default function SourceManager() {
 
                         {!regConn && (
                           <div className="mt-4 pt-4 border-t border-border">
-                            <p className="text-sm text-muted-foreground mb-3">This connection is available in the Fabric gateway but not yet registered in the FMD framework.</p>
+                            <p className="text-sm text-muted-foreground mb-3">This connection is available in the Fabric gateway but is not yet configured in the framework.</p>
                             <div className="flex items-center gap-3">
                               <button
                                 onClick={() => registerConnection(conn)}
@@ -1695,7 +1712,7 @@ export default function SourceManager() {
                                 className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium disabled:opacity-50"
                               >
                                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                                Register Connection
+                                Configure Connection
                               </button>
                               <a
                                 href="https://app.fabric.microsoft.com/connections"

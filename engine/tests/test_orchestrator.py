@@ -341,18 +341,59 @@ class TestOrchestratorState:
         assert orchestrator._current_pool is None
 
     def test_validate_config_reports_missing_fields(self):
-        config = _make_config(workspace_data_id="", client_secret="")
-        with patch("engine.orchestrator.log") as mock_log:
+        config = _make_config()
+        config.workspace_data_id = ""
+        config.client_secret = ""
+        with pytest.raises(ValueError, match="CONFIGURATION ERROR"):
             LoadOrchestrator._validate_config(config)
-            mock_log.error.assert_called_once()
-            error_msg = mock_log.error.call_args[0][0]
-            assert "CONFIGURATION ERROR" in error_msg
 
     def test_validate_config_passes_with_all_fields(self):
         config = _make_config()
         with patch("engine.orchestrator.log") as mock_log:
             LoadOrchestrator._validate_config(config)
             mock_log.error.assert_not_called()
+
+    def test_landing_requires_vpn_only_in_local_mode(self):
+        config = _make_config(load_method="local")
+        with patch("engine.orchestrator.TokenProvider"), \
+             patch("engine.orchestrator.SourceConnection"), \
+             patch("engine.orchestrator.DataExtractor"), \
+             patch("engine.orchestrator.OneLakeLoader"), \
+             patch("engine.orchestrator.AuditLogger"), \
+             patch("engine.orchestrator.NotebookTrigger"), \
+             patch("engine.orchestrator.FabricPipelineRunner"), \
+             patch("engine.orchestrator.PreflightChecker"):
+            orch = LoadOrchestrator(config)
+        assert orch._landing_requires_vpn() is True
+
+        orch._load_method = "pipeline"
+        assert orch._landing_requires_vpn() is False
+
+    def test_try_entity_local_uses_config_not__config(self):
+        config = _make_config()
+        config.validation_mode = "off"
+        with patch("engine.orchestrator.TokenProvider"), \
+             patch("engine.orchestrator.SourceConnection"), \
+             patch("engine.orchestrator.DataExtractor"), \
+             patch("engine.orchestrator.OneLakeLoader"), \
+             patch("engine.orchestrator.AuditLogger"), \
+             patch("engine.orchestrator.NotebookTrigger"), \
+             patch("engine.orchestrator.FabricPipelineRunner"), \
+             patch("engine.orchestrator.PreflightChecker"):
+            orch = LoadOrchestrator(config)
+
+        orch._extractor.extract.return_value = (
+            b"parquet-bytes",
+            RunResult(entity_id=1, layer="landing", status="succeeded", rows_read=1, rows_written=1),
+        )
+        orch._loader.upload_entity.return_value = (
+            RunResult(entity_id=1, layer="landing", status="succeeded", rows_read=1, rows_written=1),
+            "MES",
+            "Orders.parquet",
+        )
+
+        result = orch._try_entity_local("run-1", _make_entity())
+        assert result.status == "succeeded"
 
 
 # ---------------------------------------------------------------------------

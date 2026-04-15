@@ -1,0 +1,8 @@
+I can’t give you a credible code review yet because I wasn’t able to inspect the working tree in this environment. The shell tool fails before process start with `CreateProcessAsUserW failed: 1920`, and the local filesystem/MCP repo-access tools are being cancelled, so I have no access to `git diff`, file contents, or line numbers.
+
+If you want a real review, send the output of:
+- `git status --short`
+- `git diff --stat HEAD`
+- `git diff HEAD`
+
+With that, I’ll return a proper skeptical review: findings first, ordered by severity, with file and line references.

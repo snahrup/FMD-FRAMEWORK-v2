@@ -273,7 +273,7 @@ export default function ControlPlane() {
   };
 
   // Filter source systems: hide namespaces with 0 entities and 0 connections
-  // Only show source systems that have registered entities (hide internal: NB, ONELAKE, Unlinked)
+  // Only show source systems that have tables in the managed pipeline scope.
   const activeSources = data.sourceSystems.filter(
     ss => ss.entities.landing > 0
   );
@@ -538,7 +538,7 @@ export default function ControlPlane() {
                 <div className="p-12 text-center">
                   <Database className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
                   <p className="text-sm text-muted-foreground">No entity metadata loaded.</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">Entities appear here once sources are registered and the metadata DB is synced.</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">Tables appear here once the source is onboarded and the metadata DB is synced.</p>
                 </div>
               )}
               {filtered.length === 0 && coreEntities.length > 0 && (
@@ -638,8 +638,8 @@ export default function ControlPlane() {
           {activeSources.length === 0 && (
             <div className="rounded-xl border border-border bg-card p-12 text-center">
               <Cable className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">No source systems with registered entities.</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">Sources appear here once entities are registered via the deployment script.</p>
+              <p className="text-sm text-muted-foreground">No source systems have tables in pipeline scope yet.</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">Sources appear here once onboarding discovers tables and the pipeline metadata is synced.</p>
             </div>
           )}
           {activeSources.map(src => {
@@ -707,7 +707,7 @@ export default function ControlPlane() {
 
                     {/* Entity counts */}
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Registered Entities</p>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Tables In Scope</p>
                       <div className="flex gap-4 text-xs">
                         <span style={{ color: "var(--bp-ink-secondary)" }}>LZ: <strong style={{ color: "var(--bp-ink-primary)" }}>{src.activeEntities.landing}</strong></span>
                         <span style={{ color: "var(--bp-caution)" }}>Bronze: <strong style={{ color: "var(--bp-ink-primary)" }}>{src.activeEntities.bronze}</strong></span>
@@ -771,7 +771,7 @@ export default function ControlPlane() {
             </h3>
             <div className="space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Total registered</span>
+                <span className="text-xs text-muted-foreground">Total in scope</span>
                 <span className="text-lg font-bold text-foreground">{s.pipelines.total}</span>
               </div>
               <div className="flex items-center justify-between">

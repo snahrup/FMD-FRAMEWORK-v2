@@ -107,6 +107,11 @@ class OneLakeLoader:
                 credential=self._credential,
             )
 
+    def get_filesystem(self, workspace_id: str):
+        """Return a filesystem client for the target Fabric workspace."""
+        self._ensure_adls_client()
+        return self._service_client.get_file_system_client(file_system=workspace_id)
+
     def upload(
         self,
         entity: Entity,
@@ -238,29 +243,10 @@ class OneLakeLoader:
         t0 = time.perf_counter()
         workspace_id = entity.workspace_guid or self._config.workspace_data_id
 
-        # Validate workspace GUID is valid UUID format
         if not _is_valid_uuid(workspace_id):
-            elapsed = time.perf_counter() - t0
-            return RunResult(
-                entity_id=entity.id,
-                layer="landing",
-                status="failed",
-                duration_seconds=round(elapsed, 2),
-                error=f"Invalid workspace_guid: '{workspace_id}' is not a valid UUID",
-                error_suggestion="Check workspace_guid in entity metadata or config.workspace_data_id"
-            )
-
-        # Validate lakehouse GUID is valid UUID format
+            log.debug("Workspace ID %r is not UUID-shaped; attempting upload anyway", workspace_id)
         if not _is_valid_uuid(lakehouse_id):
-            elapsed = time.perf_counter() - t0
-            return RunResult(
-                entity_id=entity.id,
-                layer="landing",
-                status="failed",
-                duration_seconds=round(elapsed, 2),
-                error=f"Invalid lakehouse_guid: '{lakehouse_id}' is not a valid UUID",
-                error_suggestion="Check lakehouse_guid in entity metadata or config.lz_lakehouse_id"
-            )
+            log.debug("Lakehouse ID %r is not UUID-shaped; attempting upload anyway", lakehouse_id)
 
         directory_path = f"{lakehouse_id}/Files/{namespace}"
         file_path = f"{directory_path}/{file_name}"
@@ -276,8 +262,7 @@ class OneLakeLoader:
         last_error = ""
         for attempt in range(1, max_attempts + 1):
             try:
-                self._ensure_adls_client()
-                fs_client = self._service_client.get_file_system_client(file_system=workspace_id)
+                fs_client = self.get_filesystem(workspace_id)
                 dir_client = fs_client.get_directory_client(directory_path)
 
                 try:
@@ -367,8 +352,7 @@ class OneLakeLoader:
 
         # ADLS fallback
         try:
-            self._ensure_adls_client()
-            fs_client = self._service_client.get_file_system_client(self._config.workspace_data_id)
+            fs_client = self.get_filesystem(self._config.workspace_data_id)
             fs_client.get_file_system_properties()
             return True
         except Exception as exc:

@@ -117,7 +117,7 @@ function stageNarrative(
 
   if (stage === "source") {
     return {
-      highlight: "Registered source contract",
+      highlight: "Source contract in scope",
       note: "The raw schema defines the starting point for every downstream handoff.",
     };
   }
@@ -718,7 +718,7 @@ export default function DataLineage() {
         summary="Follow one tool-ready entity chain, spot the contract shift, and move into the next diagnostic step with the right context already carried forward."
         meta={`${formatRowCount(filtered.length)} tool-ready chains currently in view`}
         facts={[
-          { label: "Tool-Ready Chains", value: `${formatRowCount(fullChain)} / ${formatRowCount(totalEntities)}`, detail: "Only full-chain entities are allowed into lineage tool mode.", tone: "positive" },
+          { label: "Tool-Ready Chains", value: `${formatRowCount(fullChain)} / ${formatRowCount(totalEntities)}`, detail: "Only tables with a clean landing, bronze, and silver path are allowed into lineage tool mode.", tone: "positive" },
           { label: "Blocked Assets", value: formatRowCount(blockedCount), detail: "Incomplete chains are routed to Load Center instead of this page.", tone: blockedCount > 0 ? "warning" : "positive" },
           { label: "Landing Coverage", value: `${totalEntities ? ((withLanding / totalEntities) * 100).toFixed(0) : 0}%`, detail: "Source registration that has at least reached landing.", tone: "neutral" },
           { label: "Trusted", value: formatRowCount(trustedCount), detail: "Higher-confidence chains worth operational focus first.", tone: trustedCount > 0 ? "positive" : "neutral" },
@@ -801,7 +801,7 @@ export default function DataLineage() {
                   Incomplete chains are held out until the import path is complete
                 </h2>
                 <p className="mt-2 text-sm" style={{ color: "var(--bp-ink-secondary)", lineHeight: 1.65 }}>
-                  {formatRowCount(blockedCount)} registered entities are not shown as selectable lineage paths because they still stop before the full managed chain. Load Center is the single place to finish those imports.
+                  {formatRowCount(blockedCount)} tables in scope are not shown as selectable lineage paths because they still stop before the full managed chain. Load Center is the single place to finish those imports.
                 </p>
               </div>
               <Link

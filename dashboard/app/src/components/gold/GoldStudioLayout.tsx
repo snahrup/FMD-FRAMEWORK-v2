@@ -198,6 +198,7 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
   const currentStageSummary = shellData?.stages.find((stage) => stage.id === activeTab);
   const currentStatusLabel = currentStageSummary ? STAGE_STATUS_LABELS[currentStageSummary.status] : "Current Stage";
   const stageSearch = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const stageFocusLabel = shellData?.context?.focus_label ?? currentStage.hint;
   const stageGuideItems = [
     {
       label: "What This Page Is",
@@ -235,8 +236,8 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
         {/* Sticky header */}
         <div className="sticky top-0 z-10" style={{ background: "var(--bp-canvas)" }}>
           {/* Page identity + controls */}
-          <div className="flex flex-col gap-4 px-6 pt-4 pb-3 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
+          <div className="flex flex-col gap-4 px-6 pt-4 pb-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl min-w-0">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span style={{ ...mono, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                   Gold Studio Workflow
@@ -263,56 +264,62 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
                     border: "1px solid var(--bp-border)",
                   }}
                 >
-                  {currentStatusLabel}
+                    {currentStatusLabel}
                 </span>
               </div>
-              <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
-                {currentStage.title}
-              </h1>
-              <p style={{ margin: "10px 0 0", fontSize: 14, color: "var(--bp-ink-secondary)", lineHeight: 1.6, maxWidth: 860 }}>
-                {currentStage.purpose}
-              </p>
-              <div className="flex flex-wrap gap-2" style={{ marginTop: 14 }}>
-                <span
-                  className="rounded-full px-3 py-2"
-                  style={{
-                    ...bf,
-                    fontSize: 12,
-                    color: "var(--bp-ink-primary)",
-                    background: "rgba(180,86,36,0.08)",
-                    border: "1px solid rgba(180,86,36,0.16)",
-                  }}
-                >
-                  Focus: {currentStage.hint}
-                </span>
-                {shellData?.context?.focus_label ? (
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div style={{ flex: "1 1 480px", minWidth: 0 }}>
+                  <h1 className="bp-display" style={{ fontSize: 32, color: "var(--bp-ink-primary)", lineHeight: 1.1, margin: 0 }}>
+                    {currentStage.title}
+                  </h1>
+                  <p
+                    style={{
+                      marginTop: 8,
+                      fontSize: 13,
+                      color: "var(--bp-ink-secondary)",
+                      lineHeight: 1.55,
+                      maxWidth: 860,
+                      marginBottom: 0,
+                      display: "-webkit-box",
+                      WebkitBoxOrient: "vertical",
+                      WebkitLineClamp: 2,
+                      overflow: "hidden",
+                    }}
+                  >
+                    {currentStage.purpose}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
                   <span
                     className="rounded-full px-3 py-2"
                     style={{
                       ...bf,
                       fontSize: 12,
                       color: "var(--bp-ink-primary)",
-                      background: "var(--bp-surface-inset)",
-                      border: "1px solid var(--bp-border)",
+                      background: "rgba(180,86,36,0.08)",
+                      border: "1px solid rgba(180,86,36,0.16)",
                     }}
+                    title={currentStage.purpose}
                   >
-                    In play: {shellData.context.focus_label}
+                    Focus: {stageFocusLabel}
                   </span>
-                ) : null}
-                {selectedDomain ? (
-                  <span
-                    className="rounded-full px-3 py-2"
-                    style={{
-                      ...bf,
-                      fontSize: 12,
-                      color: "var(--bp-ink-primary)",
-                      background: "var(--bp-surface-inset)",
-                      border: "1px solid var(--bp-border)",
-                    }}
-                  >
-                    Domain: {shellData?.context?.domain_display_name ?? selectedDomain}
-                  </span>
-                ) : null}
+                  {selectedDomain ? (
+                    <span
+                      className="rounded-full px-3 py-2"
+                      style={{
+                        ...bf,
+                        fontSize: 12,
+                        color: "var(--bp-ink-primary)",
+                        background: "var(--bp-surface-inset)",
+                        border: "1px solid var(--bp-border)",
+                      }}
+                    >
+                      Domain: {shellData?.context?.domain_display_name ?? selectedDomain}
+                    </span>
+                  ) : null}
+                  <IntentGuidePopover title={currentStage.title} summary={currentStage.purpose} items={stageGuideItems} label="Stage Guide" />
+                  {actions && <div className="flex items-center gap-2">{actions}</div>}
+                </div>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -342,8 +349,6 @@ export function GoldStudioLayout({ activeTab, children, actions }: GoldStudioLay
               >
                 Current stage
               </span>
-              <IntentGuidePopover title={currentStage.title} items={stageGuideItems} label="Stage Guide" />
-              {actions && <div className="flex items-center gap-2">{actions}</div>}
             </div>
           </div>
 

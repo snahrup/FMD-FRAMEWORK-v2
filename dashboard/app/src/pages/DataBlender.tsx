@@ -97,8 +97,9 @@ export default function DataBlender() {
     : null, [allEntities, selectedTable]);
   const activeEntity = matchedEntity && isEntityToolReady(matchedEntity) ? matchedEntity : null;
   const blockedEntity = matchedEntity && !isEntityToolReady(matchedEntity) ? matchedEntity : null;
+  const linkedEntity = activeEntity ?? blockedEntity;
   const resolutionAction = blockedEntity ? getEntityResolutionAction(blockedEntity) : null;
-  const sourceSql = (activeEntity || blockedEntity) ? buildEntitySourceSqlUrl(activeEntity || blockedEntity) : null;
+  const sourceSql = linkedEntity ? buildEntitySourceSqlUrl(linkedEntity) : null;
 
   const tabs: { id: Tab; label: string; disabled?: boolean }[] = [
     { id: 'profile', label: 'Profile' },
@@ -172,7 +173,7 @@ export default function DataBlender() {
                 <PipelineResolutionPanel
                   entity={blockedEntity}
                   action={resolutionAction}
-                  summary="This table maps to a registered entity that has not finished the managed load path. Blender stops here and routes the user to Load Center instead of exposing half-working profiling and blend tabs."
+                  summary="This table is in scope for the pipeline but has not finished the managed load path. Blender stops here and routes the user to Load Center instead of exposing half-working profiling and blend tabs."
                 />
               </div>
             ) : (

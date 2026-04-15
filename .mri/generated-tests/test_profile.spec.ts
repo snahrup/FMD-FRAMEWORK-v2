@@ -10,7 +10,8 @@ import {
  * Component: DataProfiler
  * Source: dashboard/app/src/App.tsx
  *
- * KPIs detected: Quality Breakdown, Quality Ranking — Lowest 15 Columns, Score = 60% completeness + 40% uniqueness, Table
+ * KPIs detected: Quality Breakdown, Quality Ranking — Lowest 15 Columns, Score = 60% completeness + 40% uniqueness, Open Load Center, Table
+ * Status filters: trusted
  * Has search: yes
  * Table columns: Range, Integer, BigInt, SmallInt, TinyInt, Decimal, Numeric, Float
  *
@@ -84,6 +85,22 @@ test.describe('Page: /profile', () => {
       body.toLowerCase().includes('not reachable') ||
       await page.locator('[class*="error"], [class*="alert"], [role="alert"]').count() > 0;
     expect(hasErrorUI).toBe(true);
+  });
+
+  test('handles empty API response without crash', async ({ page }) => {
+    await page.route('**/api/**', route => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+    await page.goto('/profile');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(2000);
+    await expect(page.locator('body')).toBeVisible();
+    const bodyHTML = await page.locator('body').innerHTML();
+    expect(bodyHTML.trim().length).toBeGreaterThan(50);
   });
 
   test('handles network timeout gracefully', async ({ page }) => {
@@ -199,6 +216,36 @@ test.describe('Page: /profile', () => {
       await page.waitForTimeout(300);
       await expect(page.locator('body')).toBeVisible();
       await searchInput.fill('');
+    }
+  });
+
+  test('status filters toggle correctly and update displayed data', async ({ page }) => {
+    await navigateToPage(page);
+    const btn_trusted = page.locator('button:visible, [role="tab"]:visible').filter({ hasText: /trusted/i }).first();
+    if (await btn_trusted.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await btn_trusted.click();
+      await page.waitForTimeout(500);
+      await expect(page.locator('body')).toBeVisible();
+    }
+    const allBtn = page.locator('button:visible').filter({ hasText: /^all$/i }).first();
+    if (await allBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await allBtn.click();
+      await page.waitForTimeout(500);
+    }
+  });
+
+  test('clicking same filter twice toggles it off', async ({ page }) => {
+    await navigateToPage(page);
+    const rowsBefore = await page.locator('tbody tr').count();
+    const filterBtn = page.locator('button:visible').filter({ hasText: /trusted/i }).first();
+    if (await filterBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await filterBtn.click();
+      await page.waitForTimeout(500);
+      const rowsFiltered = await page.locator('tbody tr').count();
+      await filterBtn.click();
+      await page.waitForTimeout(500);
+      const rowsReset = await page.locator('tbody tr').count();
+      expect(rowsReset).toBeGreaterThanOrEqual(rowsFiltered);
     }
   });
 

@@ -1,9 +1,6 @@
-import { ArrowRight } from "lucide-react";
-import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
 import {
   IntentGuidePopover,
-  IntentSignalRow,
   type IntentItem,
   type IntentLink,
 } from "@/components/guidance/IntentGuide";
@@ -27,18 +24,21 @@ export function BusinessIntentHeader({
   links = [],
   actions,
 }: BusinessIntentHeaderProps) {
+  const previewSignal = items[0];
+
   return (
-    <div style={{ marginBottom: 24 }}>
+    <div style={{ marginBottom: 20 }}>
       <div
-        className="bp-card"
+        className="bp-card gs-page-enter"
         style={{
-          padding: 20,
-          background: "linear-gradient(135deg, rgba(180,86,36,0.08) 0%, rgba(250,247,243,0.96) 46%, rgba(255,255,255,0.96) 100%)",
+          padding: 18,
+          background: "linear-gradient(135deg, rgba(180,86,36,0.04) 0%, rgba(250,247,243,0.96) 52%, rgba(255,255,255,0.96) 100%)",
           overflow: "hidden",
         }}
       >
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div style={{ maxWidth: 900, flex: "1 1 640px" }}>
+        <div className="bp-rail bp-rail-caution" style={{ top: 14, bottom: 14 }} />
+        <div className="flex items-start justify-between gap-4 flex-wrap" style={{ paddingLeft: 6 }}>
+          <div style={{ maxWidth: 900, flex: "1 1 640px", minWidth: 0 }}>
             <div className="flex items-center gap-3 flex-wrap" style={{ marginBottom: 8 }}>
               <span
                 style={{
@@ -66,7 +66,7 @@ export function BusinessIntentHeader({
             <h1
               className="bp-display"
               style={{
-                fontSize: 32,
+                fontSize: 30,
                 lineHeight: 1.1,
                 color: "var(--bp-ink-primary)",
                 margin: 0,
@@ -76,47 +76,58 @@ export function BusinessIntentHeader({
             </h1>
             <p
               style={{
-                margin: "10px 0 0",
-                fontSize: 14,
-                lineHeight: 1.6,
+                margin: "8px 0 0",
+                fontSize: 13,
+                lineHeight: 1.55,
                 color: "var(--bp-ink-secondary)",
                 fontFamily: "var(--bp-font-body)",
                 maxWidth: 860,
+                display: "-webkit-box",
+                WebkitBoxOrient: "vertical",
+                WebkitLineClamp: 2,
+                overflow: "hidden",
               }}
             >
               {summary}
             </p>
-
-            <IntentSignalRow items={items} />
-
-            {links.length > 0 ? (
-              <div className="flex gap-2 flex-wrap" style={{ marginTop: 14 }}>
-                {links.map((link, index) => (
-                  <Link
-                    key={`${link.to}-${link.label}`}
-                    to={link.to}
-                    className="inline-flex items-center gap-1 rounded-full px-3 py-2 transition-transform hover:-translate-y-0.5"
-                    style={{
-                      fontSize: 12,
-                      color: index === 0 ? "var(--bp-surface-1)" : "var(--bp-ink-primary)",
-                      textDecoration: "none",
-                      fontFamily: "var(--bp-font-body)",
-                      border: index === 0 ? "1px solid rgba(180,86,36,0.24)" : "1px solid var(--bp-border)",
-                      background: index === 0 ? "var(--bp-copper)" : "var(--bp-surface-1)",
-                      fontWeight: 600,
-                      boxShadow: index === 0 ? "0 14px 28px rgba(180,86,36,0.18)" : "none",
-                    }}
-                  >
-                    {link.label}
-                    <ArrowRight size={12} />
-                  </Link>
-                ))}
-              </div>
-            ) : null}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {items.length > 0 || links.length > 0 ? (
-              <IntentGuidePopover title={title} items={items} links={links} />
+            {previewSignal ? (
+              <div
+                title={previewSignal.detail}
+                className="rounded-full px-3 py-2"
+                style={{
+                  border: "1px solid rgba(180,86,36,0.16)",
+                  background: "rgba(180,86,36,0.08)",
+                  maxWidth: 240,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: "var(--bp-font-mono)",
+                    fontSize: 10,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: "var(--bp-ink-tertiary)",
+                  }}
+                >
+                  {previewSignal.label}
+                </span>
+                <span
+                  style={{
+                    marginLeft: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--bp-ink-primary)",
+                    fontFamily: "var(--bp-font-body)",
+                  }}
+                >
+                  {previewSignal.value}
+                </span>
+              </div>
+            ) : null}
+            {summary || items.length > 0 || links.length > 0 ? (
+              <IntentGuidePopover title={title} summary={summary} items={items} links={links} />
             ) : null}
             {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
           </div>

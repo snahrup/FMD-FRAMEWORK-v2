@@ -9,6 +9,7 @@ import { formatRowCount, formatPercent } from "@/lib/formatters";
 import { getSourceColor } from "@/lib/layers";
 import { resolveSourceLabel } from "@/hooks/useSourceConfig";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
+import { isSuccessStatus } from "@/lib/exploreWorksurface";
 import {
   Shield, Search, Lock, UserX,
   Tag, BarChart3, Columns3, Sparkles,
@@ -190,7 +191,7 @@ export default function DataClassification() {
 
       {/* KPIs */}
       <KpiRow>
-        <KpiCard label="Total Entities" value={formatRowCount(classData.totalEntities)} icon={Tag} iconColor="text-[var(--bp-ink-muted)]" />
+        <KpiCard label="Tables In Scope" value={formatRowCount(classData.totalEntities)} icon={Tag} iconColor="text-[var(--bp-ink-muted)]" />
         <KpiCard label="Est. Columns" value={formatRowCount(classData.totalColumns)} icon={Columns3} iconColor="text-[var(--bp-copper)]" />
         <KpiCard
           label="Classified"
@@ -353,9 +354,9 @@ export default function DataClassification() {
                       <td className="py-1.5 px-3 text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>{e.sourceSchema}</td>
                       <td className="py-1.5 px-2 text-center">
                         <div className="flex gap-0.5 justify-center">
-                          {e.lzStatus === "loaded" && <LayerBadge layer="landing" size="sm" showIcon={false} />}
-                          {e.bronzeStatus === "loaded" && <LayerBadge layer="bronze" size="sm" showIcon={false} />}
-                          {e.silverStatus === "loaded" && <LayerBadge layer="silver" size="sm" showIcon={false} />}
+                          {isSuccessStatus(e.lzStatus) && <LayerBadge layer="landing" size="sm" showIcon={false} />}
+                          {isSuccessStatus(e.bronzeStatus) && <LayerBadge layer="bronze" size="sm" showIcon={false} />}
+                          {isSuccessStatus(e.silverStatus) && <LayerBadge layer="silver" size="sm" showIcon={false} />}
                         </div>
                       </td>
                       <td className="py-1.5 px-2 text-center">

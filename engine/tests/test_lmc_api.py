@@ -208,8 +208,6 @@ def test_lmc_progress_returns_valid_structure_with_run(mock_db, mock_logger):
 
     # Mock the queries
     mock_db.query.side_effect = [
-        # Latest run query (if run_id not provided)
-        [],
         # Run metadata query
         [make_lmc_run(run_id, "completed")],
         # Total active entities
@@ -240,6 +238,8 @@ def test_lmc_progress_returns_valid_structure_with_run(mock_db, mock_logger):
                 "bytes": 12000000,
             },
         ],
+        # By source by layer
+        [],
         # Error breakdown
         [],
         # Load type breakdown
@@ -257,12 +257,6 @@ def test_lmc_progress_returns_valid_structure_with_run(mock_db, mock_logger):
                 "bytes_per_sec": 166666.7,
             },
         ],
-        # Verification
-        [],
-        # Lakehouse state
-        [],
-        # Lakehouse by source
-        [],
     ]
 
     result = get_lmc_progress({"run_id": run_id})
@@ -334,7 +328,7 @@ def test_lmc_progress_handles_null_numeric_values(mock_db, mock_logger):
     from dashboard.app.api.routes.load_mission_control import get_lmc_progress
 
     mock_db.query.side_effect = [
-        [],  # Latest run
+        [{"RunId": "run-001"}],  # Latest run
         [make_lmc_run("run-001")],  # Run metadata
         [],  # Total active
         [
@@ -351,12 +345,10 @@ def test_lmc_progress_handles_null_numeric_values(mock_db, mock_logger):
             },
         ],
         [],  # By source
+        [],  # By source by layer
         [],  # Error breakdown
         [],  # Load type breakdown
         [],  # Throughput
-        [],  # Verification
-        [],  # Lakehouse state
-        [],  # Lakehouse by source
     ]
 
     result = get_lmc_progress({})
@@ -619,7 +611,6 @@ def test_lmc_progress_numeric_fields_are_valid_numbers(mock_db, mock_logger):
     from dashboard.app.api.routes.load_mission_control import get_lmc_progress
 
     mock_db.query.side_effect = [
-        [],  # Latest run
         [make_lmc_run("run-001")],
         [],  # Total active
         [
@@ -636,12 +627,10 @@ def test_lmc_progress_numeric_fields_are_valid_numbers(mock_db, mock_logger):
             },
         ],
         [],  # By source
+        [],  # By source by layer
         [],  # Error breakdown
         [],  # Load type breakdown
         [],  # Throughput
-        [],  # Verification
-        [],  # Lakehouse state
-        [],  # Lakehouse by source
     ]
 
     result = get_lmc_progress({"run_id": "run-001"})

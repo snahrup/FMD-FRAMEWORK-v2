@@ -9,6 +9,7 @@ import { formatRowCount, formatPercent } from "@/lib/formatters";
 import { LAYER_MAP, getSourceColor } from "@/lib/layers";
 import { resolveSourceLabel } from "@/hooks/useSourceConfig";
 import { useEntityDigest, type DigestEntity } from "@/hooks/useEntityDigest";
+import { isSuccessStatus } from "@/lib/exploreWorksurface";
 import {
   Zap, Search, ArrowRight,
   AlertTriangle, GitBranch, Database, Sparkles,
@@ -35,9 +36,9 @@ interface ImpactResult {
 function computeImpact(entity: DigestEntity): ImpactResult {
   const layers: ImpactResult["impactedLayers"] = [
     { layer: "source", status: "origin", rowCount: undefined, isActive: true },
-    { layer: "landing", status: entity.lzStatus || "not_started", rowCount: undefined, isActive: entity.lzStatus === "loaded" },
-    { layer: "bronze", status: entity.bronzeStatus || "not_started", rowCount: undefined, isActive: entity.bronzeStatus === "loaded" },
-    { layer: "silver", status: entity.silverStatus || "not_started", rowCount: undefined, isActive: entity.silverStatus === "loaded" },
+    { layer: "landing", status: entity.lzStatus || "not_started", rowCount: undefined, isActive: isSuccessStatus(entity.lzStatus) },
+    { layer: "bronze", status: entity.bronzeStatus || "not_started", rowCount: undefined, isActive: isSuccessStatus(entity.bronzeStatus) },
+    { layer: "silver", status: entity.silverStatus || "not_started", rowCount: undefined, isActive: isSuccessStatus(entity.silverStatus) },
     { layer: "gold", status: "not_started", rowCount: undefined, isActive: false },
   ];
   return {
@@ -107,7 +108,7 @@ function ImpactChain({ result }: { result: ImpactResult }) {
                   ? <> would propagate through {activeLayers.join(" \u2192 ")}.</>
                   : <> has no active downstream layers yet.</>;
               })()}
-              {result.origin.silverStatus === "loaded" && " All downstream SCD2 records in Silver would need reprocessing."}
+              {isSuccessStatus(result.origin.silverStatus) && " All downstream SCD2 records in Silver would need reprocessing."}
             </p>
           </div>
         </div>
@@ -190,9 +191,9 @@ export default function ImpactAnalysis() {
   }, [impactResult]);
 
   // KPIs
-  const fullChain = allEntities.filter((e) => e.lzStatus === "loaded" && e.bronzeStatus === "loaded" && e.silverStatus === "loaded").length;
-  const partialChain = allEntities.filter((e) => e.lzStatus === "loaded" && (e.bronzeStatus !== "loaded" || e.silverStatus !== "loaded")).length;
-  const notStarted = allEntities.filter((e) => !e.lzStatus || e.lzStatus === "not_started").length;
+  const fullChain = allEntities.filter((e) => isSuccessStatus(e.lzStatus) && isSuccessStatus(e.bronzeStatus) && isSuccessStatus(e.silverStatus)).length;
+  const partialChain = allEntities.filter((e) => isSuccessStatus(e.lzStatus) && (!isSuccessStatus(e.bronzeStatus) || !isSuccessStatus(e.silverStatus))).length;
+  const notStarted = allEntities.filter((e) => !isSuccessStatus(e.lzStatus)).length;
 
   // Source breakdown
   const sourceBreakdown = useMemo(() => {
@@ -202,10 +203,10 @@ export default function ImpactAnalysis() {
       if (!map.has(src)) map.set(src, { source: src, total: 0, lz: 0, bronze: 0, silver: 0, fullChain: 0, errors: 0 });
       const entry = map.get(src)!;
       entry.total++;
-      if (e.lzStatus === "loaded") entry.lz++;
-      if (e.bronzeStatus === "loaded") entry.bronze++;
-      if (e.silverStatus === "loaded") entry.silver++;
-      if (e.lzStatus === "loaded" && e.bronzeStatus === "loaded" && e.silverStatus === "loaded") entry.fullChain++;
+      if (isSuccessStatus(e.lzStatus)) entry.lz++;
+      if (isSuccessStatus(e.bronzeStatus)) entry.bronze++;
+      if (isSuccessStatus(e.silverStatus)) entry.silver++;
+      if (isSuccessStatus(e.lzStatus) && isSuccessStatus(e.bronzeStatus) && isSuccessStatus(e.silverStatus)) entry.fullChain++;
       if (e.lastError) entry.errors++;
     });
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
@@ -214,7 +215,7 @@ export default function ImpactAnalysis() {
   // Highest-risk entities — those with errors or partial chains
   const riskEntities = useMemo(() => {
     return allEntities
-      .filter((e) => e.lastError || (e.lzStatus === "loaded" && (e.bronzeStatus !== "loaded" || e.silverStatus !== "loaded")))
+      .filter((e) => e.lastError || (isSuccessStatus(e.lzStatus) && (!isSuccessStatus(e.bronzeStatus) || !isSuccessStatus(e.silverStatus))))
       .slice(0, 10);
   }, [allEntities]);
 
@@ -254,9 +255,9 @@ export default function ImpactAnalysis() {
         <Card className="border-dashed">
           <CardContent className="py-12 text-center">
             <Database className="h-8 w-8 mx-auto mb-3" style={{ color: 'var(--bp-ink-muted)', opacity: 0.4 }} />
-            <p className="text-sm font-medium" style={{ color: 'var(--bp-ink-muted)' }}>No entities registered</p>
+            <p className="text-sm font-medium" style={{ color: 'var(--bp-ink-muted)' }}>No tables in scope</p>
             <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-muted)' }}>
-              Register entities via the deployment pipeline to enable impact analysis.
+              Load a source into the managed pipeline to enable impact analysis.
             </p>
           </CardContent>
         </Card>
@@ -276,7 +277,7 @@ export default function ImpactAnalysis() {
       </div>
 
       <KpiRow>
-        <KpiCard label="Total Entities" value={formatRowCount(allEntities.length)} icon={Database} iconColor="text-[var(--bp-ink-secondary)]" />
+        <KpiCard label="Tables In Scope" value={formatRowCount(allEntities.length)} icon={Database} iconColor="text-[var(--bp-ink-secondary)]" />
         <KpiCard label="Full Chain" value={formatRowCount(fullChain)} icon={GitBranch} iconColor="text-[var(--bp-operational)]" subtitle="LZ + Bronze + Silver" />
         <KpiCard label="Partial Chain" value={formatRowCount(partialChain)} icon={Layers} iconColor="text-[var(--bp-caution)]" subtitle="Missing downstream layers" />
         <KpiCard label="Not Started" value={formatRowCount(notStarted)} icon={AlertTriangle} iconColor="text-[var(--bp-ink-muted)]" subtitle="No loads yet" />
@@ -487,9 +488,9 @@ export default function ImpactAnalysis() {
                       <div className="flex items-center gap-2 ml-2 shrink-0">
                         {e.lastError && <StatusBadge status="error" size="sm" />}
                         <div className="flex gap-0.5">
-                          {e.lzStatus === "loaded" && <LayerBadge layer="landing" size="sm" showIcon={false} />}
-                          {e.bronzeStatus === "loaded" && <LayerBadge layer="bronze" size="sm" showIcon={false} />}
-                          {e.silverStatus === "loaded" && <LayerBadge layer="silver" size="sm" showIcon={false} />}
+                          {isSuccessStatus(e.lzStatus) && <LayerBadge layer="landing" size="sm" showIcon={false} />}
+                          {isSuccessStatus(e.bronzeStatus) && <LayerBadge layer="bronze" size="sm" showIcon={false} />}
+                          {isSuccessStatus(e.silverStatus) && <LayerBadge layer="silver" size="sm" showIcon={false} />}
                         </div>
                         <span className="text-[10px]" style={{ color: getSourceColor(resolveSourceLabel(e.source)) }}>
                           {resolveSourceLabel(e.source)}

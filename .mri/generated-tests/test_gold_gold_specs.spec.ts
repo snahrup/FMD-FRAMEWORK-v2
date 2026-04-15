@@ -11,6 +11,7 @@ import {
  * Source: dashboard/app/src/pages/gold/GoldSpecs.tsx
  *
  * KPIs detected: rounded px-1.5 py-0.5, Source Canonical, Total Impact Score
+ * Status filters: All
  * Has search: yes
  * Table columns: {h}, Pass, Pending, Failed, Needs Reval., Overview, SQL, Columns
  *
@@ -199,6 +200,36 @@ test.describe('Page: /gold/gold-specs', () => {
       await page.waitForTimeout(300);
       await expect(page.locator('body')).toBeVisible();
       await searchInput.fill('');
+    }
+  });
+
+  test('status filters toggle correctly and update displayed data', async ({ page }) => {
+    await navigateToPage(page);
+    const btn_all = page.locator('button:visible, [role="tab"]:visible').filter({ hasText: /All/i }).first();
+    if (await btn_all.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await btn_all.click();
+      await page.waitForTimeout(500);
+      await expect(page.locator('body')).toBeVisible();
+    }
+    const allBtn = page.locator('button:visible').filter({ hasText: /^all$/i }).first();
+    if (await allBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await allBtn.click();
+      await page.waitForTimeout(500);
+    }
+  });
+
+  test('clicking same filter twice toggles it off', async ({ page }) => {
+    await navigateToPage(page);
+    const rowsBefore = await page.locator('tbody tr').count();
+    const filterBtn = page.locator('button:visible').filter({ hasText: /All/i }).first();
+    if (await filterBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await filterBtn.click();
+      await page.waitForTimeout(500);
+      const rowsFiltered = await page.locator('tbody tr').count();
+      await filterBtn.click();
+      await page.waitForTimeout(500);
+      const rowsReset = await page.locator('tbody tr').count();
+      expect(rowsReset).toBeGreaterThanOrEqual(rowsFiltered);
     }
   });
 

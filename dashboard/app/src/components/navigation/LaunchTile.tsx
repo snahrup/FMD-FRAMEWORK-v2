@@ -29,7 +29,7 @@ export function LaunchTile({
   return (
     <Link
       to={to}
-      className="group block rounded-[22px] p-5 transition-transform duration-200 hover:-translate-y-1"
+      className="group flex h-full flex-col rounded-[22px] p-5 transition-transform duration-200 hover:-translate-y-1"
       style={{
         border: "1px solid rgba(120,113,108,0.12)",
         background: "linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(247,244,239,0.96) 100%)",
@@ -127,7 +127,7 @@ export function LaunchTile({
       ) : null}
 
       <div
-        className="mt-5 inline-flex items-center gap-1.5 rounded-full px-3 py-2"
+        className="mt-auto inline-flex items-center gap-1.5 rounded-full px-3 py-2"
         style={{
           fontSize: 12,
           fontWeight: 700,

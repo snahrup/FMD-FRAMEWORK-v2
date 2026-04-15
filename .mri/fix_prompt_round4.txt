@@ -1,7 +1,8 @@
 # MRI Self-Healing Bug Fix Instructions
-# Round 4 | 6 bugs across 5 files (from 0 critical + 6 high total)
+# Round 4 | 112 bugs across 15 files (0 critical, 16 high, 225 medium, 69 low)
 
 You are fixing bugs in a production codebase. Read these instructions carefully.
+NOTE: This round focuses on the 15 most urgent files. Remaining files will be handled in subsequent rounds.
 
 ## Rules
 
@@ -21,51 +22,449 @@ You are fixing bugs in a production codebase. Read these instructions carefully.
 
 ## Codebase Relationships (from knowledge graph)
 
+### dashboard/app/api/control_plane_db.py
+  Consumed by: dashboard/app/api/db.py, dashboard/app/api/server.py, dashboard/app/api/routes/alerts.py, dashboard/app/api/routes/classification.py, dashboard/app/api/routes/cleansing.py, dashboard/app/api/routes/control_plane.py, dashboard/app/api/routes/data_estate.py, dashboard/app/api/routes/entities.py, dashboard/app/api/routes/glossary.py, dashboard/app/api/routes/gold.py
+  DB tables: ranked, silver_entities, entity_status, earlier, OneLake, datasources, engine_runs, pipeline_audit, mapped, _gs_audit_log_old
+  Exports: init_db, upsert_connection, upsert_datasource, upsert_lakehouse, upsert_workspace, upsert_pipeline, upsert_lz_entity, upsert_bronze_entity, upsert_silver_entity, upsert_engine_run
+
+### dashboard/app/api/delta_ingest.py
+  Consumed by: dashboard/app/api/server.py
+  DB tables: SQLite, untrusted, pathlib, dashboard, TABLE_MAP
+  Exports: ingest_all, start_ingest_thread
+
+### dashboard/app/api/parsers/schema_discovery.py
+  Consumed by: dashboard/app/api/parsers/__init__.py
+  DB tables: typing, __future__, INFORMATION_SCHEMA
+  Exports: is_available, describe_query, preview_query, discover_table_schema, auto_detect_source, get_source_systems
+
+### dashboard/app/api/routes/control_plane.py
+  Imports: dashboard/app/api/routes/load_center.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py
+  Consumed by: dashboard/app/api/tests/test_routes_control_plane.py
+  DB tables: log, resync, SQLite, including, engine, dashboard, datetime
+  Exports: get_control_plane, get_connections, get_datasources, get_source_config, get_entities, get_execution_matrix, get_record_counts, get_sources
+
+### dashboard/app/api/routes/data_access.py
+  Imports: dashboard/app/api/router.py
+  Consumed by: dashboard/app/api/routes/lineage.py, dashboard/app/api/routes/load_center.py, dashboard/app/api/routes/microscope.py, dashboard/app/api/routes/sql_explorer.py, dashboard/app/api/services/classification_engine.py
+  DB tables: concurrent, lakehouse_row_counts, silver_entities, filesystem, the, common, OneLake, datasources, dashboard, local
+  Exports: sync_entity_status_from_filesystem, invalidate_lakehouse_endpoints, get_blender_tables, get_blender_endpoints, get_lakehouse_counts, post_lakehouse_counts_scan, post_lakehouse_counts_refresh, post_entity_status_sync, get_purview_status, get_purview_search
+
+### dashboard/app/api/routes/data_manager.py
+  Imports: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+  DB tables: column, row, body, set_parts, a, dashboard, the, datetime
+  Exports: list_tables, get_table_data, update_row
+
+### dashboard/app/api/routes/db_explorer.py
+  Imports: dashboard/app/api/router.py
+  DB tables: sqlite_master, dashboard
+  Exports: list_tables, get_table_data, get_table_schema, execute_query
+
+### dashboard/app/api/routes/entities.py
+  Imports: dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parquet_sync.py, dashboard/app/api/db.py
+  Consumed by: dashboard/app/api/routes/join_discovery.py, dashboard/app/api/routes/metrics_contract.py, dashboard/app/api/tests/test_routes_entities.py, engine/api.py
+  DB tables: quality_scores, resync, SQLite, silver_entities, lz_entities, bronze_entities, entity_annotations, engine, dashboard, the
+  Exports: get_entities, get_entity_digest, build_entity_digest, get_cascade_impact, register_entity, delete_entity, bulk_delete_entities
+
+### dashboard/app/api/routes/gold_studio.py
+  Imports: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+  DB tables: gs_jobs, gs_source_bindings, params, member, SQL, the, gs_validation_runs, gs_report_recreation_coverage, gs_specimen_queries, dashboard
+  Exports: gs_create_specimen, gs_list_specimens, gs_get_specimen, gs_update_specimen, gs_delete_specimen, gs_extract_specimen, gs_specimen_queries, gs_bulk_import_specimens, gs_list_entities, gs_get_entity
+
+### dashboard/app/api/routes/load_center.py
+  Imports: engine/self_heal.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/router.py, dashboard/app/api/routes/data_access.py
+  Consumed by: dashboard/app/api/routes/control_plane.py, dashboard/app/api/routes/metrics_contract.py, dashboard/app/api/routes/monitoring.py, dashboard/app/api/routes/overview.py, dashboard/app/api/routes/pipeline_integrity.py, engine/api.py
+  DB tables: lakehouse_row_counts, silver_entities, SQL, control_plane_db, datasources, existing, dashboard, REGISTERED, load_center_runs, pathlib
+  Exports: get_load_center_status, get_load_center_source_detail, post_load_center_refresh, post_load_center_run, get_load_center_run_status
+
+### dashboard/app/api/routes/load_mission_control.py
+  Imports: engine/self_heal.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/router.py
+  Consumed by: engine/tests/test_lmc_api.py
+  DB tables: lakehouse_row_counts, ranked, silver_entities, datasources, dashboard, engine_runs, mapped, deduped_b, persisted, datetime
+  Exports: get_lmc_sources, get_entity_ids_by_source, get_lmc_progress, get_lmc_runs, get_lmc_run_detail, get_lmc_run_scope_inventory, get_lmc_run_entities, get_lmc_entity_history, compare_runs
+
+### dashboard/app/api/routes/mri.py
+  Imports: dashboard/app/api/router.py
+  DB tables: baseline, stored, Playwright, a, pathlib, dashboard, this
+  Exports: get_mri_runs, get_mri_status, post_mri_run, get_mri_convergence, get_mri_visual_diffs, get_mri_backend_results, get_mri_ai_analyses, get_mri_flake_results, get_mri_iteration, get_mri_baselines
+
+### dashboard/app/api/routes/schema_validation.py
+  Imports: dashboard/app/api/control_plane_db.py, dashboard/app/api/router.py
+  DB tables: schema_validations, datasources, dashboard, lz_entities
+  Exports: get_summary, get_run, get_entity_history, get_coverage, post_result
+
+### dashboard/app/api/routes/source_manager.py
+  Imports: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+  DB tables: silver_entities, onboarding, datasources, dashboard, in, lakehouses, docs, IsIncremental, either, pathlib
+  Exports: get_gateway_connections, post_connection, ImportJob, post_datasource, get_workspaces, get_lakehouses, get_bronze_entities, get_silver_entities, get_onboarding_sources, post_onboarding
+
+### dashboard/app/api/routes/sql_explorer.py
+  Imports: dashboard/app/api/router.py, dashboard/app/api/routes/data_access.py
+  DB tables: in, concurrent, lakehouses, control, admin_config, the, a, pipeline, datasources, pathlib
+  Exports: get_sql_explorer_servers, get_sql_explorer_databases, get_sql_explorer_schemas, get_sql_explorer_tables, get_sql_explorer_columns, get_sql_explorer_preview, post_server_label, post_register_tables, get_sql_explorer_lakehouses, get_sql_explorer_lakehouse_schemas
+
+### dashboard/app/api/routes/test_audit.py
+  Imports: dashboard/app/api/router.py
+  Consumed by: dashboard/app/api/server.py
+  DB tables: parent, state, server, pathlib, dashboard
+  Exports: get_audit_history, get_audit_status, post_audit_run, get_audit_artifact, serve_audit_artifact
+
+### dashboard/app/api/server.py
+  Imports: dashboard/app/api/routes/__init__.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py, dashboard/app/api/routes/test_audit.py, dashboard/app/api/delta_ingest.py
+  Consumed by: dashboard/app/api/tests/test_server_dispatch.py
+  DB tables: JSON, STATIC_DIR, self, pathlib, http, dashboard, environment, engine_task_log
+  Exports: load_config, serve_static, DashboardHandler, ThreadedHTTPServer
+
+### dashboard/app/api/services/quality_engine.py
+  Imports: dashboard/app/api/control_plane_db.py
+  Consumed by: dashboard/app/api/routes/quality.py
+  DB tables: quality_scores, 100, the, column_metadata, lz_entities, datetime, engine_task_log
+  Exports: compute_quality_scores, get_quality_summary
+
+### dashboard/app/api/tests/test_routes_db_explorer.py
+  Imports: dashboard/app/api/router.py
+  DB tables: connections, dashboard
+  Exports: setup, test_list_tables, test_get_table_data, test_get_table_schema, test_read_only_query, test_rejects_write_query, test_table_not_found, test_pagination
+
 ### dashboard/app/api/tests/test_routes_lmc_scope.py
   Imports: dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/db.py
-  DB tables: datasources, engine, dashboard, lz_entities, _handle_start, SourceB, lakehouses, connections, engine_runs
+  DB tables: SourceB, lakehouses, _handle_start, datasources, engine, dashboard, lz_entities, engine_runs, connections
   Exports: tmp_db, setup_lmc_routes, TestEntityIdsBySource, TestSourcesList, TestScopeEnforcement, TestEngineStartScopeGuard, TestPersistedScopeTruth
 
-### dashboard/app/src/pages/gold/GoldClusters.tsx
-  DB tables: cluster, react, the, lucide, consideration
-  Exports: GoldClusters
+### dashboard/app/src/components/EntityTable.tsx
+  DB tables: union, lucide, react
+  Exports: SortKey, SortDir, EntityTableProps, EntityTable, exportCsv, EntityTable
 
-### engine/bronze_processor.py
-  Imports: engine/models.py, engine/onelake_io.py, engine/auth.py
-  Consumed by: engine/orchestrator.py, engine/tests/test_bronze_processor.py
-  DB tables: column, engine, LZ, typing, Landing, datetime, incoming, changed, deltalake
-  Exports: clean_column_names, hash_pk_columns, deduplicate, hash_non_key_columns, add_record_load_date, BronzeProcessor
+### dashboard/app/src/components/datablender/BlendSuggestions.tsx
+  DB tables: relationships, keys
+  Exports: BlendSuggestions
+
+### dashboard/app/src/components/datablender/TableBrowser.tsx
+  API calls: /api/blender/tables
+  Exports: BlenderTable, TableBrowser
+
+### dashboard/app/src/components/gold/GoldStudioLayout.tsx
+  Routes: /gold/intake, /gold/cluster, /gold/canonical, /gold/spec, /gold/release, /gold/serve
+  DB tables: react, live, canonical, the, clustering
+  Exports: useDomainContext, useGoldToast, GoldStudioLayout
+
+### dashboard/app/src/components/sql-explorer/ObjectTree.tsx
+  API calls: /api/sql-explorer/lakehouse-schemas?lakehouse=*, /api/sql-explorer/lakehouse-tables?lakehouse=*&schema=*, /api/sql-explorer/databases?server=*, /api/sql-explorer/schemas?server=*&database=*, /api/sql-explorer/tables?server=*&database=*&schema=*, /api/sql-explorer/servers, /api/sql-explorer/lakehouses, /api/sql-explorer/databases?server=*, /api/sql-explorer/schemas?server=*&database=*, /api/sql-explorer/tables?server=*&database=*&schema=*
+  DB tables: DataBlender, setServers
+  Exports: CheckedTable, ObjectTree
+
+### dashboard/app/src/pages/EngineControl.tsx
+  DB tables: react, one, SSE, LogEntry, recharts, engine, lucide, sp_GetEngineTaskLogs
+  Exports: EngineControl
+
+### dashboard/app/src/pages/ErrorIntelligence.tsx
+  DB tables: react, one, SQL, filtered, Mission, symptom, lucide
+  Exports: ErrorIntelligence
+
+### dashboard/app/src/pages/ExecutionMatrix.tsx
+  DB tables: react, error, recharts, engine, digest, the, lucide
+  Exports: ExecutionMatrix
+
+### dashboard/app/src/pages/ImpactAnalysis.tsx
+  DB tables: lucide, react, the
+  Exports: ImpactAnalysis
+
+### dashboard/app/src/pages/LiveMonitor.tsx
+  API calls: /api/live-monitor?minutes=*
+  DB tables: Bronze, lucide, events, react
+  Exports: LiveMonitor
+
+### dashboard/app/src/pages/LoadMissionControl.tsx
+  DB tables: progress, react, SSE, backend, bySource, entities, a, bottom, recharts, entity
+  Exports: LoadMissionControl
+
+### dashboard/app/src/pages/LoadProgress.tsx
+  API calls: /api/load-progress
+  DB tables: lucide, pyodbc, react
+  Exports: LoadProgress
+
+### dashboard/app/src/pages/MRI.tsx
+  DB tables: lucide, react
+  Exports: MRI
+
+### dashboard/app/src/pages/ScdAudit.tsx
+  API calls: /api/scd/entity/*?limit=10, /api/scd/summary?*
+  DB tables: lucide, react
+  Exports: ScdAudit
+
+### dashboard/app/src/pages/SqlExplorer.tsx
+  API calls: /api/sql-explorer/register-tables, /api/engine/start
+  DB tables: downstream, Landing, Fabric, the
+  Exports: SqlExplorer
+
+### dashboard/app/src/pages/TestAudit.tsx
+  DB tables: here, react, a, every, recharts, the, lucide, Execution
+  Exports: TestAudit
+
+### dashboard/app/src/pages/business/BusinessCatalog.tsx
+  DB tables: the, lucide, react, control
+  Exports: BusinessCatalog
+
+### dashboard/app/src/pages/business/BusinessRequests.tsx
+  DB tables: react, a, the, lucide, email
+  Exports: BusinessRequests
+
+### dashboard/app/src/pages/gold/GoldLedger.tsx
+  DB tables: filename, react, cluster, live, lucide, specimens, clustering
+  Exports: GoldLedger
+
+### dashboard/app/src/pages/gold/GoldValidation.tsx
+  DB tables: react, coverage, the, this, lucide
+  Exports: GoldValidation
+
+### dashboard/app/src/pages/settings/AgentCollaboration.tsx
+  DB tables: lucide, react
+  Exports: AgentCollaboration
+
+### dashboard/app/src/pages/settings/DeploymentManager.tsx
+  Imports: dashboard/app/src/pages/settings/PreDeploymentPanel.tsx, dashboard/app/src/pages/settings/PostDeploymentSummary.tsx, dashboard/app/src/pages/settings/ResumeBanner.tsx, dashboard/app/src/pages/settings/PhaseProgressTracker.tsx, dashboard/app/src/pages/settings/LiveLogPanel.tsx
+  Consumed by: dashboard/app/src/pages/Settings.tsx
+  DB tables: Last
+  Exports: DeploymentManager
+
+### dashboard/app/src/stories/gold/GoldCanonical.stories.tsx
+  DB tables: cluster, M3, react
+  Exports: ProvenanceInCanonicalContext, EntityTypeBadges, StatusBadges, KeyDesignationBadges, ClassificationBadges, StatsStripCanonical, SlideOverDefinition, meta
+
+### dashboard/app/src/stories/gold/SharedStates.stories.tsx
+  Exports: Loading, LoadingMinimal, Empty, EmptyNoAction, Error, ErrorMinimal, NoResults, NoResultsGeneric, meta
+
+### dashboard/app/src/stories/gold/SlideOver.stories.tsx
+  DB tables: react
+  Exports: Default, WithMetadata, WithTabs, WithFooter, Closed, meta
+
+### dashboard/app/src/stories/gold/StatsStrip.stories.tsx
+  Exports: Default, Loading, ClickableStats, FewItems, meta
+
+### dashboard/mockups/replit/FMD-Pipeline-Insight/script/build.ts
+  DB tables: vite, esbuild, fs
+
+### dashboard/mockups/replit/FMD-Pipeline-Insight/server/index.ts
+  Imports: dashboard/mockups/replit/FMD-Pipeline-Insight/server/routes.ts, dashboard/mockups/replit/FMD-Pipeline-Insight/server/static.ts
+  DB tables: express, http
+  Exports: log
+
+### dashboard/mockups/replit/FMD-Pipeline-Insight/vite-plugin-meta-images.ts
+  Consumed by: dashboard/mockups/replit/FMD-Pipeline-Insight/vite.config.ts
+  Exports: metaImagesPlugin
+
+### deploy_from_scratch.py
+  DB tables: Phase, urllib, incremental, DataSource, existing, variables, varchar, Local, layer, Definitions
+  Exports: load_source_systems, get_client_secret, get_token, fabric_request, fabric_get, fabric_post, fabric_patch, parse_simple_yaml, write_simple_yaml, load_config
+
+### deploy_prod.py
+  DB tables: urllib, definition, INTEGRATION, DEV, source
+  Exports: get_token, api_call, poll_operation, get_workspace_items, get_item_definition, replace_guids_in_definition, create_item_with_definition, create_empty_then_update, main
+
+### engine/auth.py
+  Imports: engine/models.py
+  Consumed by: engine/bronze_processor.py, engine/bulk_snapshot.py, engine/loader.py, engine/notebook_trigger.py, engine/onelake_io.py, engine/orchestrator.py, engine/pipeline_runner.py, engine/preflight.py, engine/silver_processor.py, engine/smoke_test.py
+  DB tables: typing, datetime, engine, collections
+  Exports: TokenProvider
+
+### engine/config.py
+  Imports: engine/models.py
+  Consumed by: dashboard/app/api/routes/engine.py, engine/api.py, engine/metadata_analyzer.py, engine/smoke_test.py, engine/worker.py, engine/tests/test_config.py
+  DB tables: typing, engine, pathlib, the, config
+  Exports: load_config
+
+### engine/metadata_analyzer.py
+  Imports: engine/connections.py, engine/models.py, engine/config.py
+  DB tables: between, join_candidates, candidates, opportunities, sources, discovery, typing, patterns, tables, columns
+  Exports: ColumnMetadata, TableMetadata, JoinCandidate, CrossSourceJoinPath, MetadataAnalyzer
+
+### engine/models.py
+  Consumed by: engine/auth.py, engine/bronze_processor.py, engine/bulk_snapshot.py, engine/config.py, engine/connections.py, engine/extractor.py, engine/loader.py, engine/logging_db.py, engine/metadata_analyzer.py, engine/notebook_trigger.py
+  DB tables: typing, namespace, Bronze, a, 8, an, dataclasses, execution, datetime, 120
+  Exports: Entity, BronzeEntity, SilverEntity, RunResult, LogEnvelope, EngineConfig, LoadPlan
+
+### engine/onelake_io.py
+  Imports: engine/auth.py, engine/models.py
+  Consumed by: engine/bronze_processor.py, engine/silver_processor.py, engine/tests/test_onelake_io.py
+  DB tables: typing, datetime, lakehouses, SQLite, a, OneLake, engine, pathlib, dashboard, ADLS
+  Exports: OneLakeIO
 
 ### engine/orchestrator.py
-  Imports: engine/notebook_trigger.py, engine/pipeline_runner.py, engine/models.py, engine/schema_validator.py, engine/vpn.py, engine/silver_processor.py, engine/bronze_processor.py, engine/preflight.py, engine/auth.py, engine/logging_db.py
+  Imports: engine/auth.py, engine/preflight.py, engine/self_heal.py, engine/pipeline_runner.py, engine/schema_validator.py, engine/notebook_trigger.py, engine/bronze_processor.py, engine/logging_db.py, engine/loader.py, engine/models.py
   Consumed by: engine/api.py, engine/smoke_test.py, engine/worker.py, engine/tests/test_orchestrator.py
-  DB tables: datasources, Fabric, integration, lz_entities, typing, bronze_entities, already, the, collections, SQLite
+  DB tables: concurrent, silver_entities, SQL, the, datasources, already, dashboard, UI, engine_runs, metadata
   Exports: RunTimeoutError, AdaptiveThrottle, ConnectionCircuitBreaker, LoadOrchestrator
 
-### engine/silver_processor.py
-  Imports: engine/models.py, engine/onelake_io.py, engine/auth.py
-  Consumed by: engine/orchestrator.py, engine/tests/test_silver_processor.py
-  DB tables: all, engine, typing, datetime, Bronze, source, deltalake
-  Exports: add_scd_columns, detect_changes, SilverProcessor
+### engine/self_heal.py
+  Consumed by: dashboard/app/api/routes/engine.py, dashboard/app/api/routes/load_center.py, dashboard/app/api/routes/load_mission_control.py, engine/orchestrator.py, engine/self_heal_worker.py, engine/tests/test_self_heal.py
+  DB tables: typing, __future__, self_heal_events, lz_entities, self_heal_cases, datasources, self_heal_runtime, pathlib, dashboard, dataclasses
+  Exports: SelfHealSettings, ensure_daemon_started, queue_failure_case, get_self_heal_status_payload, SelfHealDaemon
+
+### engine/sql/deploy_schema.py
+  DB tables: urllib, e, os, pathlib, dashboard
+  Exports: load_config, get_token, get_connection, split_on_go, execute_sql_file, describe_stats, main
+
+### engine/tests/test_auth.py
+  Imports: engine/auth.py, engine/models.py
+  DB tables: unittest, engine
+  Exports: TestScopeConstants, TestAccessToken, TestTokenProvider, TestOneLakeCredential
+
+### knowledge/ux-audit-screenshots/_capture.ts
+
+### scripts/_credentials.py
+  Imports: scripts/_credentials.py
+  Consumed by: scripts/jira_hours_audit_20260319.py, scripts/jira_update_gold_studio.py, scripts/jira_weekly_update_20260319.py, scripts/_credentials.py
+  DB tables: repo, env, _credentials, a, environment
+  Exports: get_fabric_secret, get_jira_token, get_miro_token
+
+### scripts/configure_incremental_loads.py
+  DB tables: integration, PKs, discovery, actual, MAX, last, urllib, PrimaryKeys, exec, entity
+  Exports: get_client_secret, get_token, fabric_get, connect_metadata_db, discover_watermarks, seed_watermark_values, main
+
+### scripts/fabric_sql_exec.py
+  DB tables: integration, config, local
+  Exports: connect, execute_query, check_state, register_m3cloud_connection
+
+### scripts/fast_extract.py
+  DB tables: concurrent, the, datasources, pathlib, lz_entities, connections
+  Exports: get_entities, cx_uri, extract_one, main
+
+### scripts/jira_hours_audit_20260319.py
+  Imports: scripts/_credentials.py
+  DB tables: logging_db, collections, _credentials, orchestrator, the, this, my, 35
+  Exports: jira_request, delete_worklog, add_worklog
+
+### scripts/jira_update_gold_studio.py
+  Imports: scripts/_credentials.py
+  DB tables: materialized, fields, Gold, Planning, _credentials, conformed, those, MT, existing, auditing
+  Exports: jira_request, text, bold, para, heading, bullet_list, inline_card, adf, add_comment, log_work
+
+### scripts/jira_weekly_update_20260319.py
+  Imports: scripts/_credentials.py
+  DB tables: 9, fields, 3, 23, MT, 1, import, view, _credentials, spec
+  Exports: jira_request, transition, comment, worklog, update_fields, add_watcher, add_watchers, p, bold_p, heading
+
+### scripts/nuke_environment.py
+  DB tables: deploy, a, pathlib, execution, datetime
+  Exports: load_config, get_fabric_token, get_sql_token, get_storage_token, get_sql_connection, banner, step, warn, nuke_soft, nuke_hard
+
+### scripts/push_incremental_flags.py
+  DB tables: integration, msal, the, collections
+  Exports: get_fabric_token, connect_fabric, main
+
+### scripts/run_load_all.py
+  DB tables: Fabric, datetime, source
+  Exports: get_client_secret, log, get_token, trigger_notebook, poll_notebook, run_stage, main
+
+### scripts/run_load_optimization.py
+  DB tables: msal, datetime, sys, collections
+  Exports: connect_source, get_fabric_token, connect_fabric, analyze_watermark_columns, analyze_primary_keys, analyze_row_count, main
+
+### scripts/run_silver_pipeline.py
+  DB tables: datetime, the
+  Exports: log, get_fabric_token, api_get, api_post, write_results, main
+
+### scripts/trigger_bronze_pipeline.py
+  DB tables: response, datetime
+  Exports: log, get_fabric_token, api_get, api_post, check_active_runs, trigger_pipeline, poll_job, poll_by_instances, write_results, main
+
+### scripts/turbo_extract.py
+  DB tables: JSON, concurrent, collections, arrow_odbc, the, prior, a, datasources, pool, pathlib
+  Exports: get_entities, get_size_hints, register_run, log_task, update_run_progress, finish_run, extract_bcp, extract_arrow_odbc, extract_pyodbc, extract_one
+
+### scripts/upload_lz_notebook.py
+  DB tables: notebook, cells, each, the
+  Exports: get_token, api_get, api_post
+
+### scripts/upload_notebooks_to_fabric.py
+  DB tables: deploy, urllib, the
+  Exports: get_client_secret, get_token, fabric_api, find_notebook, remap_guids, discover_notebooks, main
+
+### scripts/upload_pipelines.py
+  DB tables: pipeline
+  Exports: get_token, api_get, api_post_raw, poll_async_operation, collect_pipeline_files, get_pipeline_name, main
+
+### scripts/upload_silver_notebook.py
+  DB tables: cells
+  Exports: get_token, api_get, api_post
+
+### scripts/upload_variable_libs_to_fabric.py
+  DB tables: all, urllib
+  Exports: get_client_secret, get_token, fabric_api, find_item, build_definition_parts, deploy_variable_library, discover_variable_libs, main
+
+### src/NB_FMD_CUSTOM_NOTEBOOK_TEMPLATE.Notebook/notebook-content.py
+  DB tables: an, datetime, pyspark, the
+
+### src/NB_FMD_LOAD_BRONZE_SILVER.Notebook/notebook-content.py
+  DB tables: Bronze, NB_FMD_UTILITY_FUNCTIONS, NB_FMD_DQ_CLEANSING, result_sets, the, another, DataFrames, framework, failed, pyspark
+  Exports: build_exec_statement, execute_with_outputs, dynamic_call_cleansing_function, normalize_cleansing_rules, handle_cleansing_functions, normalize_text, fill_nulls, parse_datetime
+
+### src/NB_FMD_LOAD_LANDINGZONE_MAIN.Notebook/notebook-content.py
+  DB tables: Metadata, integration, deploy_lz_copy_pipeline, NB_FMD_UTILITY_FUNCTIONS, collections, result_sets, the, another, filter, a
+  Exports: build_exec_statement, execute_with_outputs, format_guid, query_metadata, build_source_query, build_incremental_query, submit_pipeline_job, poll_job_status, log_copy_start, log_copy_end
+
+### src/NB_FMD_LOAD_LANDING_BRONZE.Notebook/notebook-content.py
+  DB tables: result_sets, this, delta, pyspark, Landing, failed, processing, datetime, queue, Bronze
+  Exports: build_exec_statement, execute_with_outputs, dynamic_call_cleansing_function, normalize_cleansing_rules, handle_cleansing_functions, normalize_text, fill_nulls, parse_datetime
+
+### src/NB_FMD_MAINTENANCE_AGENT.Notebook/notebook-content.py
+  DB tables: integration, hardcoded, EntityStatusSummary, collections, execution, datetime
+  Exports: get_db_connection, run_query, run_exec, scan_lz_files, scan_lakehouse_tables, normalize_name, build_expected_status
+
+### src/NB_FMD_ORCHESTRATOR.Notebook/notebook-content.py
+  DB tables: datetime
+  Exports: log, get_token, api_call, trigger_pipeline, poll_pipeline
+
+### src/NB_FMD_PROCESSING_LANDINGZONE_MAIN.Notebook/notebook-content.py
+  DB tables: json, entity_status, failed, EntityStatus, pyspark, the, datetime, external, py4j
+  Exports: format_guid, is_valid_guid, update_entity_status
+
+### src/NB_FMD_PROCESSING_PARALLEL_MAIN.Notebook/notebook-content.py
+  DB tables: typing, json, names, collections, SQL, a, datetime
+  Exports: format_guid, is_valid_guid, extract_ts_from_name, group_key, batched, safe_sort_key
+
+### src/NB_FMD_UTILITY_FUNCTIONS.Notebook/notebook-content.py
+  DB tables: another, result_sets, the
+  Exports: build_exec_statement, execute_with_outputs
+
+### src/NB_UTILITIES_SETUP_FMD.Notebook/notebook-content.py
+  DB tables: Domain, Sub, Peer, a, item, workspace, metadata
+  Exports: mapping_table_composite_key, upsert_mapping, run_fab_command, get_cluster_url, create_fabric_domain, create_fabric_business_domain, assign_fabric_domain, assign_domain_description, assign_domain_contributor_roles, get_domain_id_by_name
+
+### src/antigravity/check_notebook_trigger.py
+  DB tables: urllib
+  Exports: get_token, fabric_request
+
+### src/antigravity/check_sp.py
+  DB tables: integration, urllib
+  Exports: get_token, main
+
+### src/antigravity/extract_m3_schema.py
+  Routes: ../../config/entity_registration.json
+  DB tables: urllib, M3, sys
+  Exports: get_token, main
+
+### src/antigravity/fabric_notebook_runner.py
+  DB tables: integration, script, within, urllib, notebookutils
+  Exports: get_token, fabric_request
+
+### src/antigravity/standalone_register_entities.py
+  DB tables: integration, urllib
+  Exports: get_token, main
+
+### upload_notebooks.py
+  DB tables: urllib
+  Exports: get_token, fabric_get, fabric_py_to_ipynb, main
 
 ## Prior Round Causality
 
-Round 2: Changed .claude/commands/audit-and-packet.md, .claude/commands/packet-plan.md, .claude/commands/truth-audit.md, .gitignore, .interface-design/system.md — 0 findings resolved
-Round 3: Changed .mri/fix_prompt_round3.txt, .mri/remediation-plan.json — 0 findings resolved
+Round 2: Changed .mri/fix_prompt_round1.txt, .mri/fix_prompt_round2.txt, .mri/generated-tests/discovery.json, .mri/generated-tests/playwright.config.ts, .mri/generated-tests/test_alerts.spec.ts — 0 findings resolved
+Round 3: Changed .mri/fix_prompt_round1.txt, .mri/fix_prompt_round2.txt, .mri/fix_prompt_round3.txt, .mri/generated-tests/discovery.json, .mri/generated-tests/playwright.config.ts — 0 findings resolved
 
-Remaining bugs are in: QUAL-073, QUAL-107, QUAL-114, QUAL-115, UI-014
+Remaining bugs are in: COMP-001, QUAL-007, QUAL-048, QUAL-050, QUAL-052, QUAL-057, QUAL-070, QUAL-071, QUAL-072, QUAL-073
 Check if these share import dependencies — fix root causes first, not symptoms.
 
 ## Prior Round Learnings (from .mri/heal_progress.md)
 
-- The MRI healing loop has fully converged. No further rounds will produce different results until the scanner exclusion list is updated.
-- Total across all rounds: **0 genuine bugs found in project source code**. Scanner false positive rate remains **100%** on remaining findings.
-- This is the **5th consecutive round** with identical Playwright trace viewer false positives as the only findings. Zero genuine bugs exist in project source code.
-- All 8 bugs are in `dashboard/app/playwright-report/trace/` — vendored, minified, third-party build artifacts from Playwright's trace viewer.
-- **The MRI healing loop has fully converged.** No actionable bugs remain.
-- **ACTION REQUIRED for MRI scanner**: Add `**/playwright-report/**` to exclusion list, OR add `dashboard/app/playwright-report/` to `.gitignore` since it's a build artifact that shouldn't be in version control.
-- The scanner's exec() detection regex needs refinement — it matches `RegExp.prototype.exec()` which is a safe, standard JavaScript API, not code injection.
-- This scan found 11 genuine project source code bugs (vs prior rounds which only found Playwright trace viewer false positives). The scanner exclusion may have been updated.
 - The SQL injection findings in gold_studio.py follow a safe pattern: column names from a hardcoded tuple iterated with `for col in (...)`, values always parameterized with `?`. Scanner can't distinguish hardcoded allowlist iteration from user-controlled input.
 - Empty except blocks with existing comments (like `# column already exists` or `# Table may not exist yet on first run`) should be treated as documented intentional behavior, not bugs.
 - The `update_command_center.py` script had no logger — added one. Other files already had `log = logging.getLogger(...)`.
@@ -78,12 +477,20 @@ Check if these share import dependencies — fix root causes first, not symptoms
 - This is the 4th consecutive round flagging the same TypeScript interface comment. The fix this time was to simply remove the example values from the comment entirely rather than trying to argue it's a false positive. The scanner's compliance rule matches any literal source name strings regardless of context (code vs. comment).
 - Total across Rounds 1-4: **10 genuine bugs fixed** (6 in Round 1, 3 in Round 2, 0 in Round 3, 1 in Round 4). The Round 4 fix is borderline — it's a comment change, not a logic fix — but it satisfies the scanner.
 - The MRI healing loop has fully converged for project source code. No further actionable findings remain.
+- Prior rounds left `pass` with comments (e.g., `# already exists`, `# non-critical`) which didn't satisfy the scanner — the scanner requires actual code in except blocks, not just comments
+- The `log.debug()` approach is the correct minimal fix: preserves intentional error-swallowing behavior while adding observability
+- For test files without a logger, create a local `_log = logging.getLogger(__name__)` inside the function rather than a module-level logger
+- The GoldClusters.tsx already had `role="button"` and `tabIndex={0}` from a prior round, but was missing `onKeyDown` — the scanner requires all three (role + tabIndex + keyboard handler) for accessibility compliance
+- Total across all rounds: **16 genuine bugs fixed** (6 in Round 1, 3 in Round 2, 0 in Round 3, 1 in Round 4, 6 in this Round 4 re-run)
+- The MRI scanner's accessibility checker uses regex to find `onClick` on elements, then checks the same element for `role`/`tabIndex` attributes. It cannot parse JSX spread expressions like `{...(condition ? {role: "button"} : {})}`. The fix that works: use a native semantic HTML element (`<button>`) instead of decorating a `<span>` — this is also the correct accessibility approach.
+- This bug survived 4 prior rounds because each round tried increasingly complex spread patterns. The fundamental issue was trying to make a non-interactive element act like a button, when the correct fix is to use an actual button element.
+- Total across all rounds: **17 genuine bugs fixed** (6 in Round 1, 3 in Round 2, 0 in Round 3, 1 in Round 4, 6 in Round 4 re-run, 1 in Round 5).
 
 ## What Happened in Prior Rounds
 
-- Round 1: 867 bugs found → **0 fixed**, 5 persisted
-- Round 2: 867 bugs found → **0 fixed**, 5 persisted
-- Round 3: 867 bugs found → **0 fixed**, 5 persisted
+- Round 1: 310 bugs found → **4 fixed**, 269 persisted
+- Round 2: 310 bugs found → **0 fixed**, 275 persisted
+- Round 3: 310 bugs found → **0 fixed**, 275 persisted
 
 ## Bugs That Survived Previous Rounds
 
@@ -91,85 +498,1006 @@ These bugs persisted despite fix attempts. The previous approach DID NOT WORK.
 You must try a FUNDAMENTALLY DIFFERENT strategy for each of these.
 However: each bug is independent. Don't let one failure discourage you on others.
 
-- `dashboard/app/api/tests/test_routes_lmc_scope.py:73` — survived round(s) 1, 2, 3
+- `dashboard/app/api/routes/sql_explorer.py:442` — survived round(s) 1, 2, 3
   Issue: Empty except block — errors will be silently swallowed
-- `dashboard/app/api/tests/test_routes_lmc_scope.py:77` — survived round(s) 1, 2, 3
+- `engine/orchestrator.py:725` — survived round(s) 1, 2, 3
   Issue: Empty except block — errors will be silently swallowed
-- `engine/bronze_processor.py:184` — survived round(s) 1, 2, 3
+- `engine/self_heal.py:144` — survived round(s) 1, 2, 3
   Issue: Empty except block — errors will be silently swallowed
-- `engine/orchestrator.py:1398` — survived round(s) 1, 2, 3
+- `engine/self_heal.py:628` — survived round(s) 1, 2, 3
   Issue: Empty except block — errors will be silently swallowed
-- `engine/silver_processor.py:266` — survived round(s) 1, 2, 3
+- `scripts/fast_extract.py:162` — survived round(s) 1, 2, 3
   Issue: Empty except block — errors will be silently swallowed
-- `dashboard/app/src/pages/gold/GoldClusters.tsx:370` — survived round(s) 1, 2, 3
+- `scripts/turbo_extract.py:219` — survived round(s) 1, 2, 3
+  Issue: Empty except block — errors will be silently swallowed
+- `scripts/turbo_extract.py:244` — survived round(s) 1, 2, 3
+  Issue: Empty except block — errors will be silently swallowed
+- `scripts/turbo_extract.py:270` — survived round(s) 1, 2, 3
+  Issue: Empty except block — errors will be silently swallowed
+- `scripts/turbo_extract.py:362` — survived round(s) 1, 2, 3
+  Issue: Empty except block — errors will be silently swallowed
+- `scripts/turbo_extract.py:482` — survived round(s) 1, 2, 3
+  Issue: Empty except block — errors will be silently swallowed
+- `scripts/turbo_extract.py:561` — survived round(s) 1, 2, 3
+  Issue: Empty except block — errors will be silently swallowed
+- `scripts/turbo_extract.py:743` — survived round(s) 1, 2, 3
+  Issue: Empty except block — errors will be silently swallowed
+- `dashboard/app/src/pages/gold/GoldLedger.tsx:522` — survived round(s) 1, 2, 3
+  Issue: Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+- `dashboard/app/src/pages/gold/GoldValidation.tsx:397` — survived round(s) 1, 2, 3
   Issue: onClick on non-interactive element without role/tabIndex — not keyboard accessible
+- `dashboard/app/src/pages/gold/GoldValidation.tsx:398` — survived round(s) 1, 2, 3
+  Issue: onClick on non-interactive element without role/tabIndex — not keyboard accessible
+- `dashboard/app/src/pages/SqlExplorer.tsx:301` — survived round(s) 1, 2, 3
+  Issue: onClick on non-interactive element without role/tabIndex — not keyboard accessible
+- `dashboard/app/api/routes/control_plane.py:189` — survived round(s) 1, 2, 3
+  Issue: TODO/FIXME comment: LakehouseId <= 3 is a fragile heuristic for DEV vs PROD.
+- `dashboard/app/api/routes/mri.py:405` — survived round(s) 1, 2, 3
+  Issue: Hardcoded localhost URL: http://localhost:8787
+- `dashboard/app/src/components/datablender/BlendSuggestions.tsx:15` — survived round(s) 1, 2, 3
+  Issue: TODO/FIXME comment: Replace with live API call to get blend suggestions
+- `dashboard/app/src/pages/TestAudit.tsx:54` — survived round(s) 1, 2, 3
+  Issue: TODO/FIXME comment: Replace with Agent SDK-generated dynamic descriptions per-run.
+- `engine/config.py:145` — survived round(s) 1, 2, 3
+  Issue: Hardcoded localhost URL: http://localhost:8787
+- `engine/models.py:394` — survived round(s) 1, 2, 3
+  Issue: Hardcoded localhost URL: http://localhost:8787
+- `engine/orchestrator.py:1541` — survived round(s) 1, 2, 3
+  Issue: Hardcoded localhost URL: http://localhost:8787
+- `src/NB_FMD_CUSTOM_NOTEBOOK_TEMPLATE.Notebook/notebook-content.py:112` — survived round(s) 1, 2, 3
+  Issue: TODO/FIXME comment: (Task 19 — migration pending): This template still calls sp_AuditNotebook via
+- `dashboard/app/api/routes/source_manager.py:79` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: 66428eaa-90a0-4d3b...
+- `dashboard/app/api/routes/source_manager.py:84` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: 918c04e1-be85-48f0...
+- `dashboard/app/api/routes/source_manager.py:88` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: 04c16d88-0a9b-44b0...
+- `dashboard/app/api/routes/source_manager.py:92` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: eace5b34-df2e-4057...
+- `dashboard/app/api/routes/source_manager.py:96` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: 9243f2a4-bf6c-4f63...
+- `dashboard/app/api/routes/source_manager.py:100` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: af673179-a72b-4c3f...
+- `dashboard/app/api/routes/source_manager.py:104` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: e4fa94cd-c674-45b3...
+- `dashboard/app/api/routes/source_manager.py:108` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: c5cd66d8-3503-44de...
+- `dashboard/app/api/routes/source_manager.py:112` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: 1187a5d7-5d6e-4a23...
+- `dashboard/app/src/pages/EngineControl.tsx:294` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: 3b9a7e79-1615-4ec2...
+- `dashboard/app/src/pages/EngineControl.tsx:295` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: f06393ca-c024-435f...
+- `dashboard/app/src/pages/EngineControl.tsx:296` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: f85e1ba0-2e40-4de5...
+- `dashboard/app/src/pages/EngineControl.tsx:297` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: 0596d0e7-e036-451d...
+- `dashboard/app/src/pages/EngineControl.tsx:298` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: c0366b24-e6f8-4994...
+- `dashboard/app/src/pages/EngineControl.tsx:299` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: a2712a97-ebde-4036...
+- `dashboard/app/src/pages/EngineControl.tsx:300` — survived round(s) 1, 2, 3
+  Issue: Hardcoded GUID found: 8ce7bc73-35ac-4844...
 
 ## Bugs to Fix (grouped by file)
 
 Work through one file at a time. Read the file, understand the full context, fix all bugs in it, move to the next.
 
-### `dashboard/app/api/tests/test_routes_lmc_scope.py` (0C + 2H)
+### `scripts/turbo_extract.py` (0C + 7H + 0M + 2L)
 
-**[HIGH]** Line 73: Empty except block — errors will be silently swallowed
+**[HIGH]** Line 219: Empty except block — errors will be silently swallowed
   What was tested: Quality scanner: checking for empty except blocks in .py files
-  How to verify: Open dashboard/app/api/tests/test_routes_lmc_scope.py:73. The except block has no meaningful handler.
+  How to verify: Open scripts/turbo_extract.py:219. The except block has no meaningful handler.
   Code: `except Exception:`
   Expected: Except blocks should handle or log errors, not silently swallow them
   → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
-  Related files: dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/db.py
 ⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
 
-**[HIGH]** Line 77: Empty except block — errors will be silently swallowed
+**[HIGH]** Line 244: Empty except block — errors will be silently swallowed
   What was tested: Quality scanner: checking for empty except blocks in .py files
-  How to verify: Open dashboard/app/api/tests/test_routes_lmc_scope.py:77. The except block has no meaningful handler.
+  How to verify: Open scripts/turbo_extract.py:244. The except block has no meaningful handler.
   Code: `except Exception:`
   Expected: Except blocks should handle or log errors, not silently swallow them
   → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
-  Related files: dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/db.py
 ⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
 
-### `engine/bronze_processor.py` (0C + 1H)
-
-**[HIGH]** Line 184: Empty except block — errors will be silently swallowed
+**[HIGH]** Line 270: Empty except block — errors will be silently swallowed
   What was tested: Quality scanner: checking for empty except blocks in .py files
-  How to verify: Open engine/bronze_processor.py:184. The except block has no meaningful handler.
+  How to verify: Open scripts/turbo_extract.py:270. The except block has no meaningful handler.
   Code: `except Exception:`
   Expected: Except blocks should handle or log errors, not silently swallow them
   → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
-  Related files: engine/orchestrator.py, engine/tests/test_bronze_processor.py, engine/models.py, engine/onelake_io.py, engine/auth.py
 ⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
 
-### `engine/orchestrator.py` (0C + 1H)
-
-**[HIGH]** Line 1398: Empty except block — errors will be silently swallowed
+**[HIGH]** Line 362: Empty except block — errors will be silently swallowed
   What was tested: Quality scanner: checking for empty except blocks in .py files
-  How to verify: Open engine/orchestrator.py:1398. The except block has no meaningful handler.
-  Code: `except ImportError:`
-  Expected: Except blocks should handle or log errors, not silently swallow them
-  → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
-  Related files: engine/api.py, engine/smoke_test.py, engine/worker.py, engine/tests/test_orchestrator.py, engine/notebook_trigger.py
-⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
-
-### `engine/silver_processor.py` (0C + 1H)
-
-**[HIGH]** Line 266: Empty except block — errors will be silently swallowed
-  What was tested: Quality scanner: checking for empty except blocks in .py files
-  How to verify: Open engine/silver_processor.py:266. The except block has no meaningful handler.
+  How to verify: Open scripts/turbo_extract.py:362. The except block has no meaningful handler.
   Code: `except Exception:`
   Expected: Except blocks should handle or log errors, not silently swallow them
   → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
-  Related files: engine/orchestrator.py, engine/tests/test_silver_processor.py, engine/models.py, engine/onelake_io.py, engine/auth.py
 ⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
 
-### `dashboard/app/src/pages/gold/GoldClusters.tsx` (0C + 1H)
+**[HIGH]** Line 482: Empty except block — errors will be silently swallowed
+  What was tested: Quality scanner: checking for empty except blocks in .py files
+  How to verify: Open scripts/turbo_extract.py:482. The except block has no meaningful handler.
+  Code: `except Exception:`
+  Expected: Except blocks should handle or log errors, not silently swallow them
+  → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
 
-**[HIGH]** Line 370: onClick on non-interactive element without role/tabIndex — not keyboard accessible
+**[HIGH]** Line 561: Empty except block — errors will be silently swallowed
+  What was tested: Quality scanner: checking for empty except blocks in .py files
+  How to verify: Open scripts/turbo_extract.py:561. The except block has no meaningful handler.
+  Code: `except Exception:`
+  Expected: Except blocks should handle or log errors, not silently swallow them
+  → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[HIGH]** Line 743: Empty except block — errors will be silently swallowed
+  What was tested: Quality scanner: checking for empty except blocks in .py files
+  How to verify: Open scripts/turbo_extract.py:743. The except block has no meaningful handler.
+  Code: `except Exception:`
+  Expected: Except blocks should handle or log errors, not silently swallow them
+  → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[LOW]** Line 389: SQL injection via f-string in .execute() call — LIKELY FALSE POSITIVE: SQLite bracket notation is safe
+  What was tested: Security scanner detected SQL keywords with interpolation, but bracket notation is safe.
+  How to verify: Open scripts/turbo_extract.py at line 389. Verify the bracket notation is for column/table names, not user input.
+  Code context:
+  ```
+    386:         )
+    387:         conn = pyodbc.connect(conn_str, timeout=30)
+    388:         cursor = conn.cursor()
+    389:         cursor.execute(f"SELECT TOP 0 * FROM [{schema}].[{table}] WITH (NOLOCK)")
+    390:         names = [desc[0] for desc in cursor.description] if cursor.description else []
+    391:         conn.close()
+    392: 
+  ```
+  → FIX: SQLite bracket notation is a safe column/table name quoting pattern. Skip unless user input is directly in the brackets.
+
+**[LOW]** Line 516: SQL injection via f-string in .execute() call — LIKELY FALSE POSITIVE: SQLite bracket notation is safe
+  What was tested: Security scanner detected SQL keywords with interpolation, but bracket notation is safe.
+  How to verify: Open scripts/turbo_extract.py at line 516. Verify the bracket notation is for column/table names, not user input.
+  Code context:
+  ```
+    513:     try:
+    514:         conn = _get_pyodbc_conn(server, database, query_timeout=query_timeout)
+    515:         cursor = conn.cursor()
+    516:         cursor.execute(f"SELECT * FROM [{schema}].[{name}] WITH (NOLOCK)")
+    517: 
+    518:         if not cursor.description:
+    519:             result["status"] = "succeeded"
+  ```
+  → FIX: SQLite bracket notation is a safe column/table name quoting pattern. Skip unless user input is directly in the brackets.
+
+### `engine/orchestrator.py` (0C + 1H + 1M + 2L)
+
+**[HIGH]** Line 725: Empty except block — errors will be silently swallowed
+  What was tested: Quality scanner: checking for empty except blocks in .py files
+  How to verify: Open engine/orchestrator.py:725. The except block has no meaningful handler.
+  Code: `except Exception:`
+  Expected: Except blocks should handle or log errors, not silently swallow them
+  → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
+  Related files: engine/api.py, engine/smoke_test.py, engine/worker.py, engine/tests/test_orchestrator.py, engine/auth.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 1541: Hardcoded localhost URL: http://localhost:8787
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open engine/orchestrator.py:1541. The pattern was detected in the source.
+  Code: `base_url = getattr(self.config, "control_plane_url", "http://localhost:8787")`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: engine/api.py, engine/smoke_test.py, engine/worker.py, engine/tests/test_orchestrator.py, engine/auth.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[LOW]** Line 320: Magic number 86400 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open engine/orchestrator.py:320. The pattern was detected in the source.
+  Code: `run_timeout_seconds = getattr(self.config, "run_timeout_seconds", 86400)`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: engine/api.py, engine/smoke_test.py, engine/worker.py, engine/tests/test_orchestrator.py, engine/auth.py
+
+**[LOW]** Line 342: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open engine/orchestrator.py:342. The pattern was detected in the source.
+  Code: `log.info("Starting run with %.1f hour timeout", run_timeout_seconds / 3600)`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: engine/api.py, engine/smoke_test.py, engine/worker.py, engine/tests/test_orchestrator.py, engine/auth.py
+
+### `engine/self_heal.py` (0C + 2H + 0M + 1L)
+
+**[HIGH]** Line 144: Empty except block — errors will be silently swallowed
+  What was tested: Quality scanner: checking for empty except blocks in .py files
+  How to verify: Open engine/self_heal.py:144. The except block has no meaningful handler.
+  Code: `except json.JSONDecodeError:`
+  Expected: Except blocks should handle or log errors, not silently swallow them
+  → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
+  Related files: dashboard/app/api/routes/engine.py, dashboard/app/api/routes/load_center.py, dashboard/app/api/routes/load_mission_control.py, engine/orchestrator.py, engine/self_heal_worker.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[HIGH]** Line 628: Empty except block — errors will be silently swallowed
+  What was tested: Quality scanner: checking for empty except blocks in .py files
+  How to verify: Open engine/self_heal.py:628. The except block has no meaningful handler.
+  Code: `except Exception:`
+  Expected: Except blocks should handle or log errors, not silently swallow them
+  → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
+  Related files: dashboard/app/api/routes/engine.py, dashboard/app/api/routes/load_center.py, dashboard/app/api/routes/load_mission_control.py, engine/orchestrator.py, engine/self_heal_worker.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[LOW]** Line 184: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open engine/self_heal.py:184. The pattern was detected in the source.
+  Code: `retry_timeout_seconds=max(60, int(os.getenv("FMD_SELF_HEAL_RETRY_TIMEOUT_SECONDS", "3600"))),`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: dashboard/app/api/routes/engine.py, dashboard/app/api/routes/load_center.py, dashboard/app/api/routes/load_mission_control.py, engine/orchestrator.py, engine/self_heal_worker.py
+
+### `dashboard/app/src/pages/gold/GoldValidation.tsx` (0C + 2H + 0M + 0L)
+
+**[HIGH]** Line 397: onClick on non-interactive element without role/tabIndex — not keyboard accessible
   What was tested: UI scanner: checking for keyboard accessibility on clickable elements
-  How to verify: Open dashboard/app/src/pages/gold/GoldClusters.tsx:370. A div/span/p element has onClick but no role or tabIndex.
-  Code: `<span key={m.label} className="gs-stagger-row flex items-center gap-1.5" style={{ "--i": i, cursor: m.onClick ? "pointer" : undefined } as React.CSSProperties}`
+  How to verify: Open dashboard/app/src/pages/gold/GoldValidation.tsx:397. A div/span/p element has onClick but no role or tabIndex.
+  Code: `<div className="gs-modal-backdrop fixed inset-0 z-[70] flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.34)" }} onClick={onClose}>`
   Expected: Clickable non-interactive elements must have role='button' and tabIndex={0}
   → FIX: Add role="button" tabIndex={0} and onKeyDown handler.
 ⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[HIGH]** Line 398: onClick on non-interactive element without role/tabIndex — not keyboard accessible
+  What was tested: UI scanner: checking for keyboard accessibility on clickable elements
+  How to verify: Open dashboard/app/src/pages/gold/GoldValidation.tsx:398. A div/span/p element has onClick but no role or tabIndex.
+  Code: `<div className="gs-modal-enter w-full max-w-2xl rounded-xl p-5" style={{ background: "var(--bp-surface-1)", border: "1px solid var(--bp-border-strong, var(--bp-border))" }} onClick={(event) => event.s`
+  Expected: Clickable non-interactive elements must have role='button' and tabIndex={0}
+  → FIX: Add role="button" tabIndex={0} and onKeyDown handler.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+### `dashboard/app/api/routes/sql_explorer.py` (0C + 1H + 0M + 0L)
+
+**[HIGH]** Line 442: Empty except block — errors will be silently swallowed
+  What was tested: Quality scanner: checking for empty except blocks in .py files
+  How to verify: Open dashboard/app/api/routes/sql_explorer.py:442. The except block has no meaningful handler.
+  Code: `except Exception:`
+  Expected: Except blocks should handle or log errors, not silently swallow them
+  → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/routes/data_access.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+### `dashboard/app/src/pages/SqlExplorer.tsx` (0C + 1H + 0M + 0L)
+
+**[HIGH]** Line 301: onClick on non-interactive element without role/tabIndex — not keyboard accessible
+  What was tested: UI scanner: checking for keyboard accessibility on clickable elements
+  How to verify: Open dashboard/app/src/pages/SqlExplorer.tsx:301. A div/span/p element has onClick but no role or tabIndex.
+  Code: `<div className="fixed inset-0 z-[100] flex items-center justify-center gs-modal-backdrop" onClick={() => !loading && setShowConfirmDialog(false)}>`
+  Expected: Clickable non-interactive elements must have role='button' and tabIndex={0}
+  → FIX: Add role="button" tabIndex={0} and onKeyDown handler.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+### `dashboard/app/src/pages/gold/GoldLedger.tsx` (0C + 1H + 0M + 0L)
+
+**[HIGH]** Line 522: Multiple hardcoded source names on one line — violates 'scale to N sources' rule
+  What was tested: Compliance scanner: checking for hardcoded source names that violate CLAUDE.md rules
+  How to verify: Open dashboard/app/src/pages/gold/GoldLedger.tsx:522. Multiple data source names are hardcoded on this line.
+  Code: `<FormField label="Source System" value={sourceSystem} onChange={setSourceSystem} placeholder={detectResult ? detectResult.source_system : "e.g. MES, M3 ERP"} />`
+  Expected: Source list should be fetched dynamically, not hardcoded
+  → FIX: Fetch source list dynamically from API. Use a fallback default for unknown sources.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+### `scripts/fast_extract.py` (0C + 1H + 0M + 0L)
+
+**[HIGH]** Line 162: Empty except block — errors will be silently swallowed
+  What was tested: Quality scanner: checking for empty except blocks in .py files
+  How to verify: Open scripts/fast_extract.py:162. The except block has no meaningful handler.
+  Code: `except Exception:`
+  Expected: Except blocks should handle or log errors, not silently swallow them
+  → FIX: Add proper error handling: logging, re-raise, or explicit comment explaining why pass is safe.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+### `deploy_from_scratch.py` (0C + 0H + 25M + 1L)
+
+**[MEDIUM]** Line 45: Hardcoded GUID found: ca81e9fd-06dd-49cf...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:45. A GUID is hardcoded directly in the source code.
+  Code: `TENANT_ID = "ca81e9fd-06dd-49cf-b5a9-ee7441ff5303"`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 46: Hardcoded GUID found: ac937c5d-4bdd-438f...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:46. A GUID is hardcoded directly in the source code.
+  Code: `CLIENT_ID = "ac937c5d-4bdd-438f-be8b-84a850021d2d"`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 51: Hardcoded GUID found: 91741faf-f475-4266...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:51. A GUID is hardcoded directly in the source code.
+  Code: `SERVICE_PRINCIPAL_ID = "91741faf-f475-4266-95da-abc62bd69de6"`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 623: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:623. A GUID is hardcoded directly in the source code.
+  Code: `if existing_id and existing_id != "00000000-0000-0000-0000-000000000000":`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 633: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:633. A GUID is hardcoded directly in the source code.
+  Code: `state["connection_ids"][conn_name] = "00000000-0000-0000-0000-000000000000"`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 703: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:703. A GUID is hardcoded directly in the source code.
+  Code: `if existing_id and existing_id != "00000000-0000-0000-0000-000000000000":`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 707: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:707. A GUID is hardcoded directly in the source code.
+  Code: `state["connection_ids"][gw_name] = "00000000-0000-0000-0000-000000000000"`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 1283: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1283. A GUID is hardcoded directly in the source code.
+  Code: `if conn_id == "00000000-0000-0000-0000-000000000000":`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 1286: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1286. A GUID is hardcoded directly in the source code.
+  Code: `if template_id and template_id != "00000000-0000-0000-0000-000000000000":`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 1507: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1507. A GUID is hardcoded directly in the source code.
+  Code: `zeros = "00000000-0000-0000-0000-000000000000"`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1609: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1609. A GUID is hardcoded directly in the source code.
+  Code: `if conn_id == "00000000-0000-0000-0000-000000000000":`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1620: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1620. A GUID is hardcoded directly in the source code.
+  Code: `'EXEC [integration].[sp_UpsertConnection] @ConnectionGuid = "00000000-0000-0000-0000-000000000001", '`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1623: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1623. A GUID is hardcoded directly in the source code.
+  Code: `'EXEC [integration].[sp_UpsertConnection] @ConnectionGuid = "00000000-0000-0000-0000-000000000000", '`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1630: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1630. A GUID is hardcoded directly in the source code.
+  Code: `DECLARE @CId INT = (SELECT ConnectionId FROM integration.Connection WHERE ConnectionGuid = '00000000-0000-0000-0000-000000000000')`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1637: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1637. A GUID is hardcoded directly in the source code.
+  Code: `DECLARE @CId INT = (SELECT ConnectionId FROM integration.Connection WHERE ConnectionGuid = '00000000-0000-0000-0000-000000000000')`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1644: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1644. A GUID is hardcoded directly in the source code.
+  Code: `DECLARE @CId INT = (SELECT ConnectionId FROM integration.Connection WHERE ConnectionGuid = '00000000-0000-0000-0000-000000000001')`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1658: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1658. A GUID is hardcoded directly in the source code.
+  Code: `if not conn_guid or conn_guid == "00000000-0000-0000-0000-000000000000":`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1768: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1768. A GUID is hardcoded directly in the source code.
+  Code: `"CON_FMD_FABRIC_SQL": conns.get("CON_FMD_FABRIC_SQL", "00000000-0000-0000-0000-000000000000"),`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1769: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1769. A GUID is hardcoded directly in the source code.
+  Code: `"CON_FMD_FABRIC_PIPELINES": conns.get("CON_FMD_FABRIC_PIPELINES", "00000000-0000-0000-0000-000000000000"),`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1770: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1770. A GUID is hardcoded directly in the source code.
+  Code: `"CON_FMD_ADF_PIPELINES": conns.get("CON_FMD_ADF_PIPELINES", "00000000-0000-0000-0000-000000000000"),`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1771: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:1771. A GUID is hardcoded directly in the source code.
+  Code: `"CON_FMD_FABRIC_NOTEBOOKS": conns.get("CON_FMD_FABRIC_NOTEBOOKS", "00000000-0000-0000-0000-000000000000"),`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 2822: Hardcoded GUID found: 00000000-0000-0000...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open deploy_from_scratch.py:2822. A GUID is hardcoded directly in the source code.
+  Code: `if conn_id == "00000000-0000-0000-0000-000000000000":`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+
+**[MEDIUM]** Line 1714: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open deploy_from_scratch.py:1714. A database query is executed inside a for loop.
+  Code: `for category, label, query in queries:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+
+**[MEDIUM]** Line 2858: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open deploy_from_scratch.py:2858. A database query is executed inside a for loop.
+  Code: `for table_name in METADATA_TABLES:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+
+**[MEDIUM]** Line 2867: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open deploy_from_scratch.py:2867. A database query is executed inside a for loop.
+  Code: `for table_name in ENTITY_TABLES:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+
+**[LOW]** Line 167: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open deploy_from_scratch.py:167. The pattern was detected in the source.
+  Code: `"expires": time_mod.time() + resp.get("expires_in", 3600) - 60,`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+### `dashboard/app/api/routes/gold_studio.py` (0C + 0H + 14M + 0L)
+
+**[MEDIUM]** Line 317: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:317. A database query is executed inside a for loop.
+  Code: `for row in _rows_to_list(col_rows):`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 941: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:941. A database query is executed inside a for loop.
+  Code: `for ent in entities:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 991: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:991. A database query is executed inside a for loop.
+  Code: `for idx, col in enumerate(columns):`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 1195: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:1195. A database query is executed inside a for loop.
+  Code: `for i, q in enumerate(result.queries):`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 1205: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:1205. A database query is executed inside a for loop.
+  Code: `for table in result.tables:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 1220: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:1220. A database query is executed inside a for loop.
+  Code: `for col in table.columns:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 1241: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:1241. A database query is executed inside a for loop.
+  Code: `for col in result.columns:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 1252: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:1252. A database query is executed inside a for loop.
+  Code: `for rel in result.relationships:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 1266: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:1266. A database query is executed inside a for loop.
+  Code: `for dsref in result.data_source_refs:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 1287: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:1287. A database query is executed inside a for loop.
+  Code: `for lc in live_columns:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 1934: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:1934. A database query is executed inside a for loop.
+  Code: `for name, members in groups.items():`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 1943: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:1943. A database query is executed inside a for loop.
+  Code: `for m in members:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 4351: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:4351. A database query is executed inside a for loop.
+  Code: `for report in report_rows:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+**[MEDIUM]** Line 4352: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/gold_studio.py:4352. A database query is executed inside a for loop.
+  Code: `for root_id in _json_int_list(report.get("contributing_canonical_ids")):`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/parsers/sql_parser.py, dashboard/app/api/router.py, dashboard/app/api/control_plane_db.py, dashboard/app/api/parsers/__init__.py
+
+### `dashboard/app/api/routes/source_manager.py` (0C + 0H + 14M + 0L)
+
+**[MEDIUM]** Line 79: Hardcoded GUID found: 66428eaa-90a0-4d3b...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/api/routes/source_manager.py:79. A GUID is hardcoded directly in the source code.
+  Code: `_GATEWAY_ID = "66428eaa-90a0-4d3b-ab7a-71406c41a1cb"`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 84: Hardcoded GUID found: 918c04e1-be85-48f0...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/api/routes/source_manager.py:84. A GUID is hardcoded directly in the source code.
+  Code: `{"id": "918c04e1-be85-48f0-a836-5967164ff34d", "displayName": "SQLLogShipPRD_HP3000",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 88: Hardcoded GUID found: 04c16d88-0a9b-44b0...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/api/routes/source_manager.py:88. A GUID is hardcoded directly in the source code.
+  Code: `{"id": "04c16d88-0a9b-44b0-8a97-a81898fa2fee", "displayName": "SQLLogShipPRd_M3FDBPRD",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 92: Hardcoded GUID found: eace5b34-df2e-4057...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/api/routes/source_manager.py:92. A GUID is hardcoded directly in the source code.
+  Code: `{"id": "eace5b34-df2e-4057-a01f-5770ab3f9003", "displayName": "M3-DB1_PRD_MES",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 96: Hardcoded GUID found: 9243f2a4-bf6c-4f63...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/api/routes/source_manager.py:96. A GUID is hardcoded directly in the source code.
+  Code: `{"id": "9243f2a4-bf6c-4f63-935a-04c9491f0c1a", "displayName": "Data Warehouse",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 100: Hardcoded GUID found: af673179-a72b-4c3f...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/api/routes/source_manager.py:100. A GUID is hardcoded directly in the source code.
+  Code: `{"id": "af673179-a72b-4c3f-8f9c-af2cb394494f", "displayName": "Diver",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 104: Hardcoded GUID found: e4fa94cd-c674-45b3...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/api/routes/source_manager.py:104. A GUID is hardcoded directly in the source code.
+  Code: `{"id": "e4fa94cd-c674-45b3-bc47-2ae85f035881", "displayName": "SalesForcePRD-SQL2019PRD",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 108: Hardcoded GUID found: c5cd66d8-3503-44de...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/api/routes/source_manager.py:108. A GUID is hardcoded directly in the source code.
+  Code: `{"id": "c5cd66d8-3503-44de-9934-e04715697906", "displayName": "ETQ",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 112: Hardcoded GUID found: 1187a5d7-5d6e-4a23...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/api/routes/source_manager.py:112. A GUID is hardcoded directly in the source code.
+  Code: `{"id": "1187a5d7-5d6e-4a23-8c54-2a0734350629", "displayName": "M3 Cloud",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 566: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/source_manager.py:566. A database query is executed inside a for loop.
+  Code: `for step_num, step_name in ONBOARDING_STEPS.items():`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+
+**[MEDIUM]** Line 633: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/source_manager.py:633. A database query is executed inside a for loop.
+  Code: `for lz_id in lz_ids:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+
+**[MEDIUM]** Line 638: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/source_manager.py:638. A database query is executed inside a for loop.
+  Code: `for b in br:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+
+**[MEDIUM]** Line 902: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/source_manager.py:902. A database query is executed inside a for loop.
+  Code: `for wr in ws_rows:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+
+**[MEDIUM]** Line 1189: Potential N+1 query — database call inside a loop
+  What was tested: Performance scanner: checking for N+1 query patterns
+  How to verify: Open dashboard/app/api/routes/source_manager.py:1189. A database query is executed inside a for loop.
+  Code: `for u in updates:`
+  Expected: Database queries should be batched outside loops to avoid N+1 performance issues
+  → FIX: Batch the query outside the loop and lookup by ID from the result set.
+  Related files: dashboard/app/api/router.py, dashboard/app/api/parquet_sync.py
+
+### `dashboard/app/src/pages/EngineControl.tsx` (0C + 0H + 8M + 3L)
+
+**[MEDIUM]** Line 294: Hardcoded GUID found: 3b9a7e79-1615-4ec2...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/src/pages/EngineControl.tsx:294. A GUID is hardcoded directly in the source code.
+  Code: `"3b9a7e79-1615-4ec2-9e93-0bdebe985d5a": "LH_DATA_LANDINGZONE",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 295: Hardcoded GUID found: f06393ca-c024-435f...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/src/pages/EngineControl.tsx:295. A GUID is hardcoded directly in the source code.
+  Code: `"f06393ca-c024-435f-8d7f-9f5aa3bb4cb3": "LH_BRONZE_LAYER",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 296: Hardcoded GUID found: f85e1ba0-2e40-4de5...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/src/pages/EngineControl.tsx:296. A GUID is hardcoded directly in the source code.
+  Code: `"f85e1ba0-2e40-4de5-be1e-f8ad3ddbc652": "LH_SILVER_LAYER",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 297: Hardcoded GUID found: 0596d0e7-e036-451d...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/src/pages/EngineControl.tsx:297. A GUID is hardcoded directly in the source code.
+  Code: `"0596d0e7-e036-451d-a967-41a284302e8d": "INTEGRATION DATA (D)",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 298: Hardcoded GUID found: c0366b24-e6f8-4994...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/src/pages/EngineControl.tsx:298. A GUID is hardcoded directly in the source code.
+  Code: `"c0366b24-e6f8-4994-b4df-b765ecb5bbf8": "INTEGRATION CODE (D)",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 299: Hardcoded GUID found: a2712a97-ebde-4036...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/src/pages/EngineControl.tsx:299. A GUID is hardcoded directly in the source code.
+  Code: `"a2712a97-ebde-4036-b704-4892b8c4f7af": "NB_FMD_LOAD_LANDING_BRONZE",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 300: Hardcoded GUID found: 8ce7bc73-35ac-4844...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/src/pages/EngineControl.tsx:300. A GUID is hardcoded directly in the source code.
+  Code: `"8ce7bc73-35ac-4844-8937-969b7d99ec3e": "NB_FMD_LOAD_BRONZE_SILVER",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[MEDIUM]** Line 301: Hardcoded GUID found: efbd2436-83bf-4cad...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open dashboard/app/src/pages/EngineControl.tsx:301. A GUID is hardcoded directly in the source code.
+  Code: `"efbd2436-83bf-4cad-b92e-f489dc255506": "NB_FMD_LOAD_LANDINGZONE_MAIN",`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+⚠ THIS BUG SURVIVED ROUND(S) 1, 2, 3 — previous fix didn't work, try different approach
+
+**[LOW]** Line 228: Magic number 86400 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/EngineControl.tsx:228. The pattern was detected in the source.
+  Code: `const d = Math.floor(sec / 86400);`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+**[LOW]** Line 229: Magic number 86400 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/EngineControl.tsx:229. The pattern was detected in the source.
+  Code: `const h = Math.floor((sec % 86400) / 3600);`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+**[LOW]** Line 230: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/EngineControl.tsx:230. The pattern was detected in the source.
+  Code: `const m = Math.floor((sec % 3600) / 60);`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+### `dashboard/app/src/pages/LoadMissionControl.tsx` (0C + 0H + 6M + 3L)
+
+**[MEDIUM]** Line 673: useEffect with fetch and empty dependency array — may cause stale data
+  What was tested: UI scanner: checking useEffect dependency arrays for potential stale data
+  How to verify: Open dashboard/app/src/pages/LoadMissionControl.tsx:673. A useEffect with fetch has an empty dependency array.
+  Expected: useEffect dependencies should include all values referenced inside the effect
+  → FIX: Wrap fetch in useCallback and include in dependency array, or verify empty deps is intentional.
+
+**[MEDIUM]** Line 626: addEventListener without removeEventListener — event listener leak
+  What was tested: Performance scanner: checking for event listener cleanup
+  How to verify: Open dashboard/app/src/pages/LoadMissionControl.tsx:626. addEventListener is used but removeEventListener is never called.
+  Code: `es.addEventListener("entity_result", handler("entity_result"));`
+  Expected: Event listeners should be removed in cleanup to prevent memory leaks
+  → FIX: Clean up event listeners in useEffect return or componentWillUnmount.
+
+**[MEDIUM]** Line 627: addEventListener without removeEventListener — event listener leak
+  What was tested: Performance scanner: checking for event listener cleanup
+  How to verify: Open dashboard/app/src/pages/LoadMissionControl.tsx:627. addEventListener is used but removeEventListener is never called.
+  Code: `es.addEventListener("log", handler("log"));`
+  Expected: Event listeners should be removed in cleanup to prevent memory leaks
+  → FIX: Clean up event listeners in useEffect return or componentWillUnmount.
+
+**[MEDIUM]** Line 628: addEventListener without removeEventListener — event listener leak
+  What was tested: Performance scanner: checking for event listener cleanup
+  How to verify: Open dashboard/app/src/pages/LoadMissionControl.tsx:628. addEventListener is used but removeEventListener is never called.
+  Code: `es.addEventListener("run_complete", handler("run_complete"));`
+  Expected: Event listeners should be removed in cleanup to prevent memory leaks
+  → FIX: Clean up event listeners in useEffect return or componentWillUnmount.
+
+**[MEDIUM]** Line 629: addEventListener without removeEventListener — event listener leak
+  What was tested: Performance scanner: checking for event listener cleanup
+  How to verify: Open dashboard/app/src/pages/LoadMissionControl.tsx:629. addEventListener is used but removeEventListener is never called.
+  Code: `es.addEventListener("run_error", handler("run_error"));`
+  Expected: Event listeners should be removed in cleanup to prevent memory leaks
+  → FIX: Clean up event listeners in useEffect return or componentWillUnmount.
+
+**[MEDIUM]** Line 630: addEventListener without removeEventListener — event listener leak
+  What was tested: Performance scanner: checking for event listener cleanup
+  How to verify: Open dashboard/app/src/pages/LoadMissionControl.tsx:630. addEventListener is used but removeEventListener is never called.
+  Code: `es.addEventListener("bulk_progress", handler("bulk_progress"));`
+  Expected: Event listeners should be removed in cleanup to prevent memory leaks
+  → FIX: Clean up event listeners in useEffect return or componentWillUnmount.
+
+**[LOW]** Line 689: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/LoadMissionControl.tsx:689. The pattern was detected in the source.
+  Code: `if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+**[LOW]** Line 690: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/LoadMissionControl.tsx:690. The pattern was detected in the source.
+  Code: `const h = Math.floor(seconds / 3600);`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+**[LOW]** Line 691: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/LoadMissionControl.tsx:691. The pattern was detected in the source.
+  Code: `const m = Math.floor((seconds % 3600) / 60);`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+### `scripts/jira_hours_audit_20260319.py` (0C + 0H + 1M + 8L)
+
+**[MEDIUM]** Line 19: Hardcoded GUID found: aaf5cbe0-f88b-4eb5...
+  What was tested: Compliance scanner: checking for hardcoded GUIDs/UUIDs in source files
+  How to verify: Open scripts/jira_hours_audit_20260319.py:19. A GUID is hardcoded directly in the source code.
+  Code: `STEVE = "712020:aaf5cbe0-f88b-4eb5-ae6f-b1ba5f939752"`
+  Expected: GUIDs should be stored in config files or environment variables
+  → FIX: GUIDs should come from config files, not be hardcoded in source.
+  Related files: scripts/_credentials.py
+
+**[LOW]** Line 43: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open scripts/jira_hours_audit_20260319.py:43. The pattern was detected in the source.
+  Code: `print(f"  ADD {seconds // 3600}h on {issue_key} at {started[:10]}")`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: scripts/_credentials.py
+
+**[LOW]** Line 80: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open scripts/jira_hours_audit_20260319.py:80. The pattern was detected in the source.
+  Code: `print(f"  Found: {key} wl={wl_id} date={started} hours={secs/3600:.1f}")`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: scripts/_credentials.py
+
+**[LOW]** Line 103: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open scripts/jira_hours_audit_20260319.py:103. The pattern was detected in the source.
+  Code: `hours = wl["timeSpentSeconds"] / 3600`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: scripts/_credentials.py
+
+**[LOW]** Line 107: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open scripts/jira_hours_audit_20260319.py:107. The pattern was detected in the source.
+  Code: `my_hours[started] += secs / 3600`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: scripts/_credentials.py
+
+**[LOW]** Line 167: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open scripts/jira_hours_audit_20260319.py:167. The pattern was detected in the source.
+  Code: `("MT-88", "2026-03-14T14:00:00.000-0600", 3600,`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: scripts/_credentials.py
+
+**[LOW]** Line 187: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open scripts/jira_hours_audit_20260319.py:187. The pattern was detected in the source.
+  Code: `("MT-120", "2026-03-18T08:00:00.000-0600", 3600,`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: scripts/_credentials.py
+
+**[LOW]** Line 191: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open scripts/jira_hours_audit_20260319.py:191. The pattern was detected in the source.
+  Code: `("MT-62", "2026-03-19T13:00:00.000-0600", 3600,`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: scripts/_credentials.py
+
+**[LOW]** Line 203: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .py files
+  How to verify: Open scripts/jira_hours_audit_20260319.py:203. The pattern was detected in the source.
+  Code: `new_daily[started[:10]] += secs / 3600`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+  Related files: scripts/_credentials.py
+
+### `dashboard/app/src/pages/LoadProgress.tsx` (0C + 0H + 1M + 6L)
+
+**[MEDIUM]** Line 293: useEffect with fetch and empty dependency array — may cause stale data
+  What was tested: UI scanner: checking useEffect dependency arrays for potential stale data
+  How to verify: Open dashboard/app/src/pages/LoadProgress.tsx:293. A useEffect with fetch has an empty dependency array.
+  Expected: useEffect dependencies should include all values referenced inside the effect
+  → FIX: Wrap fetch in useCallback and include in dependency array, or verify empty deps is intentional.
+
+**[LOW]** Line 82: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/LoadProgress.tsx:82. The pattern was detected in the source.
+  Code: `if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+**[LOW]** Line 83: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/LoadProgress.tsx:83. The pattern was detected in the source.
+  Code: `const h = Math.floor(seconds / 3600);`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+**[LOW]** Line 84: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/LoadProgress.tsx:84. The pattern was detected in the source.
+  Code: `const m = Math.floor((seconds % 3600) / 60);`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+**[LOW]** Line 93: Magic number 3600 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/LoadProgress.tsx:93. The pattern was detected in the source.
+  Code: `if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+**[LOW]** Line 94: Magic number 86400 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/LoadProgress.tsx:94. The pattern was detected in the source.
+  Code: `if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
+
+**[LOW]** Line 95: Magic number 86400 — use named constant
+  What was tested: Quality scanner: checking for quality issues in .tsx files
+  How to verify: Open dashboard/app/src/pages/LoadProgress.tsx:95. The pattern was detected in the source.
+  Code: `return `${Math.floor(diff / 86400)}d ago`;`
+  Expected: Clean code without quality anti-patterns
+  → FIX: Add proper error handling or remove dead code.
 
 ## When You're Done
 

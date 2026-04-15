@@ -1,6 +1,14 @@
 """Tests for bronze processor — hash + dedup + merge logic."""
 import polars as pl
-from engine.bronze_processor import hash_pk_columns, hash_non_key_columns, deduplicate
+from datetime import datetime, timezone
+
+from engine.bronze_processor import (
+    add_record_load_date,
+    deduplicate,
+    hash_non_key_columns,
+    hash_pk_columns,
+    _strip_tz,
+)
 
 
 def test_hash_pk_columns_single():
@@ -43,3 +51,22 @@ def test_hash_non_key_columns():
     result = hash_non_key_columns(df, ["ID"])
     assert "HashedNonKeyColumns" in result.columns
     assert result["HashedNonKeyColumns"].n_unique() == 2
+
+
+def test_add_record_load_date_is_naive_datetime():
+    df = pl.DataFrame({"ID": [1]})
+    result = add_record_load_date(df)
+    dtype = result.schema["RecordLoadDate"]
+    assert isinstance(dtype, pl.Datetime)
+    assert dtype.time_zone is None
+
+
+def test_strip_tz_normalizes_timezone_aware_columns():
+    df = pl.DataFrame({
+        "ID": [1],
+        "AwareTs": [datetime(2026, 1, 1, tzinfo=timezone.utc)],
+    })
+    result = _strip_tz(df)
+    dtype = result.schema["AwareTs"]
+    assert isinstance(dtype, pl.Datetime)
+    assert dtype.time_zone is None

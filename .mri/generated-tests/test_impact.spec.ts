@@ -10,7 +10,7 @@ import {
  * Component: ImpactAnalysis
  * Source: dashboard/app/src/App.tsx
  *
- * KPIs detected: border-dashed, py-12 text-center, Total Entities, Full Chain, Partial Chain, Not Started, pb-3, text-sm
+ * KPIs detected: border-dashed, py-12 text-center, Tables In Scope, Full Chain, Partial Chain, Not Started, pb-3, text-sm
  * Has search: yes
  * Table columns: Source, Entities, LZ, Bronze, Silver, Full Chain, Errors, Blast Radius
  *

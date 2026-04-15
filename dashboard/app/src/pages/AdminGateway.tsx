@@ -13,7 +13,9 @@ import {
   Server,
 } from "lucide-react";
 import {
+  clearAdminSession,
   getHiddenPages,
+  hasAdminSession,
   updateHiddenPages,
   verifyAdminPassword,
 } from "@/lib/pageVisibility";
@@ -65,14 +67,14 @@ const TABS: { id: AdminTab; label: string; icon: typeof Cog }[] = [
 // PAGE VISIBILITY TAB
 // ============================================================================
 
-function PageVisibilityTab({ password }: { password: string }) {
+function PageVisibilityTab() {
   const [hiddenPages, setHiddenPages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -104,19 +106,23 @@ function PageVisibilityTab({ password }: { password: string }) {
     setSaving(true);
     setError(null);
     try {
-      await updateHiddenPages(hiddenPages, password);
+      await updateHiddenPages(hiddenPages);
       if (!mountedRef.current) return;
       setSaved(true);
       savedTimerRef.current = setTimeout(() => {
         if (mountedRef.current) setSaved(false);
       }, 3000);
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (!mountedRef.current) return;
-      setError(e.message || "Failed to save");
+      const message = e instanceof Error ? e.message : "Failed to save";
+      if (message.includes("403")) {
+        clearAdminSession();
+      }
+      setError(message);
     } finally {
       if (mountedRef.current) setSaving(false);
     }
-  }, [hiddenPages, password, saving]);
+  }, [hiddenPages, saving]);
 
   if (loading) {
     return (
@@ -220,7 +226,7 @@ function EnvironmentTab() {
       try {
         const resp = await fetch(`${API}/setup/current-config`);
         if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
-        let data: any;
+        let data: { config?: Partial<EnvironmentConfig> };
         try {
           data = await resp.json();
         } catch {
@@ -271,7 +277,7 @@ function EnvironmentTab() {
 // PASSWORD GATE
 // ============================================================================
 
-function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
+function PasswordGate({ onAuth }: { onAuth: () => void }) {
   const [pw, setPw] = useState("");
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -283,7 +289,7 @@ function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
     const ok = await verifyAdminPassword(pw);
     setLoading(false);
     if (ok) {
-      onAuth(pw);
+      onAuth();
     } else {
       setError(true);
     }
@@ -344,11 +350,11 @@ function PasswordGate({ onAuth }: { onAuth: (pw: string) => void }) {
 // ============================================================================
 
 export default function AdminGateway() {
-  const [password, setPassword] = useState<string | null>(null);
+  const [authenticated, setAuthenticated] = useState<boolean>(() => hasAdminSession());
   const [activeTab, setActiveTab] = useState<AdminTab>("environment");
 
-  if (!password) {
-    return <PasswordGate onAuth={setPassword} />;
+  if (!authenticated) {
+    return <PasswordGate onAuth={() => setAuthenticated(true)} />;
   }
 
   return (
@@ -387,7 +393,7 @@ export default function AdminGateway() {
       {/* Tab content — keep data-fetching tabs mounted to prevent loading flash on re-visit */}
       <div className="flex-1 min-w-0 overflow-y-auto" role="tabpanel" aria-label={`${activeTab} tab content`}>
         <div className={activeTab === "environment" ? "" : "hidden"}><EnvironmentTab /></div>
-        <div className={activeTab === "pages" ? "" : "hidden"}><PageVisibilityTab password={password} /></div>
+        <div className={activeTab === "pages" ? "" : "hidden"}><PageVisibilityTab /></div>
         {activeTab === "general" && <GeneralTab />}
         {activeTab === "deployment" && <DeploymentManager />}
         {activeTab === "governance" && <AdminGovernance />}

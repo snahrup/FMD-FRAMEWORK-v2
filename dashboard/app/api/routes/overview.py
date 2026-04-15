@@ -47,16 +47,8 @@ def get_overview_kpis(params: dict) -> dict:
         pipeline_truth = _build_canonical_pipeline_truth()
 
         # ------------------------------------------------------------------
-        # Freshness: TWO complementary metrics
-        #
-        # 1. "24h freshness" — entities with a successful load in the last 24h.
-        #    This is the recency signal: how current is our data right now?
-        #
-        # 2. "ever loaded" — entities that have EVER loaded successfully.
-        #    This is the coverage signal: how much of the registered estate has data?
-        #
-        # Together they avoid the "0% freshness" problem: even if no run succeeded
-        # in the last 24h, the user sees coverage + last success timestamp.
+        # Freshness: honest 24h recency only.
+        # Do not silently convert this into an "ever loaded" coverage metric.
         # ------------------------------------------------------------------
         freshness_row = conn.execute(
             f"""
@@ -84,16 +76,7 @@ def get_overview_kpis(params: dict) -> dict:
         ever_loaded        = freshness_row[2] if freshness_row else 0
         last_success_at    = freshness_row[3] if freshness_row else None
 
-        # Primary display: use 24h freshness if there are recent successes,
-        # otherwise fall back to coverage (ever_loaded / total).
-        if freshness_on_time > 0:
-            freshness_pct = round(freshness_on_time / freshness_total * 100, 1) if freshness_total > 0 else 0.0
-        elif ever_loaded > 0:
-            # No 24h successes, but data HAS been loaded before.
-            # Show coverage percentage so the user doesn't see 0%.
-            freshness_pct = round(ever_loaded / freshness_total * 100, 1) if freshness_total > 0 else 0.0
-        else:
-            freshness_pct = 0.0
+        freshness_pct = round(freshness_on_time / freshness_total * 100, 1) if freshness_total > 0 else 0.0
 
         # ------------------------------------------------------------------
         # Completion blockers: active registered entities that are not yet
@@ -344,6 +327,7 @@ def get_overview_entities(params: dict) -> list:
                 "SourceDisplayName": r["SourceDisplayName"] or r["SourceName"] or "",
                 "DataSourceId": r["DataSourceId"],
                 "IsActive": bool(r["IsActive"]),
+                "LzStatus": r["LzStatus"],
                 "LastLoadDate": r["LastLoadDate"],
                 "BronzeStatus": r["BronzeStatus"],
                 "SilverStatus": r["SilverStatus"],

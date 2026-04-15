@@ -8,13 +8,18 @@ delta_ingest.py.
 import sqlite3
 import threading
 import logging
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from time import monotonic
 
 log = logging.getLogger('fmd-control-plane')
 
 DB_PATH = Path(__file__).parent / 'fmd_control_plane.db'
 _db_lock = threading.Lock()
+_mapped_task_log_cache: dict[tuple[bool, bool], dict] = {}
+_mapped_task_log_cache_lock = threading.Lock()
+_MAPPED_TASK_LOG_CACHE_TTL_SECONDS = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -433,6 +438,53 @@ def init_db():
                 triggered_by    TEXT DEFAULT 'load_center'
             );
 
+            -- Self-heal orchestration ---------------------------------------
+            CREATE TABLE IF NOT EXISTS self_heal_cases (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                ParentRunId         TEXT NOT NULL,
+                RetryRunId          TEXT,
+                LandingzoneEntityId INTEGER NOT NULL,
+                TargetEntityId      INTEGER NOT NULL,
+                Layer               TEXT NOT NULL,
+                Status              TEXT NOT NULL DEFAULT 'queued',
+                CurrentStep         TEXT NOT NULL DEFAULT 'queued',
+                AttemptCount        INTEGER NOT NULL DEFAULT 0,
+                MaxAttempts         INTEGER NOT NULL DEFAULT 3,
+                AgentName           TEXT NOT NULL DEFAULT 'claude',
+                FailureFingerprint  TEXT,
+                LatestError         TEXT,
+                ErrorSuggestion     TEXT,
+                ResolutionSummary   TEXT,
+                ContextJson         TEXT,
+                PatchFilesJson      TEXT,
+                LastAgentOutput     TEXT,
+                created_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                updated_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                completed_at        TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS self_heal_events (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                CaseId              INTEGER NOT NULL,
+                AttemptNumber       INTEGER NOT NULL DEFAULT 0,
+                Step                TEXT NOT NULL,
+                Status              TEXT NOT NULL DEFAULT 'info',
+                Message             TEXT,
+                DetailsJson         TEXT,
+                created_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS self_heal_runtime (
+                RuntimeKey          TEXT PRIMARY KEY,
+                Status              TEXT NOT NULL DEFAULT 'idle',
+                CurrentCaseId       INTEGER,
+                WorkerPid           INTEGER,
+                AgentName           TEXT,
+                HeartbeatAt         TEXT,
+                LastMessage         TEXT,
+                updated_at          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
             -- indexes ------------------------------------------------------------
 
             CREATE INDEX IF NOT EXISTS idx_lz_datasource   ON lz_entities(DataSourceId);
@@ -457,6 +509,10 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_lrc_lakehouse ON lakehouse_row_counts(lakehouse);
             CREATE INDEX IF NOT EXISTS idx_lrc_lookup ON lakehouse_row_counts(lakehouse, schema_name, table_name);
             CREATE INDEX IF NOT EXISTS idx_lcr_active ON load_center_runs(active);
+            CREATE INDEX IF NOT EXISTS idx_shc_status ON self_heal_cases(Status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_shc_run ON self_heal_cases(ParentRunId, Layer);
+            CREATE INDEX IF NOT EXISTS idx_shc_entity ON self_heal_cases(LandingzoneEntityId, Layer, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_she_case ON self_heal_events(CaseId, created_at);
 
             -- Schema validation results (Packet B) ---------------------------
 
@@ -1830,47 +1886,229 @@ def get_entity_status_all() -> list[dict]:
         conn.close()
 
 
+_MAPPED_ENGINE_TASK_LOG_CTE = """
+WITH task_base AS (
+    SELECT
+        t.id,
+        t.RunId,
+        t.EntityId,
+        LOWER(t.Layer) AS Layer,
+        LOWER(t.Status) AS Status,
+        t.created_at AS LoadEndDateTime,
+        t.ErrorMessage,
+        t.RowsRead,
+        t.RowsWritten,
+        t.SourceTable,
+        LOWER(TRIM(
+            CASE
+                WHEN instr(COALESCE(t.SourceTable, ''), '.') > 0
+                THEN substr(COALESCE(t.SourceTable, ''), 1, instr(COALESCE(t.SourceTable, ''), '.') - 1)
+                ELSE ''
+            END
+        )) AS ParsedSchema,
+        LOWER(TRIM(
+            CASE
+                WHEN instr(COALESCE(t.SourceTable, ''), '.') > 0
+                THEN substr(COALESCE(t.SourceTable, ''), instr(COALESCE(t.SourceTable, ''), '.') + 1)
+                ELSE COALESCE(t.SourceTable, '')
+            END
+        )) AS ParsedTable
+    FROM engine_task_log t
+    WHERE LOWER(t.Layer) IN ('landing', 'bronze', 'silver')
+),
+mapped AS (
+    SELECT
+        COALESCE(
+            le_lz.LandingzoneEntityId,
+            le_br.LandingzoneEntityId,
+            le_sv.LandingzoneEntityId,
+            CASE WHEN tb.Layer = 'landing' THEN tb.EntityId END
+        ) AS LandingzoneEntityId,
+        COALESCE(
+            le_lz.DataSourceId,
+            le_br.DataSourceId,
+            le_sv.DataSourceId
+        ) AS DataSourceId,
+        tb.Layer,
+        tb.Status,
+        tb.LoadEndDateTime,
+        tb.ErrorMessage,
+        tb.RunId,
+        tb.RowsRead,
+        tb.RowsWritten,
+        tb.SourceTable,
+        COALESCE(
+            le_lz.SourceSchema,
+            le_br.SourceSchema,
+            le_sv.SourceSchema,
+            NULLIF(tb.ParsedSchema, '')
+        ) AS SourceSchema,
+        COALESCE(
+            le_lz.SourceName,
+            le_br.SourceName,
+            le_sv.SourceName,
+            NULLIF(tb.ParsedTable, '')
+        ) AS SourceName,
+        COALESCE(
+            le_lz.IsIncremental,
+            le_br.IsIncremental,
+            le_sv.IsIncremental,
+            0
+        ) AS IsIncremental,
+        tb.id
+    FROM task_base tb
+    LEFT JOIN lz_entities le_lz
+           ON tb.Layer = 'landing'
+          AND tb.EntityId = le_lz.LandingzoneEntityId
+    LEFT JOIN bronze_entities be
+           ON tb.Layer = 'bronze'
+          AND tb.EntityId = be.BronzeLayerEntityId
+    LEFT JOIN lz_entities le_br
+           ON be.LandingzoneEntityId = le_br.LandingzoneEntityId
+    LEFT JOIN silver_entities se
+           ON tb.Layer = 'silver'
+          AND tb.EntityId = se.SilverLayerEntityId
+    LEFT JOIN bronze_entities be2
+           ON se.BronzeLayerEntityId = be2.BronzeLayerEntityId
+    LEFT JOIN lz_entities le_sv
+           ON be2.LandingzoneEntityId = le_sv.LandingzoneEntityId
+)
+"""
+
+
+def get_mapped_engine_task_log(*, latest_only: bool = False, success_only: bool = False) -> list[dict]:
+    """Return engine_task_log rows normalized to LandingzoneEntityId across layers.
+
+    Bronze and silver task rows use their own entity keys in engine_task_log, so
+    direct joins on EntityId -> lz_entities are wrong whenever the IDs diverge.
+    This helper resolves every task row back to the owning LandingzoneEntityId
+    before any route computes coverage or latest status.
+    """
+    cache_key = (str(DB_PATH), latest_only, success_only)
+    with _mapped_task_log_cache_lock:
+        cached = _mapped_task_log_cache.get(cache_key)
+        if cached and (monotonic() - cached["ts"]) < _MAPPED_TASK_LOG_CACHE_TTL_SECONDS:
+            return deepcopy(cached["rows"])
+
+    conn = _get_conn()
+    try:
+        filters = ["LandingzoneEntityId IS NOT NULL"]
+        if success_only:
+            filters.append("Status = 'succeeded'")
+        where_clause = "WHERE " + " AND ".join(filters)
+
+        if latest_only:
+            order_clause = "LoadEndDateTime DESC, id DESC"
+            if not success_only:
+                order_clause = (
+                    "LoadEndDateTime DESC, "
+                    "CASE Status "
+                    "  WHEN 'succeeded' THEN 1 "
+                    "  WHEN 'failed' THEN 2 "
+                    "  WHEN 'skipped' THEN 3 "
+                    "  ELSE 4 "
+                    "END, "
+                    "id DESC"
+                )
+
+            sql = f"""
+                {_MAPPED_ENGINE_TASK_LOG_CTE},
+                ranked AS (
+                    SELECT
+                        LandingzoneEntityId,
+                        DataSourceId,
+                        Layer,
+                        Status,
+                        LoadEndDateTime,
+                        ErrorMessage,
+                        RunId,
+                        RowsRead,
+                        RowsWritten,
+                        SourceTable,
+                        SourceSchema,
+                        SourceName,
+                        IsIncremental,
+                        id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY LandingzoneEntityId, Layer
+                            ORDER BY {order_clause}
+                        ) AS rn
+                    FROM mapped
+                    {where_clause}
+                )
+                SELECT
+                    LandingzoneEntityId,
+                    DataSourceId,
+                    Layer,
+                    Status,
+                    LoadEndDateTime,
+                    ErrorMessage,
+                    RunId,
+                    RowsRead,
+                    RowsWritten,
+                    SourceTable,
+                    SourceSchema,
+                    SourceName,
+                    IsIncremental,
+                    id
+                FROM ranked
+                WHERE rn = 1
+            """
+        else:
+            sql = f"""
+                {_MAPPED_ENGINE_TASK_LOG_CTE}
+                SELECT
+                    LandingzoneEntityId,
+                    DataSourceId,
+                    Layer,
+                    Status,
+                    LoadEndDateTime,
+                    ErrorMessage,
+                    RunId,
+                    RowsRead,
+                    RowsWritten,
+                    SourceTable,
+                    SourceSchema,
+                    SourceName,
+                    IsIncremental,
+                    id
+                FROM mapped
+                {where_clause}
+                ORDER BY LoadEndDateTime DESC, id DESC
+            """
+
+        rows = [dict(r) for r in conn.execute(sql).fetchall()]
+        with _mapped_task_log_cache_lock:
+            _mapped_task_log_cache[cache_key] = {
+                "rows": deepcopy(rows),
+                "ts": monotonic(),
+            }
+        return rows
+    finally:
+        conn.close()
+
+
 def get_canonical_entity_status() -> list[dict]:
     """Derive entity status from engine_task_log — the ONLY trustworthy source.
 
     Returns rows shaped like entity_status:
       {LandingzoneEntityId, Layer, Status, LoadEndDateTime, ErrorMessage, UpdatedBy}
 
-    For each (EntityId, Layer) pair, picks the most recent row.
-    Priority: succeeded > failed > skipped (within the same timestamp).
+    For each Landingzone entity + layer pair, picks the most recent mapped row.
+    Bronze and silver task rows are normalized back to LandingzoneEntityId first.
     """
-    conn = _get_conn()
-    try:
-        rows = conn.execute("""
-            WITH ranked AS (
-                SELECT
-                    EntityId       AS LandingzoneEntityId,
-                    Layer,
-                    Status,
-                    created_at     AS LoadEndDateTime,
-                    ErrorMessage,
-                    'engine'       AS UpdatedBy,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY EntityId, Layer
-                        ORDER BY created_at DESC,
-                                 CASE Status
-                                     WHEN 'succeeded' THEN 1
-                                     WHEN 'failed'    THEN 2
-                                     WHEN 'skipped'   THEN 3
-                                     ELSE 4
-                                 END
-                    ) AS rn
-                FROM engine_task_log
-            )
-            SELECT LandingzoneEntityId, Layer, Status, LoadEndDateTime,
-                   CASE WHEN Status = 'succeeded' THEN NULL ELSE ErrorMessage END AS ErrorMessage,
-                   UpdatedBy
-            FROM ranked
-            WHERE rn = 1
-        """).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
+    rows = get_mapped_engine_task_log(latest_only=True)
+    return [
+        {
+            "LandingzoneEntityId": row["LandingzoneEntityId"],
+            "Layer": row["Layer"],
+            "Status": row["Status"],
+            "LoadEndDateTime": row["LoadEndDateTime"],
+            "ErrorMessage": None if row["Status"] == "succeeded" else row.get("ErrorMessage"),
+            "UpdatedBy": "engine",
+        }
+        for row in rows
+    ]
 
 
 def get_registered_entities_full() -> list[dict]:

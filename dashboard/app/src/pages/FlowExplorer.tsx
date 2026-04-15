@@ -972,7 +972,7 @@ export default function FlowExplorer() {
             <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
               <Layers className="w-12 h-12 opacity-20 mb-3 gs-float" />
               <p className="text-sm">
-                {searchQuery ? "No tables match your search." : "No data sources registered yet."}
+                {searchQuery ? "No tables match your search." : "No data sources are configured yet."}
               </p>
               <p className="text-xs mt-1">
                 {searchQuery ? "Try a different search term." : "Register sources in the Source Manager to see data flow."}

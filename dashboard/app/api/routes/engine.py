@@ -19,6 +19,7 @@ import io
 import json
 import logging
 import urllib.parse
+from datetime import datetime, timezone
 
 from dashboard.app.api.router import route, sse_route, HttpError
 
@@ -140,6 +141,55 @@ def get_engine_status(params: dict) -> dict:
     return _delegate("GET", "/api/engine/status", params)
 
 
+@route("GET", "/api/engine/vpn-status")
+def get_engine_vpn_status(params: dict) -> dict:
+    checked_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    try:
+        from engine.vpn import is_vpn_up, _is_vpn_client_running  # noqa: PLC2701
+
+        connected = bool(is_vpn_up(timeout_seconds=1.5))
+        client_running = bool(_is_vpn_client_running())
+        return {
+            "status": "connected" if connected else "disconnected",
+            "connected": connected,
+            "clientRunning": client_running,
+            "requiredForLocalLoads": True,
+            "source": "engine.vpn.is_vpn_up",
+            "checkedAt": checked_at,
+            "note": (
+                "Source SQL servers are reachable through the current VPN session."
+                if connected
+                else "Source SQL servers are unreachable. Landing-zone extraction will fail until VPN access is restored."
+            ),
+        }
+    except Exception as exc:
+        log.warning("VPN status check failed: %s", exc)
+        return {
+            "status": "unknown",
+            "connected": False,
+            "clientRunning": False,
+            "requiredForLocalLoads": True,
+            "source": "engine.vpn.is_vpn_up",
+            "checkedAt": checked_at,
+            "note": "VPN status could not be verified from the dashboard API.",
+            "error": str(exc),
+        }
+
+
+@route("GET", "/api/engine/self-heal/status")
+def get_engine_self_heal_status(params: dict) -> dict:
+    from engine.self_heal import get_self_heal_status_payload
+
+    run_id = params.get("run_id")
+    limit_cases = int(params.get("limit_cases", 12) or 12)
+    limit_events = int(params.get("limit_events", 8) or 8)
+    return get_self_heal_status_payload(
+        run_id=run_id or None,
+        limit_cases=max(1, min(limit_cases, 50)),
+        limit_events=max(1, min(limit_events, 20)),
+    )
+
+
 @route("GET", "/api/engine/plan")
 def get_engine_plan(params: dict) -> dict:
     return _delegate("GET", "/api/engine/plan", params)
@@ -202,6 +252,11 @@ def post_engine_retry(params: dict) -> dict:
 @route("POST", "/api/engine/abort-run")
 def post_engine_abort_run(params: dict) -> dict:
     return _delegate("POST", "/api/engine/abort-run", params)
+
+
+@route("POST", "/api/engine/cleanup-runs")
+def post_engine_cleanup_runs(params: dict) -> dict:
+    return _delegate("POST", "/api/engine/cleanup-runs", params)
 
 
 @route("POST", "/api/engine/resume")

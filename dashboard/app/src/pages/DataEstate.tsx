@@ -5,7 +5,7 @@ import { SourceNode } from "@/components/estate/SourceNode";
 import { LayerZone } from "@/components/estate/LayerZone";
 import { GovernancePanel } from "@/components/estate/GovernancePanel";
 import { PipelineFlow } from "@/components/estate/PipelineFlow";
-import { BusinessIntentHeader } from "@/components/business";
+import CompactPageHeader from "@/components/layout/CompactPageHeader";
 
 // ============================================================================
 // TYPES
@@ -25,9 +25,9 @@ interface EstateLayer {
   name: string;
   key: string;
   color: string;
-  registered: number;
+  inScope: number;
   loaded: number;
-  failed: number;
+  missing: number;
   lastLoad: string | null;
   coveragePct: number;
 }
@@ -93,9 +93,10 @@ export default function DataEstate() {
 
   // Derived metrics
   const totalEntities = hasPopulatedEstate ? d.sources.reduce((sum, s) => sum + s.entityCount, 0) : 0;
-  const totalLoaded = hasPopulatedEstate ? d.sources.reduce((sum, s) => sum + s.loadedCount, 0) : 0;
+  const landingLoaded = hasPopulatedEstate ? (d.layers[0]?.loaded ?? 0) : 0;
+  const bronzeLoaded = hasPopulatedEstate ? (d.layers[1]?.loaded ?? 0) : 0;
+  const silverLoaded = hasPopulatedEstate ? (d.layers[2]?.loaded ?? 0) : 0;
   const totalBlockers = hasPopulatedEstate ? d.sources.reduce((sum, s) => sum + s.errorCount, 0) : 0;
-  const healthySources = hasPopulatedEstate ? d.sources.filter((s) => s.status === "operational").length : 0;
 
   // Flow activity flags
   const sourcesActive = hasPopulatedEstate ? d.sources.some((s) => s.loadedCount > 0) : false;
@@ -103,66 +104,82 @@ export default function DataEstate() {
     landing: hasPopulatedEstate ? (d.layers[0]?.loaded ?? 0) > 0 : false,
     bronze: hasPopulatedEstate ? (d.layers[1]?.loaded ?? 0) > 0 : false,
     silver: hasPopulatedEstate ? (d.layers[2]?.loaded ?? 0) > 0 : false,
-    gold: hasPopulatedEstate ? (d.layers[3]?.loaded ?? 0) > 0 : false,
   };
   const governanceActive = hasPopulatedEstate ? d.classification.classifiedColumns > 0 : false;
-  const estateLinks = totalBlockers > 0 || healthySources < sourceCount
-    ? [
-        { label: "Open Load Center", to: "/load-center" },
-        { label: "Open Source Manager", to: "/sources" },
-        { label: "Back to Overview", to: "/overview" },
-      ]
-    : [
-        { label: "Open Load Center", to: "/load-center" },
-        { label: "Open Source Manager", to: "/sources" },
-        { label: "Back to Overview", to: "/overview" },
-      ];
+  const estateGuideItems = [
+    {
+      label: "What This Page Is",
+      value: "Fabric load map",
+      detail: `Track ${sourceCount} scoped source systems and see exactly how many tables are physically present in Landing, Bronze, and Silver without translating internal framework state.`,
+    },
+    {
+      label: "Why It Matters",
+      value: "One load story across the app",
+      detail: "If this page and the rest of the app disagree about Fabric load counts, every walkthrough loses credibility immediately.",
+    },
+    {
+      label: "What Happens Next",
+      value: "Move into the right workspace",
+      detail: "Use this page to decide whether the next stop should be Load Center for execution, Mission Control for active runs, or governance tools for downstream verification.",
+    },
+  ];
+  const estateGuideLinks = [
+    { label: "Open Load Center", to: "/load-center" },
+    { label: "Open Source Manager", to: "/sources" },
+    { label: "Back to Overview", to: "/overview" },
+  ];
 
   return (
-    <div className="estate-page" style={{ animation: "fadeIn 400ms var(--ease-claude) both" }}>
-      <div className="px-6 pt-5 pb-4">
-        <BusinessIntentHeader
+    <div className="estate-page bp-page-shell-wide space-y-6">
+      <CompactPageHeader
           eyebrow="Orient"
           title="Data Estate"
           meta={
             hasPopulatedEstate
-              ? `Pipeline health across ${d.sources.length} source systems`
+              ? `Fabric layer load across ${d.sources.length} source systems`
               : loading
                 ? "Loading estate…"
                 : "Waiting for estate activity"
           }
-          summary="This page shows how source systems, medallion layers, and governance signals are behaving together. It is the operating map for whether the estate is healthy enough to support downstream load, quality, and gold work."
-          items={[
-            {
-              label: "What This Page Is",
-              value: "Source-to-layer operating map",
-              detail: `Track ${sourceCount} scoped source systems, layer movement, and governance coverage in one place instead of bouncing across separate admin views.`,
-            },
-            {
-              label: "Why It Matters",
-              value: "Estate trust before workflow trust",
-              detail: "If source health, medallion movement, or governance coverage are weak here, every downstream dashboard will look inconsistent or unreliable.",
-            },
-            {
-              label: "What Happens Next",
-              value: "Move into the right workspace",
-              detail: "Use this page to decide whether the next stop should be mission control for active runs, source management for connector issues, or lineage/governance work.",
-            },
-          ]}
-          links={estateLinks}
+          summary="This page answers the simple version first: how many tables are in scope, and how many have actually landed in Landing, Bronze, and Silver inside Fabric. Governance detail stays visible, but it no longer competes with the load story."
+          guideItems={estateGuideItems}
+          guideLinks={estateGuideLinks}
           actions={
-            <button
-              onClick={fetchData}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded-lg border transition-colors hover:bg-[var(--bp-surface-inset)]"
-              style={{ borderColor: "var(--bp-border)", color: "var(--bp-ink-tertiary)" }}
-              disabled={loading}
-            >
-              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-              Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/load-center"
+                className="inline-flex items-center rounded-full px-3 py-2 text-xs font-semibold transition-transform hover:-translate-y-0.5"
+                style={{
+                  textDecoration: "none",
+                  color: "var(--bp-ink-secondary)",
+                  border: "1px solid rgba(120,113,108,0.1)",
+                  background: "rgba(255,255,255,0.72)",
+                }}
+              >
+                Load Center
+              </Link>
+              <button
+                onClick={fetchData}
+                className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold transition-transform hover:-translate-y-0.5"
+                style={{
+                  border: "1px solid rgba(120,113,108,0.1)",
+                  background: "rgba(255,255,255,0.72)",
+                  color: "var(--bp-ink-secondary)",
+                }}
+                disabled={loading}
+              >
+                <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+                Refresh
+              </button>
+            </div>
           }
+          facts={[
+            { label: "Sources", value: sourceCount.toLocaleString(), tone: sourceCount > 0 ? "positive" : "neutral" },
+            { label: "Tables In Scope", value: totalEntities.toLocaleString(), tone: "accent" },
+            { label: "Silver Loaded", value: silverLoaded.toLocaleString(), tone: silverLoaded === totalEntities && totalEntities > 0 ? "positive" : "warning" },
+            { label: "Blockers", value: totalBlockers.toLocaleString(), tone: totalBlockers === 0 ? "positive" : "warning" },
+          ]}
         />
-      </div>
       {loading && !d ? (
         <div className="flex items-center justify-center h-[calc(100vh-4rem)] gap-2" style={{ color: "var(--bp-ink-muted)" }}>
           <Loader2 className="animate-spin" size={18} />
@@ -184,84 +201,66 @@ export default function DataEstate() {
         <EmptyEstate onRefresh={fetchData} />
       ) : d ? (
         <>
-          {/* ── Header ────────────────────────────────────────────────── */}
-          <div className="px-6 pt-0 pb-2 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ background: "var(--bp-copper-soft)", color: "var(--bp-copper)" }}
-              >
-                <Globe size={18} />
-              </div>
-              <div>
-                <h1
-                  className="text-[17px] font-semibold leading-tight"
-                  style={{ color: "var(--bp-ink-primary)", fontFamily: "var(--bp-font-display)" }}
-                >
-                  Current Estate Snapshot
-                </h1>
-                <p className="text-[10px]" style={{ color: "var(--bp-ink-tertiary)" }}>
-                  Pipeline health across {d.sources.length} source systems
-                </p>
-              </div>
+          <div className="flex items-center gap-3" style={{ marginTop: -4 }}>
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center"
+              style={{ background: "var(--bp-copper-soft)", color: "var(--bp-copper)" }}
+            >
+              <Globe size={18} />
             </div>
-
-            <div className="flex items-center gap-3">
-              {d.freshness.lastSuccessfulLoad && (
-                <span className="text-[10px] tabular-nums" style={{ color: "var(--bp-ink-muted)" }}>
-                  Last load{" "}
-                  {new Date(d.freshness.lastSuccessfulLoad).toLocaleDateString(undefined, {
-                    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-                  })}
-                </span>
-              )}
-              <button
-                onClick={fetchData}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded-lg border transition-colors hover:bg-[var(--bp-surface-inset)]"
-                style={{ borderColor: "var(--bp-border)", color: "var(--bp-ink-tertiary)" }}
-                disabled={loading}
+            <div>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "var(--bp-ink-tertiary)",
+                }}
               >
-                <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-                Refresh
-              </button>
+                Current Estate Snapshot
+              </div>
+              <p className="text-[12px]" style={{ color: "var(--bp-ink-secondary)", margin: "4px 0 0" }}>
+                Landing, Bronze, and Silver posture for the managed Fabric estate.
+              </p>
             </div>
           </div>
 
           {/* ── Hero KPI Strip ────────────────────────────────────────── */}
-          <div className="px-6 pb-4">
+          <div>
             <div className="grid grid-cols-4 gap-3">
               <KpiCard
-                label="Entities"
+                label="Tables In Scope"
                 value={totalEntities.toLocaleString()}
-                sub={`${totalLoaded.toLocaleString()} loaded`}
+                sub="managed pipeline scope"
                 index={0}
               />
               <KpiCard
-                label="Sources"
-                value={`${healthySources}/${d.sources.length}`}
-                sub="operational"
-                color={healthySources === d.sources.length ? "var(--bp-operational)" : "var(--bp-caution)"}
+                label="Landing Loaded"
+                value={landingLoaded.toLocaleString()}
+                sub={`${Math.round((landingLoaded / Math.max(totalEntities, 1)) * 100)}% of scope`}
+                color={landingLoaded === totalEntities ? "var(--bp-operational)" : "var(--bp-caution)"}
                 index={1}
               />
               <KpiCard
-                label="Governance"
-                value={`${d.classification.coveragePct}%`}
-                sub="classified"
-                color={d.classification.coveragePct >= 80 ? "var(--bp-operational)" : "var(--bp-caution)"}
+                label="Bronze Loaded"
+                value={bronzeLoaded.toLocaleString()}
+                sub={`${Math.round((bronzeLoaded / Math.max(totalEntities, 1)) * 100)}% of scope`}
+                color={bronzeLoaded === totalEntities ? "var(--bp-operational)" : "var(--bp-caution)"}
                 index={2}
               />
               <KpiCard
-        label="Blockers"
-        value={totalBlockers.toLocaleString()}
-        sub={d.schemaValidation.failed > 0 ? `${d.schemaValidation.failed} validation` : "completion"}
-        color={totalBlockers > 0 ? "var(--bp-fault)" : "var(--bp-operational)"}
+                label="Silver Loaded"
+                value={silverLoaded.toLocaleString()}
+                sub={totalBlockers > 0 ? `${totalBlockers.toLocaleString()} blocked` : "ready for downstream tools"}
+                color={silverLoaded === totalEntities && totalBlockers === 0 ? "var(--bp-operational)" : totalBlockers > 0 ? "var(--bp-fault)" : "var(--bp-caution)"}
                 index={3}
               />
             </div>
           </div>
 
           {/* ── Three-Zone Pipeline Layout ────────────────────────────── */}
-          <div className="px-6 pb-6">
+          <div>
             <div className="relative grid grid-cols-[minmax(200px,260px)_1fr_minmax(220px,280px)] gap-6 min-h-[480px]">
 
               {/* SVG flow connectors (behind everything) */}
@@ -296,9 +295,9 @@ export default function DataEstate() {
                       <LayerZone
                         name={layer.name}
                         layerKey={layer.key}
-                        registered={layer.registered}
+                        inScope={layer.inScope}
                         loaded={layer.loaded}
-                        failed={layer.failed}
+                        missing={layer.missing}
                         coveragePct={layer.coveragePct}
                         lastLoad={layer.lastLoad}
                         index={i}
@@ -420,7 +419,7 @@ function KpiCard({
 // ============================================================================
 
 function EmptyEstate({ onRefresh }: { onRefresh: () => void }) {
-  const layers = ["Sources", "LZ", "Bronze", "Silver", "Gold"];
+  const layers = ["Sources", "LZ", "Bronze", "Silver"];
 
   return (
     <div
@@ -467,8 +466,8 @@ function EmptyEstate({ onRefresh }: { onRefresh: () => void }) {
             Your data estate is being set up
           </h2>
           <p className="text-[13px] leading-relaxed" style={{ color: "var(--bp-ink-tertiary)" }}>
-            Register source systems and run your first load to see data flow
-            through the pipeline. Each node lights up as data reaches it.
+            Connect source systems and run your first load to see data move
+            through Landing, Bronze, and Silver. Each node lights up when Fabric confirms the load.
           </p>
         </div>
 

@@ -21,7 +21,7 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Ensure the parent package is importable
@@ -131,6 +131,7 @@ class TestSchema:
         'connections', 'datasources', 'lakehouses', 'workspaces', 'pipelines',
         'lz_entities', 'bronze_entities', 'silver_entities',
         'engine_runs', 'engine_task_log',
+        'self_heal_cases', 'self_heal_events', 'self_heal_runtime',
         'pipeline_lz_entity', 'pipeline_bronze_entity',
         'entity_status', 'watermarks',
         'pipeline_audit', 'copy_activity_audit',
@@ -141,6 +142,7 @@ class TestSchema:
         'idx_lz_datasource', 'idx_lz_active',
         'idx_bronze_lz', 'idx_silver_bronze',
         'idx_runs_status', 'idx_tasklog_run', 'idx_tasklog_entity',
+        'idx_shc_status', 'idx_shc_run', 'idx_shc_entity', 'idx_she_case',
         'idx_plz_entity', 'idx_pbronze_entity', 'idx_estatus_layer',
         'idx_paudit_run', 'idx_caudit_run', 'idx_caudit_entity',
     ]
@@ -454,8 +456,8 @@ class TestMetricsAndStats:
         assert stats['lz_entities'] == 0
         assert stats['engine_runs'] == 0
         assert stats['sync_metadata'] == 0
-        # All 21 table counts should be present (18 original + 3 new in Task 10)
-        assert len(stats) == 21
+        # Includes the load_center_runs mirror added after Task 10.
+        assert len(stats) == 22
 
     def test_get_stats_with_data(self, seeded_db):
         """T-CPDB-018: get_stats returns correct counts for populated database."""
@@ -858,7 +860,7 @@ class TestEdgeCases:
         # Insert a "fake old" record by directly writing to the DB
         conn = cpdb._get_conn()
         try:
-            old_ts = (datetime.utcnow() - timedelta(days=100)).strftime('%Y-%m-%dT%H:%M:%SZ')
+            old_ts = (datetime.now(UTC) - timedelta(days=100)).strftime('%Y-%m-%dT%H:%M:%SZ')
             conn.execute(
                 "INSERT INTO engine_task_log (RunId, EntityId, Status, created_at) "
                 "VALUES (?, ?, ?, ?)",
@@ -878,7 +880,7 @@ class TestEdgeCases:
             conn.execute(
                 "INSERT INTO engine_task_log (RunId, EntityId, Status, created_at) "
                 "VALUES (?, ?, ?, ?)",
-                ('new-run', 2, 'succeeded', datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'))
+                ('new-run', 2, 'succeeded', datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ'))
             )
             conn.commit()
         finally:

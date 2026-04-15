@@ -45,6 +45,8 @@ def test_all_post_routes_registered():
         ("POST", "/api/engine/stop"),
         ("POST", "/api/engine/retry"),
         ("POST", "/api/engine/abort-run"),
+        ("POST", "/api/engine/cleanup-runs"),
+        ("POST", "/api/engine/resume"),
         ("POST", "/api/engine/settings"),
         ("POST", "/api/engine/entity/{entity_id}/reset"),
     ]

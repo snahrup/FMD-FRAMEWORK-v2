@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { RadialBarChart, RadialBar, ResponsiveContainer } from "recharts";
+import { RadialBarChart, RadialBar } from "recharts";
 
 interface DqScoreRingProps {
   score: number;       // 0-100
@@ -72,24 +72,24 @@ export function DqScoreRing({
   return (
     <div className={`relative flex flex-col items-center ${className}`}>
       <div className="relative" style={{ width: size, height: size, boxShadow: scoreGlow(score), borderRadius: "50%" }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <RadialBarChart
-            cx="50%"
-            cy="50%"
-            innerRadius="75%"
-            outerRadius="100%"
-            startAngle={90}
-            endAngle={-270}
-            data={data}
-            barSize={size >= 100 ? 10 : 7}
-          >
-            <RadialBar
-              dataKey="value"
-              cornerRadius={5}
-              background={false}
-            />
-          </RadialBarChart>
-        </ResponsiveContainer>
+        <RadialBarChart
+          width={size}
+          height={size}
+          cx="50%"
+          cy="50%"
+          innerRadius="75%"
+          outerRadius="100%"
+          startAngle={90}
+          endAngle={-270}
+          data={data}
+          barSize={size >= 100 ? 10 : 7}
+        >
+          <RadialBar
+            dataKey="value"
+            cornerRadius={5}
+            background={false}
+          />
+        </RadialBarChart>
         <div className="absolute inset-0 flex items-center justify-center">
           <span className={`font-bold tabular-nums ${fontSize}`} style={{ color }}>
             {Math.round(animatedScore)}

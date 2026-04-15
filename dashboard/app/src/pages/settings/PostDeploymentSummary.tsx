@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { CSSProperties } from 'react';
 import {
   CheckCircle2,
   Copy,
@@ -53,7 +54,7 @@ function SummarySection({
   title,
   entries,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: CSSProperties }>;
   title: string;
   entries: { label: string; value: string }[];
 }) {

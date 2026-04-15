@@ -530,12 +530,12 @@ export default function DataJourney() {
         },
       ]
     : [
-        {
-          label: "Scope",
-          value: `${entities.length.toLocaleString("en-US")} registered entities`,
-          detail: "Pick one entity to see where it comes from, what changes across layers, and which tool should take over next.",
-          tone: "accent" as const,
-        },
+          {
+            label: "Scope",
+            value: `${entities.length.toLocaleString("en-US")} tables in scope`,
+            detail: "Pick one entity to see where it comes from, what changes across layers, and which tool should take over next.",
+            tone: "accent" as const,
+          },
         {
           label: "Purpose",
           value: "Single-entity handoff map",
@@ -577,7 +577,7 @@ export default function DataJourney() {
       <div className="flex-shrink-0 px-6 py-4 space-y-4" style={{ borderBottom: "1px solid var(--bp-border)", backgroundColor: "var(--bp-surface-1)", zIndex: 100, position: "relative" }}>
         <ExploreWorkbenchHeader
           eyebrow="Explore"
-          meta={journey ? `${journey.source.namespace || journey.source.dataSourceName} • ${journey.landing.fileName || journey.source.name}` : `${entities.length.toLocaleString("en-US")} entities available`}
+            meta={journey ? `${journey.source.namespace || journey.source.dataSourceName} • ${journey.landing.fileName || journey.source.name}` : `${entities.length.toLocaleString("en-US")} tables available for journey tracing`}
           title="Data Journey"
           summary="Trace one entity from source to silver, see exactly where it changes, and hand off into the next diagnostic tool without rebuilding context."
           facts={headerFacts}
@@ -1142,7 +1142,7 @@ export default function DataJourney() {
                 <div className="text-sm">
                   <p className="font-medium" style={{ color: "var(--bp-copper)" }}>Landing Zone Only</p>
                   <p className="text-xs mt-1" style={{ color: "var(--bp-ink-secondary)" }}>
-                    This entity has been registered but hasn't been processed through the Bronze or Silver pipelines yet.
+                    This table is in scope but hasn't been processed through the Bronze or Silver pipelines yet.
                     Run the Landing Zone &rarr; Bronze pipeline to see schema and row count details.
                     Column schemas cannot be read from raw {journey.landing.fileType?.toLowerCase() || "parquet"} files in the landing zone &mdash;
                     they'll appear once the data is loaded into a Delta table at the Bronze layer.

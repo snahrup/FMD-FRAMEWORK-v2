@@ -295,7 +295,7 @@ function LayerDrawer({
           <div>
             <h2 className="text-sm font-semibold text-foreground">{nodeLabel}</h2>
             <p className="text-[10px] text-muted-foreground/60">
-              {stats.total.toLocaleString()} entities
+              {stats.total.toLocaleString()} tables
             </p>
           </div>
         </div>
@@ -384,7 +384,7 @@ function LayerDrawer({
       <div className="flex-1 overflow-y-auto">
         <div className="px-5 py-2 sticky top-0 backdrop-blur-sm z-10" style={{ backgroundColor: 'color-mix(in srgb, var(--bp-surface-1) 95%, transparent)' }}>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40">
-            Entities ({sortedEntities.length})
+            Tables ({sortedEntities.length})
           </p>
         </div>
         {sortedEntities.map((entity, i) => (
@@ -745,7 +745,7 @@ export default function ImpactPulse() {
                 Impact Pulse
               </h1>
               <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                {totalSummary.total.toLocaleString()} entities &middot;{" "}
+                {totalSummary.total.toLocaleString()} tables in scope &middot;{" "}
                 {shortTime(data.generatedAt)}
               </p>
             </div>

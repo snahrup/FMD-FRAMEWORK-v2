@@ -144,7 +144,7 @@ function isStatusColumn(colKey: string): boolean {
 
 /** Category-specific empty states */
 const CATEGORY_EMPTY_MESSAGES: Record<string, string> = {
-  "Source Systems": "No source systems registered yet. Use the Source Manager to onboard your first data source.",
+  "Source Systems": "No source systems are configured yet. Use Source Manager to onboard your first data source.",
   "Data Entities": "No entities found. Register entities through the Source Manager or deploy script.",
   "Load Status": "No load records yet. Run a pipeline to see load status data here.",
   "Run History": "No pipeline runs recorded. Execute a pipeline to populate run history.",

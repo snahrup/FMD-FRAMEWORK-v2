@@ -118,9 +118,11 @@ export function ExploreWorkbenchHeader({
   actions = [],
   aside,
 }: ExploreWorkbenchHeaderProps) {
+  const previewSignal = guideItems[0];
+
   return (
     <div
-      className="bp-card"
+      className="bp-card gs-page-enter"
       style={{
         padding: 16,
         background: "rgba(255,255,255,0.88)",
@@ -169,19 +171,57 @@ export function ExploreWorkbenchHeader({
               <p
                 style={{
                   margin: "6px 0 0",
-                  fontSize: 13,
+                  fontSize: 12,
                   lineHeight: 1.5,
                   color: "var(--bp-ink-secondary)",
                   fontFamily: "var(--bp-font-body)",
                   maxWidth: 760,
+                  display: "-webkit-box",
+                  WebkitBoxOrient: "vertical",
+                  WebkitLineClamp: 2,
+                  overflow: "hidden",
                 }}
               >
                 {summary}
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              {previewSignal ? (
+                <div
+                  title={previewSignal.detail}
+                  className="rounded-full px-3 py-2"
+                  style={{
+                    border: "1px solid rgba(180,86,36,0.16)",
+                    background: "rgba(180,86,36,0.08)",
+                    maxWidth: 240,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: "var(--bp-font-mono)",
+                      fontSize: 10,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: "var(--bp-ink-tertiary)",
+                    }}
+                  >
+                    {previewSignal.label}
+                  </span>
+                  <span
+                    style={{
+                      marginLeft: 8,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "var(--bp-ink-primary)",
+                      fontFamily: "var(--bp-font-body)",
+                    }}
+                  >
+                    {previewSignal.value}
+                  </span>
+                </div>
+              ) : null}
               {guideItems.length > 0 || guideLinks.length > 0 ? (
-                <IntentGuidePopover title={title} items={guideItems} links={guideLinks} label="Tool Guide" />
+                <IntentGuidePopover title={title} summary={summary} items={guideItems} links={guideLinks} label="Tool Guide" />
               ) : null}
               {actions.map((action) => (
                 <ActionPill key={`${action.label}-${action.to || "button"}`} action={action} />
@@ -193,24 +233,20 @@ export function ExploreWorkbenchHeader({
       </div>
 
       {facts.length > 0 ? (
-        <div
-          className="grid gap-2"
-          style={{
-            marginTop: 14,
-            gridTemplateColumns: `repeat(${Math.min(Math.max(facts.length, 1), 4)}, minmax(0, 1fr))`,
-          }}
-        >
+        <div className="mt-4 flex flex-wrap gap-2">
           {facts.map((fact) => (
             <div
               key={fact.label}
+              data-metric-label={fact.label}
+              data-metric-value={fact.value}
+              title={fact.detail}
+              className="min-w-0 rounded-full px-3 py-2"
               style={{
                 ...factToneStyles(fact.tone),
-                borderRadius: 14,
-                padding: 10,
-                minWidth: 0,
+                maxWidth: "100%",
               }}
             >
-              <div
+              <span
                 style={{
                   fontFamily: "var(--bp-font-mono)",
                   fontSize: 10,
@@ -220,32 +256,19 @@ export function ExploreWorkbenchHeader({
                 }}
               >
                 {fact.label}
-              </div>
-              <div
+              </span>
+              <span
                 style={{
-                  marginTop: 4,
+                  marginLeft: 8,
                   color: "var(--bp-ink-primary)",
                   fontFamily: "var(--bp-font-body)",
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: 600,
                   lineHeight: 1.35,
                 }}
               >
                 {fact.value}
-              </div>
-              {fact.detail ? (
-                <div
-                  style={{
-                    marginTop: 4,
-                    color: "var(--bp-ink-secondary)",
-                    fontFamily: "var(--bp-font-body)",
-                    fontSize: 11,
-                    lineHeight: 1.45,
-                  }}
-                >
-                  {fact.detail}
-                </div>
-              ) : null}
+              </span>
             </div>
           ))}
         </div>

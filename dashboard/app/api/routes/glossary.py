@@ -324,7 +324,11 @@ def get_gold_domains(params: dict) -> list:
         ).fetchall()
 
         return [
-            {"name": r["domain"], "entityCount": r["entity_count"]}
+            {
+                "id": r["domain"],
+                "name": r["domain"],
+                "entityCount": r["entity_count"],
+            }
             for r in rows
         ]
     finally:
