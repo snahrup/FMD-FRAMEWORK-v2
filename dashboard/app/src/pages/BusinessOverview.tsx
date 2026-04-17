@@ -11,7 +11,6 @@ import {
   Crown,
   Network,
   Radar,
-  RefreshCw,
   Play,
 } from "lucide-react";
 import { useMetricContract } from "@/hooks/useMetricContract";
@@ -26,6 +25,7 @@ import {
 } from "@/components/business";
 import OverviewEstateCard from "@/components/overview/OverviewEstateCard";
 import OverviewWorkbenchCard from "@/components/overview/OverviewWorkbenchCard";
+import CoworkHero from "@/components/overview/CoworkHero";
 
 const API = import.meta.env.VITE_API_URL || "";
 
@@ -343,113 +343,43 @@ export default function BusinessOverview() {
     },
   ];
 
+  const sourcesDegraded = sources.filter((s) => s.status !== "operational").length;
+  const pipelinesHealthy = sourcesDegraded === 0 && blockedTables === 0;
+
   return (
     <div className="bp-page-shell-wide space-y-6">
+      <CoworkHero
+        latestSignal={latestSignal}
+        pipelinesHealthy={pipelinesHealthy}
+        blockedTables={blockedTables}
+        sourcesDegraded={sourcesDegraded}
+        onRefresh={() => {
+          void refreshMetrics();
+          void fetchAll();
+        }}
+        refreshing={pageLoading}
+      />
+
+      {/* Layer-fill metrics — Landing/Bronze/Silver/Tool-Ready */}
       <div
         className="bp-card gs-page-enter"
-        style={{
-          padding: 18,
-          background:
-            "linear-gradient(135deg, rgba(180,86,36,0.05) 0%, rgba(250,247,243,0.98) 58%, rgba(255,255,255,0.98) 100%)",
-        }}
+        style={{ padding: 18 }}
       >
         <div className="bp-rail bp-rail-caution" style={{ top: 14, bottom: 14 }} />
         <div style={{ paddingLeft: 6 }}>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div style={{ minWidth: 0, maxWidth: 820 }}>
-              <div
-                style={{
-                  fontFamily: "var(--bp-font-mono)",
-                  fontSize: 10,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: "var(--bp-copper)",
-                }}
-              >
-                Primary KPIs
-              </div>
-              <h1
-                className="bp-display"
-                style={{
-                  margin: "8px 0 0",
-                  fontSize: 28,
-                  lineHeight: 1.08,
-                  color: "var(--bp-ink-primary)",
-                }}
-              >
-                System Overview
-              </h1>
-              <p
-                style={{
-                  margin: "10px 0 0",
-                  maxWidth: 760,
-                  fontSize: 12,
-                  lineHeight: 1.45,
-                  color: "var(--bp-ink-secondary)",
-                }}
-              >
-                Start here to understand estate posture, see what is usable now,
-                and route into Load Center, Mission Control, Explore, or Gold
-                Studio without carrying the full explanation on every page.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-              <div
-                className="rounded-full px-3 py-2"
-                style={{
-                  border: "1px solid var(--bp-border)",
-                  background: "rgba(255,255,255,0.78)",
-                  maxWidth: 340,
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: "var(--bp-font-mono)",
-                    fontSize: 10,
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    color: "var(--bp-ink-tertiary)",
-                  }}
-                >
-                  Latest Signal
-                </span>
-                <span
-                  style={{
-                    marginLeft: 8,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: "var(--bp-ink-primary)",
-                  }}
-                >
-                  {latestSignal}
-                </span>
-              </div>
-
-              <button
-                onClick={() => {
-                  void refreshMetrics();
-                  void fetchAll();
-                }}
-                className="inline-flex items-center gap-2 rounded-full px-4 py-2.5 transition-transform hover:-translate-y-0.5"
-                style={{
-                  border: "1px solid rgba(120,113,108,0.1)",
-                  background: "rgba(255,255,255,0.78)",
-                  color: "var(--bp-ink-secondary)",
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
-              >
-                <RefreshCw size={14} className={pageLoading ? "animate-spin" : ""} />
-                Refresh overview
-              </button>
-            </div>
-          </div>
-
           <div
-            className="grid grid-cols-2 gap-3 xl:grid-cols-4"
-            style={{ marginTop: 18 }}
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              color: "var(--bp-ink-tertiary)",
+              marginBottom: 14,
+            }}
           >
+            Estate Fill — Landing → Tool-Ready
+          </div>
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             {pageLoading && !metrics ? (
               [0, 1, 2, 3].map((index) => <MetricSkeletonCard key={index} index={index} />)
             ) : (
