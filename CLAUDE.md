@@ -37,6 +37,9 @@ Fabric Metadata-Driven (FMD) Framework: an enterprise data pipeline for Microsof
 13. `docs/data-source-audit.html` is the source of truth for dashboard data sources.
 14. **After merging any PR**, run `python scripts/update_command_center.py` and commit the updated `docs/PACKET_COMMAND_CENTER.html`. A PostToolUse hook handles this automatically, but if it fails, do it manually.
 15. To add a new packet to the command center, edit the `PACKETS` and/or `PAGES` lists in `scripts/update_command_center.py`, then regenerate.
+16. **Design DNA, not feature clones.** When asked to redesign FMD to feel like a reference UI (Cowork, Linear, Notion, etc.), extract the design language only — colors, typography, spacing, restraint patterns. NEVER add product-specific features that don't exist in FMD (no AI chat composers, no model selectors, no "How can I help you today?" inputs, no fake AI artifacts). FMD is a data pipeline dashboard; tiles and right-rail panels must always link to real FMD pages and real FMD task state. See `context/cowork-design-dna.md`.
+17. **Warm cream canvas, not pure white.** The design system already defines `--bp-canvas: #F4F2ED` (warm cream) and `--bp-copper: #B45624` (terracotta accent). Do not override these with `#FFFFFF` or other accent colors without explicit approval. Single-accent rule: terracotta only — most clickable elements should be neutral.
+18. **Serif font is for the hero greeting only.** `--font-greeting: 'Fraunces'` (or the `.cw-greeting` utility class) is reserved for the empty-state hero headline on landing/overview pages. Do not apply to body text, card headings, or anywhere else — it loses impact when overused.
 
 ## Note-Taking
 
