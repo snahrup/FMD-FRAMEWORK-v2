@@ -580,8 +580,10 @@
     -webkit-mask-image: radial-gradient(ellipse 80% 70% at 82% 18%, rgba(0,0,0,0.65), transparent 75%);
             mask-image: radial-gradient(ellipse 80% 70% at 82% 18%, rgba(0,0,0,0.65), transparent 75%);
   }
-  /* Lift any direct children of a dotgrid above the pseudo */
-  .cw-dotgrid > * { position: relative; z-index: 1; }
+  /* Lift any direct children of a hero-flagged dotgrid above the pseudo.
+     Scoped to .cw-hero so other future .cw-dotgrid containers don't get
+     unexpected stacking-context promotion (Issue 11). */
+  .cw-dotgrid.cw-hero > * { position: relative; z-index: 1; }
 
   /* Serif greeting — used ONLY for the empty-state home headline */
   .cw-greeting {
@@ -631,6 +633,11 @@
     transform: translateY(-1px);
   }
   .cw-tile:active { transform: translateY(0); }
+  /* Inset focus ring so it isn't clipped by the parent's overflow:hidden (Issue 1) */
+  .cw-tile:focus-visible {
+    outline: 2px solid var(--bp-copper);
+    outline-offset: -3px;
+  }
 
   /* Left rail (Cowork-style) */
   .cw-rail-left {

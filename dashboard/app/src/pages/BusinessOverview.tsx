@@ -353,6 +353,7 @@ export default function BusinessOverview() {
         pipelinesHealthy={pipelinesHealthy}
         blockedTables={blockedTables}
         sourcesDegraded={sourcesDegraded}
+        loading={pageLoading && !contractReady}
         onRefresh={() => {
           void refreshMetrics();
           void fetchAll();

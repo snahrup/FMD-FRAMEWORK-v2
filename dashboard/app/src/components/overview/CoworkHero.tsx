@@ -12,6 +12,7 @@
 // FMD is a data pipeline dashboard — the tiles link to real FMD pages.
 // ============================================================================
 
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Play,
@@ -52,10 +53,14 @@ function heroLineForState(opts: {
   pipelinesHealthy: boolean;
   blockedTables: number;
   sourcesDegraded: number;
+  loading: boolean;
 }): string {
-  if (opts.sourcesDegraded > 0)  return `${opts.sourcesDegraded} source${opts.sourcesDegraded === 1 ? "" : "s"} need attention`;
-  if (opts.blockedTables > 0)    return `${opts.blockedTables} table${opts.blockedTables === 1 ? "" : "s"} blocked before tool mode`;
-  if (opts.pipelinesHealthy)     return "Pipelines healthy — pick something to work on";
+  // While the overview data is still resolving, do NOT claim health — we only
+  // know the empty-state defaults at this point (Issue 8).
+  if (opts.loading)               return "Bringing you the latest pipeline state";
+  if (opts.sourcesDegraded > 0)   return `${opts.sourcesDegraded} source${opts.sourcesDegraded === 1 ? "" : "s"} need attention`;
+  if (opts.blockedTables > 0)     return `${opts.blockedTables} table${opts.blockedTables === 1 ? "" : "s"} blocked before tool mode`;
+  if (opts.pipelinesHealthy)      return "Pipelines healthy — pick something to work on";
   return "Pick where to take the data next";
 }
 
@@ -66,6 +71,25 @@ interface CoworkHeroProps {
   sourcesDegraded: number;
   onRefresh: () => void;
   refreshing?: boolean;
+  /** True while the overview's first data load is still in flight. */
+  loading?: boolean;
+}
+
+/**
+ * Returns the current hour-of-day, refreshed once a minute (Issue 13).
+ * Prevents the greeting jumping mid-session if a user happens to cross a
+ * boundary like 11:59pm → 12:00am while the page is open.
+ */
+function useHourOfDay(): number {
+  const [hour, setHour] = useState(() => new Date().getHours());
+  useEffect(() => {
+    const t = setInterval(() => {
+      const h = new Date().getHours();
+      setHour((prev) => (prev === h ? prev : h));
+    }, 60_000);
+    return () => clearInterval(t);
+  }, []);
+  return hour;
 }
 
 export default function CoworkHero({
@@ -75,15 +99,19 @@ export default function CoworkHero({
   sourcesDegraded,
   onRefresh,
   refreshing = false,
+  loading = false,
 }: CoworkHeroProps) {
-  const now = new Date();
-  const greeting = greetingForHour(now.getHours());
-  const heroLine = heroLineForState({ pipelinesHealthy, blockedTables, sourcesDegraded });
+  const hour = useHourOfDay();
+  const greeting = useMemo(() => greetingForHour(hour), [hour]);
+  const heroLine = useMemo(
+    () => heroLineForState({ pipelinesHealthy, blockedTables, sourcesDegraded, loading }),
+    [pipelinesHealthy, blockedTables, sourcesDegraded, loading],
+  );
 
   return (
     <section
       aria-label="Overview hero"
-      className="cw-dotgrid cw-dotgrid-fade gs-page-enter"
+      className="cw-dotgrid cw-dotgrid-fade cw-hero gs-page-enter"
       style={{
         padding: "44px 32px 32px",
         marginBottom: 8,
@@ -108,17 +136,20 @@ export default function CoworkHero({
               color: "var(--bp-ink-tertiary)",
               fontFamily: "var(--bp-font-body)",
             }}
+            aria-live="polite"
           >
             <span style={{ color: "var(--bp-ink-secondary)" }}>Latest signal:</span>{" "}
             <span style={{ color: "var(--bp-ink-secondary)" }}>{latestSignal}</span>
           </div>
         </div>
 
-        {/* Refresh — restrained, top-right */}
+        {/* Refresh — restrained, top-right. Disabled while in-flight (Issue 12). */}
         <button
           type="button"
           onClick={onRefresh}
-          aria-label="Refresh overview"
+          disabled={refreshing}
+          aria-label={refreshing ? "Refreshing overview" : "Refresh overview"}
+          aria-busy={refreshing || undefined}
           style={{
             marginLeft: "auto",
             display: "inline-flex",
@@ -131,7 +162,8 @@ export default function CoworkHero({
             color: "var(--bp-ink-secondary)",
             fontSize: 12,
             fontWeight: 500,
-            cursor: "pointer",
+            cursor: refreshing ? "wait" : "pointer",
+            opacity: refreshing ? 0.7 : 1,
             flexShrink: 0,
           }}
         >
@@ -140,11 +172,14 @@ export default function CoworkHero({
         </button>
       </div>
 
-      {/* Canonical-job tiles — 6 real FMD pages */}
-      <div
-        role="list"
+      {/* Canonical-job tiles — 6 real FMD pages.
+          Use a real <ul>/<li> structure so the list semantics are conveyed
+          to screen readers without ARIA role gymnastics (Issue 4). */}
+      <ul
         style={{
-          marginTop: 32,
+          listStyle: "none",
+          margin: "32px 0 0",
+          padding: 0,
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
           gap: 12,
@@ -152,49 +187,50 @@ export default function CoworkHero({
         }}
       >
         {FMD_CANONICAL_JOBS.map((tile) => (
-          <Link
-            key={tile.to}
-            to={tile.to}
-            role="listitem"
-            className="cw-tile"
-            style={{ textDecoration: "none", color: "inherit" }}
-          >
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 28,
-                height: 28,
-                borderRadius: 8,
-                background: "var(--bp-surface-inset)",
-                color: "var(--bp-ink-secondary)",
-              }}
+          <li key={tile.to} style={{ listStyle: "none" }}>
+            <Link
+              to={tile.to}
+              className="cw-tile"
+              style={{ textDecoration: "none", color: "inherit" }}
             >
-              <tile.icon size={15} strokeWidth={1.75} />
-            </span>
-            <span
-              style={{
-                fontSize: 13.5,
-                fontWeight: 500,
-                color: "var(--bp-ink-primary)",
-                lineHeight: 1.2,
-              }}
-            >
-              {tile.title}
-            </span>
-            <span
-              style={{
-                fontSize: 12,
-                color: "var(--bp-ink-tertiary)",
-                lineHeight: 1.35,
-              }}
-            >
-              {tile.hint}
-            </span>
-          </Link>
+              <span
+                aria-hidden
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 28,
+                  height: 28,
+                  borderRadius: 8,
+                  background: "var(--bp-surface-inset)",
+                  color: "var(--bp-ink-secondary)",
+                }}
+              >
+                <tile.icon size={15} strokeWidth={1.75} />
+              </span>
+              <span
+                style={{
+                  fontSize: 13.5,
+                  fontWeight: 500,
+                  color: "var(--bp-ink-primary)",
+                  lineHeight: 1.2,
+                }}
+              >
+                {tile.title}
+              </span>
+              <span
+                style={{
+                  fontSize: 12,
+                  color: "var(--bp-ink-tertiary)",
+                  lineHeight: 1.35,
+                }}
+              >
+                {tile.hint}
+              </span>
+            </Link>
+          </li>
         ))}
-      </div>
+      </ul>
     </section>
   );
 }

@@ -25,6 +25,10 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- NOTE: Don't preload specific Fraunces .woff2 URLs — Google bumps version
+         hashes (v37→v38→...) and any hardcoded URL eventually 404s. The brief
+         FOUT on cold loads is acceptable; the system fallback (Iowan Old Style /
+         Georgia) is also serif and the metric mismatch is mild. -->
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap" rel="stylesheet" />
     <title>FMD Data | Pipeline Control</title>
   </head>
