@@ -185,8 +185,8 @@ export default function CoworkHero({
             </span>
             <span
               style={{
-                fontSize: 11.5,
-                color: "var(--bp-ink-muted)",
+                fontSize: 12,
+                color: "var(--bp-ink-tertiary)",
                 lineHeight: 1.35,
               }}
             >
