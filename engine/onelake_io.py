@@ -177,7 +177,14 @@ class OneLakeIO:
             return None
 
     def _read_parquet_adls(self, workspace_id: str, path: str) -> Optional[pl.DataFrame]:
-        """Read parquet via ADLS SDK."""
+        """Read parquet via ADLS SDK.
+
+        Returns None only when the parquet file genuinely does not exist
+        (a legitimate "not loaded yet" condition). Any other failure —
+        including missing Python dependencies — propagates so the
+        orchestrator can classify the entity as failed, not skipped.
+        """
+        from azure.core.exceptions import ResourceNotFoundError
         t0 = time.perf_counter()
         try:
             self._ensure_adls_client()
@@ -190,9 +197,12 @@ class OneLakeIO:
             log.info("Read parquet (adls) %s: %d rows, %.1f KB in %.1fs",
                      path.split("/")[-1], len(df), len(data) / 1024, elapsed)
             return df
+        except ResourceNotFoundError:
+            log.info("Parquet file does not exist (adls): %s", path)
+            return None
         except Exception as exc:
             log.error("Failed to read parquet (adls) %s: %s", path, exc)
-            return None
+            raise
 
     def read_delta(self, workspace_id: str, table_path: str) -> Optional[pl.DataFrame]:
         """Read a Delta table from OneLake into a Polars DataFrame."""
@@ -279,7 +289,13 @@ class OneLakeIO:
         return sorted(active)
 
     def _read_delta_adls(self, workspace_id: str, table_path: str) -> Optional[pl.DataFrame]:
-        """Read Delta table via ADLS SDK."""
+        """Read Delta table via ADLS SDK.
+
+        Returns None only when the Delta table genuinely does not exist
+        (legitimate first-load). Any other failure — including missing
+        Python dependencies — propagates so the orchestrator can
+        classify the entity as failed, not skipped.
+        """
         t0 = time.perf_counter()
         uri = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{table_path}"
         try:
@@ -297,7 +313,7 @@ class OneLakeIO:
                 log.info("Delta table %s does not exist yet (first load)", table_path)
                 return None
             log.error("Failed to read delta (adls) %s: %s", table_path, exc)
-            return None
+            raise
 
     # ------------------------------------------------------------------
     # Write

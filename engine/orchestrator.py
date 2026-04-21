@@ -582,8 +582,12 @@ class LoadOrchestrator:
 
         params: tuple = ()
         if entity_ids:
+            # entity_ids come from the landing layer scope (LandingzoneEntityId),
+            # so filter the bronze worklist to only the entities that derive
+            # from those LZ entities. Filtering by BronzeLayerEntityId here
+            # would silently select a different set of entities.
             placeholders = ",".join("?" for _ in entity_ids)
-            sql += f" AND be.BronzeLayerEntityId IN ({placeholders})"
+            sql += f" AND be.LandingzoneEntityId IN ({placeholders})"
             params = tuple(entity_ids)
 
         rows = self._cpdb_query(sql, params)
@@ -639,8 +643,10 @@ class LoadOrchestrator:
 
         params: tuple = ()
         if entity_ids:
+            # entity_ids are landing-level LandingzoneEntityIds; filter silver
+            # scope to the silver entities derived from those LZ entities.
             placeholders = ",".join("?" for _ in entity_ids)
-            sql += f" AND se.SilverLayerEntityId IN ({placeholders})"
+            sql += f" AND be.LandingzoneEntityId IN ({placeholders})"
             params = tuple(entity_ids)
 
         rows = self._cpdb_query(sql, params)
@@ -995,7 +1001,7 @@ class LoadOrchestrator:
             results.append(result)
             self._completed_units += 1
             # Track entity status in control plane DB
-            self._audit.mark_bronze_entity_processed(entity, result)
+            self._audit.mark_bronze_entity_processed(entity, result, run_id)
             self._queue_case_for_self_heal(run_id, entity, result)
 
         succeeded = sum(1 for r in results if r.status == "succeeded")
@@ -1079,7 +1085,7 @@ class LoadOrchestrator:
             results.append(result)
             self._completed_units += 1
             # Track entity status in control plane DB
-            self._audit.mark_silver_entity_processed(entity, result)
+            self._audit.mark_silver_entity_processed(entity, result, run_id)
             self._queue_case_for_self_heal(run_id, entity, result)
 
         succeeded = sum(1 for r in results if r.status == "succeeded")
@@ -1575,6 +1581,10 @@ class LoadOrchestrator:
         parquet_bytes, extract_result = self._extractor.extract(entity, run_id)
 
         if not extract_result.succeeded or parquet_bytes is None:
+            # Ensure every attempted landing gets an engine_task_log row —
+            # this covers zero-row incrementals and extract failures that
+            # otherwise bypassed log_entity_result.
+            self._audit.log_entity_result(run_id, entity, extract_result)
             return extract_result
 
         # Step 1.5: Schema validation (between extract and upload)

@@ -202,7 +202,17 @@ class AuditLogger:
             },
         )
 
-        status = "Succeeded" if failed == 0 else "Failed"
+        # Succeeded only if nothing errored AND at least one unit completed.
+        # All-skipped or empty-success is not a clean end state — a run that
+        # tried to do work but touched nothing should not advertise as Succeeded.
+        if failed > 0:
+            status = "Failed"
+        elif succeeded == 0 and skipped == 0:
+            status = "Succeeded"  # truly no work requested
+        elif succeeded == 0:
+            status = "Failed"
+        else:
+            status = "Succeeded"
         log.info(
             "Run %s ended: %s (succeeded=%d, failed=%d, skipped=%d, rows=%d, %.1fs)",
             run_id[:8], status, succeeded, failed, skipped, total_rows, total_duration,
@@ -462,7 +472,7 @@ class AuditLogger:
         except Exception as exc:
             log.debug("heartbeat_progress failed: %s", exc)
 
-    def mark_bronze_entity_processed(self, entity, result) -> None:
+    def mark_bronze_entity_processed(self, entity, result, run_id: str = "") -> None:
         """Write Bronze entity processing status to SQLite tracking tables."""
         now_str = _utcnow_iso_z()
         cpdb = _get_cpdb()
@@ -491,8 +501,11 @@ class AuditLogger:
         except Exception as exc:
             log.warning("SQLite: Failed to upsert pipeline_bronze_entity for entity %d: %s",
                         entity.bronze_entity_id, exc)
+        self._write_layer_task_log(run_id, entity.lz_entity_id, "bronze",
+                                   f"{entity.namespace}.{entity.source_name}",
+                                   entity.lakehouse_guid, result)
 
-    def mark_silver_entity_processed(self, entity, result) -> None:
+    def mark_silver_entity_processed(self, entity, result, run_id: str = "") -> None:
         """Write Silver entity processing status to SQLite tracking tables."""
         now_str = _utcnow_iso_z()
         cpdb = _get_cpdb()
@@ -501,19 +514,57 @@ class AuditLogger:
         lz_id = getattr(entity, 'lz_entity_id', 0)
         if not lz_id:
             log.debug("Silver entity %d has no lz_entity_id, skipping entity_status", entity.silver_entity_id)
+        else:
+            try:
+                cpdb.upsert_entity_status({
+                    "LandingzoneEntityId": lz_id,
+                    "Layer": "silver",
+                    "Status": _normalize_status(result.status),
+                    "LoadEndDateTime": now_str,
+                    "ErrorMessage": result.error or "",
+                    "UpdatedBy": "FMD_ENGINE_V3",
+                })
+            except Exception as exc:
+                log.warning("SQLite: Failed to upsert entity_status (Silver) for entity %d: %s",
+                            entity.silver_entity_id, exc)
+        self._write_layer_task_log(run_id, lz_id, "silver",
+                                   f"{entity.namespace}.{entity.source_name}",
+                                   entity.lakehouse_guid, result)
+
+    def _write_layer_task_log(self, run_id: str, lz_entity_id: int, layer: str,
+                              source_table: str, target_lakehouse: str,
+                              result) -> None:
+        """Write a bronze/silver attempt to engine_task_log.
+
+        Landing is already covered by log_entity_result; bronze/silver paths
+        never wrote to engine_task_log, which hid failures from the truth
+        checks. Every attempted entity for the layer gets a row now, including
+        fail and skip.
+        """
+        if not run_id:
+            return
+        cpdb = _get_cpdb()
+        if not cpdb:
             return
         try:
-            cpdb.upsert_entity_status({
-                "LandingzoneEntityId": lz_id,
-                "Layer": "silver",
+            cpdb.insert_engine_task_log({
+                "RunId": run_id,
+                "EntityId": lz_entity_id,
+                "Layer": layer,
                 "Status": _normalize_status(result.status),
-                "LoadEndDateTime": now_str,
-                "ErrorMessage": result.error or "",
-                "UpdatedBy": "FMD_ENGINE_V3",
+                "SourceTable": source_table,
+                "RowsRead": getattr(result, "rows_read", 0) or 0,
+                "RowsWritten": getattr(result, "rows_written", 0) or 0,
+                "BytesTransferred": getattr(result, "bytes_transferred", 0) or 0,
+                "DurationSeconds": round(getattr(result, "duration_seconds", 0) or 0, 2),
+                "TargetLakehouse": target_lakehouse or "",
+                "ErrorType": self._classify_error(getattr(result, "error", None)),
+                "ErrorMessage": (getattr(result, "error", "") or "")[:4000],
+                "ErrorSuggestion": (getattr(result, "error_suggestion", "") or "")[:2000],
             })
         except Exception as exc:
-            log.warning("SQLite: Failed to upsert entity_status (Silver) for entity %d: %s",
-                        entity.silver_entity_id, exc)
+            log.warning("SQLite: Failed to write engine_task_log (%s) for entity %d: %s",
+                        layer, lz_entity_id, exc)
 
     def update_watermark(
         self,
