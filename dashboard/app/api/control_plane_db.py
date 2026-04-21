@@ -1379,6 +1379,18 @@ def init_db():
 
         # Normalize legacy entity_status casing so deprecated readers and ad hoc
         # SQL agree on canonical layer/status values.
+        # Pre-dedupe: the normalization UPDATE below collapses 'landingzone' to
+        # 'landing'; if both variants exist for the same entity they would
+        # collide on PRIMARY KEY (LandingzoneEntityId, Layer). Drop the legacy
+        # 'landingzone' row in that case.
+        conn.execute(
+            "DELETE FROM entity_status "
+            "WHERE LOWER(COALESCE(Layer, '')) = 'landingzone' "
+            "AND LandingzoneEntityId IN ("
+            "    SELECT LandingzoneEntityId FROM entity_status "
+            "    WHERE LOWER(COALESCE(Layer, '')) = 'landing'"
+            ")"
+        )
         conn.execute(
             "UPDATE entity_status "
             "SET Layer = CASE LOWER(COALESCE(Layer, '')) "
