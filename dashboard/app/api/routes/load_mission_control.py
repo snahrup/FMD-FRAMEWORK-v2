@@ -208,6 +208,314 @@ def _get_run_scope_inventory_rows(run_id: str, scoped_entity_ids: list[int]) -> 
     }
 
 
+def _get_run_latest_task_rows(run_id: str, scoped_entity_ids: list[int] | None = None) -> list[dict]:
+    if scoped_entity_ids is not None and not scoped_entity_ids:
+        return []
+
+    params: list = [run_id]
+    entity_filter = ""
+    if scoped_entity_ids:
+        placeholders = ",".join("?" for _ in scoped_entity_ids)
+        entity_filter = f" AND mapped.LandingzoneEntityId IN ({placeholders})"
+        params.extend(scoped_entity_ids)
+
+    sql = f"""
+        {cpdb._MAPPED_ENGINE_TASK_LOG_CTE},
+        enriched AS (
+            SELECT
+                mapped.LandingzoneEntityId,
+                mapped.DataSourceId,
+                mapped.Layer,
+                mapped.Status,
+                mapped.LoadEndDateTime,
+                mapped.ErrorMessage,
+                mapped.RunId,
+                mapped.RowsRead,
+                mapped.RowsWritten,
+                mapped.SourceTable,
+                mapped.SourceSchema,
+                mapped.SourceName,
+                mapped.IsIncremental,
+                mapped.id,
+                t.BytesTransferred,
+                t.DurationSeconds,
+                t.LoadType,
+                t.ExtractionMethod,
+                t.ErrorType,
+                t.ErrorSuggestion,
+                t.WatermarkColumn,
+                t.WatermarkBefore,
+                t.WatermarkAfter
+            FROM mapped
+            JOIN engine_task_log t ON t.id = mapped.id
+            WHERE mapped.RunId = ?
+              AND mapped.LandingzoneEntityId IS NOT NULL
+              {entity_filter}
+        ),
+        ranked AS (
+            SELECT *,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY LandingzoneEntityId, Layer
+                       ORDER BY
+                           LoadEndDateTime DESC,
+                           CASE Status
+                             WHEN 'succeeded' THEN 1
+                             WHEN 'failed' THEN 2
+                             WHEN 'skipped' THEN 3
+                             ELSE 4
+                           END,
+                           id DESC
+                   ) AS rn
+            FROM enriched
+        )
+        SELECT
+            LandingzoneEntityId,
+            DataSourceId,
+            Layer,
+            Status,
+            LoadEndDateTime,
+            ErrorMessage,
+            RunId,
+            RowsRead,
+            RowsWritten,
+            BytesTransferred,
+            DurationSeconds,
+            SourceTable,
+            SourceSchema,
+            SourceName,
+            IsIncremental,
+            LoadType,
+            ExtractionMethod,
+            ErrorType,
+            ErrorSuggestion,
+            WatermarkColumn,
+            WatermarkBefore,
+            WatermarkAfter,
+            id
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY LoadEndDateTime DESC, id DESC
+    """
+    return _safe_query(sql, tuple(params))
+
+
+def _get_run_task_rows(run_id: str, scoped_entity_ids: list[int] | None = None) -> list[dict]:
+    """Return all mapped task rows for a run, preserving retry attempts."""
+    if scoped_entity_ids is not None and not scoped_entity_ids:
+        return []
+
+    params: list = [run_id]
+    entity_filter = ""
+    if scoped_entity_ids:
+        placeholders = ",".join("?" for _ in scoped_entity_ids)
+        entity_filter = f" AND mapped.LandingzoneEntityId IN ({placeholders})"
+        params.extend(scoped_entity_ids)
+
+    sql = f"""
+        {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
+        SELECT
+            mapped.LandingzoneEntityId,
+            mapped.DataSourceId,
+            mapped.Layer,
+            mapped.Status,
+            mapped.LoadEndDateTime,
+            mapped.ErrorMessage,
+            mapped.RunId,
+            mapped.RowsRead,
+            mapped.RowsWritten,
+            mapped.SourceTable,
+            mapped.SourceSchema,
+            mapped.SourceName,
+            mapped.IsIncremental,
+            t.BytesTransferred,
+            t.DurationSeconds,
+            t.LoadType,
+            t.ExtractionMethod,
+            t.ErrorType,
+            t.ErrorSuggestion,
+            t.WatermarkColumn,
+            t.WatermarkBefore,
+            t.WatermarkAfter,
+            t.SourceServer,
+            t.SourceDatabase,
+            t.SourceQuery,
+            t.id
+        FROM mapped
+        JOIN engine_task_log t ON t.id = mapped.id
+        WHERE mapped.RunId = ?
+          AND mapped.LandingzoneEntityId IS NOT NULL
+          {entity_filter}
+        ORDER BY COALESCE(mapped.LoadEndDateTime, t.created_at) DESC, t.id DESC
+    """
+    return _safe_query(sql, tuple(params))
+
+
+def _summarize_run_truth(run_meta: dict) -> dict:
+    scope_entities = _resolve_run_scope_entities(run_meta)
+    scoped_entity_ids = [_int(entity.get("entityId")) for entity in scope_entities if entity.get("entityId") is not None]
+    latest_rows = _get_run_latest_task_rows(run_meta.get("RunId", ""), scoped_entity_ids)
+    run_layers = _parse_run_layers(run_meta.get("Layers"))
+    row_lookup = {
+        (_int(row.get("LandingzoneEntityId")), str(row.get("Layer") or "").lower()): row
+        for row in latest_rows
+    }
+
+    layer_entity_sets: dict[str, dict[str, set[int]]] = {
+        layer: {"succeeded": set(), "failed": set(), "skipped": set()}
+        for layer in _SUPPORTED_LAYERS
+    }
+    layer_metrics = {
+        layer: {
+            "total_rows_read": 0,
+            "total_rows_written": 0,
+            "total_bytes": 0,
+            "total_duration": 0.0,
+            "success_durations": [],
+        }
+        for layer in _SUPPORTED_LAYERS
+    }
+
+    by_source_totals: dict[str, dict] = {}
+    by_source_layer_map: dict[tuple[str, str], dict] = {}
+    entity_summary = {"succeeded": 0, "failed": 0, "skipped": 0, "pending": 0}
+
+    for row in latest_rows:
+        layer = str(row.get("Layer") or "").lower()
+        status = str(row.get("Status") or "").lower()
+        entity_id = _int(row.get("LandingzoneEntityId"))
+        if layer in layer_entity_sets and status in layer_entity_sets[layer]:
+            layer_entity_sets[layer][status].add(entity_id)
+        if layer in layer_metrics:
+            layer_metrics[layer]["total_rows_read"] += _int(row.get("RowsRead"))
+            layer_metrics[layer]["total_rows_written"] += _int(row.get("RowsWritten"))
+            layer_metrics[layer]["total_bytes"] += _int(row.get("BytesTransferred"))
+            layer_metrics[layer]["total_duration"] += float(row.get("DurationSeconds") or 0)
+            if status == "succeeded":
+                layer_metrics[layer]["success_durations"].append(float(row.get("DurationSeconds") or 0))
+
+    for entity in scope_entities:
+        source = str(entity.get("source") or "")
+        entity_id = _int(entity.get("entityId"))
+        source_bucket = by_source_totals.setdefault(source, {
+            "source": source,
+            "total_entities": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "skipped": 0,
+            "rows_read": 0,
+            "bytes": 0,
+        })
+        source_bucket["total_entities"] += 1
+
+        layer_statuses: list[str] = []
+        for layer in run_layers:
+            row = row_lookup.get((entity_id, layer))
+            status = str(row.get("Status") or "not_started").lower() if row else "not_started"
+            layer_statuses.append(status)
+            layer_bucket = by_source_layer_map.setdefault((source, layer), {
+                "source": source,
+                "layer": layer,
+                "succeeded": 0,
+                "failed": 0,
+                "skipped": 0,
+                "rows_read": 0,
+                "bytes": 0,
+            })
+            if status in ("succeeded", "failed", "skipped"):
+                layer_bucket[status] += 1
+            if row and status == "succeeded":
+                layer_bucket["rows_read"] += _int(row.get("RowsRead"))
+                layer_bucket["bytes"] += _int(row.get("BytesTransferred"))
+                source_bucket["rows_read"] += _int(row.get("RowsRead"))
+                source_bucket["bytes"] += _int(row.get("BytesTransferred"))
+
+        attempted = [status for status in layer_statuses if status != "not_started"]
+        if not attempted:
+            entity_summary["pending"] += 1
+            continue
+        if any(status == "failed" for status in attempted):
+            source_bucket["failed"] += 1
+            entity_summary["failed"] += 1
+        elif all(status == "succeeded" for status in layer_statuses):
+            source_bucket["succeeded"] += 1
+            entity_summary["succeeded"] += 1
+        elif all(status in ("succeeded", "skipped") for status in layer_statuses) and any(status == "skipped" for status in layer_statuses):
+            source_bucket["skipped"] += 1
+            entity_summary["skipped"] += 1
+        else:
+            entity_summary["pending"] += 1
+
+    layers = {}
+    for layer in _SUPPORTED_LAYERS:
+        metrics = layer_metrics[layer]
+        success_durations = metrics["success_durations"]
+        layers[layer] = {
+            "succeeded": len(layer_entity_sets[layer]["succeeded"]),
+            "failed": len(layer_entity_sets[layer]["failed"]),
+            "skipped": len(layer_entity_sets[layer]["skipped"]),
+            "total_rows_read": metrics["total_rows_read"],
+            "total_rows_written": metrics["total_rows_written"],
+            "total_bytes": metrics["total_bytes"],
+            "total_duration": round(metrics["total_duration"], 2),
+            "avg_duration": round(sum(success_durations) / len(success_durations), 2) if success_durations else 0,
+            "unique_entities": len(layer_entity_sets[layer]["succeeded"] | layer_entity_sets[layer]["failed"] | layer_entity_sets[layer]["skipped"]),
+        }
+
+    throughput_rows = [row for row in latest_rows if str(row.get("Status") or "").lower() == "succeeded"]
+    total_rows = sum(_int(row.get("RowsRead")) for row in throughput_rows)
+    total_bytes = sum(_int(row.get("BytesTransferred")) for row in throughput_rows)
+    total_duration = sum(float(row.get("DurationSeconds") or 0) for row in throughput_rows)
+    throughput = {
+        "rows_per_sec": round(total_rows / total_duration, 1) if total_duration else 0,
+        "bytes_per_sec": round(total_bytes / total_duration, 1) if total_duration else 0,
+    }
+
+    error_counts: dict[str, int] = {}
+    load_type_counts: dict[str, dict] = {}
+    extraction_method_counts: dict[str, dict] = {}
+    for row in latest_rows:
+        status = str(row.get("Status") or "").lower()
+        if status == "failed":
+            error_type = str(row.get("ErrorType") or "other")
+            error_counts[error_type] = error_counts.get(error_type, 0) + 1
+        if status == "succeeded":
+            load_type = str(row.get("LoadType") or "unknown")
+            lt = load_type_counts.setdefault(load_type, {"LoadType": load_type, "cnt": 0, "total_rows": 0})
+            lt["cnt"] += 1
+            lt["total_rows"] += _int(row.get("RowsRead"))
+            method = str(row.get("ExtractionMethod") or "unknown")
+            em = extraction_method_counts.setdefault(method, {"method": method, "count": 0, "totalRows": 0})
+            em["count"] += 1
+            em["totalRows"] += _int(row.get("RowsRead"))
+
+    error_breakdown = [
+        {"ErrorType": key, "cnt": value}
+        for key, value in sorted(error_counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+    load_type_breakdown = list(load_type_counts.values())
+    extraction_methods = sorted(
+        extraction_method_counts.values(),
+        key=lambda row: (-row["count"], row["method"]),
+    )
+    dominant_method = extraction_methods[0]["method"] if extraction_methods else "unknown"
+
+    return {
+        "scopeEntities": scope_entities,
+        "scopedEntityIds": scoped_entity_ids,
+        "latestRows": latest_rows,
+        "rowLookup": row_lookup,
+        "layers": layers,
+        "bySource": sorted(by_source_totals.values(), key=lambda row: row["source"]),
+        "bySourceByLayer": sorted(by_source_layer_map.values(), key=lambda row: (row["source"], row["layer"])),
+        "entitySummary": entity_summary,
+        "throughput": throughput,
+        "errorBreakdown": error_breakdown,
+        "loadTypeBreakdown": load_type_breakdown,
+        "extractionMethods": extraction_methods,
+        "dominantExtractionMethod": dominant_method,
+    }
+
+
 # ---------------------------------------------------------------------------
 # GET /api/lmc/sources — Fast source list for launch panel
 # ---------------------------------------------------------------------------
@@ -313,103 +621,15 @@ def get_lmc_progress(params: dict) -> dict:
         "SELECT COUNT(*) FROM lz_entities WHERE IsActive = 1"
     )
 
-    # Per-layer counts from task_log (THE source of truth)
-    layer_stats = _safe_query(
-        "SELECT Layer, Status, "
-        "  COUNT(*) AS cnt, "
-        "  COUNT(DISTINCT EntityId) AS unique_entities, "
-        "  SUM(RowsRead) AS total_rows_read, "
-        "  SUM(RowsWritten) AS total_rows_written, "
-        "  SUM(BytesTransferred) AS total_bytes, "
-        "  ROUND(SUM(DurationSeconds), 2) AS total_duration, "
-        "  ROUND(AVG(DurationSeconds), 2) AS avg_duration "
-        "FROM engine_task_log WHERE RunId = ? "
-        "GROUP BY Layer, Status ORDER BY Layer, Status",
-        (run_id,),
-    )
-
-    # Build per-layer summary
-    layers = {}
-    for row in layer_stats:
-        layer = row["Layer"]
-        if layer not in layers:
-            layers[layer] = {
-                "succeeded": 0, "failed": 0, "skipped": 0,
-                "total_rows_read": 0, "total_rows_written": 0,
-                "total_bytes": 0, "total_duration": 0,
-                "avg_duration": 0, "unique_entities": 0,
-            }
-        status_key = row["Status"]
-        if status_key in ("succeeded", "failed", "skipped"):
-            layers[layer][status_key] = _int(row["unique_entities"])
-        layers[layer]["total_rows_read"] += _int(row["total_rows_read"])
-        layers[layer]["total_rows_written"] += _int(row["total_rows_written"])
-        layers[layer]["total_bytes"] += _int(row["total_bytes"])
-        layers[layer]["total_duration"] += float(row["total_duration"] or 0)
-        if status_key == "succeeded":
-            layers[layer]["avg_duration"] = float(row["avg_duration"] or 0)
-            layers[layer]["unique_entities"] = _int(row["unique_entities"])
-
-    # Per-source progress for this run (aggregated across layers for backward compat)
-    by_source = _safe_query(
-        "SELECT ds.Name AS source, "
-        "  COUNT(DISTINCT le.LandingzoneEntityId) AS total_entities, "
-        "  COUNT(DISTINCT CASE WHEN etl.Status = 'succeeded' THEN etl.EntityId END) AS succeeded, "
-        "  COUNT(DISTINCT CASE WHEN etl.Status = 'failed' THEN etl.EntityId END) AS failed, "
-        "  COUNT(DISTINCT CASE WHEN etl.Status = 'skipped' THEN etl.EntityId END) AS skipped, "
-        "  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.RowsRead ELSE 0 END) AS rows_read, "
-        "  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.BytesTransferred ELSE 0 END) AS bytes "
-        "FROM lz_entities le "
-        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
-        "LEFT JOIN engine_task_log etl ON le.LandingzoneEntityId = etl.EntityId "
-        "  AND etl.RunId = ? "
-        "WHERE le.IsActive = 1 "
-        "GROUP BY ds.Name ORDER BY ds.Name",
-        (run_id,),
-    )
-
-    # Per-source PER-LAYER progress — the matrix truth source
-    by_source_layer = _safe_query(
-        "SELECT ds.Name AS source, etl.Layer AS layer, "
-        "  COUNT(DISTINCT CASE WHEN etl.Status = 'succeeded' THEN etl.EntityId END) AS succeeded, "
-        "  COUNT(DISTINCT CASE WHEN etl.Status = 'failed' THEN etl.EntityId END) AS failed, "
-        "  COUNT(DISTINCT CASE WHEN etl.Status = 'skipped' THEN etl.EntityId END) AS skipped, "
-        "  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.RowsRead ELSE 0 END) AS rows_read, "
-        "  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.BytesTransferred ELSE 0 END) AS bytes "
-        "FROM engine_task_log etl "
-        "JOIN lz_entities le ON le.LandingzoneEntityId = etl.EntityId "
-        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
-        "WHERE etl.RunId = ? AND etl.Layer IS NOT NULL "
-        "GROUP BY ds.Name, etl.Layer ORDER BY ds.Name, etl.Layer",
-        (run_id,),
-    )
+    run_truth = _summarize_run_truth(run_meta)
+    layers = run_truth["layers"]
+    by_source = run_truth["bySource"]
+    by_source_layer = run_truth["bySourceByLayer"]
 
     # Error type breakdown
-    error_breakdown = _safe_query(
-        "SELECT ErrorType, COUNT(*) AS cnt "
-        "FROM engine_task_log "
-        "WHERE RunId = ? AND Status = 'failed' AND ErrorType != '' "
-        "GROUP BY ErrorType ORDER BY cnt DESC",
-        (run_id,),
-    )
-
-    # Load type breakdown (incremental vs full)
-    load_type_breakdown = _safe_query(
-        "SELECT LoadType, COUNT(*) AS cnt, "
-        "  SUM(RowsRead) AS total_rows "
-        "FROM engine_task_log "
-        "WHERE RunId = ? AND Status = 'succeeded' "
-        "GROUP BY LoadType",
-        (run_id,),
-    )
-
-    # Throughput: rows per second for succeeded entities
-    throughput = _safe_query(
-        "SELECT ROUND(SUM(RowsRead) * 1.0 / NULLIF(SUM(DurationSeconds), 0), 1) AS rows_per_sec, "
-        "  ROUND(SUM(BytesTransferred) * 1.0 / NULLIF(SUM(DurationSeconds), 0), 1) AS bytes_per_sec "
-        "FROM engine_task_log WHERE RunId = ? AND Status = 'succeeded'",
-        (run_id,),
-    )
+    error_breakdown = run_truth["errorBreakdown"]
+    load_type_breakdown = run_truth["loadTypeBreakdown"]
+    throughput = run_truth["throughput"]
 
     # Physical verification — LAZY: only when ?include_physical=1 is passed.
     # These LOWER() joins on lakehouse_row_counts are expensive (~3.5s each)
@@ -519,7 +739,7 @@ def get_lmc_progress(params: dict) -> dict:
         "bySourceByLayer": by_source_layer,
         "errorBreakdown": error_breakdown,
         "loadTypeBreakdown": load_type_breakdown,
-        "throughput": throughput[0] if throughput else {"rows_per_sec": 0, "bytes_per_sec": 0},
+        "throughput": throughput,
         "verification": verification[0] if verification else {
             "total_active": 0, "lz_verified": 0, "brz_verified": 0,
             "slv_verified": 0, "lz_last_scan": None, "brz_last_scan": None,
@@ -550,51 +770,11 @@ def get_lmc_runs(params: dict) -> dict:
         (str(limit),),
     )
 
-    run_ids = [r.get("RunId") for r in runs if r.get("RunId")]
-    tasklog_agg: dict[str, dict] = {}
-    extraction_method_by_run: dict[str, str] = {}
-
-    if run_ids:
-        placeholders = ",".join("?" for _ in run_ids)
-        agg_rows = _safe_query(
-            f"SELECT etl.RunId, "
-            f"  COUNT(DISTINCT CASE WHEN etl.Status = 'succeeded' THEN etl.EntityId END) AS actualSucceeded, "
-            f"  COUNT(DISTINCT CASE WHEN etl.Status = 'failed' THEN etl.EntityId END) AS actualFailed, "
-            f"  COUNT(DISTINCT CASE WHEN etl.Status = 'skipped' THEN etl.EntityId END) AS actualSkipped, "
-            f"  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.RowsRead ELSE 0 END) AS totalRowsRead, "
-            f"  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.BytesTransferred ELSE 0 END) AS totalBytes, "
-            f"  COUNT(*) AS totalTaskLogs "
-            f"FROM engine_task_log etl "
-            f"WHERE etl.RunId IN ({placeholders}) "
-            f"GROUP BY etl.RunId",
-            tuple(run_ids),
-        )
-        tasklog_agg = {r["RunId"]: r for r in agg_rows}
-
-        method_rows = _safe_query(
-            f"WITH method_counts AS ("
-            f"  SELECT RunId, COALESCE(NULLIF(ExtractionMethod, ''), 'unknown') AS extraction_method, "
-            f"         COUNT(*) AS cnt "
-            f"  FROM engine_task_log "
-            f"  WHERE RunId IN ({placeholders}) "
-            f"    AND COALESCE(NULLIF(ExtractionMethod, ''), 'unknown') != 'unknown' "
-            f"  GROUP BY RunId, COALESCE(NULLIF(ExtractionMethod, ''), 'unknown')"
-            f"), ranked AS ("
-            f"  SELECT RunId, extraction_method, "
-            f"         ROW_NUMBER() OVER (PARTITION BY RunId ORDER BY cnt DESC, extraction_method ASC) AS rn "
-            f"  FROM method_counts"
-            f") "
-            f"SELECT RunId, extraction_method FROM ranked WHERE rn = 1",
-            tuple(run_ids),
-        )
-        extraction_method_by_run = {
-            r["RunId"]: r.get("extraction_method") or "unknown"
-            for r in method_rows
-        }
-
     mapped_runs = []
     for r in runs:
-        agg = tasklog_agg.get(r.get("RunId"), {})
+        run_truth = _summarize_run_truth(r)
+        entity_summary = run_truth["entitySummary"]
+        latest_rows = run_truth["latestRows"]
         mapped_runs.append({
             **r,
             "runId": r.get("RunId", ""),
@@ -607,13 +787,13 @@ def get_lmc_runs(params: dict) -> dict:
             "startedAt": r.get("StartedAt"),
             "endedAt": r.get("EndedAt"),
             "totalDurationSeconds": float(r.get("TotalDurationSeconds") or 0),
-            "succeeded": _int(agg.get("actualSucceeded", r.get("SucceededEntities"))),
-            "failed": _int(agg.get("actualFailed", r.get("FailedEntities"))),
-            "skipped": _int(agg.get("actualSkipped", r.get("SkippedEntities"))),
-            "totalRowsRead": _int(agg.get("totalRowsRead", r.get("TotalRowsRead"))),
-            "totalBytes": _int(agg.get("totalBytes", r.get("TotalBytesTransferred"))),
-            "totalTaskLogs": _int(agg.get("totalTaskLogs")),
-            "extractionMethod": extraction_method_by_run.get(r.get("RunId"), "unknown"),
+            "succeeded": entity_summary["succeeded"],
+            "failed": entity_summary["failed"],
+            "skipped": entity_summary["skipped"],
+            "totalRowsRead": sum(_int(row.get("RowsRead")) for row in latest_rows if str(row.get("Status") or "").lower() == "succeeded"),
+            "totalBytes": sum(_int(row.get("BytesTransferred")) for row in latest_rows if str(row.get("Status") or "").lower() == "succeeded"),
+            "totalTaskLogs": len(latest_rows),
+            "extractionMethod": run_truth["dominantExtractionMethod"],
             "sourceFilter": _split_csv(r.get("SourceFilter")),
             "entityFilter": _parse_entity_filter(r.get("EntityFilter")),
             "resolvedEntityCount": _int(r.get("ResolvedEntityCount", r.get("TotalEntities"))),
@@ -642,91 +822,82 @@ def get_lmc_run_detail(params: dict) -> dict:
         raise HttpError(f"Run {run_id} not found", 404)
     run_meta = run_rows[0]
 
-    # Per-layer per-source breakdown
-    layer_source = _safe_query(
-        "SELECT etl.Layer, ds.Name AS source, "
-        "  COUNT(DISTINCT CASE WHEN etl.Status = 'succeeded' THEN etl.EntityId END) AS succeeded, "
-        "  COUNT(DISTINCT CASE WHEN etl.Status = 'failed' THEN etl.EntityId END) AS failed, "
-        "  COUNT(DISTINCT CASE WHEN etl.Status = 'skipped' THEN etl.EntityId END) AS skipped, "
-        "  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.RowsRead ELSE 0 END) AS rows_read, "
-        "  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.RowsWritten ELSE 0 END) AS rows_written, "
-        "  SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.BytesTransferred ELSE 0 END) AS bytes, "
-        "  ROUND(SUM(CASE WHEN etl.Status = 'succeeded' THEN etl.DurationSeconds ELSE 0 END), 2) AS duration "
-        "FROM engine_task_log etl "
-        "JOIN lz_entities le ON etl.EntityId = le.LandingzoneEntityId "
-        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
-        "WHERE etl.RunId = ? "
-        "GROUP BY etl.Layer, ds.Name "
-        "ORDER BY etl.Layer, ds.Name",
-        (run_id,),
-    )
+    run_truth = _summarize_run_truth(run_meta)
+    latest_rows = run_truth["latestRows"]
+    source_name_by_id = {
+        int(row.get("DataSourceId") or 0): row.get("Name") or ""
+        for row in cpdb.get_source_config()
+        if row.get("DataSourceId") is not None
+    }
+    layer_source = []
+    for row in run_truth["bySourceByLayer"]:
+        rows_written = 0
+        duration = 0.0
+        for task in latest_rows:
+            if str(task.get("Layer") or "").lower() != row["layer"]:
+                continue
+            if str(task.get("Status") or "").lower() != "succeeded":
+                continue
+            if source_name_by_id.get(_int(task.get("DataSourceId"))) != row["source"]:
+                continue
+            rows_written += _int(task.get("RowsWritten"))
+            duration += float(task.get("DurationSeconds") or 0)
+        layer_source.append({
+            **row,
+            "rows_written": rows_written,
+            "duration": round(duration, 2),
+        })
+    layer_source.sort(key=lambda entry: (entry["layer"], entry["source"]))
 
-    # Failed entities with error detail
-    failures = _safe_query(
-        "SELECT etl.EntityId, etl.Layer, etl.SourceTable, etl.ErrorType, "
-        "  etl.ErrorMessage, etl.ErrorSuggestion, etl.DurationSeconds, "
-        "  etl.LoadType, etl.ExtractionMethod, etl.created_at "
-        "FROM engine_task_log etl "
-        "WHERE etl.RunId = ? AND etl.Status = 'failed' "
-        "ORDER BY etl.created_at DESC",
-        (run_id,),
-    )
+    failures = [
+        {
+            "EntityId": _int(row.get("LandingzoneEntityId")),
+            "Layer": row.get("Layer"),
+            "SourceTable": row.get("SourceTable"),
+            "ErrorType": row.get("ErrorType"),
+            "ErrorMessage": row.get("ErrorMessage"),
+            "ErrorSuggestion": row.get("ErrorSuggestion"),
+            "DurationSeconds": row.get("DurationSeconds"),
+            "LoadType": row.get("LoadType"),
+            "ExtractionMethod": row.get("ExtractionMethod"),
+            "created_at": row.get("LoadEndDateTime"),
+        }
+        for row in latest_rows
+        if str(row.get("Status") or "").lower() == "failed"
+    ]
 
-    # Load type breakdown
-    load_types = _safe_query(
-        "SELECT LoadType, Layer, COUNT(*) AS cnt, "
-        "  SUM(RowsRead) AS total_rows, "
-        "  SUM(BytesTransferred) AS total_bytes "
-        "FROM engine_task_log "
-        "WHERE RunId = ? AND Status = 'succeeded' "
-        "GROUP BY LoadType, Layer",
-        (run_id,),
-    )
+    load_types = [
+        {"load_type": row["LoadType"], "count": _int(row["cnt"])}
+        for row in run_truth["loadTypeBreakdown"]
+    ]
+    watermark_updates = [
+        {
+            "EntityId": _int(row.get("LandingzoneEntityId")),
+            "SourceTable": row.get("SourceTable"),
+            "WatermarkColumn": row.get("WatermarkColumn"),
+            "WatermarkBefore": row.get("WatermarkBefore"),
+            "WatermarkAfter": row.get("WatermarkAfter"),
+            "Layer": row.get("Layer"),
+        }
+        for row in latest_rows
+        if row.get("WatermarkAfter")
+    ]
 
-    # Watermark changes in this run
-    watermark_updates = _safe_query(
-        "SELECT EntityId, SourceTable, WatermarkColumn, "
-        "  WatermarkBefore, WatermarkAfter, Layer "
-        "FROM engine_task_log "
-        "WHERE RunId = ? AND WatermarkAfter IS NOT NULL AND WatermarkAfter != '' "
-        "ORDER BY created_at DESC",
-        (run_id,),
-    )
-
-    # Per-entity results with extraction method and completion time
-    entity_results = _safe_query(
-        "SELECT etl.EntityId, etl.Layer, etl.Status, etl.SourceTable, "
-        "  etl.RowsRead, etl.RowsWritten, etl.BytesTransferred, "
-        "  etl.DurationSeconds, etl.LoadType, "
-        "  etl.ExtractionMethod, etl.created_at "
-        "FROM engine_task_log etl "
-        "WHERE etl.RunId = ? "
-        "ORDER BY etl.created_at DESC",
-        (run_id,),
-    )
     entity_results_mapped = [{
-        "entityId": r["EntityId"],
-        "layer": r["Layer"],
-        "status": r["Status"],
-        "sourceTable": r["SourceTable"],
-        "rowsRead": _int(r["RowsRead"]),
-        "rowsWritten": _int(r["RowsWritten"]),
-        "bytesTransferred": _int(r["BytesTransferred"]),
-        "durationSeconds": float(r["DurationSeconds"] or 0),
-        "loadType": r["LoadType"],
-        "extractionMethod": r["ExtractionMethod"] or "unknown",
-        "completedAt": r["created_at"],
-    } for r in entity_results]
+        "entityId": _int(r.get("LandingzoneEntityId")),
+        "layer": r.get("Layer"),
+        "status": r.get("Status"),
+        "sourceTable": r.get("SourceTable"),
+        "rowsRead": _int(r.get("RowsRead")),
+        "rowsWritten": _int(r.get("RowsWritten")),
+        "bytesTransferred": _int(r.get("BytesTransferred")),
+        "durationSeconds": float(r.get("DurationSeconds") or 0),
+        "loadType": r.get("LoadType"),
+        "extractionMethod": r.get("ExtractionMethod") or "unknown",
+        "completedAt": r.get("LoadEndDateTime"),
+    } for r in latest_rows]
 
-    # Extraction method breakdown for this run
-    extraction_methods = _safe_query(
-        "SELECT ExtractionMethod, COUNT(*) AS cnt, "
-        "  SUM(RowsRead) AS total_rows "
-        "FROM engine_task_log "
-        "WHERE RunId = ? AND Status = 'succeeded' "
-        "GROUP BY ExtractionMethod ORDER BY cnt DESC",
-        (run_id,),
-    )
+    extraction_methods = run_truth["extractionMethods"]
 
     # Timeline: entity completions over time (for progress chart)
     timeline = _safe_query(
@@ -780,15 +951,15 @@ def get_lmc_run_detail(params: dict) -> dict:
             "completedAt": f.get("created_at"),
         } for f in failures],
         "entityResults": entity_results_mapped,
-        "extractionMethods": [{
-            "method": r["ExtractionMethod"] or "unknown",
-            "count": _int(r["cnt"]),
-            "totalRows": _int(r["total_rows"]),
-        } for r in extraction_methods],
+        "extractionMethods": extraction_methods,
         "selfHeal": self_heal,
         "loadTypes": load_types,
-        "watermarkUpdates": watermark_updates,
-        "timeline": timeline,
+        "watermarkUpdates": len(watermark_updates),
+        "timeline": [{
+            "ts": row["minute"],
+            "event": f"{row['Layer']}:{row['Status']}",
+            "detail": f"{_int(row['cnt'])} entries, {_int(row['rows_read'])} rows",
+        } for row in timeline],
         "serverTime": _utcnow_iso(),
     }
 
@@ -980,99 +1151,111 @@ def get_lmc_run_entities(params: dict) -> dict:
             "serverTime": _utcnow_iso(),
         }
 
-    # Build WHERE clauses
-    wheres = ["etl.RunId = ?"]
-    query_params: list = [run_id]
-
-    source = params.get("source")
-    if source:
-        wheres.append("ds.Name = ?")
-        query_params.append(source)
-
-    layer = params.get("layer")
-    if layer:
-        wheres.append("LOWER(etl.Layer) = LOWER(?)")
-        query_params.append(layer)
-
-    status = params.get("status")
-    if status:
-        wheres.append("etl.Status = ?")
-        query_params.append(status)
-
-    search = params.get("search")
-    if search:
-        wheres.append("etl.SourceTable LIKE ?")
-        query_params.append(f"%{search}%")
-
-    where_clause = " AND ".join(wheres)
-
-    # Sort
-    allowed_sorts = {
-        "created_at": "etl.created_at",
-        "rows": "etl.RowsRead",
-        "duration": "etl.DurationSeconds",
-        "table": "etl.SourceTable",
-        "bytes": "etl.BytesTransferred",
-        "status": "etl.Status",
-        "layer": "etl.Layer",
-    }
-    sort_col = allowed_sorts.get(params.get("sort", "created_at"), "etl.created_at")
-    order = "ASC" if params.get("order", "desc").lower() == "asc" else "DESC"
+    source_filter = str(params.get("source") or "").strip()
+    layer_filter = str(params.get("layer") or "").strip().lower()
+    status_filter = str(params.get("status") or "").strip().lower()
+    search = str(params.get("search") or "").strip().lower()
 
     limit = min(_int(params.get("limit", 200)), 1000)
     offset = _int(params.get("offset", 0))
+    order = "asc" if str(params.get("order", "desc")).lower() == "asc" else "desc"
+    sort_key = str(params.get("sort", "created_at"))
 
-    # Count total matching
-    count_sql = (
-        "SELECT COUNT(*) AS cnt "
-        "FROM engine_task_log etl "
-        "JOIN lz_entities le ON etl.EntityId = le.LandingzoneEntityId "
-        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
-        f"WHERE {where_clause}"
+    source_lookup = {
+        int(row.get("DataSourceId") or 0): row
+        for row in cpdb.get_source_config()
+        if row.get("DataSourceId") is not None
+    }
+    registered_lookup = {
+        _int(row.get("LandingzoneEntityId")): row
+        for row in cpdb.get_registered_entities_full()
+        if row.get("LandingzoneEntityId") is not None
+    }
+    physical_rows = _safe_query(
+        "SELECT lakehouse, LOWER(schema_name) AS schema_name, LOWER(table_name) AS table_name, row_count, scanned_at "
+        "FROM lakehouse_row_counts"
     )
-    total = _safe_scalar(count_sql, tuple(query_params))
+    physical_lookup = {
+        (str(row.get("lakehouse") or ""), str(row.get("schema_name") or ""), str(row.get("table_name") or "")): row
+        for row in physical_rows
+    }
 
-    # Fetch entities with physical verification from lakehouse_row_counts
-    query_params_with_limit = query_params + [str(limit), str(offset)]
-    entities = _safe_query(
-        "SELECT etl.id, etl.EntityId, etl.Layer, etl.Status, "
-        "  etl.SourceServer, etl.SourceDatabase, etl.SourceTable, "
-        "  etl.RowsRead, etl.RowsWritten, etl.BytesTransferred, "
-        "  etl.DurationSeconds, etl.LoadType, "
-        "  etl.WatermarkColumn, etl.WatermarkBefore, etl.WatermarkAfter, "
-        "  etl.ErrorType, etl.ErrorMessage, etl.ErrorSuggestion, "
-        "  etl.SourceQuery, etl.created_at, "
-        "  ds.Name AS source, "
-        "  lrc_lz.row_count AS lz_physical_rows, "
-        "  lrc_lz.scanned_at AS lz_scanned_at, "
-        "  lrc_br.row_count AS brz_physical_rows, "
-        "  lrc_br.scanned_at AS brz_scanned_at, "
-        "  lrc_sv.row_count AS slv_physical_rows, "
-        "  lrc_sv.scanned_at AS slv_scanned_at "
-        "FROM engine_task_log etl "
-        "JOIN lz_entities le ON etl.EntityId = le.LandingzoneEntityId "
-        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
-        "LEFT JOIN lakehouse_row_counts lrc_lz "
-        "  ON LOWER(lrc_lz.schema_name) = LOWER(le.FilePath) "
-        "  AND LOWER(lrc_lz.table_name) = LOWER(le.SourceName) "
-        "  AND lrc_lz.lakehouse = 'LH_DATA_LANDINGZONE' "
-        "LEFT JOIN lakehouse_row_counts lrc_br "
-        "  ON LOWER(lrc_br.schema_name) = LOWER(le.FilePath) "
-        "  AND LOWER(lrc_br.table_name) = LOWER(le.SourceName) "
-        "  AND lrc_br.lakehouse = 'LH_BRONZE_LAYER' "
-        "LEFT JOIN lakehouse_row_counts lrc_sv "
-        "  ON LOWER(lrc_sv.schema_name) = LOWER(le.FilePath) "
-        "  AND LOWER(lrc_sv.table_name) = LOWER(le.SourceName) "
-        "  AND lrc_sv.lakehouse = 'LH_SILVER_LAYER' "
-        f"WHERE {where_clause} "
-        f"ORDER BY {sort_col} {order} "
-        "LIMIT ? OFFSET ?",
-        tuple(query_params_with_limit),
-    )
+    entities = []
+    for row in _get_run_task_rows(run_id):
+        entity_id = _int(row.get("LandingzoneEntityId"))
+        ds = source_lookup.get(_int(row.get("DataSourceId")), {})
+        source_name = str(ds.get("Name") or "")
+        if source_filter and source_name != source_filter:
+            continue
+
+        layer_name = str(row.get("Layer") or "").lower()
+        if layer_filter and layer_name != layer_filter:
+            continue
+
+        status_name = str(row.get("Status") or "").lower()
+        if status_filter and status_name != status_filter:
+            continue
+
+        schema_name = str(row.get("SourceSchema") or "").strip()
+        table_name = str(row.get("SourceName") or row.get("SourceTable") or "").strip()
+        search_target = f"{schema_name}.{table_name}".lower()
+        if search and search not in search_target:
+            continue
+
+        entity_meta = registered_lookup.get(entity_id, {})
+        namespace = str(entity_meta.get("FilePath") or schema_name or "").lower()
+        physical_table_name = str(entity_meta.get("SourceName") or table_name or "").lower()
+        lz_physical = physical_lookup.get(("LH_DATA_LANDINGZONE", namespace, physical_table_name), {})
+        brz_physical = physical_lookup.get(("LH_BRONZE_LAYER", namespace, physical_table_name), {})
+        slv_physical = physical_lookup.get(("LH_SILVER_LAYER", namespace, physical_table_name), {})
+
+        entities.append({
+            "id": _int(row.get("id")),
+            "EntityId": entity_id,
+            "Layer": row.get("Layer"),
+            "Status": row.get("Status"),
+            "SourceServer": row.get("SourceServer") or entity_meta.get("ServerName"),
+            "SourceDatabase": row.get("SourceDatabase") or entity_meta.get("DatabaseName"),
+            "SourceTable": table_name,
+            "RowsRead": _int(row.get("RowsRead")),
+            "RowsWritten": _int(row.get("RowsWritten")),
+            "BytesTransferred": _int(row.get("BytesTransferred")),
+            "DurationSeconds": float(row.get("DurationSeconds") or 0),
+            "LoadType": row.get("LoadType"),
+            "WatermarkColumn": row.get("WatermarkColumn"),
+            "WatermarkBefore": row.get("WatermarkBefore"),
+            "WatermarkAfter": row.get("WatermarkAfter"),
+            "ErrorType": row.get("ErrorType"),
+            "ErrorMessage": row.get("ErrorMessage"),
+            "ErrorSuggestion": row.get("ErrorSuggestion"),
+            "SourceQuery": row.get("SourceQuery"),
+            "created_at": row.get("LoadEndDateTime"),
+            "source": source_name,
+            "lz_physical_rows": lz_physical.get("row_count"),
+            "lz_scanned_at": lz_physical.get("scanned_at"),
+            "brz_physical_rows": brz_physical.get("row_count"),
+            "brz_scanned_at": brz_physical.get("scanned_at"),
+            "slv_physical_rows": slv_physical.get("row_count"),
+            "slv_scanned_at": slv_physical.get("scanned_at"),
+        })
+
+    sort_value_by_key = {
+        "created_at": lambda row: str(row.get("created_at") or ""),
+        "rows": lambda row: _int(row.get("RowsRead")),
+        "duration": lambda row: float(row.get("DurationSeconds") or 0),
+        "table": lambda row: str(row.get("SourceTable") or ""),
+        "bytes": lambda row: _int(row.get("BytesTransferred")),
+        "status": lambda row: str(row.get("Status") or ""),
+        "layer": lambda row: str(row.get("Layer") or ""),
+    }
+    key_fn = sort_value_by_key.get(sort_key, sort_value_by_key["created_at"])
+    entities.sort(key=key_fn, reverse=(order != "asc"))
+    total = len(entities)
+    entities = entities[offset: offset + limit]
 
     return {
         "entities": entities,
-        "total": _int(total),
+        "total": total,
         "limit": limit,
         "offset": offset,
         "serverTime": _utcnow_iso(),
@@ -1119,29 +1302,51 @@ def get_lmc_entity_history(params: dict) -> dict:
         (str(eid),),
     )
 
-    # All task_log entries for this entity (across all runs)
     limit = min(_int(params.get("limit", 50)), 200)
     history = _safe_query(
-        "SELECT etl.id, etl.RunId, etl.Layer, etl.Status, "
-        "  etl.SourceTable, etl.RowsRead, etl.RowsWritten, "
-        "  etl.BytesTransferred, etl.DurationSeconds, etl.LoadType, "
-        "  etl.WatermarkColumn, etl.WatermarkBefore, etl.WatermarkAfter, "
-        "  etl.ErrorType, etl.ErrorMessage, etl.ErrorSuggestion, "
-        "  etl.SourceQuery, etl.created_at, "
-        "  er.Status AS runStatus, er.StartedAt AS runStartedAt "
-        "FROM engine_task_log etl "
-        "LEFT JOIN engine_runs er ON etl.RunId = er.RunId "
-        "WHERE etl.EntityId = ? "
-        "ORDER BY etl.created_at DESC LIMIT ?",
+        f"""
+        {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
+        SELECT
+            t.id,
+            mapped.RunId,
+            mapped.Layer,
+            mapped.Status,
+            mapped.SourceTable,
+            mapped.RowsRead,
+            mapped.RowsWritten,
+            t.BytesTransferred,
+            t.DurationSeconds,
+            t.LoadType,
+            t.WatermarkColumn,
+            t.WatermarkBefore,
+            t.WatermarkAfter,
+            t.ErrorType,
+            t.ErrorMessage,
+            t.ErrorSuggestion,
+            t.SourceQuery,
+            COALESCE(mapped.LoadEndDateTime, t.created_at) AS created_at,
+            er.Status AS runStatus,
+            er.StartedAt AS runStartedAt
+        FROM mapped
+        JOIN engine_task_log t ON t.id = mapped.id
+        LEFT JOIN engine_runs er ON mapped.RunId = er.RunId
+        WHERE mapped.LandingzoneEntityId = ?
+        ORDER BY COALESCE(mapped.LoadEndDateTime, t.created_at) DESC, t.id DESC
+        LIMIT ?
+        """,
         (str(eid), str(limit)),
     )
 
-    # Retry detection: runs where this entity has >1 entry per layer
     retries = _safe_query(
-        "SELECT RunId, Layer, COUNT(*) AS attempts "
-        "FROM engine_task_log "
-        "WHERE EntityId = ? "
-        "GROUP BY RunId, Layer HAVING COUNT(*) > 1",
+        f"""
+        {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
+        SELECT mapped.RunId, mapped.Layer, COUNT(*) AS attempts
+        FROM mapped
+        WHERE mapped.LandingzoneEntityId = ?
+        GROUP BY mapped.RunId, mapped.Layer
+        HAVING COUNT(*) > 1
+        ORDER BY mapped.RunId DESC, mapped.Layer
+        """,
         (str(eid),),
     )
 

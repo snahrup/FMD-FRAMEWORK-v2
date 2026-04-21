@@ -15,6 +15,15 @@ from dashboard.app.api.router import route, HttpError
 log = logging.getLogger("fmd.routes.scd_audit")
 
 
+_SILVER_LATEST_IDS_SQL = """
+    SELECT MAX(id) AS max_id
+    FROM mapped
+    WHERE Layer = 'silver'
+      AND LandingzoneEntityId IS NOT NULL
+    GROUP BY LandingzoneEntityId
+"""
+
+
 # ---------------------------------------------------------------------------
 # GET /api/scd/summary
 # ---------------------------------------------------------------------------
@@ -50,31 +59,26 @@ def get_scd_summary(params: dict) -> dict:
 
     conn = cpdb._get_conn()
     try:
-        # Subquery: latest Silver run per entity
-        latest_ids_sql = """
-            SELECT MAX(id) AS max_id
-            FROM engine_task_log
-            WHERE Layer = 'silver'
-            GROUP BY EntityId
-        """
-
         where_parts: list[str] = []
         bind: list = []
 
         if source_filter:
-            where_parts.append("ds.Namespace = ?")
-            bind.append(source_filter)
+            where_parts.append(
+                "(LOWER(ds.Namespace) = LOWER(?) OR LOWER(ds.Name) = LOWER(?) OR LOWER(COALESCE(ds.DisplayName, '')) = LOWER(?))"
+            )
+            bind.extend([source_filter, source_filter, source_filter])
 
         where_sql = ("AND " + " AND ".join(where_parts)) if where_parts else ""
 
         # Total count
         total_row = conn.execute(
             f"""
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
             SELECT COUNT(*) AS cnt
-            FROM engine_task_log etl
-            JOIN lz_entities e ON etl.EntityId = e.LandingzoneEntityId
+            FROM mapped etl
+            JOIN lz_entities e ON etl.LandingzoneEntityId = e.LandingzoneEntityId
             JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
-            WHERE etl.id IN ({latest_ids_sql})
+            WHERE etl.id IN ({_SILVER_LATEST_IDS_SQL})
             {where_sql}
             """,
             bind,
@@ -84,7 +88,8 @@ def get_scd_summary(params: dict) -> dict:
         # Paginated items
         rows = conn.execute(
             f"""
-            SELECT etl.EntityId,
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
+            SELECT etl.LandingzoneEntityId AS EntityId,
                    e.SourceName       AS entity_name,
                    ds.Namespace       AS source,
                    etl.RowsRead,
@@ -92,13 +97,13 @@ def get_scd_summary(params: dict) -> dict:
                    etl.Status,
                    etl.LoadType,
                    etl.DurationSeconds,
-                   etl.created_at
-            FROM engine_task_log etl
-            JOIN lz_entities e ON etl.EntityId = e.LandingzoneEntityId
+                   etl.LoadEndDateTime AS created_at
+            FROM mapped etl
+            JOIN lz_entities e ON etl.LandingzoneEntityId = e.LandingzoneEntityId
             JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
-            WHERE etl.id IN ({latest_ids_sql})
+            WHERE etl.id IN ({_SILVER_LATEST_IDS_SQL})
             {where_sql}
-            ORDER BY etl.created_at DESC
+            ORDER BY etl.LoadEndDateTime DESC, etl.id DESC
             LIMIT ? OFFSET ?
             """,
             bind + [limit, offset],
@@ -107,14 +112,15 @@ def get_scd_summary(params: dict) -> dict:
         # KPIs: computed from ALL latest runs (not just current page)
         kpi_row = conn.execute(
             f"""
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
             SELECT COUNT(*)                     AS total_entities,
-                   MAX(etl.created_at)           AS last_run_ts,
+                   MAX(etl.LoadEndDateTime)      AS last_run_ts,
                    SUM(COALESCE(etl.RowsWritten, 0)) AS total_rows_written,
                    SUM(CASE WHEN etl.Status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded_count
-            FROM engine_task_log etl
-            JOIN lz_entities e ON etl.EntityId = e.LandingzoneEntityId
+            FROM mapped etl
+            JOIN lz_entities e ON etl.LandingzoneEntityId = e.LandingzoneEntityId
             JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
-            WHERE etl.id IN ({latest_ids_sql})
+            WHERE etl.id IN ({_SILVER_LATEST_IDS_SQL})
             {where_sql}
             """,
             bind,
@@ -122,10 +128,11 @@ def get_scd_summary(params: dict) -> dict:
 
         # Source list for filter dropdown
         sources = conn.execute(
-            """
+            f"""
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
             SELECT DISTINCT ds.Namespace AS source
-            FROM engine_task_log etl
-            JOIN lz_entities e ON etl.EntityId = e.LandingzoneEntityId
+            FROM mapped etl
+            JOIN lz_entities e ON etl.LandingzoneEntityId = e.LandingzoneEntityId
             JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
             WHERE etl.Layer = 'silver'
             ORDER BY ds.Namespace
@@ -145,7 +152,7 @@ def get_scd_summary(params: dict) -> dict:
         items.append({
             "entityId":        int(r["EntityId"]),
             "entityName":      r["entity_name"] or "",
-            "source":          r["source"] or "",
+            "source":          cpdb._normalize_display_namespace(r["source"]) or "",
             "rowsRead":        reads,
             "rowsWritten":     written,
             "delta":           written - reads,
@@ -160,7 +167,7 @@ def get_scd_summary(params: dict) -> dict:
         "total":   total,
         "limit":   limit,
         "offset":  offset,
-        "sources": [s["source"] for s in sources],
+        "sources": [cpdb._normalize_display_namespace(s["source"]) or s["source"] for s in sources],
         "kpis": {
             "totalEntities":    total_entities,
             "lastRunTimestamp":  kpi_row["last_run_ts"] if kpi_row else None,
@@ -216,12 +223,13 @@ def get_scd_entity_history(params: dict) -> dict:
 
         # Run history
         rows = conn.execute(
-            """
+            f"""
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
             SELECT RunId, RowsRead, RowsWritten, LoadType, Status,
-                   DurationSeconds, created_at
-            FROM engine_task_log
-            WHERE EntityId = ? AND Layer = 'silver'
-            ORDER BY created_at DESC
+                   DurationSeconds, LoadEndDateTime AS created_at
+            FROM mapped
+            WHERE LandingzoneEntityId = ? AND Layer = 'silver'
+            ORDER BY LoadEndDateTime DESC, id DESC
             LIMIT ?
             """,
             (entity_id, limit),
@@ -248,7 +256,7 @@ def get_scd_entity_history(params: dict) -> dict:
     return {
         "entityId":   entity_id,
         "entityName": meta["SourceName"] if meta else "",
-        "source":     meta["source"] if meta else "",
+        "source":     (cpdb._normalize_display_namespace(meta["source"]) if meta else "") or "",
         "runs":       runs,
     }
 
@@ -298,8 +306,9 @@ def get_scd_runs(params: dict) -> dict:
 
         total_row = conn.execute(
             f"""
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
             SELECT COUNT(*) AS cnt
-            FROM engine_task_log etl
+            FROM mapped etl
             {where_sql}
             """,
             bind,
@@ -308,7 +317,8 @@ def get_scd_runs(params: dict) -> dict:
 
         rows = conn.execute(
             f"""
-            SELECT etl.EntityId,
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
+            SELECT etl.LandingzoneEntityId AS EntityId,
                    e.SourceName       AS entity_name,
                    ds.Namespace       AS source,
                    etl.RunId,
@@ -317,12 +327,12 @@ def get_scd_runs(params: dict) -> dict:
                    etl.LoadType,
                    etl.Status,
                    etl.DurationSeconds,
-                   etl.created_at
-            FROM engine_task_log etl
-            JOIN lz_entities e ON etl.EntityId = e.LandingzoneEntityId
+                   etl.LoadEndDateTime AS created_at
+            FROM mapped etl
+            JOIN lz_entities e ON etl.LandingzoneEntityId = e.LandingzoneEntityId
             JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
             {where_sql}
-            ORDER BY etl.created_at DESC
+            ORDER BY etl.LoadEndDateTime DESC, etl.id DESC
             LIMIT ? OFFSET ?
             """,
             bind + [limit, offset],
@@ -338,7 +348,7 @@ def get_scd_runs(params: dict) -> dict:
         items.append({
             "entityId":        int(r["EntityId"]),
             "entityName":      r["entity_name"] or "",
-            "source":          r["source"] or "",
+            "source":          cpdb._normalize_display_namespace(r["source"]) or "",
             "runId":           r["RunId"] or "",
             "rowsRead":        reads,
             "rowsWritten":     written,

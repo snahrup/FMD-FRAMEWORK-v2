@@ -72,6 +72,30 @@ const SOURCE_ICON_MAP: Record<string, string> = {
   M3: "database",
 };
 
+function normalizeTaskStatus(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function isSuccessStatus(value: unknown): boolean {
+  return ["loaded", "complete", "succeeded", "success"].includes(normalizeTaskStatus(value));
+}
+
+function isPendingStatus(value: unknown): boolean {
+  return [
+    "pending",
+    "inprogress",
+    "running",
+    "queued",
+    "extracting",
+    "schema_discovery",
+    "extracted",
+  ].includes(normalizeTaskStatus(value));
+}
+
+function isActiveRunStatus(value: unknown): boolean {
+  return ["inprogress", "running", "notstarted", "queued"].includes(normalizeTaskStatus(value));
+}
+
 // ── Build MatrixData from entity-digest + control-plane responses ──
 
 function buildMatrixData(digest: Record<string, unknown>, controlPlane: Record<string, unknown> | null): MatrixData {
@@ -116,14 +140,14 @@ function buildMatrixData(digest: Record<string, unknown>, controlPlane: Record<s
       const brS = e.bronzeStatus as string || "not_started";
       const slS = e.silverStatus as string || "not_started";
 
-      if (["loaded", "complete", "Succeeded"].includes(lzS)) lzLoaded++;
-      else if (["pending", "InProgress", "running"].includes(lzS)) lzPending++;
+      if (isSuccessStatus(lzS)) lzLoaded++;
+      else if (isPendingStatus(lzS)) lzPending++;
 
-      if (["loaded", "complete", "Succeeded"].includes(brS)) bronzeLoaded++;
-      else if (["pending", "InProgress", "running"].includes(brS)) bronzePending++;
+      if (isSuccessStatus(brS)) bronzeLoaded++;
+      else if (isPendingStatus(brS)) bronzePending++;
 
-      if (["loaded", "complete", "Succeeded"].includes(slS)) silverLoaded++;
-      else if (["pending", "InProgress", "running"].includes(slS)) silverPending++;
+      if (isSuccessStatus(slS)) silverLoaded++;
+      else if (isPendingStatus(slS)) silverPending++;
     }
 
     const layerStatus = (loaded: number, pending: number, total: number): LayerData["status"] => {
@@ -199,11 +223,23 @@ const STATUS_COLORS: Record<string, { bg: string; ring: string; text: string; gl
 
 const PIPELINE_STATUS_COLOR: Record<string, string> = {
   Completed: "text-[#3D7C4F]",
+  Succeeded: "text-[#3D7C4F]",
   InProgress: "text-[#C27A1A]",
+  Running: "text-[#C27A1A]",
   Failed: "text-[#B93A2A]",
   NotStarted: "text-[#78716C]",
   Cancelled: "text-[#78716C]",
+  Aborted: "text-[#78716C]",
+  Interrupted: "text-[#78716C]",
 };
+
+function pipelineStatusColor(status: unknown): string {
+  const normalized = normalizeTaskStatus(status);
+  if (["completed", "succeeded", "success"].includes(normalized)) return "text-[#3D7C4F]";
+  if (isActiveRunStatus(normalized)) return "text-[#C27A1A]";
+  if (normalized === "failed") return "text-[#B93A2A]";
+  return "text-[#78716C]";
+}
 
 function fmtNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
@@ -639,7 +675,7 @@ function HeroStat({
 
 function ActivePipelineBanner({ pipelines }: { pipelines: PipelineRun[] }) {
   const running = pipelines.filter(p =>
-    p.status === "InProgress" || p.status === "NotStarted"
+    isActiveRunStatus(p.status)
   );
   if (running.length === 0) return null;
 
@@ -861,19 +897,19 @@ export default function PipelineMatrix() {
                   <div
                     className={cn(
                       "w-2 h-2 rounded-full",
-                      p.status === "InProgress" && "animate-pulse"
+                      isActiveRunStatus(p.status) && "animate-pulse"
                     )}
                     style={{
                       backgroundColor:
-                        p.status === "Completed" ? "var(--bp-operational)" :
-                        p.status === "InProgress" ? "var(--bp-caution)" :
-                        p.status === "Failed" ? "var(--bp-fault)" : "var(--bp-ink-muted)",
+                        ["completed", "succeeded", "success"].includes(normalizeTaskStatus(p.status)) ? "var(--bp-operational)" :
+                        isActiveRunStatus(p.status) ? "var(--bp-caution)" :
+                        normalizeTaskStatus(p.status) === "failed" ? "var(--bp-fault)" : "var(--bp-ink-muted)",
                     }}
                   />
                   <span className="text-sm" style={{ color: "var(--bp-ink-primary)" }}>{p.name}</span>
                 </div>
                 <div className="flex items-center gap-4 text-xs" style={{ color: "var(--bp-ink-tertiary)" }}>
-                  <span className={PIPELINE_STATUS_COLOR[p.status] || "text-[#78716C]"}>
+                  <span className={PIPELINE_STATUS_COLOR[p.status] || pipelineStatusColor(p.status)}>
                     {p.status}
                   </span>
                   {p.startTime && p.endTime && (

@@ -66,22 +66,28 @@ def _run_scan(job_id: str) -> None:
         # Load all active entities that have been loaded to at least one layer
         # engine_task_log uses EntityId + lowercase layer values
         loaded_rows = db.query(
-            """
-            WITH latest_status AS (
-                SELECT EntityId, Layer, Status,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY EntityId, Layer
-                           ORDER BY created_at DESC,
-                                    CASE Status WHEN 'succeeded' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END
-                       ) AS rn
-                FROM engine_task_log
+            f"""
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE},
+            latest_status AS (
+                SELECT
+                    LandingzoneEntityId,
+                    Layer,
+                    Status,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY LandingzoneEntityId, Layer
+                        ORDER BY LoadEndDateTime DESC,
+                                 CASE Status WHEN 'succeeded' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END,
+                                 id DESC
+                    ) AS rn
+                FROM mapped
+                WHERE LandingzoneEntityId IS NOT NULL
             )
             SELECT DISTINCT e.LandingzoneEntityId AS entity_id,
                    e.SourceSchema, e.SourceName,
                    lh.Name AS lz_lakehouse,
                    ls.Layer
             FROM lz_entities e
-            JOIN latest_status ls ON ls.EntityId = e.LandingzoneEntityId
+            JOIN latest_status ls ON ls.LandingzoneEntityId = e.LandingzoneEntityId
                                    AND ls.rn = 1
                                    AND ls.Status = 'succeeded'
             LEFT JOIN lakehouses lh ON e.LakehouseId = lh.LakehouseId
@@ -256,8 +262,10 @@ def get_classification_data(params: dict) -> dict:
         bind: list = []
 
         if source_filter:
-            where_clauses.append("ds.Namespace = ?")
-            bind.append(source_filter)
+            where_clauses.append(
+                "(LOWER(ds.Namespace) = LOWER(?) OR LOWER(ds.Name) = LOWER(?) OR LOWER(COALESCE(ds.DisplayName, '')) = LOWER(?))"
+            )
+            bind.extend([source_filter, source_filter, source_filter])
         if level_filter:
             where_clauses.append("cc.sensitivity_level = ?")
             bind.append(level_filter)
@@ -326,7 +334,7 @@ def get_classification_data(params: dict) -> dict:
             "classifiedAt": r["classified_at"],
             "sourceSchema": r["SourceSchema"],
             "sourceName": r["SourceName"],
-            "source": r["source"],
+            "source": cpdb._normalize_display_namespace(r["source"]) or r["source"],
         }
         for r in rows
     ]

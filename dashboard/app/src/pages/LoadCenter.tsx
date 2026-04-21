@@ -516,7 +516,7 @@ function SourceDetailTable({ detail }: { detail: SourceDetail }) {
               const hasGap = (r.lz !== null && (r.bronze === null || r.silver === null));
               const allMatch = r.lz !== null && r.bronze !== null && r.silver !== null;
               return (
-                <tr key={`${r.schema}.${r.table}`} style={{ background: hasGap ? "rgba(239,68,68,0.04)" : undefined }}>
+                <tr key={`${detail.source}.${r.schema}.${r.table}`} style={{ background: hasGap ? "rgba(239,68,68,0.04)" : undefined }}>
                   <td style={tdStyle}>
                     <span style={{ fontWeight: 500 }}>{r.table}</span>
                     <span style={{ color: "var(--bp-ink-muted)", fontSize: 11, marginLeft: 6 }}>{r.schema}</span>

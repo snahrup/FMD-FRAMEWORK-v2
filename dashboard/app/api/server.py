@@ -15,6 +15,7 @@ import socketserver
 import sys
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 # ── sys.path — project root must be importable for engine.* imports ──
@@ -76,7 +77,14 @@ log_level = getattr(logging, log_cfg.get("level", "INFO").upper(), logging.INFO)
 _log_handlers = [logging.StreamHandler()]
 if log_file:
     _log_path = Path(__file__).parent / log_file
-    _log_handlers.append(logging.FileHandler(_log_path, encoding="utf-8"))
+    _log_handlers.append(
+        RotatingFileHandler(
+            _log_path,
+            maxBytes=5_000_000,
+            backupCount=5,
+            encoding="utf-8",
+        )
+    )
 
 logging.basicConfig(
     level=log_level,
@@ -85,6 +93,7 @@ logging.basicConfig(
     handlers=_log_handlers,
 )
 log = logging.getLogger("fmd-dashboard")
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
 
 # ── Key config values ──
 PORT = CONFIG["server"]["port"]

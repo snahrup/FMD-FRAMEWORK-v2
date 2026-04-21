@@ -5,6 +5,7 @@ starting an HTTP server or connecting to any databases.
 """
 
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import engine.api as api_module
@@ -186,7 +187,8 @@ def test_handle_retry_scopes_to_parent_run_and_returns_retry_run_id():
     engine = MagicMock()
     thread = MagicMock()
 
-    with patch("engine.api._db_query", side_effect=[[], [{"EntityId": 7}, {"EntityId": 9}]]), \
+    with patch("engine.api._db_query", return_value=[]), \
+         patch("engine.api._get_failed_run_entity_ids", return_value=[7, 9]), \
          patch("engine.api._get_or_create_engine", return_value=engine), \
          patch("engine.api._SSEHook.clear"), \
          patch("engine.api._publish_log"), \
@@ -207,3 +209,43 @@ def test_handle_retry_scopes_to_parent_run_and_returns_retry_run_id():
     assert payload["entity_ids"] == [7, 9]
     assert callable(engine.on_entity_result)
     thread.start.assert_called_once()
+
+
+def test_cleanup_stale_runs_marks_dead_workers_failed_and_reconciles_extracting():
+    stale_time = (datetime.now(UTC) - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    with patch("engine.api._db_query", return_value=[{
+        "RunId": "dead-run",
+        "WorkerPid": 4321,
+        "StartedAt": stale_time,
+        "HeartbeatAt": stale_time,
+    }]), \
+         patch("engine.api._is_pid_alive", return_value=False), \
+         patch("engine.api._db_execute") as mock_exec, \
+         patch("engine.api._write_pipeline_audit_terminal") as mock_audit:
+        cleaned = api_module._cleanup_stale_runs()
+
+    assert cleaned == 1
+    executed_sql = [call.args[0] for call in mock_exec.call_args_list]
+    assert any("UPDATE engine_runs" in sql for sql in executed_sql)
+    assert any("UPDATE engine_task_log" in sql for sql in executed_sql)
+    mock_audit.assert_called_once_with("dead-run", "Failed", "Worker process died or server restarted")
+
+
+def test_cleanup_stale_runs_skips_recently_heartbeating_dead_worker():
+    now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    with patch("engine.api._db_query", return_value=[{
+        "RunId": "warm-run",
+        "WorkerPid": 4321,
+        "StartedAt": now_str,
+        "HeartbeatAt": now_str,
+    }]), \
+         patch("engine.api._is_pid_alive", return_value=False), \
+         patch("engine.api._db_execute") as mock_exec, \
+         patch("engine.api._write_pipeline_audit_terminal") as mock_audit:
+        cleaned = api_module._cleanup_stale_runs()
+
+    assert cleaned == 0
+    mock_exec.assert_not_called()
+    mock_audit.assert_not_called()

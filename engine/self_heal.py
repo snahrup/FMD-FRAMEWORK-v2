@@ -901,6 +901,18 @@ class SelfHealDaemon:
                 text=True,
                 timeout=self.settings.agent_timeout_seconds,
             )
+        except (FileNotFoundError, OSError) as exc:
+            stdout_path.write_text("", encoding="utf-8")
+            stderr_path.write_text(str(exc), encoding="utf-8")
+            missing_exec = str(cmd[0]) if cmd else self.agent_name
+            return {
+                "ok": False,
+                "status": "blocked",
+                "summary": f"Self-heal agent unavailable: cannot launch {missing_exec}.",
+                "filesChanged": [],
+                "validation": [],
+                "notes": [str(exc)],
+            }
         except subprocess.TimeoutExpired:
             stdout_path.write_text("", encoding="utf-8")
             stderr_path.write_text("Agent invocation timed out.", encoding="utf-8")

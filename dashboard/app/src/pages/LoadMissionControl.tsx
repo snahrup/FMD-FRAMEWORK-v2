@@ -1290,11 +1290,12 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
       ? scopedSources.reduce((a, s) => a + (s.failed ?? 0), 0)
       : allLayers.reduce((a, l) => a + l.failed, 0);
   const skipped = 0; // Bulk doesn't skip; for non-bulk use layer data
-  // Use totalActiveEntities as the stable denominator — it's always 1385 and never changes
-  // during a run. The scoped source reduce can give inconsistent totals between poll cycles.
   const scopedTotal = useBulk
     ? bulkProgress.total
-    : progress.totalActiveEntities;
+    : hasRunScope
+      ? (progress.run?.resolvedEntityCount
+        ?? scopedSources.reduce((a, s) => a + (s.total_entities ?? 0), 0))
+      : progress.totalActiveEntities;
   const pending = scopedTotal - succeeded - failed - skipped;
   const totalRows = useBulk
     ? bulkProgress.totalRows

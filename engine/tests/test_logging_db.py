@@ -44,6 +44,7 @@ def _make_mock_cpdb():
     cpdb.upsert_entity_status = MagicMock()
     cpdb.upsert_pipeline_lz_entity = MagicMock()
     cpdb.insert_engine_task_log = MagicMock()
+    cpdb.update_engine_task_log = MagicMock()
     cpdb.insert_pipeline_audit = MagicMock()
     cpdb.insert_copy_activity_audit = MagicMock()
     cpdb.upsert_watermark = MagicMock()
@@ -196,8 +197,8 @@ class TestMarkEntityLoaded:
         mock_cpdb.upsert_entity_status.assert_called_once()
         row = mock_cpdb.upsert_entity_status.call_args[0][0]
         assert row["LandingzoneEntityId"] == 42
-        assert row["Layer"] == "LandingZone"
-        assert row["Status"] == "Succeeded"
+        assert row["Layer"] == "landing"
+        assert row["Status"] == "succeeded"
         assert row["UpdatedBy"] == "FMD_ENGINE_V3"
 
         # SQLite pipeline_lz_entity written
@@ -484,6 +485,19 @@ class TestLogEntityResult:
         task_row = mock_cpdb.insert_engine_task_log.call_args[0][0]
         assert task_row["ErrorType"] == "connection"
         assert task_row["ErrorMessage"] == "Connection refused"
+
+    def test_finalizes_existing_extracting_row_when_start_was_logged(self):
+        mock_cpdb = _make_mock_cpdb()
+        mock_cpdb.insert_engine_task_log.return_value = 77
+        entity = _make_entity()
+        result = RunResult(entity_id=42, layer="landing", status="succeeded", rows_read=500)
+        audit = AuditLogger()
+
+        with patch("engine.logging_db._get_cpdb", return_value=mock_cpdb):
+            audit.log_entity_start("run-1", entity, "landing", 1, 1)
+            audit.log_entity_result("run-1", entity, result)
+
+        mock_cpdb.update_engine_task_log.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

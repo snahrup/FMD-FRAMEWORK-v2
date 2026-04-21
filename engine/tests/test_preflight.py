@@ -186,7 +186,7 @@ def test_checker_all_pass_no_entities():
     checker = _make_checker()
     report = checker.run(entities=None)
     assert report.passed is True
-    assert len(report.checks) == 3  # tokens, db, onelake
+    assert len(report.checks) == 4  # runtime, tokens, db, onelake
 
 
 def test_checker_token_failure():
@@ -253,8 +253,8 @@ def test_checker_entity_sanity_healthy():
     entities = [_make_entity(id=i, source_name=f"Table{i}") for i in range(5)]
     report = checker.run(entities=entities)
     assert report.passed is True
-    # 3 base checks + 1 entity sanity + 1 source server
-    assert len(report.checks) == 5
+    # 4 base checks + 1 entity sanity + 1 source server
+    assert len(report.checks) == 6
 
 
 def test_checker_entity_sanity_empty_list():

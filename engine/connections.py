@@ -1,10 +1,11 @@
 """
 FMD v3 Engine — Source SQL Server connection management.
 
-Manages connections to on-prem source SQL servers (via Windows auth over VPN).
+Manages connections to on-prem source SQL servers.
 Fabric SQL metadata is now served from the local SQLite control-plane DB.
 
-All connections go through pyodbc with Trusted_Connection.
+Supports either Windows Integrated Auth or SQL username/password auth,
+depending on engine config.
 """
 
 import logging
@@ -21,8 +22,9 @@ log = logging.getLogger("fmd.connections")
 class SourceConnection:
     """Connection manager for on-prem source SQL servers.
 
-    All sources use Windows auth (Trusted_Connection) over VPN.
-    Short hostnames only — do NOT append .ipaper.com.
+    Default mode is Windows auth over VPN. SQL auth is also supported for
+    service-account deployments. Short hostnames only — do NOT append
+    .ipaper.com.
     """
 
     def __init__(self, config: EngineConfig):
@@ -45,14 +47,29 @@ class SourceConnection:
         timeout : int
             Connection timeout in seconds.
         """
-        conn_str = (
-            f"DRIVER={{{self._driver}}};"
-            f"SERVER={server};"
-            f"DATABASE={database};"
-            f"Trusted_Connection=yes;"
-            f"TrustServerCertificate=yes;"
-            f"Connection Timeout={timeout};"
-        )
+        if self._config.connectorx_auth_mode == "sql":
+            if not self._config.sql_username or not self._config.sql_password:
+                raise ValueError(
+                    "connectorx_auth_mode=sql requires sql_username and sql_password"
+                )
+            conn_str = (
+                f"DRIVER={{{self._driver}}};"
+                f"SERVER={server};"
+                f"DATABASE={database};"
+                f"UID={self._config.sql_username};"
+                f"PWD={self._config.sql_password};"
+                f"TrustServerCertificate=yes;"
+                f"Connection Timeout={timeout};"
+            )
+        else:
+            conn_str = (
+                f"DRIVER={{{self._driver}}};"
+                f"SERVER={server};"
+                f"DATABASE={database};"
+                f"Trusted_Connection=yes;"
+                f"TrustServerCertificate=yes;"
+                f"Connection Timeout={timeout};"
+            )
         conn = pyodbc.connect(conn_str)
         conn.timeout = self._query_timeout
         try:

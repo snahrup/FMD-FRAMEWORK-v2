@@ -132,6 +132,261 @@ def _db_execute(sql: str, params: tuple = ()) -> None:
         log.warning("SQLite execute failed: %s", exc)
 
 
+_RUN_LAYER_SET = {"landing", "bronze", "silver"}
+_FAILURE_STATUSES = {"failed", "cancelled", "aborted", "interrupted"}
+_PENDING_STATUSES = {"queued", "extracting", "schema_discovery", "extracted", "running", "in_progress"}
+
+
+def _parse_run_layers(raw) -> list[str]:
+    """Normalize persisted run layer CSV values to landing/bronze/silver."""
+    layers: list[str] = []
+    for part in str(raw or "").split(","):
+        token = part.strip().lower()
+        if token in ("lz", "landingzone"):
+            token = "landing"
+        if token in _RUN_LAYER_SET and token not in layers:
+            layers.append(token)
+    return layers or ["landing", "bronze", "silver"]
+
+
+def _query_mapped_task_log_rows(
+    *,
+    run_id: str | None = None,
+    entity_id: int | None = None,
+    layer: str | None = None,
+    status: str | None = None,
+    min_task_id: int | None = None,
+    hours_back: int | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    ascending: bool = False,
+) -> list[dict]:
+    """Return task-log rows normalized back to LandingzoneEntityId when possible."""
+    cpdb = _get_cpdb()
+    if not cpdb or not hasattr(cpdb, "_MAPPED_ENGINE_TASK_LOG_CTE"):
+        return []
+
+    where = ["mapped.LandingzoneEntityId IS NOT NULL"]
+    params: list = []
+    if run_id:
+        where.append("mapped.RunId = ?")
+        params.append(str(run_id))
+    if entity_id is not None:
+        where.append("mapped.LandingzoneEntityId = ?")
+        params.append(int(entity_id))
+    if layer:
+        where.append("LOWER(mapped.Layer) = LOWER(?)")
+        params.append(str(layer))
+    if status:
+        where.append("LOWER(mapped.Status) = LOWER(?)")
+        params.append(str(status))
+    if min_task_id is not None:
+        where.append("t.id > ?")
+        params.append(int(min_task_id))
+    if hours_back is not None:
+        where.append("COALESCE(mapped.LoadEndDateTime, t.created_at) >= datetime('now', ? || ' hours')")
+        params.append(f"-{int(hours_back)}")
+
+    order_clause = "t.id ASC" if ascending else "COALESCE(mapped.LoadEndDateTime, t.created_at) DESC, t.id DESC"
+    sql = f"""
+        {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
+        SELECT
+            t.id AS TaskId,
+            mapped.RunId,
+            mapped.LandingzoneEntityId AS EntityId,
+            mapped.DataSourceId,
+            mapped.Layer,
+            mapped.Status,
+            mapped.SourceTable AS SourceName,
+            mapped.SourceSchema,
+            mapped.SourceTable,
+            mapped.SourceName,
+            ds.Name AS DataSourceName,
+            mapped.RowsRead,
+            mapped.RowsWritten,
+            t.BytesTransferred,
+            t.DurationSeconds,
+            t.ErrorType,
+            t.ErrorMessage,
+            t.ErrorSuggestion,
+            t.LoadType,
+            t.ExtractionMethod,
+            COALESCE(mapped.LoadEndDateTime, t.created_at) AS created_at
+        FROM mapped
+        JOIN engine_task_log t ON t.id = mapped.id
+        LEFT JOIN datasources ds ON ds.DataSourceId = mapped.DataSourceId
+        WHERE {" AND ".join(where)}
+        ORDER BY {order_clause}
+        LIMIT ? OFFSET ?
+    """
+    params.extend([int(limit), int(offset)])
+    return _db_query(sql, tuple(params))
+
+
+def _get_run_latest_mapped_rows(run_id: str) -> list[dict]:
+    """Return the latest mapped task row for each entity+layer in a run."""
+    cpdb = _get_cpdb()
+    if not cpdb or not hasattr(cpdb, "_MAPPED_ENGINE_TASK_LOG_CTE"):
+        return []
+
+    sql = f"""
+        {cpdb._MAPPED_ENGINE_TASK_LOG_CTE},
+        enriched AS (
+            SELECT
+                mapped.LandingzoneEntityId,
+                mapped.DataSourceId,
+                mapped.Layer,
+                mapped.Status,
+                mapped.LoadEndDateTime,
+                mapped.RunId,
+                mapped.RowsRead,
+                mapped.RowsWritten,
+                mapped.SourceTable,
+                mapped.SourceSchema,
+                mapped.SourceName,
+                t.BytesTransferred,
+                t.DurationSeconds,
+                t.ErrorType,
+                t.ErrorMessage,
+                t.ErrorSuggestion,
+                t.LoadType,
+                t.ExtractionMethod,
+                t.id
+            FROM mapped
+            JOIN engine_task_log t ON t.id = mapped.id
+            WHERE mapped.RunId = ?
+              AND mapped.LandingzoneEntityId IS NOT NULL
+        ),
+        ranked AS (
+            SELECT
+                *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY LandingzoneEntityId, Layer
+                    ORDER BY
+                        LoadEndDateTime DESC,
+                        CASE LOWER(COALESCE(Status, ''))
+                            WHEN 'succeeded' THEN 1
+                            WHEN 'failed' THEN 2
+                            WHEN 'skipped' THEN 3
+                            ELSE 4
+                        END,
+                        id DESC
+                ) AS rn
+            FROM enriched
+        )
+        SELECT
+            LandingzoneEntityId,
+            DataSourceId,
+            Layer,
+            Status,
+            LoadEndDateTime,
+            RunId,
+            RowsRead,
+            RowsWritten,
+            SourceTable,
+            SourceSchema,
+            SourceName,
+            BytesTransferred,
+            DurationSeconds,
+            ErrorType,
+            ErrorMessage,
+            ErrorSuggestion,
+            LoadType,
+            ExtractionMethod,
+            id
+        FROM ranked
+        WHERE rn = 1
+    """
+    return _db_query(sql, (str(run_id),))
+
+
+def _summarize_run_truth(run_id: str, layers_raw=None) -> dict:
+    """Compute truthful per-run entity counts from mapped task-log rows."""
+    run_layers = _parse_run_layers(layers_raw)
+    latest_rows = _get_run_latest_mapped_rows(run_id)
+    by_entity: dict[int, dict[str, str]] = {}
+    total_rows = 0
+    total_bytes = 0
+
+    for row in latest_rows:
+        entity_id = _to_int(row.get("LandingzoneEntityId"))
+        layer = str(row.get("Layer") or "").lower()
+        status = str(row.get("Status") or "").lower()
+        if not entity_id or layer not in _RUN_LAYER_SET:
+            continue
+        by_entity.setdefault(entity_id, {})[layer] = status
+        if status == "succeeded":
+            total_rows += _to_int(row.get("RowsRead"))
+            total_bytes += _to_int(row.get("BytesTransferred"))
+
+    succeeded = 0
+    failed = 0
+    skipped = 0
+    pending = 0
+
+    for layer_statuses in by_entity.values():
+        statuses = [layer_statuses.get(layer, "not_started") for layer in run_layers]
+        attempted = [status for status in statuses if status != "not_started"]
+        if not attempted:
+            continue
+        if any(status in _FAILURE_STATUSES for status in attempted):
+            failed += 1
+        elif any(status in _PENDING_STATUSES for status in attempted):
+            pending += 1
+        elif all(status in ("succeeded", "skipped") for status in statuses):
+            if any(status == "skipped" for status in statuses):
+                skipped += 1
+            else:
+                succeeded += 1
+        else:
+            pending += 1
+
+    return {
+        "run_layers": run_layers,
+        "latest_rows": latest_rows,
+        "succeeded": succeeded,
+        "failed": failed,
+        "skipped": skipped,
+        "pending": pending,
+        "completed": succeeded + failed + skipped,
+        "total_rows": total_rows,
+        "total_bytes": total_bytes,
+    }
+
+
+def _get_failed_run_entity_ids(run_id: str, layers_raw=None) -> list[int]:
+    """Return scoped LandingzoneEntityIds that are currently failed in a run."""
+    truth = _summarize_run_truth(run_id, layers_raw)
+    failed_entity_ids: list[int] = []
+    by_entity: dict[int, dict[str, str]] = {}
+
+    for row in truth["latest_rows"]:
+        entity_id = _to_int(row.get("LandingzoneEntityId"))
+        layer = str(row.get("Layer") or "").lower()
+        status = str(row.get("Status") or "").lower()
+        if entity_id and layer in _RUN_LAYER_SET:
+            by_entity.setdefault(entity_id, {})[layer] = status
+
+    for entity_id, layer_statuses in by_entity.items():
+        statuses = [layer_statuses.get(layer, "not_started") for layer in truth["run_layers"]]
+        attempted = [status for status in statuses if status != "not_started"]
+        if attempted and any(status in _FAILURE_STATUSES for status in attempted):
+            failed_entity_ids.append(entity_id)
+
+    return failed_entity_ids
+
+
+def _selector_landing_status(status: str | None) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized == "succeeded":
+        return "loaded"
+    if normalized in _FAILURE_STATUSES:
+        return "failed"
+    if normalized in _PENDING_STATUSES:
+        return "pending"
+    return "never"
+
+
 # ---------------------------------------------------------------------------
 # SSE Broadcaster — mirrors the _deploy_cond pattern in server.py
 # ---------------------------------------------------------------------------
@@ -293,12 +548,73 @@ def _is_pid_alive(pid: int) -> bool:
             return False
 
 
+def _parse_utc(value: str | None) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def _reconcile_open_extracting_rows(run_id: str, reason: str) -> None:
+    """Convert stranded extracting rows into terminal failures for a dead run."""
+    _db_execute(
+        """
+        UPDATE engine_task_log
+        SET Status = 'failed',
+            ErrorType = CASE
+                WHEN COALESCE(ErrorType, '') = '' THEN 'worker_exit'
+                ELSE ErrorType
+            END,
+            ErrorMessage = CASE
+                WHEN COALESCE(ErrorMessage, '') = ''
+                     OR ErrorMessage LIKE 'Extracting (%'
+                THEN ?
+                ELSE ErrorMessage
+            END,
+            ErrorSuggestion = CASE
+                WHEN COALESCE(ErrorSuggestion, '') = ''
+                THEN 'Inspect the worker log, fix the underlying issue, and rerun the table.'
+                ELSE ErrorSuggestion
+            END
+        WHERE id IN (
+            SELECT start.id
+            FROM engine_task_log start
+            LEFT JOIN engine_task_log terminal
+              ON terminal.RunId = start.RunId
+             AND terminal.EntityId = start.EntityId
+             AND COALESCE(terminal.Layer, '') = COALESCE(start.Layer, '')
+             AND terminal.id > start.id
+             AND LOWER(COALESCE(terminal.Status, '')) IN ('succeeded', 'failed', 'skipped', 'cancelled')
+            WHERE start.RunId = ?
+              AND LOWER(COALESCE(start.Status, '')) = 'extracting'
+              AND terminal.id IS NULL
+        )
+        """,
+        (reason, run_id),
+    )
+
+
+def _mark_dead_run_failed(run_id: str, reason: str) -> None:
+    _db_execute(
+        "UPDATE engine_runs "
+        "SET Status = 'Failed', "
+        "    EndedAt = COALESCE(EndedAt, strftime('%Y-%m-%dT%H:%M:%SZ','now')), "
+        "    ErrorSummary = ? "
+        "WHERE RunId = ?",
+        (f"Failed: {reason}", run_id),
+    )
+    _reconcile_open_extracting_rows(run_id, reason)
+    _write_pipeline_audit_terminal(run_id, "Failed", reason)
+
+
 # ---------------------------------------------------------------------------
 # Startup cleanup
 # ---------------------------------------------------------------------------
 
 def _cleanup_orphaned_runs() -> None:
-    """Mark orphaned InProgress runs as Interrupted (resumable) on startup.
+    """Mark orphaned InProgress runs as Failed on startup.
 
     A run is orphaned if:
     - Status is InProgress AND
@@ -310,28 +626,24 @@ def _cleanup_orphaned_runs() -> None:
     """
     try:
         orphaned = _db_query(
-            "SELECT RunId, WorkerPid, StartedAt FROM engine_runs "
+            "SELECT RunId, WorkerPid, StartedAt, HeartbeatAt FROM engine_runs "
             "WHERE Status IN ('InProgress', 'running')"
         )
         if not orphaned:
             return
 
         now = datetime.now(UTC)
-        grace_seconds = 120
         cleaned = 0
 
         for run in orphaned:
             # Grace window: skip recently started runs
-            started_at = run.get("StartedAt")
-            if started_at:
-                try:
-                    started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                    if (now - started).total_seconds() < grace_seconds:
-                        log.debug("Skipping run %s — within %ds grace window",
-                                  run["RunId"][:8], grace_seconds)
-                        continue
-                except (ValueError, TypeError):
-                    pass  # Bad timestamp — proceed with cleanup
+            started = _parse_utc(run.get("StartedAt"))
+            if started and (now - started).total_seconds() < _STARTUP_GRACE_SECONDS:
+                log.debug(
+                    "Skipping run %s — within %ds grace window",
+                    run["RunId"][:8], _STARTUP_GRACE_SECONDS,
+                )
+                continue
 
             # PID liveness check (Windows-safe)
             pid = run.get("WorkerPid")
@@ -344,22 +656,16 @@ def _cleanup_orphaned_runs() -> None:
                 except (TypeError, ValueError):
                     pass  # Bad PID value — treat as orphan
 
-            # Mark as Interrupted (resumable) instead of Aborted (terminal)
-            _db_execute(
-                "UPDATE engine_runs "
-                "SET Status = 'Interrupted', "
-                "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
-                "    ErrorSummary = 'Interrupted: worker process died or server restarted' "
-                "WHERE RunId = ?",
-                (run["RunId"],),
-            )
-            _write_pipeline_audit_terminal(
-                run["RunId"], "Interrupted", "Worker process died or server restarted"
-            )
+            heartbeat = _parse_utc(run.get("HeartbeatAt"))
+            last_touch = heartbeat or started
+            if last_touch and (now - last_touch).total_seconds() < _STARTUP_GRACE_SECONDS:
+                continue
+
+            _mark_dead_run_failed(run["RunId"], "Worker process died or server restarted")
             cleaned += 1
 
         if cleaned:
-            log.info("Marked %d orphaned runs as Interrupted (resumable) on startup", cleaned)
+            log.info("Marked %d orphaned runs as Failed on startup", cleaned)
     except Exception as exc:
         log.warning("Failed to clean up orphaned runs: %s", exc)
 
@@ -371,6 +677,8 @@ def _cleanup_orphaned_runs() -> None:
 _cleanup_thread: Optional[threading.Thread] = None
 _CLEANUP_INTERVAL_SECONDS = 300  # 5 minutes
 _MAX_RUN_AGE_HOURS = 24  # runs older than this with dead PIDs → auto-interrupt
+_STARTUP_GRACE_SECONDS = 120
+_STALE_HEARTBEAT_SECONDS = 300
 
 
 def _periodic_cleanup_loop() -> None:
@@ -380,7 +688,7 @@ def _periodic_cleanup_loop() -> None:
         try:
             cleaned = _cleanup_stale_runs()
             if cleaned:
-                log.info("Periodic cleanup: marked %d stale runs as Interrupted", cleaned)
+                log.info("Periodic cleanup: marked %d stale runs as Failed", cleaned)
         except Exception as exc:
             log.warning("Periodic cleanup failed: %s", exc)
 
@@ -391,7 +699,7 @@ def _cleanup_stale_runs() -> int:
     Returns the number of runs cleaned up.
     """
     orphaned = _db_query(
-        "SELECT RunId, WorkerPid, StartedAt FROM engine_runs "
+        "SELECT RunId, WorkerPid, StartedAt, HeartbeatAt FROM engine_runs "
         "WHERE Status IN ('InProgress', 'running')"
     )
     if not orphaned:
@@ -403,19 +711,9 @@ def _cleanup_stale_runs() -> int:
     for run in orphaned:
         run_id = run["RunId"]
         pid = run.get("WorkerPid")
-        started_at = run.get("StartedAt")
-
-        # Skip runs within 2-minute grace window
-        if started_at:
-            try:
-                started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                age_seconds = (now - started).total_seconds()
-                if age_seconds < 120:
-                    continue
-            except (ValueError, TypeError):
-                age_seconds = float("inf")
-        else:
-            age_seconds = float("inf")
+        started = _parse_utc(run.get("StartedAt"))
+        if started and (now - started).total_seconds() < _STARTUP_GRACE_SECONDS:
+            continue
 
         # Check 1: PID is dead → orphaned (Windows-safe)
         pid_dead = False
@@ -432,16 +730,13 @@ def _cleanup_stale_runs() -> int:
         if not pid_dead:
             continue
 
+        heartbeat = _parse_utc(run.get("HeartbeatAt"))
+        last_touch = heartbeat or started
+        if last_touch and (now - last_touch).total_seconds() < _STALE_HEARTBEAT_SECONDS:
+            continue
+
         reason = "Worker process died or server restarted"
-        _db_execute(
-            "UPDATE engine_runs "
-            "SET Status = 'Interrupted', "
-            "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
-            "    ErrorSummary = ? "
-            "WHERE RunId = ?",
-            (f"Interrupted: {reason}", run_id),
-        )
-        _write_pipeline_audit_terminal(run_id, "Interrupted", reason)
+        _mark_dead_run_failed(run_id, reason)
         cleaned += 1
 
     return cleaned
@@ -581,6 +876,10 @@ def _handle_status(handler, config: dict) -> None:
 
     if rows:
         row = rows[0]
+        truth = _summarize_run_truth(
+            str(row.get("RunId", "")),
+            row.get("Layers", ""),
+        )
         run_info = {
             "run_id": str(row.get("RunId", "")),
             "status": str(row.get("Status", "")),
@@ -588,10 +887,11 @@ def _handle_status(handler, config: dict) -> None:
             "started_at": row.get("StartedAt") or None,
             "finished_at": row.get("EndedAt") or None,
             "total": _to_int(row.get("TotalEntities")),
-            "succeeded": _to_int(row.get("SucceededEntities")),
-            "failed": _to_int(row.get("FailedEntities")),
-            "skipped": _to_int(row.get("SkippedEntities")),
-            "total_rows": _to_int(row.get("TotalRowsRead")),
+            "succeeded": truth["succeeded"] if truth["latest_rows"] else _to_int(row.get("SucceededEntities")),
+            "failed": truth["failed"] if truth["latest_rows"] else _to_int(row.get("FailedEntities")),
+            "skipped": truth["skipped"] if truth["latest_rows"] else _to_int(row.get("SkippedEntities")),
+            "pending": truth["pending"] if truth["latest_rows"] else 0,
+            "total_rows": truth["total_rows"] if truth["latest_rows"] else _to_int(row.get("TotalRowsRead")),
             "duration_seconds": _to_float(row.get("TotalDurationSeconds")),
             "layers": str(row.get("Layers", "")),
             "triggered_by": str(row.get("TriggeredBy", "")),
@@ -682,17 +982,24 @@ def _start_sse_poller(run_id: str) -> None:
         last_id = 0
         while True:
             try:
-                rows = _db_query(
-                    "SELECT id, RunId, EntityId, SourceTable, Layer, Status, "
-                    "RowsRead, RowsWritten, DurationSeconds, ErrorMessage "
-                    "FROM engine_task_log WHERE RunId = ? AND id > ? ORDER BY id LIMIT 50",
-                    (run_id, last_id),
+                rows = _query_mapped_task_log_rows(
+                    run_id=run_id,
+                    min_task_id=last_id,
+                    limit=50,
+                    ascending=True,
                 )
+                if not rows:
+                    rows = _db_query(
+                        "SELECT id AS TaskId, RunId, EntityId, SourceTable AS SourceName, Layer, Status, "
+                        "RowsRead, RowsWritten, DurationSeconds, ErrorMessage "
+                        "FROM engine_task_log WHERE RunId = ? AND id > ? ORDER BY id LIMIT 50",
+                        (run_id, last_id),
+                    )
                 for row in rows:
                     _publish_entity_result(
                         run_id=row.get("RunId", run_id),
                         entity_id=row.get("EntityId", 0),
-                        entity_name=row.get("SourceTable", ""),
+                        entity_name=row.get("SourceName", ""),
                         layer=row.get("Layer", ""),
                         status=row.get("Status", ""),
                         rows_read=row.get("RowsRead", 0),
@@ -700,29 +1007,22 @@ def _start_sse_poller(run_id: str) -> None:
                         duration_seconds=row.get("DurationSeconds", 0),
                         error=row.get("ErrorMessage"),
                     )
-                    last_id = row.get("id", last_id)
+                    last_id = row.get("TaskId", last_id)
 
                 # Emit bulk progress — use task_log as source of truth
                 # (engine_runs heartbeat counter resets on resume, task_log doesn't)
                 run_rows = _db_query(
-                    "SELECT Status, TotalEntities, ActiveWorkers, EtaSeconds "
+                    "SELECT Status, TotalEntities, ActiveWorkers, EtaSeconds, Layers "
                     "FROM engine_runs WHERE RunId = ?", (run_id,)
-                )
-                tl_rows = _db_query(
-                    "SELECT "
-                    "  COUNT(DISTINCT CASE WHEN Status = 'succeeded' THEN EntityId END) AS ok, "
-                    "  COUNT(DISTINCT CASE WHEN Status = 'failed' THEN EntityId END) AS fail, "
-                    "  SUM(CASE WHEN Status = 'succeeded' THEN RowsRead ELSE 0 END) AS total_rows, "
-                    "  SUM(CASE WHEN Status = 'succeeded' THEN BytesTransferred ELSE 0 END) AS total_bytes "
-                    "FROM engine_task_log WHERE RunId = ?", (run_id,)
                 )
                 if run_rows:
                     run = run_rows[0]
-                    tl = tl_rows[0] if tl_rows else {}
+                    truth = _summarize_run_truth(run_id, run.get("Layers"))
                     total_ent = run.get("TotalEntities", 0) or 0
-                    succeeded = tl.get("ok", 0) or 0
-                    failed = tl.get("fail", 0) or 0
-                    done = succeeded + failed
+                    succeeded = truth["succeeded"]
+                    failed = truth["failed"]
+                    skipped = truth["skipped"]
+                    done = truth["completed"]
                     if done > 0 and total_ent > 0:
                         _SSEHook.publish("bulk_progress", {
                             "run_id": run_id,
@@ -730,8 +1030,10 @@ def _start_sse_poller(run_id: str) -> None:
                             "total": total_ent,
                             "succeeded": succeeded,
                             "failed": failed,
-                            "total_rows": tl.get("total_rows", 0) or 0,
-                            "total_bytes": tl.get("total_bytes", 0) or 0,
+                            "skipped": skipped,
+                            "pending": truth["pending"],
+                            "total_rows": truth["total_rows"],
+                            "total_bytes": truth["total_bytes"],
                             "pct": round(done / total_ent * 100, 1),
                             "active_workers": run.get("ActiveWorkers", 0) or 0,
                             "eta_seconds": run.get("EtaSeconds", 0) or 0,
@@ -1090,34 +1392,43 @@ def _handle_logs(handler, qs: dict) -> None:
     offset = int(offset_raw) if str(offset_raw).isdigit() else 0
 
     try:
-        sql = """
-            SELECT t.id AS TaskId, t.RunId, t.EntityId, t.Layer, t.Status,
-                   t.SourceTable AS SourceName, le.SourceSchema,
-                   ds.Name AS DataSourceName,
-                   t.RowsRead, t.RowsWritten, t.BytesTransferred, t.DurationSeconds,
-                   t.ErrorMessage, t.ErrorSuggestion, t.LoadType,
-                   t.created_at
-            FROM engine_task_log t
-            LEFT JOIN lz_entities le ON t.EntityId = le.LandingzoneEntityId
-            LEFT JOIN datasources ds ON le.DataSourceId = ds.DataSourceId
-            WHERE 1=1
-        """
-        params: list = []
-        if run_id:
-            sql += " AND t.RunId = ?"
-            params.append(run_id)
-        if entity_id is not None:
-            sql += " AND t.EntityId = ?"
-            params.append(entity_id)
-        if layer:
-            sql += " AND t.Layer = ?"
-            params.append(layer)
-        if status:
-            sql += " AND t.Status = ?"
-            params.append(status)
-        sql += " ORDER BY t.created_at DESC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
-        rows = _db_query(sql, tuple(params))
+        rows = _query_mapped_task_log_rows(
+            run_id=run_id,
+            entity_id=entity_id,
+            layer=layer,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+        if not rows:
+            sql = """
+                SELECT t.id AS TaskId, t.RunId, t.EntityId, t.Layer, t.Status,
+                       t.SourceTable AS SourceName, le.SourceSchema,
+                       ds.Name AS DataSourceName,
+                       t.RowsRead, t.RowsWritten, t.BytesTransferred, t.DurationSeconds,
+                       t.ErrorMessage, t.ErrorSuggestion, t.LoadType,
+                       t.created_at
+                FROM engine_task_log t
+                LEFT JOIN lz_entities le ON t.EntityId = le.LandingzoneEntityId
+                LEFT JOIN datasources ds ON le.DataSourceId = ds.DataSourceId
+                WHERE 1=1
+            """
+            params: list = []
+            if run_id:
+                sql += " AND t.RunId = ?"
+                params.append(run_id)
+            if entity_id is not None:
+                sql += " AND t.EntityId = ?"
+                params.append(entity_id)
+            if layer:
+                sql += " AND t.Layer = ?"
+                params.append(layer)
+            if status:
+                sql += " AND t.Status = ?"
+                params.append(status)
+            sql += " ORDER BY t.created_at DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            rows = _db_query(sql, tuple(params))
 
         safe_rows = [_safe_row(r) for r in rows]
         handler._json_response({"logs": safe_rows, "count": len(safe_rows)})
@@ -1218,12 +1529,19 @@ def _handle_retry(handler, config: dict, body: dict) -> None:
     # If no explicit entity_ids, query failed ones from the run via SQLite
     if not entity_ids and run_id:
         try:
-            rows = _db_query(
-                "SELECT DISTINCT EntityId FROM engine_task_log "
-                "WHERE RunId = ? AND Status = 'failed' AND EntityId IS NOT NULL",
-                (str(run_id),)
+            run_meta_rows = _db_query(
+                "SELECT Layers FROM engine_runs WHERE RunId = ?",
+                (str(run_id),),
             )
-            entity_ids = [int(r["EntityId"]) for r in rows if r.get("EntityId")]
+            layers_raw = run_meta_rows[0].get("Layers") if run_meta_rows else None
+            entity_ids = _get_failed_run_entity_ids(str(run_id), layers_raw)
+            if not entity_ids:
+                rows = _db_query(
+                    "SELECT DISTINCT EntityId FROM engine_task_log "
+                    "WHERE RunId = ? AND Status = 'failed' AND EntityId IS NOT NULL",
+                    (str(run_id),)
+                )
+                entity_ids = [int(r["EntityId"]) for r in rows if r.get("EntityId")]
         except Exception as exc:
             handler._error_response(f"Failed to query failed entities: {exc}", 500)
             return
@@ -1353,17 +1671,41 @@ def _handle_metrics(handler, qs: dict) -> None:
         )
 
         # Top 10 slowest
-        slowest = _db_query(
-            "SELECT t.EntityId, e.SourceName, d.Name AS DataSourceName, "
-            "       t.Layer, t.DurationSeconds, t.RowsRead, t.Status "
-            "FROM engine_task_log t "
-            "LEFT JOIN lz_entities e ON t.EntityId = e.LandingzoneEntityId "
-            "LEFT JOIN datasources d ON e.DataSourceId = d.DataSourceId "
-            "WHERE t.created_at >= datetime('now', ? || ' hours') AND t.Status = 'succeeded' "
-            "ORDER BY t.DurationSeconds DESC "
-            "LIMIT 10",
-            (f"-{hours_int}",)
+        slowest = _query_mapped_task_log_rows(
+            status="succeeded",
+            hours_back=hours_int,
+            limit=1000,
         )
+        if slowest:
+            slowest = sorted(
+                slowest,
+                key=lambda row: _to_float(row.get("DurationSeconds")),
+                reverse=True,
+            )[:10]
+            slowest = [
+                {
+                    "EntityId": row.get("EntityId"),
+                    "SourceName": row.get("SourceName") or row.get("SourceTable"),
+                    "DataSourceName": row.get("DataSourceName"),
+                    "Layer": row.get("Layer"),
+                    "DurationSeconds": row.get("DurationSeconds"),
+                    "RowsRead": row.get("RowsRead"),
+                    "Status": row.get("Status"),
+                }
+                for row in slowest
+            ]
+        else:
+            slowest = _db_query(
+                "SELECT t.EntityId, e.SourceName, d.Name AS DataSourceName, "
+                "       t.Layer, t.DurationSeconds, t.RowsRead, t.Status "
+                "FROM engine_task_log t "
+                "LEFT JOIN lz_entities e ON t.EntityId = e.LandingzoneEntityId "
+                "LEFT JOIN datasources d ON e.DataSourceId = d.DataSourceId "
+                "WHERE t.created_at >= datetime('now', ? || ' hours') AND t.Status = 'succeeded' "
+                "ORDER BY t.DurationSeconds DESC "
+                "LIMIT 10",
+                (f"-{hours_int}",)
+            )
 
         # Top 5 errors
         top_errors = _db_query(
@@ -1460,6 +1802,10 @@ def _handle_runs(handler, qs: dict) -> None:
     mapped = []
     for r in rows:
         sr = _safe_row(r)
+        truth = _summarize_run_truth(
+            str(sr.get("RunId", "")),
+            sr.get("Layers", ""),
+        )
         mapped.append({
             "run_id": sr.get("RunId", ""),
             "status": sr.get("Status", "unknown"),
@@ -1467,11 +1813,11 @@ def _handle_runs(handler, qs: dict) -> None:
             "started_at": sr.get("StartedAt") or None,
             "finished_at": sr.get("EndedAt") or None,
             "duration_seconds": sr.get("TotalDurationSeconds"),
-            "entities_succeeded": sr.get("SucceededEntities", 0),
-            "entities_failed": sr.get("FailedEntities", 0),
-            "entities_skipped": sr.get("SkippedEntities", 0),
+            "entities_succeeded": truth["succeeded"] if truth["latest_rows"] else sr.get("SucceededEntities", 0),
+            "entities_failed": truth["failed"] if truth["latest_rows"] else sr.get("FailedEntities", 0),
+            "entities_skipped": truth["skipped"] if truth["latest_rows"] else sr.get("SkippedEntities", 0),
             "triggered_by": sr.get("TriggeredBy", ""),
-            "total_rows": sr.get("TotalRowsRead", 0),
+            "total_rows": truth["total_rows"] if truth["latest_rows"] else sr.get("TotalRowsRead", 0),
             "error_summary": sr.get("ErrorSummary"),
         })
     handler._json_response({"runs": mapped, "count": len(mapped)})
@@ -1708,41 +2054,65 @@ def _handle_settings_post(handler, config: dict, body: dict) -> None:
 def _handle_entities(handler, config: dict) -> None:
     """Return all active LZ entities for the manual reload selector."""
     try:
-        rows = _db_query("""
-            SELECT
-                e.LandingzoneEntityId AS entity_id,
-                e.SourceSchema AS source_schema,
-                e.SourceName AS source_name,
-                COALESCE(NULLIF(d.Namespace, ''), d.Name) AS namespace,
-                d.Name AS datasource,
-                c.DatabaseName AS source_database,
-                e.IsIncremental AS is_incremental,
-                es.LoadEndDateTime AS last_loaded,
-                CASE WHEN LOWER(es.Status) IN ('success', 'loaded') THEN 'loaded'
-                     WHEN LOWER(es.Status) IN ('failed', 'error') THEN 'failed'
-                     ELSE 'never' END AS lz_status
-            FROM lz_entities e
-            INNER JOIN datasources d ON e.DataSourceId = d.DataSourceId
-            INNER JOIN connections c ON d.ConnectionId = c.ConnectionId
-            LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
-                AND LOWER(es.Layer) IN ('landing', 'landingzone')
-            WHERE e.IsActive = 1
-            ORDER BY d.Name, e.SourceSchema, e.SourceName
-        """)
-
         entities = []
-        for r in rows:
-            entities.append({
-                "entity_id": int(r.get("entity_id", 0)),
-                "source_schema": str(r.get("source_schema", "")),
-                "source_name": str(r.get("source_name", "")),
-                "namespace": str(r.get("namespace", "")),
-                "datasource": str(r.get("datasource", "")),
-                "source_database": str(r.get("source_database", "")),
-                "is_incremental": bool(r.get("is_incremental", False)),
-                "last_loaded": str(r.get("last_loaded", "")) if r.get("last_loaded") else None,
-                "lz_status": str(r.get("lz_status", "never")),
-            })
+        cpdb = _get_cpdb()
+        if cpdb and hasattr(cpdb, "get_registered_entities_full") and hasattr(cpdb, "get_canonical_entity_status"):
+            landing_status = {
+                int(row.get("LandingzoneEntityId") or 0): row
+                for row in cpdb.get_canonical_entity_status()
+                if str(row.get("Layer") or "").lower() == "landing"
+            }
+            for row in cpdb.get_registered_entities_full():
+                if _to_int(row.get("IsActive")) != 1:
+                    continue
+                entity_id = _to_int(row.get("LandingzoneEntityId"))
+                status_row = landing_status.get(entity_id, {})
+                entities.append({
+                    "entity_id": entity_id,
+                    "source_schema": str(row.get("SourceSchema", "")),
+                    "source_name": str(row.get("SourceName", "")),
+                    "namespace": str(row.get("Namespace") or row.get("DataSourceName") or ""),
+                    "datasource": str(row.get("DataSourceName", "")),
+                    "source_database": str(row.get("DatabaseName", "")),
+                    "is_incremental": bool(row.get("IsIncremental", False)),
+                    "last_loaded": str(status_row.get("LoadEndDateTime", "")) if status_row.get("LoadEndDateTime") else None,
+                    "lz_status": _selector_landing_status(status_row.get("Status")),
+                })
+        else:
+            rows = _db_query("""
+                SELECT
+                    e.LandingzoneEntityId AS entity_id,
+                    e.SourceSchema AS source_schema,
+                    e.SourceName AS source_name,
+                    COALESCE(NULLIF(d.Namespace, ''), d.Name) AS namespace,
+                    d.Name AS datasource,
+                    c.DatabaseName AS source_database,
+                    e.IsIncremental AS is_incremental,
+                    es.LoadEndDateTime AS last_loaded,
+                    CASE WHEN LOWER(es.Status) IN ('success', 'loaded') THEN 'loaded'
+                         WHEN LOWER(es.Status) IN ('failed', 'error') THEN 'failed'
+                         ELSE 'never' END AS lz_status
+                FROM lz_entities e
+                INNER JOIN datasources d ON e.DataSourceId = d.DataSourceId
+                INNER JOIN connections c ON d.ConnectionId = c.ConnectionId
+                LEFT JOIN entity_status es ON e.LandingzoneEntityId = es.LandingzoneEntityId
+                    AND LOWER(es.Layer) IN ('landing', 'landingzone')
+                WHERE e.IsActive = 1
+                ORDER BY d.Name, e.SourceSchema, e.SourceName
+            """)
+
+            for r in rows:
+                entities.append({
+                    "entity_id": int(r.get("entity_id", 0)),
+                    "source_schema": str(r.get("source_schema", "")),
+                    "source_name": str(r.get("source_name", "")),
+                    "namespace": str(r.get("namespace", "")),
+                    "datasource": str(r.get("datasource", "")),
+                    "source_database": str(r.get("source_database", "")),
+                    "is_incremental": bool(r.get("is_incremental", False)),
+                    "last_loaded": str(r.get("last_loaded", "")) if r.get("last_loaded") else None,
+                    "lz_status": str(r.get("lz_status", "never")),
+                })
 
         handler._json_response({"entities": entities, "count": len(entities)})
     except Exception as exc:

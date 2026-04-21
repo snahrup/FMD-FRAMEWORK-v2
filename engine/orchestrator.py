@@ -356,7 +356,7 @@ class LoadOrchestrator:
                 self._current_layer = "bronze"
                 bronze_t = time.time()
                 if effective_method == "local":
-                    bronze_results = self._run_bronze_local(run_id)
+                    bronze_results = self._run_bronze_local(run_id, entity_ids=entity_ids)
                     results.extend(bronze_results)
                 else:
                     bronze_result = self._notebooks.run_bronze(run_id)
@@ -369,7 +369,7 @@ class LoadOrchestrator:
                 self._current_layer = "silver"
                 silver_t = time.time()
                 if effective_method == "local":
-                    silver_results = self._run_silver_local(run_id)
+                    silver_results = self._run_silver_local(run_id, entity_ids=entity_ids)
                     results.extend(silver_results)
                 else:
                     silver_result = self._notebooks.run_silver(run_id)
@@ -410,8 +410,7 @@ class LoadOrchestrator:
             # If log_run_end / log_run_error succeeded, the row is already
             # Succeeded/Failed and this UPDATE is a no-op (WHERE still InProgress).
             try:
-                from dashboard.app.api import control_plane_db as cpdb
-                cpdb.execute(
+                self._cpdb_execute(
                     "UPDATE engine_runs "
                     "SET Status = CASE "
                     "    WHEN Status IN ('InProgress', 'running') THEN 'Interrupted' "
@@ -924,11 +923,15 @@ class LoadOrchestrator:
     # Local Bronze processing
     # ------------------------------------------------------------------
 
-    def _run_bronze_local(self, run_id: str) -> List[RunResult]:
-        """Process all active bronze entities locally."""
+    def _run_bronze_local(
+        self,
+        run_id: str,
+        entity_ids: Optional[List[int]] = None,
+    ) -> List[RunResult]:
+        """Process the scoped bronze worklist locally."""
         from engine.bronze_processor import BronzeProcessor
 
-        bronze_entities = self.get_bronze_worklist()
+        bronze_entities = self.get_bronze_worklist(entity_ids)
         if not bronze_entities:
             log.warning("[%s] No active bronze entities found", run_id[:8])
             return []
@@ -1005,11 +1008,15 @@ class LoadOrchestrator:
     # Local Silver processing
     # ------------------------------------------------------------------
 
-    def _run_silver_local(self, run_id: str) -> List[RunResult]:
-        """Process all active silver entities locally with SCD Type 2."""
+    def _run_silver_local(
+        self,
+        run_id: str,
+        entity_ids: Optional[List[int]] = None,
+    ) -> List[RunResult]:
+        """Process the scoped silver worklist locally with SCD Type 2."""
         from engine.silver_processor import SilverProcessor
 
-        silver_entities = self.get_silver_worklist()
+        silver_entities = self.get_silver_worklist(entity_ids)
         if not silver_entities:
             log.warning("[%s] No active silver entities found", run_id[:8])
             return []

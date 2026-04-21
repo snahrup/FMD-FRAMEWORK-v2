@@ -72,40 +72,42 @@ def get_alerts(params: dict) -> list:
         threshold_48 = (now_utc - timedelta(hours=48)).isoformat()
 
         freshness_rows = conn.execute(
-            """
-            WITH latest_status AS (
-                SELECT EntityId, Layer, Status, created_at,
+            f"""
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE},
+            latest_status AS (
+                SELECT LandingzoneEntityId, DataSourceId, Layer, Status, LoadEndDateTime,
                        ROW_NUMBER() OVER (
-                           PARTITION BY EntityId, Layer
-                           ORDER BY created_at DESC,
+                           PARTITION BY LandingzoneEntityId, Layer
+                           ORDER BY LoadEndDateTime DESC,
                                     CASE Status WHEN 'succeeded' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END
                        ) AS rn
-                FROM engine_task_log
+                FROM mapped
+                WHERE LandingzoneEntityId IS NOT NULL
             )
             SELECT
                 ds.Name           AS source,
                 ds.DisplayName    AS source_display,
                 COUNT(*)          AS stale_count,
-                MIN(ls.created_at) AS first_seen,
-                SUM(CASE WHEN ls.created_at < ? THEN 1 ELSE 0 END) AS critical_count,
+                MIN(ls.LoadEndDateTime) AS first_seen,
+                SUM(CASE WHEN ls.LoadEndDateTime < ? THEN 1 ELSE 0 END) AS critical_count,
                 GROUP_CONCAT(
                     CASE WHEN e.SourceSchema IS NOT NULL AND e.SourceSchema != ''
                          THEN e.SourceSchema || '.' || e.SourceName
                          ELSE e.SourceName END,
                     '||') AS entity_names
             FROM latest_status ls
-            JOIN lz_entities  e  ON ls.EntityId = e.LandingzoneEntityId
+            JOIN lz_entities  e  ON ls.LandingzoneEntityId = e.LandingzoneEntityId
             JOIN datasources  ds ON e.DataSourceId = ds.DataSourceId
             WHERE ls.rn = 1
               AND ls.Layer IN ('landing', 'bronze', 'silver')
               AND ls.Status = 'succeeded'
-              AND ls.created_at IS NOT NULL
-              AND ls.created_at < ?
+              AND ls.LoadEndDateTime IS NOT NULL
+              AND ls.LoadEndDateTime < ?
               AND e.IsActive = 1
-              AND ds.Name NOT IN ({ph})
+              AND ds.Name NOT IN ({_placeholders()})
             GROUP BY ds.DataSourceId
             ORDER BY COUNT(*) DESC
-            """.format(ph=_placeholders()),
+            """,
             (threshold_48,) + (threshold_24,) + _system_tuple(),
         ).fetchall()
 
@@ -122,7 +124,7 @@ def get_alerts(params: dict) -> list:
                 "id": f"freshness-{source}-{today}",
                 "type": "freshness",
                 "severity": severity,
-                "source": source,
+                "source": cpdb._normalize_display_namespace(source) or source,
                 "sourceDisplay": source_display,
                 "title": f"{source_display} \u2014 {count} tables past freshness SLA",
                 "detail": (
@@ -139,15 +141,13 @@ def get_alerts(params: dict) -> list:
         #    'not_started' across all layers (never got data)
         # ==================================================================
         never_loaded_rows = conn.execute(
-            """
-            WITH latest_status AS (
-                SELECT EntityId, Layer, Status,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY EntityId, Layer
-                           ORDER BY created_at DESC,
-                                    CASE Status WHEN 'succeeded' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END
-                       ) AS rn
-                FROM engine_task_log
+            f"""
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE},
+            successful_entities AS (
+                SELECT DISTINCT LandingzoneEntityId
+                FROM mapped
+                WHERE LandingzoneEntityId IS NOT NULL
+                  AND Status = 'succeeded'
             )
             SELECT
                 ds.Name           AS source,
@@ -160,16 +160,14 @@ def get_alerts(params: dict) -> list:
                     '||') AS entity_names
             FROM lz_entities e
             JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
-            LEFT JOIN latest_status ls ON ls.EntityId = e.LandingzoneEntityId
-                                        AND ls.rn = 1
-                                        AND ls.Status = 'succeeded'
+            LEFT JOIN successful_entities ls ON ls.LandingzoneEntityId = e.LandingzoneEntityId
             WHERE e.IsActive = 1
-              AND ls.EntityId IS NULL
-              AND ds.Name NOT IN ({ph})
+              AND ls.LandingzoneEntityId IS NULL
+              AND ds.Name NOT IN ({_placeholders()})
             GROUP BY ds.DataSourceId
             HAVING pending_count > 0
             ORDER BY pending_count DESC
-            """.format(ph=_placeholders()),
+            """,
             _system_tuple(),
         ).fetchall()
 
@@ -185,7 +183,7 @@ def get_alerts(params: dict) -> list:
                 "id": f"pending-{source}-{today}",
                 "type": "pending",
                 "severity": severity,
-                "source": source,
+                "source": cpdb._normalize_display_namespace(source) or source,
                 "sourceDisplay": source_display,
                 "title": f"{source_display} \u2014 {count} tables awaiting initial load",
                 "detail": (
@@ -201,34 +199,30 @@ def get_alerts(params: dict) -> list:
         # 3. Source offline — IsActive=0 OR no entities have ever loaded
         # ==================================================================
         offline_rows = conn.execute(
-            """
-            WITH latest_status AS (
-                SELECT EntityId, Layer, Status, created_at,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY EntityId, Layer
-                           ORDER BY created_at DESC,
-                                    CASE Status WHEN 'succeeded' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END
-                       ) AS rn
-                FROM engine_task_log
+            f"""
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE},
+            successful_landing AS (
+                SELECT DISTINCT LandingzoneEntityId
+                FROM mapped
+                WHERE LandingzoneEntityId IS NOT NULL
+                  AND Layer = 'landing'
+                  AND Status = 'succeeded'
             )
             SELECT
                 ds.Name          AS source,
                 ds.DisplayName   AS source_display,
                 ds.IsActive      AS is_active,
                 COUNT(e.LandingzoneEntityId) AS entity_count,
-                SUM(CASE WHEN ls.created_at IS NOT NULL THEN 1 ELSE 0 END) AS loaded_count
+                SUM(CASE WHEN ls.LandingzoneEntityId IS NOT NULL THEN 1 ELSE 0 END) AS loaded_count
             FROM datasources ds
             LEFT JOIN lz_entities  e  ON e.DataSourceId = ds.DataSourceId
                                        AND e.IsActive = 1
-            LEFT JOIN latest_status ls ON ls.EntityId = e.LandingzoneEntityId
-                                        AND ls.Layer = 'landing'
-                                        AND ls.rn = 1
-                                        AND ls.Status = 'succeeded'
-            WHERE ds.Name NOT IN ({ph})
+            LEFT JOIN successful_landing ls ON ls.LandingzoneEntityId = e.LandingzoneEntityId
+            WHERE ds.Name NOT IN ({_placeholders()})
             GROUP BY ds.DataSourceId
             HAVING entity_count > 0 AND (ds.IsActive = 0 OR loaded_count = 0)
             ORDER BY ds.Name
-            """.format(ph=_placeholders()),
+            """,
             _system_tuple(),
         ).fetchall()
 
@@ -240,7 +234,7 @@ def get_alerts(params: dict) -> list:
                 "id": f"connection-{source}-{today}",
                 "type": "connection",
                 "severity": "critical",
-                "source": source,
+                "source": cpdb._normalize_display_namespace(source) or source,
                 "sourceDisplay": source_display,
                 "title": f"{source_display} \u2014 source offline",
                 "detail": (

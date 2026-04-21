@@ -12,6 +12,7 @@ Run via:  orchestrator.preflight()  or  standalone:  python -m engine.preflight
 """
 
 import logging
+from importlib.util import find_spec
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -101,6 +102,8 @@ class PreflightChecker:
         """Run all preflight checks and return a report."""
         report = PreflightReport()
 
+        report.add(self._check_runtime_dependencies())
+        report.add(self._check_source_auth_mode())
         report.add(self._check_tokens())
         report.add(self._check_metadata_db())
         report.add(self._check_onelake())
@@ -142,6 +145,58 @@ class PreflightChecker:
     # ------------------------------------------------------------------
     # Individual checks
     # ------------------------------------------------------------------
+
+    def _check_runtime_dependencies(self) -> CheckResult:
+        """Verify that the active Python runtime has the required packages."""
+        t0 = time.perf_counter()
+        required = ["polars", "pyarrow", "pyodbc", "deltalake"]
+        if getattr(self._config, "use_connectorx", False):
+            required.append("connectorx")
+
+        missing = [pkg for pkg in required if find_spec(pkg) is None]
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        if missing:
+            return CheckResult(
+                name="Python Runtime Dependencies",
+                passed=False,
+                message=f"Missing package(s): {', '.join(sorted(missing))}",
+                duration_ms=elapsed_ms,
+            )
+
+        return CheckResult(
+            name="Python Runtime Dependencies",
+            passed=True,
+            message=f"Runtime packages available: {', '.join(sorted(required))}",
+            duration_ms=elapsed_ms,
+        )
+
+    def _check_source_auth_mode(self) -> CheckResult:
+        """Surface whether source SQL auth is production-safe."""
+        t0 = time.perf_counter()
+        mode = str(getattr(self._config, "connectorx_auth_mode", "windows") or "windows").strip().lower()
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+
+        if mode == "sql":
+            if self._config.sql_username and self._config.sql_password:
+                return CheckResult(
+                    name="Source SQL Auth Mode",
+                    passed=True,
+                    message="SQL service-account auth configured",
+                    duration_ms=elapsed_ms,
+                )
+            return CheckResult(
+                name="Source SQL Auth Mode",
+                passed=False,
+                message="connectorx_auth_mode=sql is set but sql_username/sql_password are missing",
+                duration_ms=elapsed_ms,
+            )
+
+        return CheckResult(
+            name="Source SQL Auth Mode",
+            passed=True,
+            message="Windows integrated auth enabled; production deployments should migrate to a dedicated service account or SQL auth",
+            duration_ms=elapsed_ms,
+        )
 
     def _check_tokens(self) -> CheckResult:
         """Validate all three SP token scopes."""

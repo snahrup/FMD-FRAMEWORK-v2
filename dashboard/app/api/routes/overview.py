@@ -30,6 +30,21 @@ _SYSTEM_SOURCES = {"CUSTOM_NOTEBOOK", "LH_DATA_LANDINGZONE"}
 
 
 # ---------------------------------------------------------------------------
+# GET /api/overview
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/overview")
+def get_overview_root(params: dict) -> dict:
+    """Compatibility summary endpoint for older overview consumers."""
+    return {
+        "kpis": get_overview_kpis(params),
+        "sources": get_overview_sources(params),
+        "activity": get_overview_activity(params),
+        "entities": get_overview_entities(params),
+    }
+
+
+# ---------------------------------------------------------------------------
 # GET /api/overview/kpis
 # ---------------------------------------------------------------------------
 
@@ -194,30 +209,31 @@ def get_overview_activity(params: dict) -> list:
     Uses actual column names: SourceSchema, SourceName (= table name).
     Excludes system sources.
     """
-    conn = cpdb._get_conn()
     try:
-        rows = conn.execute(
-            """
-            SELECT
-                CASE
-                    WHEN e.SourceSchema IS NOT NULL AND e.SourceSchema != ''
-                    THEN e.SourceSchema || '.' || e.SourceName
-                    ELSE e.SourceName
-                END AS entity_name,
-                ds.Name             AS source,
-                t.Layer             AS layer,
-                t.Status            AS status,
-                t.created_at        AS last_load_date
-            FROM engine_task_log t
-            JOIN lz_entities  e  ON t.EntityId = e.LandingzoneEntityId
-            JOIN datasources  ds ON e.DataSourceId = ds.DataSourceId
-            WHERE t.created_at IS NOT NULL
-              AND ds.Name NOT IN ({placeholders})
-            ORDER BY t.created_at DESC
-            LIMIT 20
-            """.format(placeholders=",".join("?" for _ in _SYSTEM_SOURCES)),
-            tuple(_SYSTEM_SOURCES),
-        ).fetchall()
+        source_lookup = {
+            int(row.get("DataSourceId") or 0): row
+            for row in cpdb.get_source_config()
+            if row.get("DataSourceId") is not None
+        }
+        rows = []
+        for row in cpdb.get_mapped_engine_task_log(latest_only=True):
+            ds = source_lookup.get(int(row.get("DataSourceId") or 0), {})
+            source_name = ds.get("Name") or ""
+            if source_name in _SYSTEM_SOURCES:
+                continue
+            entity_name = row.get("SourceName") or ""
+            source_schema = row.get("SourceSchema") or ""
+            if source_schema:
+                entity_name = f"{source_schema}.{entity_name}"
+            rows.append({
+                "entity_name": entity_name,
+                "source": source_name,
+                "layer": row.get("Layer") or "",
+                "status": row.get("Status") or "",
+                "last_load_date": row.get("LoadEndDateTime"),
+            })
+        rows.sort(key=lambda row: str(row.get("last_load_date") or ""), reverse=True)
+        rows = rows[:20]
 
         # Map raw engine_task_log Status values to frontend-expected enum.
         # DB stores: 'loaded', 'not_started', 'error', '' etc.
@@ -251,9 +267,6 @@ def get_overview_activity(params: dict) -> list:
         log.exception("Failed to load overview activity")
         raise HttpError("Failed to load overview activity", 500)
 
-    finally:
-        conn.close()
-
 
 # ---------------------------------------------------------------------------
 # GET /api/overview/entities
@@ -271,52 +284,42 @@ def get_overview_entities(params: dict) -> list:
 
     Excludes system sources. Maps raw column names to what the frontend expects.
     """
-    conn = cpdb._get_conn()
     try:
-        rows = conn.execute(
-            """
-            SELECT
-                e.LandingzoneEntityId,
-                e.SourceSchema,
-                e.SourceName AS TableName,
-                ds.Name       AS SourceName,
-                ds.DisplayName AS SourceDisplayName,
-                e.DataSourceId,
-                e.IsActive,
-                t_lz.Status  AS LzStatus,
-                t_brz.Status AS BronzeStatus,
-                t_slv.Status AS SilverStatus,
-                (SELECT MAX(v) FROM (
-                    SELECT t_lz.created_at  AS v WHERE t_lz.Status  = 'succeeded'
-                    UNION ALL
-                    SELECT t_brz.created_at AS v WHERE t_brz.Status = 'succeeded'
-                    UNION ALL
-                    SELECT t_slv.created_at AS v WHERE t_slv.Status = 'succeeded'
-                )) AS LastLoadDate
-            FROM lz_entities e
-            JOIN datasources ds ON e.DataSourceId = ds.DataSourceId
-            LEFT JOIN (
-                SELECT EntityId, Layer, Status, created_at,
-                       ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn
-                FROM engine_task_log
-            ) t_lz  ON t_lz.EntityId  = e.LandingzoneEntityId AND t_lz.Layer  = 'landing' AND t_lz.rn  = 1
-            LEFT JOIN (
-                SELECT EntityId, Layer, Status, created_at,
-                       ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn
-                FROM engine_task_log
-            ) t_brz ON t_brz.EntityId = e.LandingzoneEntityId AND t_brz.Layer = 'bronze'  AND t_brz.rn = 1
-            LEFT JOIN (
-                SELECT EntityId, Layer, Status, created_at,
-                       ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn
-                FROM engine_task_log
-            ) t_slv ON t_slv.EntityId = e.LandingzoneEntityId AND t_slv.Layer = 'silver'  AND t_slv.rn = 1
-            WHERE e.IsActive = 1
-              AND ds.Name NOT IN ({placeholders})
-            GROUP BY e.LandingzoneEntityId
-            ORDER BY ds.Name, e.SourceSchema, e.SourceName
-            """.format(placeholders=",".join("?" for _ in _SYSTEM_SOURCES)),
-            tuple(_SYSTEM_SOURCES),
-        ).fetchall()
+        status_lookup = {
+            (int(row.get("LandingzoneEntityId") or 0), str(row.get("Layer") or "").lower()): row
+            for row in cpdb.get_canonical_entity_status()
+        }
+        rows = []
+        for row in cpdb.get_registered_entities_full():
+            source_name = row.get("DataSourceName") or ""
+            if source_name in _SYSTEM_SOURCES or int(row.get("IsActive") or 0) != 1:
+                continue
+            entity_id = int(row.get("LandingzoneEntityId") or 0)
+            landing = status_lookup.get((entity_id, "landing"), {})
+            bronze = status_lookup.get((entity_id, "bronze"), {})
+            silver = status_lookup.get((entity_id, "silver"), {})
+            last_load = max(
+                [
+                    landing.get("LoadEndDateTime"),
+                    bronze.get("LoadEndDateTime"),
+                    silver.get("LoadEndDateTime"),
+                ],
+                key=lambda value: str(value or ""),
+            )
+            rows.append({
+                "LandingzoneEntityId": entity_id,
+                "SourceSchema": row.get("SourceSchema") or "",
+                "TableName": row.get("SourceName") or "",
+                "SourceName": source_name,
+                "SourceDisplayName": row.get("DataSourceName") or source_name,
+                "DataSourceId": row.get("DataSourceId"),
+                "IsActive": row.get("IsActive"),
+                "LzStatus": landing.get("Status"),
+                "BronzeStatus": bronze.get("Status"),
+                "SilverStatus": silver.get("Status"),
+                "LastLoadDate": last_load,
+            })
+        rows.sort(key=lambda row: (row["SourceName"], row["SourceSchema"], row["TableName"]))
 
         return [
             {
@@ -338,6 +341,3 @@ def get_overview_entities(params: dict) -> list:
     except Exception:
         log.exception("Failed to load overview entities")
         raise HttpError("Failed to load overview entities", 500)
-
-    finally:
-        conn.close()

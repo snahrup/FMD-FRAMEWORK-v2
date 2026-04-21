@@ -21,10 +21,14 @@ Write-Host ""
 
 # Step 2: Python dependencies
 Write-Host "[2/6] Installing Python dependencies..." -ForegroundColor Yellow
-python -m pip install --upgrade polars pyodbc arrow-odbc pyarrow requests tqdm 2>&1
-if (Test-Path "$ProjectRoot\requirements.txt") {
-    python -m pip install -r "$ProjectRoot\requirements.txt" 2>&1
+$engineRequirements = Join-Path $ProjectRoot "engine\requirements.txt"
+if (Test-Path $engineRequirements) {
+    python -m pip install -r $engineRequirements 2>&1
+} else {
+    Write-Host "  WARNING: engine\\requirements.txt not found. Falling back to ad hoc package install." -ForegroundColor Yellow
+    python -m pip install --upgrade polars pyodbc pyarrow 2>&1
 }
+python -m pip install --upgrade arrow-odbc requests tqdm 2>&1
 Write-Host "  OK - Python packages installed." -ForegroundColor Green
 Write-Host ""
 

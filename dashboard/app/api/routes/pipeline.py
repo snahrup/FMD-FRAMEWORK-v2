@@ -33,6 +33,7 @@ from pathlib import Path
 
 from dashboard.app.api.router import route, sse_route, HttpError
 from dashboard.app.api import db
+import dashboard.app.api.control_plane_db as cpdb
 
 log = logging.getLogger("fmd.routes.pipeline")
 
@@ -330,12 +331,15 @@ def get_bronze_view(params: dict) -> list:
 def get_silver_view(params: dict) -> list:
     # Silver execution tracking from engine_task_log
     return db.query(
-        """
-        SELECT EntityId AS LandingzoneEntityId, Layer, Status, created_at AS LoadEndDateTime,
+        f"""
+        {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
+        SELECT LandingzoneEntityId, Layer, Status, LoadEndDateTime,
                RowsWritten, ErrorMessage, 'engine' AS UpdatedBy
-        FROM engine_task_log
+        FROM mapped
         WHERE Layer = 'silver'
-        ORDER BY created_at DESC LIMIT 200
+          AND LandingzoneEntityId IS NOT NULL
+        ORDER BY LoadEndDateTime DESC, id DESC
+        LIMIT 200
         """
     )
 

@@ -39,6 +39,115 @@ def _v(val):
     return str(val) if val is not None else None
 
 
+def _normalize_entity_layer(layer) -> str | None:
+    if layer is None:
+        return None
+    raw = str(layer).strip().lower()
+    if raw == "landingzone":
+        return "landing"
+    if raw in {"landing", "bronze", "silver"}:
+        return raw
+    return raw or None
+
+
+def _normalize_entity_status_value(status) -> str | None:
+    if status is None:
+        return None
+    raw = str(status).strip().lower()
+    aliases = {
+        "loaded": "succeeded",
+        "success": "succeeded",
+        "succeeded": "succeeded",
+        "error": "failed",
+        "failed": "failed",
+        "skipped": "skipped",
+        "not_started": "not_started",
+        "running": "extracting",
+        "in_progress": "extracting",
+        "extracting": "extracting",
+        "cancelled": "cancelled",
+        "aborted": "cancelled",
+    }
+    return aliases.get(raw, raw or None)
+
+
+_NAMESPACE_DISPLAY_ALIASES = {
+    "mes": "MES",
+    "etq": "ETQ",
+    "etqstagingprd": "ETQ",
+    "m3": "M3",
+    "m3_erp": "M3",
+    "m3fdbprd": "M3",
+    "m3cloud": "M3C",
+    "m3c": "M3C",
+    "di_prd_staging": "M3C",
+    "optiva": "OPTIVA",
+    "optivalive": "OPTIVA",
+    "nb": "NB",
+    "onelake": "ONELAKE",
+}
+
+
+def _normalize_display_namespace(namespace) -> str | None:
+    if namespace is None:
+        return None
+    raw = str(namespace).strip()
+    if not raw:
+        return None
+    return _NAMESPACE_DISPLAY_ALIASES.get(raw.lower(), raw)
+
+
+def _normalize_run_layers_value(layers) -> str | None:
+    if layers is None:
+        return None
+    raw = str(layers).strip()
+    if not raw:
+        return ""
+
+    parts = [
+        _normalize_entity_layer(part)
+        for part in raw.replace("|", ",").replace(";", ",").split(",")
+    ]
+    normalized = [part for part in parts if part in {"landing", "bronze", "silver"}]
+
+    if not normalized:
+        collapsed = "".join(ch for ch in raw.lower() if ch.isalpha())
+        ordered = []
+        for layer in ("landing", "bronze", "silver"):
+            if layer in collapsed:
+                ordered.append(layer)
+        normalized = ordered
+
+    deduped: list[str] = []
+    for layer in normalized:
+        if layer and layer not in deduped:
+            deduped.append(layer)
+    return ",".join(deduped)
+
+
+def _normalize_namespace_row(row: dict, *keys: str) -> dict:
+    normalized = dict(row)
+    for key in keys:
+        if key in normalized:
+            normalized[key] = _normalize_display_namespace(normalized.get(key))
+    return normalized
+
+
+def _is_connection_usable(row: dict) -> bool:
+    conn_type = str(row.get("Type") or row.get("ConnectionType") or "").strip().lower()
+    if conn_type == "sql":
+        return bool(str(row.get("ServerName") or "").strip()) and bool(
+            str(row.get("DatabaseName") or "").strip()
+        )
+    return True
+
+
+def _normalize_connection_row(row: dict) -> dict:
+    normalized = dict(row)
+    normalized["IsUsable"] = 1 if _is_connection_usable(normalized) else 0
+    return normalized
+
+
 # ---------------------------------------------------------------------------
 # Schema initialisation
 # ---------------------------------------------------------------------------
@@ -1268,6 +1377,48 @@ def init_db():
             except sqlite3.OperationalError:
                 log.debug("Column %s already exists in engine_runs, skipping", col)
 
+        # Normalize legacy entity_status casing so deprecated readers and ad hoc
+        # SQL agree on canonical layer/status values.
+        conn.execute(
+            "UPDATE entity_status "
+            "SET Layer = CASE LOWER(COALESCE(Layer, '')) "
+            "    WHEN 'landingzone' THEN 'landing' "
+            "    WHEN 'landing' THEN 'landing' "
+            "    WHEN 'bronze' THEN 'bronze' "
+            "    WHEN 'silver' THEN 'silver' "
+            "    ELSE LOWER(COALESCE(Layer, '')) "
+            "END "
+            "WHERE Layer IS NOT NULL"
+        )
+        conn.execute(
+            "UPDATE entity_status "
+            "SET Status = CASE LOWER(COALESCE(Status, '')) "
+            "    WHEN 'loaded' THEN 'succeeded' "
+            "    WHEN 'success' THEN 'succeeded' "
+            "    WHEN 'succeeded' THEN 'succeeded' "
+            "    WHEN 'error' THEN 'failed' "
+            "    WHEN 'failed' THEN 'failed' "
+            "    WHEN 'skipped' THEN 'skipped' "
+            "    WHEN 'not_started' THEN 'not_started' "
+            "    WHEN 'running' THEN 'extracting' "
+            "    WHEN 'in_progress' THEN 'extracting' "
+            "    ELSE LOWER(COALESCE(Status, '')) "
+            "END "
+            "WHERE Status IS NOT NULL"
+        )
+        run_rows = conn.execute(
+            "SELECT RunId, Layers FROM engine_runs "
+            "WHERE Layers IS NOT NULL AND TRIM(Layers) != ''"
+        ).fetchall()
+        for row in run_rows:
+            normalized_layers = _normalize_run_layers_value(row["Layers"])
+            if normalized_layers and normalized_layers != str(row["Layers"]).strip():
+                conn.execute(
+                    "UPDATE engine_runs SET Layers = ? WHERE RunId = ?",
+                    (normalized_layers, row["RunId"]),
+                )
+        conn.commit()
+
     finally:
         conn.close()
     log.info(f'Control-plane DB initialized at {DB_PATH}')
@@ -1433,6 +1584,18 @@ def upsert_silver_entity(row: dict) -> None:
 
 
 def upsert_engine_run(row: dict) -> None:
+    total_entities = row["TotalEntities"] if "TotalEntities" in row else None
+    succeeded_entities = row["SucceededEntities"] if "SucceededEntities" in row else None
+    failed_entities = row["FailedEntities"] if "FailedEntities" in row else None
+    skipped_entities = row["SkippedEntities"] if "SkippedEntities" in row else None
+    total_rows_read = row["TotalRowsRead"] if "TotalRowsRead" in row else None
+    total_rows_written = row["TotalRowsWritten"] if "TotalRowsWritten" in row else None
+    total_bytes = row["TotalBytesTransferred"] if "TotalBytesTransferred" in row else None
+    total_duration = row["TotalDurationSeconds"] if "TotalDurationSeconds" in row else None
+    completed_units = row["CompletedUnits"] if "CompletedUnits" in row else None
+    active_workers = row["ActiveWorkers"] if "ActiveWorkers" in row else None
+    eta_seconds = row["EtaSeconds"] if "EtaSeconds" in row else None
+
     with _db_lock:
         conn = _get_conn()
         try:
@@ -1444,39 +1607,39 @@ def upsert_engine_run(row: dict) -> None:
                 "StartedAt, EndedAt, CompletedUnits, HeartbeatAt, ActiveWorkers, EtaSeconds, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(RunId) DO UPDATE SET "
-                "Mode              = COALESCE(excluded.Mode, Mode), "
-                "Status            = excluded.Status, "
-                "TotalEntities     = CASE WHEN excluded.TotalEntities > 0 THEN excluded.TotalEntities ELSE TotalEntities END, "
-                "SucceededEntities = CASE WHEN excluded.SucceededEntities > 0 THEN excluded.SucceededEntities ELSE SucceededEntities END, "
-                "FailedEntities    = CASE WHEN excluded.FailedEntities > 0 THEN excluded.FailedEntities ELSE FailedEntities END, "
-                "SkippedEntities   = CASE WHEN excluded.SkippedEntities > 0 THEN excluded.SkippedEntities ELSE SkippedEntities END, "
-                "TotalRowsRead     = CASE WHEN excluded.TotalRowsRead > 0 THEN excluded.TotalRowsRead ELSE TotalRowsRead END, "
-                "TotalRowsWritten  = CASE WHEN excluded.TotalRowsWritten > 0 THEN excluded.TotalRowsWritten ELSE TotalRowsWritten END, "
-                "TotalBytesTransferred = CASE WHEN excluded.TotalBytesTransferred > 0 THEN excluded.TotalBytesTransferred ELSE TotalBytesTransferred END, "
-                "TotalDurationSeconds  = CASE WHEN excluded.TotalDurationSeconds > 0 THEN excluded.TotalDurationSeconds ELSE TotalDurationSeconds END, "
-                "Layers            = CASE WHEN LENGTH(excluded.Layers) > 0 THEN excluded.Layers ELSE Layers END, "
-                "EntityFilter      = CASE WHEN LENGTH(excluded.EntityFilter) > 0 THEN excluded.EntityFilter ELSE EntityFilter END, "
-                "TriggeredBy       = COALESCE(excluded.TriggeredBy, TriggeredBy), "
-                "ErrorSummary      = COALESCE(excluded.ErrorSummary, ErrorSummary), "
+                "Mode              = CASE WHEN excluded.Mode IS NOT NULL AND excluded.Mode != '' THEN excluded.Mode ELSE Mode END, "
+                "Status            = CASE WHEN excluded.Status IS NOT NULL AND excluded.Status != '' THEN excluded.Status ELSE Status END, "
+                "TotalEntities     = COALESCE(excluded.TotalEntities, TotalEntities), "
+                "SucceededEntities = COALESCE(excluded.SucceededEntities, SucceededEntities), "
+                "FailedEntities    = COALESCE(excluded.FailedEntities, FailedEntities), "
+                "SkippedEntities   = COALESCE(excluded.SkippedEntities, SkippedEntities), "
+                "TotalRowsRead     = COALESCE(excluded.TotalRowsRead, TotalRowsRead), "
+                "TotalRowsWritten  = COALESCE(excluded.TotalRowsWritten, TotalRowsWritten), "
+                "TotalBytesTransferred = COALESCE(excluded.TotalBytesTransferred, TotalBytesTransferred), "
+                "TotalDurationSeconds  = COALESCE(excluded.TotalDurationSeconds, TotalDurationSeconds), "
+                "Layers            = CASE WHEN excluded.Layers IS NOT NULL AND excluded.Layers != '' THEN excluded.Layers ELSE Layers END, "
+                "EntityFilter      = CASE WHEN excluded.EntityFilter IS NOT NULL AND excluded.EntityFilter != '' THEN excluded.EntityFilter ELSE EntityFilter END, "
+                "TriggeredBy       = CASE WHEN excluded.TriggeredBy IS NOT NULL AND excluded.TriggeredBy != '' THEN excluded.TriggeredBy ELSE TriggeredBy END, "
+                "ErrorSummary      = CASE WHEN excluded.ErrorSummary IS NOT NULL AND excluded.ErrorSummary != '' THEN excluded.ErrorSummary ELSE ErrorSummary END, "
                 "StartedAt         = COALESCE(excluded.StartedAt, StartedAt), "
                 "EndedAt           = COALESCE(excluded.EndedAt, EndedAt), "
-                "CompletedUnits    = CASE WHEN excluded.CompletedUnits > 0 THEN excluded.CompletedUnits ELSE CompletedUnits END, "
+                "CompletedUnits    = COALESCE(excluded.CompletedUnits, CompletedUnits), "
                 "HeartbeatAt       = COALESCE(excluded.HeartbeatAt, HeartbeatAt), "
-                "ActiveWorkers     = CASE WHEN excluded.ActiveWorkers > 0 THEN excluded.ActiveWorkers ELSE ActiveWorkers END, "
-                "EtaSeconds        = CASE WHEN excluded.EtaSeconds > 0 THEN excluded.EtaSeconds ELSE EtaSeconds END, "
+                "ActiveWorkers     = COALESCE(excluded.ActiveWorkers, ActiveWorkers), "
+                "EtaSeconds        = COALESCE(excluded.EtaSeconds, EtaSeconds), "
                 "updated_at        = excluded.updated_at",
                 (row.get('RunId'), _v(row.get('Mode')),
                  _v(row.get('Status', 'Unknown')),
-                 row.get('TotalEntities', 0), row.get('SucceededEntities', 0),
-                 row.get('FailedEntities', 0), row.get('SkippedEntities', 0),
-                 row.get('TotalRowsRead', 0), row.get('TotalRowsWritten', 0),
-                 row.get('TotalBytesTransferred', 0),
-                 row.get('TotalDurationSeconds', 0),
+                 total_entities, succeeded_entities,
+                 failed_entities, skipped_entities,
+                 total_rows_read, total_rows_written,
+                 total_bytes,
+                 total_duration,
                  _v(row.get('Layers')), _v(row.get('EntityFilter')),
                  _v(row.get('TriggeredBy')), _v(row.get('ErrorSummary')),
                  _v(row.get('StartedAt')), _v(row.get('EndedAt')),
-                 row.get('CompletedUnits', 0), _v(row.get('HeartbeatAt')),
-                 row.get('ActiveWorkers', 0), row.get('EtaSeconds', 0),
+                 completed_units, _v(row.get('HeartbeatAt')),
+                 active_workers, eta_seconds,
                  _now())
             )
             conn.commit()
@@ -1484,11 +1647,11 @@ def upsert_engine_run(row: dict) -> None:
             conn.close()
 
 
-def insert_engine_task_log(row: dict, extraction_method: str = "unknown") -> None:
+def insert_engine_task_log(row: dict, extraction_method: str = "unknown") -> int | None:
     with _db_lock:
         conn = _get_conn()
         try:
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT INTO engine_task_log "
                 "(RunId, EntityId, Layer, Status, SourceServer, SourceDatabase, "
                 "SourceTable, SourceQuery, RowsRead, RowsWritten, BytesTransferred, "
@@ -1510,6 +1673,40 @@ def insert_engine_task_log(row: dict, extraction_method: str = "unknown") -> Non
                  _v(row.get('LogData')),
                  _v(row.get('ExtractionMethod', extraction_method)),
                  _now())
+            )
+            conn.commit()
+            return int(cursor.lastrowid) if cursor.lastrowid else None
+        finally:
+            conn.close()
+
+
+def update_engine_task_log(task_id: int, row: dict) -> None:
+    with _db_lock:
+        conn = _get_conn()
+        try:
+            conn.execute(
+                "UPDATE engine_task_log SET "
+                "RunId = ?, EntityId = ?, Layer = ?, Status = ?, SourceServer = ?, SourceDatabase = ?, "
+                "SourceTable = ?, SourceQuery = ?, RowsRead = ?, RowsWritten = ?, BytesTransferred = ?, "
+                "DurationSeconds = ?, TargetLakehouse = ?, TargetPath = ?, WatermarkColumn = ?, "
+                "WatermarkBefore = ?, WatermarkAfter = ?, LoadType = ?, ErrorType = ?, ErrorMessage = ?, "
+                "ErrorStackTrace = ?, ErrorSuggestion = ?, LogData = ?, ExtractionMethod = ? "
+                "WHERE id = ?",
+                (
+                    _v(row.get('RunId')), row.get('EntityId'),
+                    _v(row.get('Layer')), _v(row.get('Status')),
+                    _v(row.get('SourceServer')), _v(row.get('SourceDatabase')),
+                    _v(row.get('SourceTable')), _v(row.get('SourceQuery')),
+                    row.get('RowsRead'), row.get('RowsWritten'),
+                    row.get('BytesTransferred'), row.get('DurationSeconds'),
+                    _v(row.get('TargetLakehouse')), _v(row.get('TargetPath')),
+                    _v(row.get('WatermarkColumn')), _v(row.get('WatermarkBefore')),
+                    _v(row.get('WatermarkAfter')), _v(row.get('LoadType')),
+                    _v(row.get('ErrorType')), _v(row.get('ErrorMessage')),
+                    _v(row.get('ErrorStackTrace')), _v(row.get('ErrorSuggestion')),
+                    _v(row.get('LogData')), _v(row.get('ExtractionMethod')),
+                    task_id,
+                )
             )
             conn.commit()
         finally:
@@ -1565,8 +1762,8 @@ def upsert_entity_status(row: dict) -> None:
                 "(LandingzoneEntityId, Layer, Status, LoadEndDateTime, "
                 "ErrorMessage, UpdatedBy, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (row.get('LandingzoneEntityId'), _v(row.get('Layer')),
-                 _v(row.get('Status')), _v(row.get('LoadEndDateTime')),
+                (row.get('LandingzoneEntityId'), _v(_normalize_entity_layer(row.get('Layer'))),
+                 _v(_normalize_entity_status_value(row.get('Status'))), _v(row.get('LoadEndDateTime')),
                  _v(row.get('ErrorMessage')), _v(row.get('UpdatedBy')),
                  _now())
             )
@@ -1637,10 +1834,10 @@ def get_connections() -> list[dict]:
     conn = _get_conn()
     try:
         rows = conn.execute(
-            "SELECT ConnectionId, ConnectionGuid, Name, Type, ServerName, DatabaseName, IsActive "
+            "SELECT ConnectionId, ConnectionGuid, Name, DisplayName, Type, ServerName, DatabaseName, IsActive "
             "FROM connections ORDER BY Name"
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_normalize_connection_row(dict(r)) for r in rows]
     finally:
         conn.close()
 
@@ -1650,12 +1847,18 @@ def get_datasources() -> list[dict]:
     try:
         rows = conn.execute(
             "SELECT d.DataSourceId, d.Name, d.Namespace, d.Type, d.Description, "
-            "       d.IsActive, c.Name AS ConnectionName "
+            "       d.IsActive, c.Name AS ConnectionName, c.Type AS ConnectionType, "
+            "       c.ServerName, c.DatabaseName "
             "FROM datasources d "
             "LEFT JOIN connections c ON c.ConnectionId = d.ConnectionId "
             "ORDER BY d.Namespace, d.Name"
         ).fetchall()
-        return [dict(r) for r in rows]
+        result = []
+        for row in rows:
+            item = _normalize_namespace_row(dict(row), "Namespace")
+            item["ConnectionUsable"] = 1 if _is_connection_usable(item) else 0
+            result.append(item)
+        return result
     finally:
         conn.close()
 
@@ -1670,7 +1873,7 @@ def get_lz_entities() -> list[dict]:
             "LEFT JOIN datasources d ON d.DataSourceId = e.DataSourceId "
             "ORDER BY d.Namespace, e.SourceName"
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_normalize_namespace_row(dict(row), "Namespace") for row in rows]
     finally:
         conn.close()
 
@@ -1686,7 +1889,7 @@ def get_bronze_entities() -> list[dict]:
             "LEFT JOIN datasources d ON d.DataSourceId = e.DataSourceId "
             "ORDER BY b.Name"
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_normalize_namespace_row(dict(row), "Namespace") for row in rows]
     finally:
         conn.close()
 
@@ -1703,7 +1906,7 @@ def get_silver_entities() -> list[dict]:
             "LEFT JOIN datasources d ON d.DataSourceId = e.DataSourceId "
             "ORDER BY s.Name"
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_normalize_namespace_row(dict(row), "Namespace") for row in rows]
     finally:
         conn.close()
 
@@ -1726,7 +1929,7 @@ def get_bronze_view() -> list[dict]:
             "WHERE b.IsActive = 1 "
             "ORDER BY d.Namespace, b.Name"
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_normalize_namespace_row(dict(row), "Namespace") for row in rows]
     finally:
         conn.close()
 
@@ -1749,7 +1952,7 @@ def get_silver_view() -> list[dict]:
             "WHERE s.IsActive = 1 "
             "ORDER BY d.Namespace, s.Name"
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_normalize_namespace_row(dict(row), "Namespace") for row in rows]
     finally:
         conn.close()
 
@@ -1758,7 +1961,8 @@ def get_lakehouses() -> list[dict]:
     conn = _get_conn()
     try:
         rows = conn.execute(
-            "SELECT LakehouseId, Name FROM lakehouses ORDER BY Name"
+            "SELECT LakehouseId, Name, WorkspaceGuid, LakehouseGuid "
+            "FROM lakehouses ORDER BY Name"
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -1769,7 +1973,7 @@ def get_workspaces() -> list[dict]:
     conn = _get_conn()
     try:
         rows = conn.execute(
-            "SELECT WorkspaceId, Name FROM workspaces ORDER BY Name"
+            "SELECT WorkspaceId, WorkspaceGuid, Name FROM workspaces ORDER BY Name"
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -2116,13 +2320,18 @@ def get_registered_entities_full() -> list[dict]:
     try:
         rows = conn.execute(
             "SELECT e.*, d.Name AS DataSourceName, d.Namespace, "
-            "       c.Name AS ConnectionName, c.ServerName, c.DatabaseName "
+            "       c.Name AS ConnectionName, c.Type AS ConnectionType, c.ServerName, c.DatabaseName "
             "FROM lz_entities e "
             "LEFT JOIN datasources d ON d.DataSourceId = e.DataSourceId "
             "LEFT JOIN connections c ON c.ConnectionId = d.ConnectionId "
             "ORDER BY d.Namespace, e.SourceName"
         ).fetchall()
-        return [dict(r) for r in rows]
+        result = []
+        for row in rows:
+            item = _normalize_namespace_row(dict(row), "Namespace")
+            item["ConnectionUsable"] = 1 if _is_connection_usable(item) else 0
+            result.append(item)
+        return result
     finally:
         conn.close()
 
@@ -2133,12 +2342,17 @@ def get_source_config() -> list[dict]:
         rows = conn.execute(
             "SELECT d.DataSourceId, d.Name, d.DisplayName, d.Namespace, d.Type, d.Description, "
             "       d.IsActive, c.ConnectionId, c.Name AS ConnectionName, "
-            "       c.ServerName, c.DatabaseName "
+            "       c.Type AS ConnectionType, c.ServerName, c.DatabaseName "
             "FROM datasources d "
             "LEFT JOIN connections c ON c.ConnectionId = d.ConnectionId "
             "ORDER BY d.Namespace, d.Name"
         ).fetchall()
-        return [dict(r) for r in rows]
+        result = []
+        for row in rows:
+            item = _normalize_namespace_row(dict(row), "Namespace")
+            item["ConnectionUsable"] = 1 if _is_connection_usable(item) else 0
+            result.append(item)
+        return result
     finally:
         conn.close()
 

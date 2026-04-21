@@ -13,6 +13,7 @@ import logging
 
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
+import dashboard.app.api.control_plane_db as cpdb
 
 log = logging.getLogger("fmd.routes.microscope")
 
@@ -452,24 +453,24 @@ def get_microscope(params: dict) -> dict:
 
     # Entity status derived from engine_task_log (latest per layer)
     statuses = db.query(
-        """
-        SELECT Layer, Status, created_at AS LoadEndDateTime
-        FROM engine_task_log
-        WHERE EntityId = ?
-          AND id IN (
-              SELECT id FROM (
-                  SELECT id,
-                         ROW_NUMBER() OVER (
-                             PARTITION BY Layer
-                             ORDER BY created_at DESC,
-                                      CASE Status WHEN 'succeeded' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END
-                         ) AS rn
-                  FROM engine_task_log
-                  WHERE EntityId = ?
-              ) WHERE rn = 1
-          )
+        f"""
+        {cpdb._MAPPED_ENGINE_TASK_LOG_CTE},
+        ranked AS (
+            SELECT Layer, Status, LoadEndDateTime,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY Layer
+                       ORDER BY LoadEndDateTime DESC,
+                                CASE Status WHEN 'succeeded' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END,
+                                id DESC
+                   ) AS rn
+            FROM mapped
+            WHERE LandingzoneEntityId = ?
+        )
+        SELECT Layer, Status, LoadEndDateTime
+        FROM ranked
+        WHERE rn = 1
         """,
-        (entity_id, entity_id),
+        (entity_id,),
     )
     status_by_layer = {}
     for s in statuses:

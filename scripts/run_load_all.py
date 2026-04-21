@@ -28,34 +28,27 @@ import urllib.parse
 import urllib.error
 import time
 import sys
-import os
 from datetime import datetime, timezone
 
+from engine.config import load_config
+
 # ── Config ──
-TENANT = 'ca81e9fd-06dd-49cf-b5a9-ee7441ff5303'
-CLIENT = 'ac937c5d-4bdd-438f-be8b-84a850021d2d'
-
-def get_client_secret():
-    env_path = os.path.join(os.path.dirname(__file__), '..', 'dashboard', 'app', 'api', '.env')
-    with open(env_path) as f:
-        for line in f:
-            if line.startswith('FABRIC_CLIENT_SECRET='):
-                return line.strip().split('=', 1)[1]
-    raise RuntimeError('FABRIC_CLIENT_SECRET not found in .env')
-
-SECRET = None  # Loaded lazily
+CONFIG = load_config()
+TENANT = CONFIG.tenant_id
+CLIENT = CONFIG.client_id
+SECRET = CONFIG.client_secret
 TOKEN_URL = f'https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/token'
 SCOPE = 'https://api.fabric.microsoft.com/.default'
 API = 'https://api.fabric.microsoft.com/v1'
 
 # Workspace
-WS_CODE = 'c0366b24-e6f8-4994-b4df-b765ecb5bbf8'
+WS_CODE = CONFIG.workspace_code_id
 
-# Notebook IDs (source of truth — from Fabric workspace listing 2026-03-06)
+# Notebook IDs are sourced from dashboard/app/api/config.json via engine.config.
 NOTEBOOKS = {
-    'LZ':     'd6fbceef-adeb-492f-9959-4fd7d07b1348',  # NB_FMD_PROCESSING_LANDINGZONE_MAIN
-    'BRONZE': 'a2712a97-ebde-4036-b704-4892b8c4f7af',  # NB_FMD_LOAD_LANDING_BRONZE
-    'SILVER': '8ce7bc73-35ac-4844-8937-969b7d99ec3e',  # NB_FMD_LOAD_BRONZE_SILVER
+    'LZ':     CONFIG.notebook_processing_id,
+    'BRONZE': CONFIG.notebook_bronze_id,
+    'SILVER': CONFIG.notebook_silver_id,
 }
 
 NOTEBOOK_NAMES = {
@@ -75,9 +68,8 @@ def log(msg):
 
 
 def get_token():
-    global SECRET
-    if SECRET is None:
-        SECRET = get_client_secret()
+    if not SECRET:
+        raise RuntimeError('FABRIC_CLIENT_SECRET not configured in dashboard/app/api/.env')
     body = urllib.parse.urlencode({
         'grant_type': 'client_credentials',
         'client_id': CLIENT,
@@ -219,6 +211,13 @@ def main():
         if stage not in NOTEBOOKS:
             log(f'Unknown stage: {stage}. Valid: LZ, BRONZE, SILVER')
             return 1
+        if not NOTEBOOKS.get(stage):
+            log(f'Missing configured notebook ID for stage {stage}. Check dashboard/app/api/config.json')
+            return 1
+
+    if not TENANT or not CLIENT or not WS_CODE:
+        log('Missing Fabric tenant/client/workspace configuration. Check dashboard/app/api/config.json')
+        return 1
 
     log('=' * 60)
     log('FMD LOAD_ALL Orchestrator (Notebook-based)')

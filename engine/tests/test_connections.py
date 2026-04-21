@@ -113,3 +113,35 @@ class TestSourceConnection:
         config = _make_config(source_sql_driver="MyDriver")
         sc = SourceConnection(config)
         assert sc._driver == "MyDriver"
+
+    def test_connect_uses_trusted_connection_by_default(self):
+        config = _make_config()
+        sc = SourceConnection(config)
+
+        with patch("engine.connections.pyodbc.connect") as mock_connect:
+            mock_conn = MagicMock()
+            mock_connect.return_value = mock_conn
+            with sc.connect("srv", "db"):
+                pass
+
+        conn_str = mock_connect.call_args.args[0]
+        assert "Trusted_Connection=yes" in conn_str
+
+    def test_connect_supports_sql_auth(self):
+        config = _make_config(
+            connectorx_auth_mode="sql",
+            sql_username="svc_fmd",
+            sql_password="secret",
+        )
+        sc = SourceConnection(config)
+
+        with patch("engine.connections.pyodbc.connect") as mock_connect:
+            mock_conn = MagicMock()
+            mock_connect.return_value = mock_conn
+            with sc.connect("srv", "db"):
+                pass
+
+        conn_str = mock_connect.call_args.args[0]
+        assert "UID=svc_fmd" in conn_str
+        assert "PWD=secret" in conn_str
+        assert "Trusted_Connection=yes" not in conn_str

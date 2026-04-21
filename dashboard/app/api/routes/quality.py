@@ -107,7 +107,7 @@ def get_quality_scores(params: dict) -> dict:
         {
             "entityId":    int(r["entity_id"]),
             "entityName":  r["entity_name"] or "",
-            "source":      r["source"] or "",
+            "source":      cpdb._normalize_display_namespace(r["source"]) or "",
             "completeness": round(float(r["completeness_score"] or 0), 2),
             "freshness":    round(float(r["freshness_score"] or 0), 2),
             "consistency":  round(float(r["consistency_score"] or 0), 2),
@@ -242,13 +242,18 @@ def get_dq_trends(params: dict) -> dict:
         entity_count = int(entity_row["cnt"]) if entity_row else 0
 
         latest_rows = conn.execute(
-            """
-            WITH latest AS (
+            f"""
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE},
+            latest AS (
                 SELECT
-                    EntityId,
+                    LandingzoneEntityId,
                     RowsWritten,
-                    ROW_NUMBER() OVER (PARTITION BY EntityId ORDER BY id DESC) AS rn
-                FROM engine_task_log
+                    ROW_NUMBER() OVER (
+                        PARTITION BY LandingzoneEntityId
+                        ORDER BY LoadEndDateTime DESC, id DESC
+                    ) AS rn
+                FROM mapped
+                WHERE LandingzoneEntityId IS NOT NULL
             )
             SELECT
                 SUM(CASE WHEN COALESCE(RowsWritten, 0) > 0 THEN 1 ELSE 0 END) AS with_data,

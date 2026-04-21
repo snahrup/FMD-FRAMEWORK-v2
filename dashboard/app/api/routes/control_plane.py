@@ -24,6 +24,15 @@ def _is_active(val) -> bool:
     return str(val).lower() in ("true", "1")
 
 
+def _infer_environment(name: str, workspace_name: str = "") -> str:
+    combined = f"{name} {workspace_name}".upper()
+    if "(P)" in combined or " PROD" in combined or combined.endswith("PROD"):
+        return "PROD"
+    if "(D)" in combined or " DEV" in combined or combined.endswith("DEV"):
+        return "DEV"
+    return "UNKNOWN"
+
+
 def _build_control_plane() -> dict:
     """Assemble the /api/control-plane JSON from SQLite reads.
 
@@ -95,10 +104,24 @@ def _build_control_plane() -> dict:
             "Duration": duration,
             "DurationSec": duration_sec,
         })
+    pipeline_runs.sort(
+        key=lambda row: (
+            str(row.get("StartTime") or ""),
+            str(row.get("EndTime") or ""),
+        ),
+        reverse=True,
+    )
+    display_runs = pipeline_runs[:15]
+    workspace_name_by_guid = {
+        str(workspace.get("WorkspaceGuid") or "").upper(): str(workspace.get("Name") or "")
+        for workspace in workspaces
+    }
 
     # Aggregate by namespace (source system)
     source_systems: dict = {}
     for ds in datasources:
+        if str(ds.get("ConnectionUsable", 1)) not in {"1", "True", "true"}:
+            continue
         ns = ds.get("Namespace", "Unknown") or "Unknown"
         if ns not in core_namespaces:
             continue
@@ -120,6 +143,8 @@ def _build_control_plane() -> dict:
     # Link connections to source systems
     conn_to_ns: dict = {}
     for ds in datasources:
+        if str(ds.get("ConnectionUsable", 1)) not in {"1", "True", "true"}:
+            continue
         ns = ds.get("Namespace", "Unknown") or "Unknown"
         if ns not in core_namespaces:
             continue
@@ -159,17 +184,21 @@ def _build_control_plane() -> dict:
             if _is_active(ent.get("IsActive", "")):
                 source_systems[ns]["activeEntities"]["silver"] += 1
 
-    active_conn = sum(1 for c in connections if _is_active(c.get("IsActive", "")))
+    active_conn = sum(
+        1
+        for c in connections
+        if _is_active(c.get("IsActive", "")) and str(c.get("IsUsable", 1)) in {"1", "True", "true"}
+    )
     active_ds = len(source_systems)
     active_lz = sum(1 for e in lz_entities if _is_active(e.get("IsActive", "")))
     active_br = sum(1 for e in bronze_entities if _is_active(e.get("IsActive", "")))
     active_sv = sum(1 for e in silver_entities if _is_active(e.get("IsActive", "")))
     active_pl = sum(1 for p in pipelines if _is_active(p.get("IsActive", "")))
 
-    succeeded_runs = sum(1 for r in pipeline_runs if r["Status"] == "Succeeded")
-    failed_runs = sum(1 for r in pipeline_runs if r["Status"] == "Failed")
-    running_now = sum(1 for r in pipeline_runs if r["Status"] == "InProgress")
-    total_distinct_runs = len(pipeline_runs)
+    succeeded_runs = sum(1 for r in display_runs if r["Status"] == "Succeeded")
+    failed_runs = sum(1 for r in display_runs if r["Status"] == "Failed")
+    running_now = sum(1 for r in display_runs if r["Status"] == "InProgress")
+    total_distinct_runs = len(display_runs)
 
     if failed_runs > 0 and succeeded_runs == 0:
         health = "critical"
@@ -186,16 +215,16 @@ def _build_control_plane() -> dict:
     lh_seen: set = set()
     for lh in lakehouses:
         lh_id = int(lh.get("LakehouseId", 0))
-        # TODO: LakehouseId <= 3 is a fragile heuristic for DEV vs PROD.
-        # Should use a Name-based convention or an explicit Environment column.
-        env = "DEV" if lh_id <= 3 else "PROD"
         name = lh.get("Name", "")
-        entry_key = f"{name}_{env}"
+        workspace_name = workspace_name_by_guid.get(str(lh.get("WorkspaceGuid") or "").upper(), "")
+        env = _infer_environment(name, workspace_name)
+        entry_key = f"{name}_{workspace_name}_{env}"
         if entry_key not in lh_seen:
             lh_seen.add(entry_key)
             lh_deduped.append({
                 "LakehouseId": str(lh_id),
                 "Name": name,
+                "WorkspaceName": workspace_name,
                 "Environment": env,
             })
 
@@ -228,7 +257,7 @@ def _build_control_plane() -> dict:
             {"WorkspaceId": w.get("WorkspaceId", ""), "Name": w.get("Name", "")}
             for w in workspaces
         ],
-        "recentRuns": pipeline_runs[:15],
+        "recentRuns": display_runs,
     }
 
 

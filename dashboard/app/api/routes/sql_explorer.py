@@ -231,7 +231,7 @@ def get_sql_explorer_servers(params: dict) -> list:
     labels = _load_server_labels()
     _FRIENDLY_DEFAULTS = {
         "mes": "MES", "etqstagingprd": "ETQ", "m3fdbprd": "M3",
-        "di_prd_staging": "M3C", "optivalive": "Optiva",
+        "di_prd_staging": "M3C", "optivalive": "OPTIVA",
     }
     driver = _get_sql_driver()
     unique_rows: list[dict] = []

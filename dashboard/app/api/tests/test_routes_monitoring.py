@@ -87,6 +87,13 @@ def test_dashboard_stats_returns_dict():
     assert isinstance(result, dict)
 
 
+def test_dashboard_stats_alias_returns_dict():
+    status, _, body = dispatch("GET", "/api/dashboard-stats", {}, None)
+    assert status == 200
+    result = json.loads(body)
+    assert isinstance(result, dict)
+
+
 def test_journey_requires_entity_param():
     status, _, body = dispatch("GET", "/api/journey", {}, None)
     assert status == 400

@@ -313,7 +313,7 @@ export default function ControlPlane() {
         facts={[
           { label: "Sources", value: `${s.dataSources.active} core systems`, tone: "accent" },
           { label: "Entities", value: `${s.entities.landing.active} staged rows`, tone: "neutral" },
-          { label: "Runs", value: `${ph.recentRuns} recent`, tone: ph.failed > 0 ? "warning" : "positive" },
+          { label: "Runs", value: `${ph.recentRuns} shown`, tone: ph.failed > 0 ? "warning" : "positive" },
           { label: "Health", value: healthCfg.label, tone: data.health === 'healthy' ? "positive" : "warning" },
         ]}
       />

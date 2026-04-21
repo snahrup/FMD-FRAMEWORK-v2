@@ -251,6 +251,20 @@ class TestConnectionCRUD:
         """T-CPDB-006: get_connections returns empty list when no data."""
         assert cpdb.get_connections() == []
 
+    def test_get_connections_marks_unusable_sql_rows(self):
+        """SQL connections missing server/database are flagged unusable."""
+        cpdb.upsert_connection({
+            'ConnectionId': 1,
+            'Name': 'CON_BAD',
+            'Type': 'SQL',
+            'ServerName': '',
+            'DatabaseName': '',
+            'IsActive': 1,
+        })
+        conns = cpdb.get_connections()
+        assert len(conns) == 1
+        assert conns[0]['IsUsable'] == 0
+
 
 class TestLZEntityCRUD:
     """Landing Zone entity upsert and read tests."""
@@ -385,6 +399,30 @@ class TestRunTracking:
         assert runs[0]['SucceededEntities'] == 48
         assert runs[0]['FailedEntities'] == 2
 
+    def test_upsert_engine_run_accepts_explicit_zero_updates(self):
+        cpdb.upsert_engine_run({
+            'RunId': 'run-002b',
+            'Status': 'InProgress',
+            'TotalEntities': 10,
+            'CompletedUnits': 5,
+            'ActiveWorkers': 3,
+            'EtaSeconds': 12.5,
+            'StartedAt': '2026-03-10T10:00:00Z',
+        })
+        cpdb.upsert_engine_run({
+            'RunId': 'run-002b',
+            'Status': 'Failed',
+            'CompletedUnits': 0,
+            'ActiveWorkers': 0,
+            'EtaSeconds': 0,
+            'EndedAt': '2026-03-10T10:01:00Z',
+        })
+        runs = cpdb.get_engine_runs(limit=10)
+        row = next(r for r in runs if r['RunId'] == 'run-002b')
+        assert row['CompletedUnits'] == 0
+        assert row['ActiveWorkers'] == 0
+        assert row['EtaSeconds'] == 0
+
     def test_insert_engine_task_log(self):
         """T-CPDB-014: insert_engine_task_log creates task log entries."""
         cpdb.insert_engine_task_log({
@@ -491,7 +529,7 @@ class TestMetricsAndStats:
         })
         statuses = cpdb.get_entity_status_all()
         assert len(statuses) == 1
-        assert statuses[0]['Status'] == 'Succeeded'
+        assert statuses[0]['Status'] == 'succeeded'
         assert statuses[0]['Layer'] == 'landing'
 
     def test_upsert_entity_status_update(self):
@@ -506,7 +544,7 @@ class TestMetricsAndStats:
         })
         statuses = cpdb.get_entity_status_all()
         assert len(statuses) == 1
-        assert statuses[0]['Status'] == 'Succeeded'
+        assert statuses[0]['Status'] == 'succeeded'
 
     def test_upsert_entity_status_multiple_layers(self):
         """Entity can have separate statuses per layer."""
@@ -522,9 +560,9 @@ class TestMetricsAndStats:
         statuses = cpdb.get_entity_status_all()
         assert len(statuses) == 3
         status_map = {s['Layer']: s['Status'] for s in statuses}
-        assert status_map['landing'] == 'Succeeded'
-        assert status_map['bronze'] == 'Failed'
-        assert status_map['silver'] == 'Pending'
+        assert status_map['landing'] == 'succeeded'
+        assert status_map['bronze'] == 'failed'
+        assert status_map['silver'] == 'pending'
 
 
 # ============================================================================
@@ -716,6 +754,43 @@ class TestMiscReads:
         ds = cpdb.get_datasources()
         assert len(ds) == 2
         assert all('ConnectionName' in d for d in ds)
+
+    def test_get_datasources_normalizes_namespace_aliases(self):
+        """Datasource read helpers expose canonical source namespace labels."""
+        cpdb.upsert_connection({
+            'ConnectionId': 1, 'Name': 'CON_OPTIVA', 'Type': 'SQL',
+            'ServerName': 'sqloptivalive', 'DatabaseName': 'OptivaLive', 'IsActive': 1,
+        })
+        cpdb.upsert_datasource({
+            'DataSourceId': 1, 'ConnectionId': 1,
+            'Name': 'OptivaLive', 'Namespace': 'optivalive', 'Type': 'Database', 'IsActive': 1,
+        })
+        rows = cpdb.get_datasources()
+        assert rows[0]['Namespace'] == 'OPTIVA'
+
+    def test_init_db_repairs_corrupt_engine_run_layers(self):
+        """init_db normalizes legacy corrupt Layers strings on startup."""
+        conn = cpdb._get_conn()
+        try:
+            conn.execute(
+                "INSERT INTO engine_runs (RunId, Status, Layers) VALUES (?, ?, ?)",
+                ('run-1', 'Failed', 'l,a,n,d,i,n,g,,,b,r,o,n,z,e,,,s,i,l,v,e,r'),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        cpdb.init_db()
+
+        conn = cpdb._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT Layers FROM engine_runs WHERE RunId = ?",
+                ('run-1',),
+            ).fetchone()
+            assert row['Layers'] == 'landing,bronze,silver'
+        finally:
+            conn.close()
 
     def test_get_registered_entities_full(self, seeded_db):
         """get_registered_entities_full returns enriched LZ entity data."""

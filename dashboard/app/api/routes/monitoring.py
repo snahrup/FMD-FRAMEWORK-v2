@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
+import dashboard.app.api.control_plane_db as cpdb
 from dashboard.app.api.routes.load_center import _build_canonical_pipeline_truth
 from dashboard.app.api.routes.metrics_contract import build_metric_contract
 
@@ -37,6 +38,31 @@ def _safe_query(sql: str, params: tuple = (), default=None):
     except Exception as e:
         log.warning("Query failed: %s — %s", sql[:60], e)
         return default
+
+
+def _recent_mapped_entities(layer: str, limit: int = 20) -> list[dict]:
+    """Return recent task rows mapped back to the owning landing entity."""
+    sql = f"""
+        {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
+        SELECT
+            t.EntityId AS LayerEntityId,
+            mapped.LandingzoneEntityId,
+            mapped.Layer,
+            mapped.Status,
+            mapped.SourceSchema,
+            mapped.SourceName,
+            COALESCE(mapped.LoadEndDateTime, t.created_at) AS EventTime,
+            le.FilePath,
+            le.FileName
+        FROM mapped
+        JOIN engine_task_log t ON t.id = mapped.id
+        LEFT JOIN lz_entities le ON mapped.LandingzoneEntityId = le.LandingzoneEntityId
+        WHERE LOWER(mapped.Layer) = LOWER(?)
+          AND mapped.LandingzoneEntityId IS NOT NULL
+        ORDER BY EventTime DESC, t.id DESC
+        LIMIT ?
+    """
+    return _safe_query(sql, (layer, str(limit)))
 
 
 # ---------------------------------------------------------------------------
@@ -122,32 +148,30 @@ def get_live_monitor(params: dict) -> dict:
     }
 
     # Recently processed Bronze entities
-    result["bronzeEntities"] = _safe_query(
-        "SELECT t.EntityId AS BronzeLayerEntityId, "
-        "e.SourceSchema AS SchemaName, e.SourceName AS TableName, "
-        "t.created_at AS InsertDateTime, "
-        "CASE WHEN t.Status = 'succeeded' THEN 1 ELSE 0 END AS IsProcessed, "
-        "CASE WHEN t.DurationSeconds IS NOT NULL AND t.DurationSeconds > 0 "
-        "  THEN datetime(t.created_at, '+' || CAST(CAST(t.DurationSeconds AS INTEGER) AS TEXT) || ' seconds') "
-        "  ELSE NULL END AS LoadEndDateTime "
-        "FROM engine_task_log t "
-        "JOIN lz_entities e ON e.LandingzoneEntityId = t.EntityId "
-        "WHERE t.Layer = 'bronze' "
-        "ORDER BY t.created_at DESC LIMIT 20"
-    )
+    result["bronzeEntities"] = [
+        {
+            "BronzeLayerEntityId": row.get("LayerEntityId"),
+            "SchemaName": row.get("SourceSchema") or "",
+            "TableName": row.get("SourceName") or "",
+            "InsertDateTime": row.get("EventTime"),
+            "IsProcessed": 1 if str(row.get("Status") or "").lower() == "succeeded" else 0,
+            "LoadEndDateTime": row.get("EventTime"),
+        }
+        for row in _recent_mapped_entities("bronze", 20)
+    ]
 
     # Recently processed LZ entities
-    result["lzEntities"] = _safe_query(
-        "SELECT t.EntityId AS LandingzoneEntityId, "
-        "e.FilePath, e.FileName, "
-        "t.created_at AS InsertDateTime, "
-        "CASE WHEN t.Status = 'succeeded' THEN 1 ELSE 0 END AS IsProcessed, "
-        "t.created_at AS LoadEndDateTime "
-        "FROM engine_task_log t "
-        "JOIN lz_entities e ON e.LandingzoneEntityId = t.EntityId "
-        "WHERE t.Layer = 'landing' "
-        "ORDER BY t.created_at DESC LIMIT 20"
-    )
+    result["lzEntities"] = [
+        {
+            "LandingzoneEntityId": row.get("LandingzoneEntityId"),
+            "FilePath": row.get("FilePath") or "",
+            "FileName": row.get("FileName") or "",
+            "InsertDateTime": row.get("EventTime"),
+            "IsProcessed": 1 if str(row.get("Status") or "").lower() == "succeeded" else 0,
+            "LoadEndDateTime": row.get("EventTime"),
+        }
+        for row in _recent_mapped_entities("landing", 20)
+    ]
 
     result["serverTime"] = _utcnow_iso()
     return result
@@ -542,75 +566,144 @@ def get_dashboard_stats(params: dict) -> dict:
         return {}
 
 
+@route("GET", "/api/dashboard-stats")
+def get_dashboard_stats_alias(params: dict) -> dict:
+    """Backward-compatible alias for older dashboard consumers."""
+    return get_dashboard_stats(params)
+
+
 # ---------------------------------------------------------------------------
 # Load Progress
 # ---------------------------------------------------------------------------
 
 @route("GET", "/api/load-progress")
 def get_load_progress(params: dict) -> dict:
-    """Entity load progress across all layers."""
-    # Per-source progress
-    sources = _safe_query(
-        "WITH latest_task AS ("
-        "  SELECT EntityId, Layer, Status, "
-        "  ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn "
-        "  FROM engine_task_log"
-        "), latest AS ("
-        "  SELECT EntityId, Layer, Status FROM latest_task WHERE rn = 1"
-        ") "
-        "SELECT ds.DataSourceId, ds.Name AS dataSourceName, "
-        "COUNT(DISTINCT le.LandingzoneEntityId) AS totalEntities, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_lz.Status,'')) = 'succeeded' "
-        "  THEN le.LandingzoneEntityId END) AS lzLoaded, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_br.Status,'')) = 'succeeded' "
-        "  THEN le.LandingzoneEntityId END) AS brzLoaded, "
-        "COUNT(DISTINCT CASE WHEN LOWER(COALESCE(es_sv.Status,'')) = 'succeeded' "
-        "  THEN le.LandingzoneEntityId END) AS slvLoaded "
-        "FROM lz_entities le "
-        "JOIN datasources ds ON le.DataSourceId = ds.DataSourceId "
-        "LEFT JOIN latest es_lz ON le.LandingzoneEntityId = es_lz.EntityId "
-        "  AND LOWER(es_lz.Layer) IN ('landing','landingzone') "
-        "LEFT JOIN latest es_br ON le.LandingzoneEntityId = es_br.EntityId "
-        "  AND LOWER(es_br.Layer) = 'bronze' "
-        "LEFT JOIN latest es_sv ON le.LandingzoneEntityId = es_sv.EntityId "
-        "  AND LOWER(es_sv.Layer) = 'silver' "
-        "WHERE le.IsActive = 1 "
-        "GROUP BY ds.DataSourceId, ds.Name "
-        "ORDER BY ds.Name"
-    )
+    """Truthful load progress payload backed by canonical status + mapped task log."""
+    registered = [
+        row for row in cpdb.get_registered_entities_full()
+        if int(row.get("IsActive") or 0) == 1
+    ]
+    canonical_status = {
+        (int(row.get("LandingzoneEntityId") or 0), str(row.get("Layer") or "").lower()): row
+        for row in cpdb.get_canonical_entity_status()
+    }
+    mapped_rows = cpdb.get_mapped_engine_task_log(latest_only=True)
+    source_cfg = {
+        int(row.get("DataSourceId") or 0): row
+        for row in cpdb.get_source_config()
+        if row.get("DataSourceId") is not None
+    }
 
-    # Recent engine runs
+    by_source: list[dict] = []
+    pending_by_source: list[dict] = []
+    source_names = sorted({str(row.get("DataSourceName") or "") for row in registered if row.get("DataSourceName")})
+    for source_name in source_names:
+        source_entities = [row for row in registered if str(row.get("DataSourceName") or "") == source_name]
+        total_entities = len(source_entities)
+        loaded_count = sum(
+            1 for row in source_entities
+            if str(canonical_status.get((int(row.get("LandingzoneEntityId") or 0), "landing"), {}).get("Status") or "").lower() == "succeeded"
+        )
+        bronze_loaded = sum(
+            1 for row in source_entities
+            if str(canonical_status.get((int(row.get("LandingzoneEntityId") or 0), "bronze"), {}).get("Status") or "").lower() == "succeeded"
+        )
+        silver_loaded = sum(
+            1 for row in source_entities
+            if str(canonical_status.get((int(row.get("LandingzoneEntityId") or 0), "silver"), {}).get("Status") or "").lower() == "succeeded"
+        )
+        pending_count = max(total_entities - loaded_count, 0)
+        source_row = {
+            "Source": source_name,
+            "TotalEntities": total_entities,
+            "LoadedCount": loaded_count,
+            "PendingCount": pending_count,
+            "PctComplete": round((loaded_count / total_entities) * 100, 1) if total_entities else 0,
+            "FirstLoaded": None,
+            "LastLoaded": None,
+            "BronzeLoaded": bronze_loaded,
+            "SilverLoaded": silver_loaded,
+        }
+        by_source.append(source_row)
+        if pending_count > 0:
+            pending_by_source.append({"Source": source_name, "cnt": pending_count})
+
     runs = _safe_query(
         "SELECT RunId, Mode, Status, TotalEntities, SucceededEntities, FailedEntities, "
         "TotalDurationSeconds, StartedAt, EndedAt "
         "FROM engine_runs ORDER BY StartedAt DESC LIMIT 10"
     )
 
-    # Overall counts — use latest status per (EntityId, Layer), not historical any-ever-succeeded
-    status_rows = _safe_query(
-        "WITH latest_task AS ("
-        "  SELECT EntityId, Layer, Status, "
-        "  ROW_NUMBER() OVER (PARTITION BY EntityId, Layer ORDER BY created_at DESC) AS rn "
-        "  FROM engine_task_log"
-        "), latest AS ("
-        "  SELECT EntityId, Layer, Status FROM latest_task WHERE rn = 1"
-        ") "
-        "SELECT LOWER(Layer) AS layer, COUNT(DISTINCT EntityId) AS cnt "
-        "FROM latest WHERE LOWER(Status) = 'succeeded' GROUP BY LOWER(Layer)"
-    )
-    status_map = {r["layer"]: r["cnt"] for r in status_rows} if status_rows else {}
+    latest_landing_success = []
+    recent_activity = []
+    for row in mapped_rows:
+        layer = str(row.get("Layer") or "").lower()
+        entity_id = int(row.get("LandingzoneEntityId") or 0)
+        ds = source_cfg.get(int(row.get("DataSourceId") or 0), {})
+        source_name = str(ds.get("Name") or "")
+        if str(row.get("Status") or "").lower() == "succeeded" and layer == "landing":
+            latest_landing_success.append({
+                "Source": source_name,
+                "Schema": row.get("SourceSchema") or "",
+                "TableName": row.get("SourceName") or "",
+                "LoadedAt": row.get("LoadEndDateTime"),
+                "TargetFile": row.get("SourceTable") or "",
+                "IsIncremental": bool(row.get("IsIncremental")),
+                "EntityId": entity_id,
+                "RowsCopied": int(row.get("RowsWritten") or row.get("RowsRead") or 0),
+                "Duration": None,
+                "Status": "Loaded",
+            })
 
-    total_lz = _safe_query("SELECT COUNT(*) AS cnt FROM lz_entities WHERE IsActive=1")
+        recent_activity.append({
+            "TableName": row.get("SourceName") or "",
+            "Source": source_name,
+            "LogType": row.get("Status") or "",
+            "LogTime": row.get("LoadEndDateTime"),
+            "Layer": layer,
+            "LogData": None,
+            "EntityId": entity_id,
+        })
+
+    latest_landing_success.sort(key=lambda row: str(row.get("LoadedAt") or ""), reverse=True)
+    recent_activity.sort(key=lambda row: str(row.get("LogTime") or ""), reverse=True)
+
+    total_entities = len(registered)
+    loaded_entities = sum(
+        1
+        for row in registered
+        if str(canonical_status.get((int(row.get("LandingzoneEntityId") or 0), "landing"), {}).get("Status") or "").lower() == "succeeded"
+    )
+    pending_entities = max(total_entities - loaded_entities, 0)
+    latest_run = runs[0] if runs else {}
+    last_activity = recent_activity[0]["LogTime"] if recent_activity else latest_run.get("EndedAt") or latest_run.get("StartedAt")
 
     return {
-        "sources": sources,
-        "recentRuns": runs,
         "overall": {
-            "totalEntities": total_lz[0]["cnt"] if total_lz else 0,
-            "lzLoaded": status_map.get("landing", 0) + status_map.get("landingzone", 0),
-            "brzLoaded": status_map.get("bronze", 0),
-            "slvLoaded": status_map.get("silver", 0),
+            "TotalEntities": total_entities,
+            "LoadedEntities": loaded_entities,
+            "PendingEntities": pending_entities,
+            "PctComplete": round((loaded_entities / total_entities) * 100, 1) if total_entities else 0,
+            "RunStarted": latest_run.get("StartedAt"),
+            "LastActivity": last_activity,
+            "ElapsedSeconds": latest_run.get("TotalDurationSeconds"),
         },
+        "bySource": by_source,
+        "recentActivity": recent_activity[:50],
+        "loadedEntities": latest_landing_success[:200],
+        "pendingBySource": pending_by_source,
+        "concurrencyTimeline": [],
+        "recentRuns": runs,
+        "sources": [
+            {
+                "dataSourceName": row["Source"],
+                "totalEntities": row["TotalEntities"],
+                "lzLoaded": row["LoadedCount"],
+                "brzLoaded": row.get("BronzeLoaded", 0),
+                "slvLoaded": row.get("SilverLoaded", 0),
+            }
+            for row in by_source
+        ],
         "serverTime": _utcnow_iso(),
     }
 

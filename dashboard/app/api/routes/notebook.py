@@ -286,7 +286,7 @@ def post_debug_run(params: dict) -> dict:
         )
         count_params: tuple = ()
         if ds_filter:
-            count_sql += " AND ds.Namespace = ?"
+            count_sql += " AND LOWER(ds.Namespace) = LOWER(?)"
             count_params = (ds_filter,)
     elif layer == "bronze":
         count_sql = (
@@ -297,7 +297,7 @@ def post_debug_run(params: dict) -> dict:
         )
         count_params = ()
         if ds_filter:
-            count_sql += " AND ds.Namespace = ?"
+            count_sql += " AND LOWER(ds.Namespace) = LOWER(?)"
             count_params = (ds_filter,)
     elif layer == "silver":
         count_sql = (
@@ -309,7 +309,7 @@ def post_debug_run(params: dict) -> dict:
         )
         count_params = ()
         if ds_filter:
-            count_sql += " AND ds.Namespace = ?"
+            count_sql += " AND LOWER(ds.Namespace) = LOWER(?)"
             count_params = (ds_filter,)
 
     count_row = db.query(count_sql, count_params)

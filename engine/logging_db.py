@@ -19,6 +19,7 @@ SQLite tables written:
 """
 
 import logging
+import threading
 import traceback
 from datetime import UTC, datetime
 from typing import Optional, List
@@ -26,6 +27,27 @@ from typing import Optional, List
 from engine.models import Entity, RunResult, LogEnvelope
 
 log = logging.getLogger("fmd.logging_db")
+_CANONICAL_LAYERS = ("landing", "bronze", "silver")
+_LAYER_ALIASES = {
+    "landing": "landing",
+    "landingzone": "landing",
+    "bronze": "bronze",
+    "silver": "silver",
+}
+_STATUS_ALIASES = {
+    "loaded": "succeeded",
+    "success": "succeeded",
+    "succeeded": "succeeded",
+    "error": "failed",
+    "failed": "failed",
+    "skipped": "skipped",
+    "not_started": "not_started",
+    "running": "extracting",
+    "in_progress": "extracting",
+    "extracting": "extracting",
+    "cancelled": "cancelled",
+    "aborted": "cancelled",
+}
 
 # ---------------------------------------------------------------------------
 # Local SQLite dual-write support
@@ -59,6 +81,33 @@ def _get_cpdb():
     return _cpdb
 
 
+def _normalize_layer(layer: str | None) -> str:
+    raw = str(layer or "").strip().lower()
+    return _LAYER_ALIASES.get(raw, raw or "landing")
+
+
+def _normalize_layers(layers: Optional[List[str] | str]) -> str:
+    if not layers:
+        return ",".join(_CANONICAL_LAYERS)
+
+    if isinstance(layers, str):
+        raw_layers = [part.strip() for part in layers.split(",") if part and part.strip()]
+    else:
+        raw_layers = [str(part).strip() for part in layers if str(part).strip()]
+
+    normalized: list[str] = []
+    for layer in raw_layers:
+        canon = _normalize_layer(layer)
+        if canon in _CANONICAL_LAYERS and canon not in normalized:
+            normalized.append(canon)
+    return ",".join(normalized or list(_CANONICAL_LAYERS))
+
+
+def _normalize_status(status: str | None) -> str:
+    raw = str(status or "").strip().lower()
+    return _STATUS_ALIASES.get(raw, raw)
+
+
 class AuditLogger:
     """Writes structured audit records to Python logger and SQLite.
 
@@ -71,7 +120,8 @@ class AuditLogger:
     """
 
     def __init__(self):
-        pass
+        self._open_task_lock = threading.Lock()
+        self._open_task_ids: dict[tuple[str, int, str], int] = {}
 
     # ------------------------------------------------------------------
     # Run-level logging
@@ -86,7 +136,7 @@ class AuditLogger:
         triggered_by: str,
     ) -> None:
         """Record the start of an engine run in the audit table."""
-        layer_str = ",".join(layers) if layers else "landing,bronze,silver"
+        layer_str = _normalize_layers(layers)
         envelope = LogEnvelope(
             v=1,
             run_id=run_id,
@@ -231,6 +281,8 @@ class AuditLogger:
         and dashboard can show real-time progress immediately — not just
         after the entity finishes.
         """
+        layer = _normalize_layer(layer)
+
         log.info(
             "[%s] Starting %d/%d: %s.%s from %s/%s",
             run_id[:8], index, total,
@@ -241,7 +293,7 @@ class AuditLogger:
         cpdb = _get_cpdb()
         if cpdb:
             try:
-                cpdb.insert_engine_task_log({
+                task_id = cpdb.insert_engine_task_log({
                     "RunId": run_id,
                     "EntityId": entity.id,
                     "Layer": layer,
@@ -267,6 +319,9 @@ class AuditLogger:
                     "LogData": "",
                     "ExtractionMethod": "bulk",
                 })
+                if task_id is not None:
+                    with self._open_task_lock:
+                        self._open_task_ids[(run_id, entity.id, layer)] = int(task_id)
             except Exception as exc:
                 log.debug("Failed to write entity-start log for %d: %s", entity.id, exc)
 
@@ -277,7 +332,8 @@ class AuditLogger:
         result: RunResult,
     ) -> None:
         """Record the result of a single entity extraction + upload."""
-        envelope = LogEnvelope.for_entity(run_id, entity, result.layer, "copy")
+        result_layer = _normalize_layer(result.layer)
+        envelope = LogEnvelope.for_entity(run_id, entity, result_layer, "copy")
         envelope.metrics = {
             "rows_read": result.rows_read,
             "rows_written": result.rows_written,
@@ -296,7 +352,7 @@ class AuditLogger:
 
         log.info(
             "[%s] Entity %d %s: %s (%d rows, %.1fs)",
-            run_id[:8], entity.id, result.layer, result.status,
+            run_id[:8], entity.id, result_layer, result.status,
             result.rows_read, result.duration_seconds,
         )
 
@@ -310,12 +366,25 @@ class AuditLogger:
             duration_seconds=result.duration_seconds,
             message=envelope.to_json(),
         )
-        self._write_engine_task_log(
+        task_row = self._build_engine_task_row(
             run_id=run_id,
             entity=entity,
             result=result,
             log_data=envelope.to_json(),
         )
+        cpdb = _get_cpdb()
+        if cpdb:
+            task_key = (run_id, entity.id, result_layer)
+            task_id = None
+            with self._open_task_lock:
+                task_id = self._open_task_ids.pop(task_key, None)
+            try:
+                if task_id is not None:
+                    cpdb.update_engine_task_log(task_id, task_row)
+                else:
+                    cpdb.insert_engine_task_log(task_row)
+            except Exception as exc:
+                log.warning("SQLite: Failed to write engine task log for entity %d: %s", entity.id, exc)
 
     def mark_entity_loaded(
         self,
@@ -348,8 +417,8 @@ class AuditLogger:
             try:
                 cpdb.upsert_entity_status({
                     "LandingzoneEntityId": entity.id,
-                    "Layer": "LandingZone",
-                    "Status": "Succeeded",
+                    "Layer": "landing",
+                    "Status": "succeeded",
                     "LoadEndDateTime": now_str,
                     "ErrorMessage": "",
                     "UpdatedBy": "FMD_ENGINE_V3",
@@ -403,7 +472,7 @@ class AuditLogger:
             cpdb.upsert_entity_status({
                 "LandingzoneEntityId": entity.lz_entity_id,
                 "Layer": "bronze",
-                "Status": "loaded" if result.status == "succeeded" else "failed",
+                "Status": _normalize_status(result.status),
                 "LoadEndDateTime": now_str,
                 "ErrorMessage": result.error or "",
                 "UpdatedBy": "FMD_ENGINE_V3",
@@ -437,7 +506,7 @@ class AuditLogger:
             cpdb.upsert_entity_status({
                 "LandingzoneEntityId": lz_id,
                 "Layer": "silver",
-                "Status": "loaded" if result.status == "succeeded" else "failed",
+                "Status": _normalize_status(result.status),
                 "LoadEndDateTime": now_str,
                 "ErrorMessage": result.error or "",
                 "UpdatedBy": "FMD_ENGINE_V3",
@@ -551,6 +620,7 @@ class AuditLogger:
     ) -> None:
         """Write engine run record to SQLite."""
         now_str = _utcnow_iso_z()
+        normalized_layers = _normalize_layers(layers)
 
         cpdb = _get_cpdb()
         if cpdb:
@@ -567,7 +637,7 @@ class AuditLogger:
                     "TotalRowsWritten": total_rows_written,
                     "TotalBytesTransferred": total_bytes,
                     "TotalDurationSeconds": total_duration,
-                    "Layers": layers or "",
+                    "Layers": normalized_layers,
                     "EntityFilter": entity_filter or "",
                     "TriggeredBy": triggered_by or "",
                     "ErrorSummary": error_summary or "",
@@ -575,7 +645,7 @@ class AuditLogger:
                 # Set timestamp fields based on status
                 if status == "InProgress":
                     row["StartedAt"] = now_str
-                elif status in ("Succeeded", "Failed"):
+                elif status in ("Succeeded", "Failed", "Interrupted", "Aborted", "Cancelled"):
                     row["EndedAt"] = now_str
                 cpdb.upsert_engine_run(row)
             except Exception as exc:
@@ -599,22 +669,22 @@ class AuditLogger:
             return "not_found"
         return "other"
 
-    def _write_engine_task_log(
+    def _build_engine_task_row(
         self,
         run_id: str,
         entity: Entity,
         result: RunResult,
         log_data: str = "",
-    ) -> None:
-        """Write engine task log record to SQLite."""
+    ) -> dict:
+        """Build the engine_task_log payload for insert or update."""
         load_type = "incremental" if entity.is_incremental and entity.last_load_value else "full"
         error_type = self._classify_error(result.error)
 
-        task_row = {
+        return {
             "RunId": run_id,
             "EntityId": entity.id,
-            "Layer": result.layer,
-            "Status": result.status,
+            "Layer": _normalize_layer(result.layer),
+            "Status": _normalize_status(result.status),
             "SourceServer": entity.source_server or "",
             "SourceDatabase": entity.source_database or "",
             "SourceTable": f"{entity.source_schema}.{entity.source_name}",
@@ -636,10 +706,3 @@ class AuditLogger:
             "LogData": log_data[:8000],
             "ExtractionMethod": result.extraction_method or "unknown",
         }
-
-        cpdb = _get_cpdb()
-        if cpdb:
-            try:
-                cpdb.insert_engine_task_log(task_row)
-            except Exception as exc:
-                log.warning("SQLite: Failed to write engine task log for entity %d: %s", entity.id, exc)

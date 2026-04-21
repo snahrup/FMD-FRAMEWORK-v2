@@ -31,20 +31,12 @@ def _queue_export(table: str):
 # Constants / helpers
 # ---------------------------------------------------------------------------
 
-_DS_DISPLAY_NAMES = {
-    "mes": "MES",
-    "ETQStagingPRD": "ETQ",
-    "m3fdbprd": "M3",
-    "DI_PRD_Staging": "M3 Cloud",
-    "OPTIVA": "Optiva",
-}
-
 _DIGEST_CACHE: dict = {}   # {cache_key: {"data": ..., "expires": float}}
 _DIGEST_TTL = 120          # seconds
 
 
 def _ds_display_name(raw: str) -> str:
-    return _DS_DISPLAY_NAMES.get(raw, raw)
+    return cpdb._normalize_display_namespace(raw) or raw
 
 
 def _is_active(val) -> bool:
@@ -123,7 +115,9 @@ def _build_sqlite_entity_digest(
         ns = entity.get("Namespace", "Unknown") or "Unknown"
 
         # Apply source filter (Python check — no SQL interpolation)
-        if source_filter and ns != source_filter:
+        if source_filter and (cpdb._normalize_display_namespace(ns) or ns).lower() != (
+            cpdb._normalize_display_namespace(source_filter) or source_filter
+        ).lower():
             continue
 
         lz_s = status_map.get((lz_id, "landing"), {})
@@ -141,7 +135,7 @@ def _build_sqlite_entity_digest(
             overall = "error"
         elif any(s in ("loaded", "complete", "succeeded") for s in statuses_list):
             overall = "partial"
-        elif any(s in ("pending", "inprogress", "running") for s in statuses_list):
+        elif any(s in ("pending", "inprogress", "running", "extracting", "queued", "schema_discovery") for s in statuses_list):
             overall = "pending"
         else:
             overall = "not_started"
@@ -231,7 +225,7 @@ def _build_sqlite_entity_digest(
         if ns not in sources:
             sources[ns] = {
                 "name": ns,
-                "displayName": _ds_display_name(entity.get("DataSourceName", ns)),
+                "displayName": _ds_display_name(ns),
                 "entities": [],
                 "statusCounts": {"complete": 0, "partial": 0, "error": 0, "pending": 0, "not_started": 0},
             }
