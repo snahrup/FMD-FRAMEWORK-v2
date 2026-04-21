@@ -345,6 +345,9 @@ export default function BusinessOverview() {
 
   const sourcesDegraded = sources.filter((s) => s.status !== "operational").length;
   const pipelinesHealthy = sourcesDegraded === 0 && blockedTables === 0;
+  // Drives the informational border-beam on "Watch a run" — only on while a
+  // pipeline is actually executing, never as decoration.
+  const anyRunning = activity.some((a) => a.status === "running");
 
   return (
     <div className="bp-page-shell-wide space-y-6">
@@ -354,6 +357,7 @@ export default function BusinessOverview() {
         blockedTables={blockedTables}
         sourcesDegraded={sourcesDegraded}
         loading={pageLoading && !contractReady}
+        anyRunning={anyRunning}
         onRefresh={() => {
           void refreshMetrics();
           void fetchAll();

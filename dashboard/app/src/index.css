@@ -1110,3 +1110,262 @@
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+/* ============================================================
+   Cowork Hero — Impact Pass
+   Entrance choreography, narrative rotation, border-beam,
+   grayscale-safe hierarchy, reduced-motion fallback.
+   ============================================================ */
+
+/* ── Entrance keyframes ── */
+@keyframes cwAsteriskIn {
+  from { opacity: 0; transform: scale(0.55) rotate(-14deg); }
+  to   { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+@keyframes cwRiseIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes cwFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.cw-hero-asterisk      { animation: cwAsteriskIn 460ms var(--ease-claude) 80ms both; transform-origin: 50% 60%; }
+.cw-hero-greeting-in   { animation: cwRiseIn 520ms var(--ease-claude) 260ms both; display: inline-block; }
+.cw-hero-signal-in     { animation: cwRiseIn 420ms var(--ease-claude) 620ms both; }
+.cw-hero-refresh-in    { animation: cwFadeIn 400ms var(--ease-claude) 1100ms both; }
+.cw-hero-tile-in       { animation: cwRiseIn 420ms var(--ease-claude) both;
+                         animation-delay: calc(760ms + var(--i, 0) * 55ms); }
+
+/* ── Narrative reveal — left-to-right gradient sweep via background-clip:text.
+     The gradient is 2× the element width with a soft fade on the right.
+     background-position animates from 100% → 0%, so the opaque ink color
+     sweeps across the text from left to right, revealing each glyph with a
+     feathered edge instead of a hard cut. ── */
+.cw-hero-msg {
+  display: inline-block;
+  background-image: linear-gradient(
+    to right,
+    var(--bp-ink-primary) 0%,
+    var(--bp-ink-primary) 50%,
+    transparent 82%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: cwSweepReveal 1100ms var(--ease-claude) both;
+  will-change: background-position;
+}
+@keyframes cwSweepReveal {
+  from { background-position: 100% 0; }
+  to   { background-position: 0% 0; }
+}
+
+/* ── Live signal dot — slow pulse on the "latest signal" line ── */
+@keyframes cwLivePulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.3); }
+}
+.cw-live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--bp-copper);
+  margin-right: 10px;
+  animation: cwLivePulse 2.2s ease-in-out infinite;
+  vertical-align: middle;
+  box-shadow: 0 0 0 3px var(--bp-copper-soft);
+  flex-shrink: 0;
+}
+
+/* ── Tile grid — bento: 4 cols × 2 rows, fills hero width edge-to-edge.
+   Primary tile spans 2×2 (dominant square on the left). 4 secondaries fill
+   the remaining 2×2 on the right, one per cell. ── */
+.cw-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(112px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+.cw-tile-grid > li {
+  min-width: 0;
+  min-height: 0;
+}
+.cw-tile-grid > .cw-tile-primary-cell {
+  grid-column: span 2;
+  grid-row: span 2;
+}
+@media (max-width: 960px) {
+  .cw-tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(3, minmax(108px, auto));
+  }
+  .cw-tile-grid > .cw-tile-primary-cell {
+    grid-column: span 2;
+    grid-row: span 1;
+  }
+}
+/* Tiles fill their grid cell so the bento has no ragged edges. */
+.cw-tile-grid .cw-tile {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* ── Type ramp for tiles — grayscale-safe hierarchy ── */
+.cw-tile-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--bp-ink-primary);
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+}
+.cw-tile-hint {
+  font-size: 12px;
+  color: var(--bp-ink-tertiary);
+  line-height: 1.4;
+}
+
+/* ── Primary tile — dominant focal point, 2×2 bento cell ──
+   Icon chip top, title+hint bottom. Extra vertical space becomes the
+   breathing room that signals importance. */
+.cw-tile.cw-tile-primary {
+  background:
+    linear-gradient(160deg,
+      color-mix(in srgb, var(--bp-copper) 5%, var(--bp-surface-1)) 0%,
+      var(--bp-surface-1) 60%,
+      color-mix(in srgb, var(--bp-copper) 2%, var(--bp-surface-1)) 100%);
+  padding: 24px 24px 22px;
+  gap: 0;
+  /* Title uses margin-top:auto to push itself + following siblings to the
+     bottom of the 2×2 cell — don't add justify-content:space-between, it
+     conflicts with the auto margin. */
+}
+.cw-tile.cw-tile-primary:hover {
+  border-color: var(--bp-copper);
+  transform: translateY(-2px);
+}
+.cw-tile.cw-tile-primary .cw-tile-title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.014em;
+  line-height: 1.15;
+  margin-top: auto;
+}
+.cw-tile.cw-tile-primary .cw-tile-hint {
+  font-size: 13.5px;
+  color: var(--bp-ink-secondary);
+  line-height: 1.45;
+  max-width: 34ch;
+  margin-top: 6px;
+}
+
+/* Small live badge for the primary when a run is in flight. */
+.cw-primary-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bp-copper);
+  margin-top: 10px;
+}
+.cw-primary-live::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bp-copper);
+  animation: cwLivePulse 2.2s ease-in-out infinite;
+  box-shadow: 0 0 0 2px var(--bp-copper-soft);
+}
+
+/* ── Conditional border-beam — informational, single-accent, slow ──
+   Only rendered when a pipeline run is in progress. 7s orbit, terracotta,
+   masked to the border band via mask-composite. */
+.cw-beam { position: relative; isolation: isolate; }
+.cw-beam::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 280deg,
+    color-mix(in srgb, var(--bp-copper) 90%, transparent) 335deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: cwBeamSpin 7s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+@keyframes cwBeamSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── Quiet icon-only refresh — top-right meta action ── */
+.cw-refresh-quiet {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--bp-border-subtle);
+  background: transparent;
+  color: var(--bp-ink-tertiary);
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+  flex-shrink: 0;
+}
+.cw-refresh-quiet:hover {
+  color: var(--bp-ink-primary);
+  border-color: var(--bp-border-strong);
+  background: var(--bp-surface-inset);
+}
+.cw-refresh-quiet[aria-busy="true"] { cursor: wait; }
+
+/* ── Hero seam dissolve — fade hero bottom into page canvas ── */
+.cw-hero.cw-hero-blended::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 56px;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(180deg, transparent 0%, var(--bp-canvas) 100%);
+}
+
+/* ── Reduced-motion safety ── */
+@media (prefers-reduced-motion: reduce) {
+  .cw-hero-asterisk,
+  .cw-hero-greeting-in,
+  .cw-hero-signal-in,
+  .cw-hero-refresh-in,
+  .cw-hero-tile-in,
+  .cw-word {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .cw-live-dot  { animation: none !important; opacity: 0.85 !important; }
+  .cw-beam::after { animation: none !important; opacity: 0.4; }
+}
