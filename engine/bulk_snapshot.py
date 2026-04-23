@@ -193,6 +193,13 @@ class BulkSnapshot:
         def _worker(entity: Entity):
             semaphore.acquire()
             try:
+                if self._stop_check():
+                    return RunResult(
+                        entity_id=entity.id,
+                        layer="landing",
+                        status="skipped",
+                        error="Aborted by user",
+                    )
                 return self._extract_and_land(run_id, entity)
             finally:
                 semaphore.release()

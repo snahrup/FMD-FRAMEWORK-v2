@@ -42,9 +42,24 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
+from engine.runtime_v2.api_adapter import build_run_request
+from engine.runtime_v2.repository import RunNotFoundError, SQLiteRuntimeRepository
+from engine.runtime_v2.supervisor import RunSupervisor
+
 log = logging.getLogger("fmd.engine.api")
 
 ENGINE_VERSION = "3.0.0"
+_ACTIVE_RUN_DB_STATUSES = (
+    "Queued",
+    "queued",
+    "Starting",
+    "starting",
+    "InProgress",
+    "running",
+    "Stopping",
+    "stopping",
+)
+_ACTIVE_RUN_STATUS_SQL = ", ".join(f"'{status}'" for status in _ACTIVE_RUN_DB_STATUSES)
 
 # ---------------------------------------------------------------------------
 # Engine singleton — thread-safe, lazy init
@@ -557,6 +572,44 @@ def _parse_utc(value: str | None) -> Optional[datetime]:
         return None
 
 
+def _get_runtime_supervisor(config: dict | None = None) -> RunSupervisor:
+    timeout_seconds = 86_400
+    if config:
+        raw_timeout = config.get("run_timeout_seconds")
+        if raw_timeout:
+            try:
+                timeout_seconds = int(raw_timeout)
+            except (TypeError, ValueError):
+                pass
+    return RunSupervisor(
+        SQLiteRuntimeRepository(),
+        run_timeout_seconds=timeout_seconds,
+    )
+
+
+def _launch_worker_request(request, config: dict, worker_args: list[str]) -> int:
+    repo = SQLiteRuntimeRepository()
+    repo.create_run(request)
+    try:
+        repo.transition_run(request.run_id, "starting")
+        worker_pid = _spawn_worker(request.run_id, worker_args)
+        _db_execute("UPDATE engine_runs SET WorkerPid = ? WHERE RunId = ?", (worker_pid, request.run_id))
+    except Exception as exc:
+        try:
+            repo.transition_run(
+                request.run_id,
+                "failed",
+                error_summary=f"Failed to launch worker: {exc}",
+            )
+            _write_pipeline_audit_terminal(request.run_id, "Failed", f"Failed to launch worker: {exc}")
+        except Exception:
+            pass
+        raise
+
+    _start_sse_poller(request.run_id)
+    return worker_pid
+
+
 def _reconcile_open_extracting_rows(run_id: str, reason: str) -> None:
     """Convert stranded extracting rows into terminal failures for a dead run."""
     _db_execute(
@@ -596,17 +649,20 @@ def _reconcile_open_extracting_rows(run_id: str, reason: str) -> None:
     )
 
 
-def _mark_dead_run_failed(run_id: str, reason: str) -> None:
-    _db_execute(
-        "UPDATE engine_runs "
-        "SET Status = 'Failed', "
-        "    EndedAt = COALESCE(EndedAt, strftime('%Y-%m-%dT%H:%M:%SZ','now')), "
-        "    ErrorSummary = ? "
-        "WHERE RunId = ?",
-        (f"Failed: {reason}", run_id),
-    )
+def _mark_dead_run_interrupted(run_id: str, reason: str, *, config: dict | None = None) -> None:
+    supervisor = _get_runtime_supervisor(config)
+    try:
+        supervisor.finalize_run(
+            run_id,
+            [],
+            interrupted=True,
+            error_summary=f"Interrupted: {reason}",
+        )
+    except RunNotFoundError:
+        log.warning("Cannot interrupt missing run %s", run_id)
+        return
     _reconcile_open_extracting_rows(run_id, reason)
-    _write_pipeline_audit_terminal(run_id, "Failed", reason)
+    _write_pipeline_audit_terminal(run_id, "Interrupted", reason)
 
 
 # ---------------------------------------------------------------------------
@@ -614,7 +670,7 @@ def _mark_dead_run_failed(run_id: str, reason: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _cleanup_orphaned_runs() -> None:
-    """Mark orphaned InProgress runs as Failed on startup.
+    """Mark orphaned active runs as Interrupted on startup.
 
     A run is orphaned if:
     - Status is InProgress AND
@@ -627,7 +683,7 @@ def _cleanup_orphaned_runs() -> None:
     try:
         orphaned = _db_query(
             "SELECT RunId, WorkerPid, StartedAt, HeartbeatAt FROM engine_runs "
-            "WHERE Status IN ('InProgress', 'running')"
+            f"WHERE Status IN ({_ACTIVE_RUN_STATUS_SQL})"
         )
         if not orphaned:
             return
@@ -661,11 +717,11 @@ def _cleanup_orphaned_runs() -> None:
             if last_touch and (now - last_touch).total_seconds() < _STARTUP_GRACE_SECONDS:
                 continue
 
-            _mark_dead_run_failed(run["RunId"], "Worker process died or server restarted")
+            _mark_dead_run_interrupted(run["RunId"], "Worker process died or server restarted")
             cleaned += 1
 
         if cleaned:
-            log.info("Marked %d orphaned runs as Failed on startup", cleaned)
+            log.info("Marked %d orphaned runs as Interrupted on startup", cleaned)
     except Exception as exc:
         log.warning("Failed to clean up orphaned runs: %s", exc)
 
@@ -688,7 +744,7 @@ def _periodic_cleanup_loop() -> None:
         try:
             cleaned = _cleanup_stale_runs()
             if cleaned:
-                log.info("Periodic cleanup: marked %d stale runs as Failed", cleaned)
+                log.info("Periodic cleanup: marked %d stale runs as Interrupted", cleaned)
         except Exception as exc:
             log.warning("Periodic cleanup failed: %s", exc)
 
@@ -700,7 +756,7 @@ def _cleanup_stale_runs() -> int:
     """
     orphaned = _db_query(
         "SELECT RunId, WorkerPid, StartedAt, HeartbeatAt FROM engine_runs "
-        "WHERE Status IN ('InProgress', 'running')"
+        f"WHERE Status IN ({_ACTIVE_RUN_STATUS_SQL})"
     )
     if not orphaned:
         return 0
@@ -736,7 +792,7 @@ def _cleanup_stale_runs() -> int:
             continue
 
         reason = "Worker process died or server restarted"
-        _mark_dead_run_failed(run_id, reason)
+        _mark_dead_run_interrupted(run_id, reason)
         cleaned += 1
 
     return cleaned
@@ -882,6 +938,8 @@ def _handle_status(handler, config: dict) -> None:
         )
         run_info = {
             "run_id": str(row.get("RunId", "")),
+            "parent_run_id": str(row.get("ParentRunId", "")) or None,
+            "run_kind": str(row.get("RunKind", "")) or "run",
             "status": str(row.get("Status", "")),
             "mode": str(row.get("Mode", "")),
             "started_at": row.get("StartedAt") or None,
@@ -901,7 +959,7 @@ def _handle_status(handler, config: dict) -> None:
         # Worker liveness check
         worker_pid = row.get("WorkerPid")
         worker_alive = False
-        if worker_pid and row.get("Status") in ("InProgress", "running"):
+        if worker_pid and row.get("Status") in _ACTIVE_RUN_DB_STATUSES:
             try:
                 worker_alive = _is_pid_alive(int(worker_pid))
             except (TypeError, ValueError):
@@ -1040,7 +1098,7 @@ def _start_sse_poller(run_id: str) -> None:
                         })
 
                     # Check if run completed
-                    if run.get("Status") not in ("InProgress", "running"):
+                    if run.get("Status") not in _ACTIVE_RUN_DB_STATUSES:
                         status = run.get("Status", "Unknown")
                         _publish_log("info", f"Run {run_id[:8]} finished: {status}")
                         _SSEHook.publish("run_complete", {"status": status, "run_id": run_id})
@@ -1056,7 +1114,7 @@ def _get_live_active_run() -> Optional[dict]:
     """Return the active run whose worker PID is still alive, if any."""
     active_runs = _db_query(
         "SELECT RunId, WorkerPid, HeartbeatAt FROM engine_runs "
-        "WHERE Status IN ('InProgress', 'running')"
+        f"WHERE Status IN ({_ACTIVE_RUN_STATUS_SQL})"
     )
     for run in active_runs:
         pid = run.get("WorkerPid")
@@ -1117,35 +1175,20 @@ def _handle_start(handler, config: dict, body: dict) -> None:
     _SSEHook.clear()
 
     run_id = str(uuid.uuid4())
-    # Bulk mode defaults to landing-only (fast extract and land)
-    if mode == "bulk" and not layers:
-        layers = ["landing"]
-    layer_str = ",".join(layers) if layers else "landing,bronze,silver"
-
-    # Persist entity filter so resume can recover the original scope
-    entity_filter_str = ",".join(str(i) for i in entity_ids) if entity_ids else ""
-
-    # Persist source filter and resolved count for scope transparency
-    source_filter = body.get("source_filter") or []
-    source_filter_str = ",".join(source_filter) if source_filter else ""
-    resolved_entity_count = body.get("resolved_entity_count") or (len(entity_ids) if entity_ids else 0)
-
-    # Pre-create engine_runs row — API owns this, worker will upsert into it
-    _db_execute(
-        "INSERT INTO engine_runs (RunId, Status, Layers, TriggeredBy, EntityFilter, "
-        "SourceFilter, ResolvedEntityCount, StartedAt) "
-        "VALUES (?, 'InProgress', ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
-        (run_id, layer_str, triggered_by, entity_filter_str,
-         source_filter_str, resolved_entity_count),
-    )
+    request = build_run_request(body, run_id=run_id, mode=mode)
+    layers = list(request.layers)
+    entity_ids = list(request.entity_ids)
+    layer_str = ",".join(request.layers)
+    source_filter_str = ",".join(request.source_filter)
+    resolved_entity_count = request.resolved_entity_count
 
     _publish_log("info", f"Engine starting: run_id={run_id[:8]}, layers={layer_str}, "
                  f"sources={source_filter_str or 'all'}, "
                  f"entities={resolved_entity_count or 'all'}, "
-                 f"triggered_by={triggered_by}")
+                 f"triggered_by={request.triggered_by}")
 
     # Build worker args
-    worker_args = ["--run-id", run_id, "--triggered-by", triggered_by]
+    worker_args = ["--run-id", run_id, "--triggered-by", request.triggered_by]
     if mode == "bulk":
         worker_args.append("--bulk")
         bulk_workers = body.get("bulk_workers", 8)
@@ -1155,14 +1198,7 @@ def _handle_start(handler, config: dict, body: dict) -> None:
     if entity_ids:
         worker_args += ["--entity-ids"] + [str(i) for i in entity_ids]
 
-    # Spawn detached worker
-    worker_pid = _spawn_worker(run_id, worker_args)
-
-    # Record PID
-    _db_execute("UPDATE engine_runs SET WorkerPid = ? WHERE RunId = ?", (worker_pid, run_id))
-
-    # Start SSE poller for this run (best-effort, not durable across restarts)
-    _start_sse_poller(run_id)
+    worker_pid = _launch_worker_request(request, config, worker_args)
 
     handler._json_response({
         "run_id": run_id,
@@ -1183,7 +1219,11 @@ def _handle_resume(handler, config: dict, body: dict) -> None:
         return
 
     # Verify run exists and is resumable
-    rows = _db_query("SELECT Status, Layers, Mode FROM engine_runs WHERE RunId = ?", (run_id,))
+    rows = _db_query(
+        "SELECT Status, Layers, Mode, EntityFilter, SourceFilter, ResolvedEntityCount "
+        "FROM engine_runs WHERE RunId = ?",
+        (run_id,),
+    )
     if not rows:
         handler._error_response(f"Run {run_id} not found", 404)
         return
@@ -1194,27 +1234,41 @@ def _handle_resume(handler, config: dict, body: dict) -> None:
         )
         return
 
-    _SSEHook.clear()
     original_mode = (run.get("Mode") or "").lower()
-    _publish_log("info", f"Resuming run {run_id[:8]} (mode={original_mode})")
+    child_run_id = str(uuid.uuid4())
+    child_body = {
+        "mode": original_mode or "run",
+        "layers": body.get("layers") or run.get("Layers", ""),
+        "entity_ids": body.get("entity_ids") or run.get("EntityFilter", ""),
+        "source_filter": run.get("SourceFilter", ""),
+        "resolved_entity_count": body.get("resolved_entity_count") or run.get("ResolvedEntityCount") or 0,
+        "triggered_by": "resume",
+    }
+    request = build_run_request(
+        child_body,
+        run_id=child_run_id,
+        mode=original_mode or "run",
+        parent_run_id=str(run_id),
+        run_kind="resume",
+    )
 
-    # Build worker args with original layers
-    worker_args = ["--resume", run_id]
-    original_layers = run.get("Layers", "")
-    if original_layers:
-        worker_args += ["--layers"] + [l.strip() for l in original_layers.split(",") if l.strip()]
+    _SSEHook.clear()
+    _publish_log("info", f"Resuming run {run_id[:8]} as child run {child_run_id[:8]} (mode={original_mode})")
 
-    # Pass bulk workers if resuming a bulk run
+    worker_args = ["--resume", run_id, "--run-id", child_run_id, "--triggered-by", "resume"]
+    if request.layers:
+        worker_args += ["--layers"] + list(request.layers)
+    if request.entity_ids:
+        worker_args += ["--entity-ids"] + [str(i) for i in request.entity_ids]
     if original_mode == "bulk":
         bulk_workers = body.get("bulk_workers", 16)
         worker_args += ["--workers", str(bulk_workers)]
 
-    worker_pid = _spawn_worker(run_id, worker_args)
-    _db_execute("UPDATE engine_runs SET WorkerPid = ? WHERE RunId = ?", (worker_pid, run_id))
-    _start_sse_poller(run_id)
+    worker_pid = _launch_worker_request(request, config, worker_args)
 
     handler._json_response({
-        "run_id": run_id,
+        "run_id": child_run_id,
+        "parent_run_id": run_id,
         "status": "resuming",
         "worker_pid": worker_pid,
     })
@@ -1242,15 +1296,12 @@ def _handle_stop(handler, config: dict) -> None:
     run_id = engine.current_run_id
     if run_id:
         try:
-            _db_execute(
-                "UPDATE engine_runs "
-                "SET Status = 'Aborted', "
-                "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
-                "    ErrorSummary = 'Stopped by user from dashboard' "
-                "WHERE RunId = ? AND Status IN ('InProgress', 'running')",
-                (str(run_id),)
+            aborted_run = _get_runtime_supervisor(config).abort_run(
+                str(run_id),
+                reason="Stopped by user from dashboard",
             )
-            _write_pipeline_audit_terminal(str(run_id), "Aborted", "Stopped by user from dashboard")
+            if aborted_run.status == "aborted":
+                _write_pipeline_audit_terminal(str(run_id), "Aborted", "Stopped by user from dashboard")
         except Exception as exc:
             log.warning("Failed to abort run in SQLite on stop: %s", exc)
 
@@ -1281,34 +1332,24 @@ def _handle_abort_run(handler, body: dict) -> None:
         return
 
     try:
+        supervisor = _get_runtime_supervisor()
         if abort_all:
             # Find runs to abort first (for pipeline_audit writes)
             orphaned = _db_query(
-                "SELECT RunId FROM engine_runs WHERE Status IN ('InProgress', 'running')"
-            )
-            _db_execute(
-                "UPDATE engine_runs "
-                "SET Status = 'Aborted', "
-                "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
-                "    ErrorSummary = CASE WHEN ErrorSummary IS NULL OR ErrorSummary = '' "
-                "        THEN 'Aborted by user' ELSE ErrorSummary END "
-                "WHERE Status IN ('InProgress', 'running')"
+                f"SELECT RunId FROM engine_runs WHERE Status IN ({_ACTIVE_RUN_STATUS_SQL})"
             )
             count = len(orphaned)
             for row in orphaned:
-                _write_pipeline_audit_terminal(row["RunId"], "Aborted", "Aborted by user")
+                aborted_run = supervisor.abort_run(row["RunId"], reason="Aborted by user")
+                if aborted_run.status == "aborted":
+                    _write_pipeline_audit_terminal(row["RunId"], "Aborted", "Aborted by user")
         else:
-            _db_execute(
-                "UPDATE engine_runs "
-                "SET Status = 'Aborted', "
-                "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
-                "    ErrorSummary = CASE WHEN ErrorSummary IS NULL OR ErrorSummary = '' "
-                "        THEN 'Aborted by user' ELSE ErrorSummary END "
-                "WHERE RunId = ?",
-                (str(run_id),)
-            )
-            _write_pipeline_audit_terminal(str(run_id), "Aborted", "Aborted by user")
-            count = 1
+            aborted_run = supervisor.abort_run(str(run_id), reason="Aborted by user")
+            if aborted_run.status == "aborted":
+                _write_pipeline_audit_terminal(str(run_id), "Aborted", "Aborted by user")
+                count = 1
+            else:
+                count = 0
 
         # If the currently active run was aborted, stop the engine too
         if _engine and _engine.status == "running":
@@ -1506,8 +1547,6 @@ def _handle_retry(handler, config: dict, body: dict) -> None:
     Requires run_id so the retry stays scoped to a known parent run.
     If entity_ids not provided, queries all failed entities from that run.
     """
-    global _run_thread
-
     run_id = body.get("run_id")
     if not run_id:
         handler._error_response("run_id required for scoped retry", 400)
@@ -1521,19 +1560,29 @@ def _handle_retry(handler, config: dict, body: dict) -> None:
         }, status=409)
         return
 
-    engine = _get_or_create_engine(config)
-
     entity_ids = body.get("entity_ids")
     layers = body.get("layers")
+    source_filter = []
+    parent_layers = ""
+    try:
+        run_meta_rows = _db_query(
+            "SELECT Layers, SourceFilter FROM engine_runs WHERE RunId = ?",
+            (str(run_id),),
+        )
+        if run_meta_rows:
+            parent_layers = run_meta_rows[0].get("Layers") or ""
+            source_filter = [
+                part.strip() for part in str(run_meta_rows[0].get("SourceFilter") or "").split(",")
+                if part and part.strip()
+            ]
+    except Exception as exc:
+        handler._error_response(f"Failed to query run metadata: {exc}", 500)
+        return
 
     # If no explicit entity_ids, query failed ones from the run via SQLite
     if not entity_ids and run_id:
         try:
-            run_meta_rows = _db_query(
-                "SELECT Layers FROM engine_runs WHERE RunId = ?",
-                (str(run_id),),
-            )
-            layers_raw = run_meta_rows[0].get("Layers") if run_meta_rows else None
+            layers_raw = parent_layers or None
             entity_ids = _get_failed_run_entity_ids(str(run_id), layers_raw)
             if not entity_ids:
                 rows = _db_query(
@@ -1560,57 +1609,33 @@ def _handle_retry(handler, config: dict, body: dict) -> None:
         "info",
         f"Retrying {len(entity_ids)} entities from run {run_id} as run {retry_run_id[:8]}",
     )
+    request = build_run_request(
+        {
+            "mode": "run",
+            "layers": layers or parent_layers,
+            "entity_ids": entity_ids,
+            "source_filter": source_filter,
+            "resolved_entity_count": len(entity_ids),
+            "triggered_by": "retry",
+        },
+        run_id=retry_run_id,
+        mode="run",
+        parent_run_id=str(run_id),
+        run_kind="retry",
+    )
+    worker_args = ["--run-id", retry_run_id, "--triggered-by", "retry"]
+    if request.layers:
+        worker_args += ["--layers"] + list(request.layers)
+    if request.entity_ids:
+        worker_args += ["--entity-ids"] + [str(i) for i in request.entity_ids]
 
-    # Wire up live callback for retries too
-    def _on_retry_result(run_id_str: str, result, entity=None) -> None:
-        entity_name = None
-        if entity:
-            schema = entity.namespace or entity.source_schema
-            entity_name = f"{schema}.{entity.source_name}"
-        _publish_entity_result(
-            run_id=run_id_str,
-            entity_id=result.entity_id,
-            entity_name=entity_name,
-            layer=result.layer,
-            status=result.status,
-            rows_read=result.rows_read,
-            rows_written=result.rows_written,
-            duration_seconds=result.duration_seconds,
-            error=result.error,
-        )
-
-    engine.on_entity_result = _on_retry_result
-
-    def _retry_wrapper():
-        try:
-            results = engine.run(
-                mode="run",
-                entity_ids=entity_ids,
-                layers=layers,
-                triggered_by="retry",
-                run_id=retry_run_id,
-            )
-            if isinstance(results, list):
-                succeeded = sum(1 for r in results if r.status == "succeeded")
-                failed = sum(1 for r in results if r.status == "failed")
-                _publish_log("info", f"Retry completed: {succeeded} succeeded, {failed} failed")
-                _SSEHook.publish("run_complete", {
-                    "succeeded": succeeded,
-                    "failed": failed,
-                    "total_rows": sum(r.rows_read for r in results),
-                })
-        except Exception as exc:
-            log.exception("Retry run failed")
-            _publish_log("error", f"Retry failed: {exc}")
-            _SSEHook.publish("run_error", {"error": str(exc)})
-
-    _run_thread = threading.Thread(target=_retry_wrapper, name="fmd-engine-retry", daemon=True)
-    _run_thread.start()
+    worker_pid = _launch_worker_request(request, config, worker_args)
 
     handler._json_response({
         "run_id": retry_run_id,
         "parent_run_id": run_id,
         "status": "started",
+        "worker_pid": worker_pid,
         "retrying": len(entity_ids),
         "entity_ids": entity_ids,
     })

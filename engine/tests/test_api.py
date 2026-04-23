@@ -184,15 +184,13 @@ def test_handle_retry_blocks_when_another_run_is_active():
 
 def test_handle_retry_scopes_to_parent_run_and_returns_retry_run_id():
     handler = _make_handler(path="/api/engine/retry", body=b"{}")
-    engine = MagicMock()
-    thread = MagicMock()
+    launch = MagicMock(return_value=5555)
 
     with patch("engine.api._db_query", return_value=[]), \
          patch("engine.api._get_failed_run_entity_ids", return_value=[7, 9]), \
-         patch("engine.api._get_or_create_engine", return_value=engine), \
+         patch("engine.api._launch_worker_request", launch), \
          patch("engine.api._SSEHook.clear"), \
          patch("engine.api._publish_log"), \
-         patch("engine.api.threading.Thread", return_value=thread), \
          patch("engine.api.uuid.uuid4", return_value="retry-run-1234"):
         api_module._handle_retry(
             handler,
@@ -205,14 +203,15 @@ def test_handle_retry_scopes_to_parent_run_and_returns_retry_run_id():
     assert payload["run_id"] == "retry-run-1234"
     assert payload["parent_run_id"] == "parent-run"
     assert payload["status"] == "started"
+    assert payload["worker_pid"] == 5555
     assert payload["retrying"] == 2
     assert payload["entity_ids"] == [7, 9]
-    assert callable(engine.on_entity_result)
-    thread.start.assert_called_once()
+    launch.assert_called_once()
 
 
-def test_cleanup_stale_runs_marks_dead_workers_failed_and_reconciles_extracting():
+def test_cleanup_stale_runs_marks_dead_workers_interrupted_and_reconciles_extracting():
     stale_time = (datetime.now(UTC) - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    supervisor = MagicMock()
 
     with patch("engine.api._db_query", return_value=[{
         "RunId": "dead-run",
@@ -221,15 +220,15 @@ def test_cleanup_stale_runs_marks_dead_workers_failed_and_reconciles_extracting(
         "HeartbeatAt": stale_time,
     }]), \
          patch("engine.api._is_pid_alive", return_value=False), \
-         patch("engine.api._db_execute") as mock_exec, \
+         patch("engine.api._get_runtime_supervisor", return_value=supervisor), \
+         patch("engine.api._reconcile_open_extracting_rows") as mock_reconcile, \
          patch("engine.api._write_pipeline_audit_terminal") as mock_audit:
         cleaned = api_module._cleanup_stale_runs()
 
     assert cleaned == 1
-    executed_sql = [call.args[0] for call in mock_exec.call_args_list]
-    assert any("UPDATE engine_runs" in sql for sql in executed_sql)
-    assert any("UPDATE engine_task_log" in sql for sql in executed_sql)
-    mock_audit.assert_called_once_with("dead-run", "Failed", "Worker process died or server restarted")
+    supervisor.finalize_run.assert_called_once()
+    mock_reconcile.assert_called_once_with("dead-run", "Worker process died or server restarted")
+    mock_audit.assert_called_once_with("dead-run", "Interrupted", "Worker process died or server restarted")
 
 
 def test_cleanup_stale_runs_skips_recently_heartbeating_dead_worker():

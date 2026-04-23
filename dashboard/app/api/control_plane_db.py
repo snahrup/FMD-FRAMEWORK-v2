@@ -251,6 +251,8 @@ def init_db():
 
             CREATE TABLE IF NOT EXISTS engine_runs (
                 RunId                   TEXT PRIMARY KEY,
+                ParentRunId             TEXT,
+                RunKind                 TEXT DEFAULT 'run',
                 Mode                    TEXT,
                 Status                  TEXT NOT NULL,
                 TotalEntities           INTEGER DEFAULT 0,
@@ -1343,6 +1345,8 @@ def init_db():
 
         # Migration: add durable worker columns to engine_runs (Phase 1)
         for col, coldef in [
+            ("ParentRunId", "TEXT"),
+            ("RunKind", "TEXT DEFAULT 'run'"),
             ("HeartbeatAt", "TEXT"),
             ("WorkerPid", "INTEGER"),
             ("CurrentLayer", "TEXT"),
@@ -1584,6 +1588,8 @@ def upsert_silver_entity(row: dict) -> None:
 
 
 def upsert_engine_run(row: dict) -> None:
+    parent_run_id = row["ParentRunId"] if "ParentRunId" in row else None
+    run_kind = row["RunKind"] if "RunKind" in row else None
     total_entities = row["TotalEntities"] if "TotalEntities" in row else None
     succeeded_entities = row["SucceededEntities"] if "SucceededEntities" in row else None
     failed_entities = row["FailedEntities"] if "FailedEntities" in row else None
@@ -1601,12 +1607,14 @@ def upsert_engine_run(row: dict) -> None:
         try:
             conn.execute(
                 "INSERT INTO engine_runs "
-                "(RunId, Mode, Status, TotalEntities, SucceededEntities, FailedEntities, "
+                "(RunId, ParentRunId, RunKind, Mode, Status, TotalEntities, SucceededEntities, FailedEntities, "
                 "SkippedEntities, TotalRowsRead, TotalRowsWritten, TotalBytesTransferred, "
                 "TotalDurationSeconds, Layers, EntityFilter, TriggeredBy, ErrorSummary, "
                 "StartedAt, EndedAt, CompletedUnits, HeartbeatAt, ActiveWorkers, EtaSeconds, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(RunId) DO UPDATE SET "
+                "ParentRunId       = COALESCE(excluded.ParentRunId, ParentRunId), "
+                "RunKind           = CASE WHEN excluded.RunKind IS NOT NULL AND excluded.RunKind != '' THEN excluded.RunKind ELSE RunKind END, "
                 "Mode              = CASE WHEN excluded.Mode IS NOT NULL AND excluded.Mode != '' THEN excluded.Mode ELSE Mode END, "
                 "Status            = CASE WHEN excluded.Status IS NOT NULL AND excluded.Status != '' THEN excluded.Status ELSE Status END, "
                 "TotalEntities     = COALESCE(excluded.TotalEntities, TotalEntities), "
@@ -1628,7 +1636,8 @@ def upsert_engine_run(row: dict) -> None:
                 "ActiveWorkers     = COALESCE(excluded.ActiveWorkers, ActiveWorkers), "
                 "EtaSeconds        = COALESCE(excluded.EtaSeconds, EtaSeconds), "
                 "updated_at        = excluded.updated_at",
-                (row.get('RunId'), _v(row.get('Mode')),
+                (row.get('RunId'), _v(parent_run_id), _v(run_kind),
+                 _v(row.get('Mode')),
                  _v(row.get('Status', 'Unknown')),
                  total_entities, succeeded_entities,
                  failed_entities, skipped_entities,
