@@ -2005,6 +2005,68 @@ body {
 .fmd-canvas-notice--warning { border-left-color: var(--bp-caution); color: #9a5b00; }
 .fmd-canvas-notice--error { border-left-color: var(--bp-fault); color: var(--bp-fault); }
 
+.fmd-canvas-run-handoff {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(11, 140, 194, 0.24);
+  border-left: 3px solid var(--bp-copper);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bp-copper) 6%, #ffffff);
+}
+
+.fmd-canvas-run-handoff__signal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--bp-copper) 24%, var(--bp-border));
+  background: #ffffff;
+}
+
+.fmd-canvas-run-handoff__signal span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--bp-copper);
+  animation: fmdCanvasPulse 1.4s var(--ease-claude) infinite;
+}
+
+.fmd-canvas-run-handoff strong {
+  display: block;
+  color: var(--bp-ink-primary);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.fmd-canvas-run-handoff p {
+  max-width: 780px;
+  margin: 3px 0 0;
+  color: var(--bp-ink-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fmd-canvas-run-handoff button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 8px 13px;
+  border: 1px solid var(--bp-copper);
+  border-radius: 999px;
+  background: var(--bp-copper);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
 .fmd-canvas-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2223,6 +2285,11 @@ body {
   stroke-linejoin: round;
 }
 
+.fmd-canvas-edge--running .react-flow__edge-path {
+  stroke-dasharray: 7 7;
+  animation: fmdCanvasDash 800ms linear infinite;
+}
+
 .fmd-canvas-loading {
   position: absolute;
   z-index: 5;
@@ -2254,6 +2321,21 @@ body {
 .fmd-canvas-node:hover {
   border-color: color-mix(in srgb, var(--node-tone) 42%, var(--bp-border));
   transform: translateY(-1px);
+}
+
+.fmd-canvas-node--queued {
+  opacity: 0.72;
+}
+
+.fmd-canvas-node--complete {
+  border-color: color-mix(in srgb, var(--bp-operational) 38%, var(--bp-border));
+}
+
+.fmd-canvas-node--running {
+  border-color: var(--bp-copper);
+  outline: 2px solid color-mix(in srgb, var(--bp-copper) 18%, transparent);
+  outline-offset: 4px;
+  animation: fmdCanvasNodeRun 1.4s var(--ease-claude) infinite;
 }
 
 .fmd-canvas-node--selected {
@@ -2323,6 +2405,12 @@ body {
   color: var(--bp-ink-secondary);
   font-size: 10px;
   background: rgba(255, 255, 255, 0.58);
+}
+
+.fmd-canvas-node__meta .fmd-canvas-node__run-state {
+  border-color: color-mix(in srgb, var(--node-tone) 32%, var(--bp-border));
+  color: var(--node-tone);
+  font-weight: 750;
 }
 
 .fmd-canvas-node__handle {
@@ -2539,6 +2627,21 @@ body {
 
 .fmd-spin {
   animation: spin 1s linear infinite;
+}
+
+@keyframes fmdCanvasDash {
+  from { stroke-dashoffset: 14; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes fmdCanvasPulse {
+  0%, 100% { opacity: 0.58; transform: scale(0.78); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes fmdCanvasNodeRun {
+  0%, 100% { outline-color: color-mix(in srgb, var(--bp-copper) 12%, transparent); }
+  50% { outline-color: color-mix(in srgb, var(--bp-copper) 28%, transparent); }
 }
 
 @media (max-width: 1080px) {
