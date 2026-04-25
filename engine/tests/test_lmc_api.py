@@ -283,6 +283,134 @@ def test_lmc_progress_returns_valid_structure_with_run(mock_db, mock_logger):
     assert result["throughput"]["rows_per_sec"] == 150.0
 
 
+def test_lmc_progress_includes_canonical_terminal_mission_truth(mock_db, mock_logger):
+    """Completed runs should expose one canonical truth with no remaining active work."""
+    from dashboard.app.api.routes.load_mission_control import get_lmc_progress
+
+    run_id = "run-terminal"
+    run_meta = {
+        **make_lmc_run(run_id, "Succeeded", total_entities=3),
+        "SourceFilter": "MES,M3",
+        "ResolvedEntityCount": 3,
+        "Layers": "landing,bronze,silver",
+    }
+    summary = {
+        "scopeEntities": [{"entityId": 1}, {"entityId": 2}, {"entityId": 3}],
+        "scopedEntityIds": [1, 2, 3],
+        "latestRows": [
+            {"Status": "succeeded", "RowsRead": 10, "RowsWritten": 10, "BytesTransferred": 100, "LoadType": "full"},
+        ],
+        "rowLookup": {},
+        "layers": {
+            "landing": {"succeeded": 3, "failed": 0, "skipped": 0, "total_rows_read": 30, "total_rows_written": 30, "total_bytes": 300, "total_duration": 3.0, "avg_duration": 1.0, "unique_entities": 3},
+            "bronze": {"succeeded": 3, "failed": 0, "skipped": 0, "total_rows_read": 30, "total_rows_written": 30, "total_bytes": 300, "total_duration": 3.0, "avg_duration": 1.0, "unique_entities": 3},
+            "silver": {"succeeded": 3, "failed": 0, "skipped": 0, "total_rows_read": 30, "total_rows_written": 30, "total_bytes": 300, "total_duration": 3.0, "avg_duration": 1.0, "unique_entities": 3},
+        },
+        "bySource": [
+            {"source": "MES", "total_entities": 2, "succeeded": 2, "failed": 0, "skipped": 0, "rows_read": 20, "bytes": 200},
+            {"source": "M3", "total_entities": 1, "succeeded": 1, "failed": 0, "skipped": 0, "rows_read": 10, "bytes": 100},
+        ],
+        "bySourceByLayer": [
+            {"source": "MES", "layer": "landing", "succeeded": 2, "failed": 0, "skipped": 0, "rows_read": 20, "bytes": 200},
+            {"source": "MES", "layer": "bronze", "succeeded": 2, "failed": 0, "skipped": 0, "rows_read": 20, "bytes": 200},
+            {"source": "MES", "layer": "silver", "succeeded": 2, "failed": 0, "skipped": 0, "rows_read": 20, "bytes": 200},
+            {"source": "M3", "layer": "landing", "succeeded": 1, "failed": 0, "skipped": 0, "rows_read": 10, "bytes": 100},
+            {"source": "M3", "layer": "bronze", "succeeded": 1, "failed": 0, "skipped": 0, "rows_read": 10, "bytes": 100},
+            {"source": "M3", "layer": "silver", "succeeded": 1, "failed": 0, "skipped": 0, "rows_read": 10, "bytes": 100},
+        ],
+        "entitySummary": {"succeeded": 3, "failed": 0, "skipped": 0, "pending": 0},
+        "throughput": {"rows_per_sec": 30.0, "bytes_per_sec": 300.0},
+        "rowsWritten": 90,
+        "filesWritten": 6,
+        "errorBreakdown": [],
+        "loadTypeBreakdown": [{"LoadType": "full", "cnt": 9, "total_rows": 90}],
+        "extractionMethods": [{"method": "pyodbc", "count": 9, "totalRows": 90}],
+        "dominantExtractionMethod": "pyodbc",
+    }
+
+    mock_db.query.return_value = [run_meta]
+
+    with patch("dashboard.app.api.routes.load_mission_control._summarize_run_truth", return_value=summary):
+        result = get_lmc_progress({"run_id": run_id})
+
+    truth = result["missionTruth"]
+    assert truth["runId"] == run_id
+    assert truth["runStatus"] == "succeeded"
+    assert truth["statusLabel"] == "Succeeded"
+    assert truth["isTerminal"] is True
+    assert truth["isActive"] is False
+    assert truth["sourceCount"] == 2
+    assert truth["sourceNames"] == ["MES", "M3"]
+    assert truth["entityCount"] == 3
+    assert truth["layerCount"] == 3
+    assert truth["layerStepTotal"] == 9
+    assert truth["layerStepsSucceeded"] == 9
+    assert truth["layerStepsRemaining"] == 0
+    assert truth["rowsWritten"] == 90
+    assert truth["scopeLabel"] == "2 selected sources"
+    assert truth["operatorState"] == "complete"
+
+
+def test_lmc_progress_mission_truth_zeroes_dry_run_data_movement(mock_db, mock_logger):
+    """Dry-run rows must be presented as control-plane checks, not real loaded data."""
+    from dashboard.app.api.routes.load_mission_control import get_lmc_progress
+
+    run_id = "run-dry"
+    run_meta = {
+        **make_lmc_run(run_id, "InProgress", total_entities=2),
+        "Mode": "dry_run",
+        "SourceFilter": "MES",
+        "ResolvedEntityCount": 2,
+        "Layers": "landing,bronze",
+    }
+    summary = {
+        "scopeEntities": [{"entityId": 1}, {"entityId": 2}],
+        "scopedEntityIds": [1, 2],
+        "latestRows": [
+            {"Status": "succeeded", "RowsRead": 999, "RowsWritten": 999, "BytesTransferred": 999, "LoadType": "dry_run"},
+        ],
+        "rowLookup": {},
+        "layers": {
+            "landing": {"succeeded": 2, "failed": 0, "skipped": 0, "total_rows_read": 999, "total_rows_written": 999, "total_bytes": 999, "total_duration": 1.0, "avg_duration": 0.5, "unique_entities": 2},
+            "bronze": {"succeeded": 1, "failed": 0, "skipped": 0, "total_rows_read": 999, "total_rows_written": 999, "total_bytes": 999, "total_duration": 1.0, "avg_duration": 1.0, "unique_entities": 1},
+            "silver": {"succeeded": 0, "failed": 0, "skipped": 0, "total_rows_read": 0, "total_rows_written": 0, "total_bytes": 0, "total_duration": 0, "avg_duration": 0, "unique_entities": 0},
+        },
+        "bySource": [
+            {"source": "MES", "total_entities": 2, "succeeded": 1, "failed": 0, "skipped": 0, "rows_read": 999, "bytes": 999},
+        ],
+        "bySourceByLayer": [
+            {"source": "MES", "layer": "landing", "succeeded": 2, "failed": 0, "skipped": 0, "rows_read": 999, "bytes": 999},
+            {"source": "MES", "layer": "bronze", "succeeded": 1, "failed": 0, "skipped": 0, "rows_read": 999, "bytes": 999},
+        ],
+        "entitySummary": {"succeeded": 1, "failed": 0, "skipped": 0, "pending": 1},
+        "throughput": {"rows_per_sec": 999.0, "bytes_per_sec": 999.0},
+        "rowsWritten": 999,
+        "filesWritten": 1,
+        "errorBreakdown": [],
+        "loadTypeBreakdown": [{"LoadType": "dry_run", "cnt": 3, "total_rows": 999}],
+        "extractionMethods": [{"method": "dagster", "count": 3, "totalRows": 999}],
+        "dominantExtractionMethod": "dagster",
+    }
+
+    mock_db.query.return_value = [run_meta]
+
+    with patch("dashboard.app.api.routes.load_mission_control._summarize_run_truth", return_value=summary):
+        result = get_lmc_progress({"run_id": run_id})
+
+    truth = result["missionTruth"]
+    assert truth["runStatus"] == "running"
+    assert truth["isDryRun"] is True
+    assert truth["modeLabel"] == "Dry run"
+    assert truth["unitLabel"] == "orchestration check"
+    assert truth["rowsRead"] == 0
+    assert truth["rowsWritten"] == 0
+    assert truth["filesWritten"] == 0
+    assert truth["throughputRowsPerSecond"] == 0
+    assert result["rowsWritten"] == 0
+    assert result["filesWritten"] == 0
+    assert result["throughput"]["rows_per_sec"] == 0
+
+
 def test_lmc_progress_returns_empty_when_no_run(mock_db, mock_logger):
     """Progress endpoint should return minimal response when no run exists."""
     from dashboard.app.api.routes.load_mission_control import get_lmc_progress
