@@ -1,10 +1,12 @@
 # Real Data Loader Audit
 
-Last updated: 2026-04-24 17:47 America/New_York
+Last updated: 2026-04-25 America/New_York
 
 ## Current Verdict
 
-The code path is now explicitly separated between Dagster dry-run orchestration and Dagster framework-mode real loading. The real-loader path is not yet runnable on this local machine because the Windows Python socket stack and Python package environment are unhealthy.
+The code path is now explicitly separated between Dagster dry-run orchestration and Dagster framework-mode real loading. The next proof gate is a one-entity real smoke load that produces a receipt proving both database truth and physical Landing/Bronze/Silver artifacts.
+
+The user's normal shell has since repaired `_overlapped` and installed the real-loader package set into the orchestrator venv. This Codex process still inherits the old Windows socket-provider failure, so it should not be used to launch the real source load. Use a fresh PowerShell terminal for the real smoke command below.
 
 ## Verified Changes
 
@@ -23,19 +25,29 @@ The code path is now explicitly separated between Dagster dry-run orchestration 
 - Added FMD-level Dagster page tabs and aliases for Dagster catalog/assets and deployment/locations.
 - Added route aliases for common demo/operator URLs.
 - Added `requirements-real-loader.txt`.
+- Added `scripts/run_real_smoke_load.ps1`.
+- Added `scripts/verify_real_smoke_load.py`.
+- Added `docs/REAL_LOAD_SMOKE_RUNBOOK.md`.
 - Added dashboard action audit and operator guide.
+- Added Mission Control `missionTruth` so terminal/dry-run runs cannot display contradictory running/remaining/row KPIs.
 
-## Current Environment Blockers
+## Current Environment Status
 
-### 1. Windows Python socket stack is broken
+### 1. Windows Python socket stack
 
-Command:
+User-verified fresh shell result:
 
 ```powershell
-python -c "import _overlapped"
+python -c "import _overlapped; print('socket stack ok')"
 ```
 
 Result:
+
+```text
+socket stack ok
+```
+
+Codex inherited-process caveat:
 
 ```text
 OSError: [WinError 10106] The requested service provider could not be loaded or initialized
@@ -43,31 +55,18 @@ OSError: [WinError 10106] The requested service provider could not be loaded or 
 
 Impact:
 
-- Dagster cannot import because it imports `asyncio`, which imports `_overlapped` on Windows.
-- Real-loader Python networking is not trustworthy.
-- Pip/curl also fail at socket/DNS level.
+- Real smoke loads should be launched from a fresh user PowerShell session, not from this Codex process.
+- Browser/server tests from this Codex process remain unreliable until the hosting process is restarted.
 
-Required fix:
+### 2. Real-loader packages
 
-- Run the elevated Windows/Python network repair helper.
-- Reboot.
-- Re-run runtime/preflight checks.
-
-Local helper created:
-
-```text
-C:\Users\snahrup\Desktop\FMD_REPAIR_LOCAL_NETWORK_STACK_AS_ADMIN.bat
-```
-
-### 2. Real-loader packages are missing from the orchestrator venv
-
-Runtime:
+Installed into:
 
 ```text
 C:\Users\snahrup\CascadeProjects\FMD_ORCHESTRATOR\.venv\Scripts\python.exe
 ```
 
-Missing:
+Installed package set includes:
 
 - `pyodbc`
 - `polars`
@@ -77,20 +76,29 @@ Missing:
 - `azure-storage-file-datalake`
 - `msal`
 
-Install command:
+Validation command:
 
 ```powershell
 cd C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK
 C:\Users\snahrup\CascadeProjects\FMD_ORCHESTRATOR\.venv\Scripts\python.exe -m pip install -r requirements-real-loader.txt
 ```
 
-Current install blocker:
+## Real Smoke Command
 
-```text
-getaddrinfo failed
+Run this from a fresh PowerShell terminal:
+
+```powershell
+cd C:\Users\snahrup\CascadeProjects\FMD_FRAMEWORK
+pwsh .\scripts\run_real_smoke_load.ps1
 ```
 
-This appears tied to the same Windows/network stack issue.
+Outputs:
+
+- Worker log: `.runs\real-smoke\<run-id>\worker.log`
+- Machine receipt: `.runs\real-smoke\<run-id>\receipt.json`
+- UI review URL: `http://127.0.0.1:5288/mission-control?run=<run-id>`
+
+The verifier intentionally fails `dagster://` target paths because those prove orchestration only, not physical lakehouse output.
 
 ## Smoke Entity
 
@@ -165,7 +173,7 @@ Passed:
 
 ### Pytest
 
-Blocked by the local Python socket stack before tests can collect:
+Full pytest remains blocked from this Codex process by the inherited Windows socket-provider failure before tests can collect:
 
 ```powershell
 C:\Users\snahrup\CascadeProjects\FMD_ORCHESTRATOR\.venv\Scripts\python.exe -m pytest engine/tests/test_api.py engine/tests/test_lmc_api.py engine/tests/test_logging_db.py -q
@@ -179,9 +187,23 @@ OSError: [WinError 10106] The requested service provider could not be loaded or 
 
 Direct system `python -m pytest ...` is also unavailable because `pytest` is not installed in the global Windows Python environment.
 
+### Real Smoke Verifier Unit Tests
+
+Passed:
+
+```powershell
+python -m unittest engine.tests.test_real_smoke_verifier -v
+```
+
+Coverage:
+
+- Accepts the actual engine behavior where all layer task rows can be logged against the landing entity id.
+- Rejects `dagster://` receipt paths as non-physical artifacts.
+- Verifies Silver Delta metadata includes SCD Type 2 columns when a local OneLake mount is available.
+
 ## Not Yet Complete
 
-- Real Landing Zone smoke load is blocked by local Windows socket stack and missing Python packages.
-- Bronze/Silver real smoke loads are blocked until Landing Zone smoke succeeds.
+- Real Landing Zone smoke load still needs to be run from a fresh user PowerShell terminal.
+- Bronze/Silver real smoke loads still need receipt proof from that same run.
 - Full route click-through audit still needs browser automation or manual route sweep after the local stack starts cleanly.
 - Full-estate load remains intentionally disabled.
