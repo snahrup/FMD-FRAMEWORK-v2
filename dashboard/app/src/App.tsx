@@ -73,6 +73,7 @@ import LoadCenter from '@/pages/LoadCenter'
 import LoadMissionControl from '@/pages/LoadMissionControl'
 import OrchestrationStory from '@/pages/OrchestrationStory'
 import DagsterConsole from '@/pages/DagsterConsole'
+import PipelineCanvas from '@/pages/PipelineCanvas'
 import TableCardListFixture from '@/test-fixtures/TableCardListFixture'
 const SchemaValidation = lazy(() => import('@/pages/SchemaValidation'))
 const DataEstate = lazy(() => import('@/pages/DataEstate'))
@@ -171,6 +172,8 @@ function App() {
         <Route path="/db-explorer" element={<DatabaseExplorer />} />
         <Route path="/data-manager" element={<DataManager />} />
         <Route path="/load-center" element={<LoadCenter />} />
+        <Route path="/canvas" element={<PipelineCanvas />} />
+        <Route path="/pipeline-canvas" element={<Navigate to="/canvas" replace />} />
         <Route path="/load-mission-control" element={<LoadMissionControl />} />
         <Route path="/mission-control" element={<Navigate to="/load-mission-control" replace />} />
         <Route path="/orchestration-story" element={<OrchestrationStory />} />

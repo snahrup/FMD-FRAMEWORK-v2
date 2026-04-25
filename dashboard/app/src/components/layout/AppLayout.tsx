@@ -102,6 +102,7 @@ const CORE_GROUPS: NavGroup[] = [
     label: "Load",
     items: [
       { icon: Play, label: "Load Center", href: "/load-center" },
+      { icon: Workflow, label: "Canvas Builder", href: "/canvas" },
       { icon: Cable, label: "Source Manager", href: "/sources" },
     ],
   },
@@ -311,6 +312,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     "/overview",
     "/orchestration-story",
     "/load-center",
+    "/canvas",
     "/sources",
     "/load-mission-control",
     "/matrix",
