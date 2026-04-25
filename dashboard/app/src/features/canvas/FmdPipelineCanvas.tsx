@@ -445,16 +445,23 @@ function FmdPipelineCanvasInner() {
     if (!activeRun) return edge;
     const targetIndex = runStepNodeIds.indexOf(String(edge.target));
     const sourceIndex = runStepNodeIds.indexOf(String(edge.source));
-    const isActiveEdge = targetIndex === activeRunStepIndex && sourceIndex === activeRunStepIndex - 1;
+    const isRunPlanEdge = sourceIndex >= 0 && targetIndex >= 0;
+    const isIncomingActiveEdge = isRunPlanEdge && targetIndex === activeRunStepIndex && sourceIndex === activeRunStepIndex - 1;
+    const isOutgoingActiveEdge = isRunPlanEdge && sourceIndex === activeRunStepIndex && targetIndex === activeRunStepIndex + 1;
+    const isActiveEdge = isIncomingActiveEdge || isOutgoingActiveEdge;
     const isCompleteEdge = targetIndex >= 0 && targetIndex < activeRunStepIndex;
     return {
       ...edge,
       animated: isActiveEdge,
-      className: isActiveEdge ? "fmd-canvas-edge--running" : isCompleteEdge ? "fmd-canvas-edge--complete" : "fmd-canvas-edge--queued",
+      className: isActiveEdge
+        ? `fmd-canvas-edge--running ${isIncomingActiveEdge ? "fmd-canvas-edge--incoming" : "fmd-canvas-edge--outgoing"}`
+        : isCompleteEdge
+          ? "fmd-canvas-edge--complete"
+          : "fmd-canvas-edge--queued",
       style: {
         ...(edge.style ?? {}),
-        stroke: isActiveEdge || isCompleteEdge ? "var(--bp-copper)" : "var(--bp-border-strong)",
-        strokeWidth: isActiveEdge ? 2.5 : isCompleteEdge ? 2 : 1.3,
+        stroke: isActiveEdge ? "var(--bp-copper)" : isCompleteEdge ? "var(--bp-operational)" : "var(--bp-border-strong)",
+        strokeWidth: isActiveEdge ? 2.8 : isCompleteEdge ? 2 : 1.3,
         opacity: isActiveEdge || isCompleteEdge ? 1 : 0.42,
       },
     };
