@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   addEdge,
   Background,
@@ -32,6 +33,7 @@ import {
   Save,
   ServerCog,
   ShieldCheck,
+  SquareArrowOutUpRight,
   Sparkles,
   Workflow,
   XCircle,
@@ -65,11 +67,16 @@ interface CanvasNodeData extends Record<string, unknown> {
   canvasNode: FmdCanvasNode;
   issues: number;
   warnings: number;
+  runState?: "queued" | "running" | "complete";
 }
 
 type RFNode = Node<CanvasNodeData>;
 type RFEdge = Edge;
 type RightPanelMode = "inspect" | "review";
+
+interface ActiveCanvasRun {
+  runId: string;
+}
 
 const NODE_ICON: Record<CanvasNodeType, LucideIcon> = {
   sql_source: Database,
@@ -172,8 +179,10 @@ function CanvasNodeCard(props: NodeProps<Node<CanvasNodeData>>) {
   const tone = layerTone(node.type);
   const Icon = NODE_ICON[node.type] ?? Workflow;
   const template = templateForType(node.type);
+  const runState = data.runState;
+  const stateLabel = runState === "running" ? "Running" : runState === "complete" ? "Handed off" : runState === "queued" ? "Queued" : null;
   return (
-    <div className={`fmd-canvas-node gs-stagger-card ${selected ? "fmd-canvas-node--selected" : ""}`} style={{ "--node-tone": tone.color } as React.CSSProperties}>
+    <div className={`fmd-canvas-node gs-stagger-card ${selected ? "fmd-canvas-node--selected" : ""} ${runState ? `fmd-canvas-node--${runState}` : ""}`} style={{ "--node-tone": tone.color } as React.CSSProperties}>
       <Handle type="target" position={Position.Left} className="fmd-canvas-node__handle" />
       <div className="fmd-canvas-node__rail" />
       <div className="fmd-canvas-node__top">
@@ -184,6 +193,7 @@ function CanvasNodeCard(props: NodeProps<Node<CanvasNodeData>>) {
       <strong>{node.label}</strong>
       <p>{template.description}</p>
       <div className="fmd-canvas-node__meta">
+        {stateLabel ? <span className="fmd-canvas-node__run-state">{stateLabel}</span> : null}
         {node.config.entityIds?.length ? <span>{node.config.entityIds.length} entities</span> : <span>{template.eyebrow}</span>}
         {node.config.retryPolicy ? <span>{String(node.config.retryPolicy)} retry</span> : null}
       </div>
@@ -387,6 +397,7 @@ function NodeInspector({
 }
 
 function FmdPipelineCanvasInner() {
+  const navigate = useNavigate();
   const [baseFlow, setBaseFlow] = useState<FmdCanvasFlow>(createDefaultFlow());
   const [validation, setValidation] = useState<FmdValidationResult>(() => validateFlow(createDefaultFlow()));
   const [runPlan, setRunPlan] = useState<FmdRunPlan>(() => compileRunPlan(createDefaultFlow()));
@@ -399,21 +410,68 @@ function FmdPipelineCanvasInner() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [activeRun, setActiveRun] = useState<ActiveCanvasRun | null>(null);
+  const [runPulse, setRunPulse] = useState(0);
   const [notice, setNotice] = useState<{ tone: "success" | "warning" | "error"; message: string } | null>(null);
 
   const currentFlow = useMemo(() => buildFlowFromReactState(baseFlow, nodes, edges), [baseFlow, nodes, edges]);
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId)?.data.canvasNode ?? null, [nodes, selectedNodeId]);
   const localValidation = useMemo(() => validateFlow(currentFlow), [currentFlow]);
   const localRunPlan = useMemo(() => compileRunPlan(currentFlow), [currentFlow]);
+  const runStepNodeIds = useMemo(() => runPlan.steps.map((step) => step.nodeId), [runPlan.steps]);
+  const activeRunStepIndex = activeRun && runStepNodeIds.length > 0 ? Math.min(runPulse, runStepNodeIds.length - 1) : -1;
+  const activeRunNodeId = activeRunStepIndex >= 0 ? runStepNodeIds[activeRunStepIndex] : null;
+  const completedRunNodeIds = useMemo(
+    () => new Set(activeRun ? runStepNodeIds.slice(0, activeRunStepIndex) : []),
+    [activeRun, activeRunStepIndex, runStepNodeIds],
+  );
+  const missionControlUrl = activeRun ? `/load-mission-control?run_id=${encodeURIComponent(activeRun.runId)}` : "/load-mission-control";
+
   const renderedNodes = useMemo(() => nodes.map((node) => {
     const counts = issueCounts(node.data.canvasNode, validation);
-    return { ...node, data: { ...node.data, ...counts } };
-  }), [nodes, validation]);
+    const runState: CanvasNodeData["runState"] = !activeRun
+      ? undefined
+      : node.id === activeRunNodeId
+        ? "running"
+        : completedRunNodeIds.has(node.id)
+          ? "complete"
+          : runStepNodeIds.includes(node.id)
+            ? "queued"
+            : undefined;
+    return { ...node, data: { ...node.data, ...counts, runState } };
+  }), [activeRun, activeRunNodeId, completedRunNodeIds, nodes, runStepNodeIds, validation]);
+  const renderedEdges = useMemo(() => edges.map((edge) => {
+    if (!activeRun) return edge;
+    const targetIndex = runStepNodeIds.indexOf(String(edge.target));
+    const sourceIndex = runStepNodeIds.indexOf(String(edge.source));
+    const isActiveEdge = targetIndex === activeRunStepIndex && sourceIndex === activeRunStepIndex - 1;
+    const isCompleteEdge = targetIndex >= 0 && targetIndex < activeRunStepIndex;
+    return {
+      ...edge,
+      animated: isActiveEdge,
+      className: isActiveEdge ? "fmd-canvas-edge--running" : isCompleteEdge ? "fmd-canvas-edge--complete" : "fmd-canvas-edge--queued",
+      style: {
+        ...(edge.style ?? {}),
+        stroke: isActiveEdge || isCompleteEdge ? "var(--bp-copper)" : "var(--bp-border-strong)",
+        strokeWidth: isActiveEdge ? 2.5 : isCompleteEdge ? 2 : 1.3,
+        opacity: isActiveEdge || isCompleteEdge ? 1 : 0.42,
+      },
+    };
+  }), [activeRun, activeRunStepIndex, edges, runStepNodeIds]);
 
   useEffect(() => {
     setValidation(localValidation);
     setRunPlan(localRunPlan);
   }, [localValidation, localRunPlan]);
+
+  useEffect(() => {
+    if (!activeRun) return;
+    setRunPulse(0);
+    const interval = window.setInterval(() => {
+      setRunPulse((value) => value + 1);
+    }, 1150);
+    return () => window.clearInterval(interval);
+  }, [activeRun]);
 
   useEffect(() => {
     if (!reactFlow || renderedNodes.length === 0) return;
@@ -534,8 +592,14 @@ function FmdPipelineCanvasInner() {
       setValidation(payload.validation);
       setRunPlan(payload.runPlan);
       setRightPanelMode("review");
-      const runId = payload.engine.run_id || payload.engine.current_run_id || "started";
-      setNotice({ tone: "success", message: `Pipeline launch accepted: ${runId}` });
+      const rawRunId = payload.engine.run_id || payload.engine.current_run_id || "";
+      const runId = typeof rawRunId === "string" && rawRunId.trim() ? rawRunId.trim() : "";
+      if (runId) {
+        setActiveRun({ runId });
+        setNotice(null);
+      } else {
+        setNotice({ tone: "success", message: "Pipeline launch accepted. Open Mission Control to confirm the live run." });
+      }
     } catch (error) {
       setNotice({ tone: "error", message: apiErrorMessage(error) });
     } finally {
@@ -562,6 +626,20 @@ function FmdPipelineCanvasInner() {
       </section>
 
       {notice && <div className={`fmd-canvas-notice fmd-canvas-notice--${notice.tone}`}>{notice.message}</div>}
+      {activeRun && (
+        <section className="fmd-canvas-run-handoff gs-modal-enter" aria-live="polite">
+          <div className="fmd-canvas-run-handoff__signal">
+            <span />
+          </div>
+          <div>
+            <strong>Pipeline is running</strong>
+            <p>Run {activeRun.runId.slice(0, 8)} is animating through this canvas. Mission Control is the live operating view for source progress, failures, retries, and completion.</p>
+          </div>
+          <button type="button" onClick={() => navigate(missionControlUrl)}>
+            <SquareArrowOutUpRight size={14} /> View in Mission Control
+          </button>
+        </section>
+      )}
 
       <section className={shellClassName}>
         {isPaletteOpen && (
@@ -628,7 +706,7 @@ function FmdPipelineCanvasInner() {
             {loading && <div className="fmd-canvas-loading"><Loader2 size={16} className="fmd-spin" /> Loading canvas...</div>}
             <ReactFlow
               nodes={renderedNodes}
-              edges={edges}
+              edges={renderedEdges}
               nodeTypes={NODE_TYPES}
               onInit={(instance) => setReactFlow(instance as ReactFlowInstance<RFNode, RFEdge>)}
               onNodesChange={onNodesChange}

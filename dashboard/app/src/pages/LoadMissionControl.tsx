@@ -30,6 +30,7 @@ import {
   Layers, Loader2, Pause, Play, RefreshCw,
   RotateCcw, Search, Server, Square, Timer, X, XCircle, Zap,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { AreaChart, Area, ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import CompactPageHeader from "@/components/layout/CompactPageHeader";
@@ -3953,6 +3954,8 @@ function ContextPanel({
 function LoadMissionControlInner() {
   const scope = useScope();
   const dispatch = useScopeDispatch();
+  const [searchParams] = useSearchParams();
+  const requestedRunId = searchParams.get("run_id") || searchParams.get("run");
   const [retryFeedback, setRetryFeedback] = useState<{
     tone: "success" | "error";
     message: string;
@@ -3997,6 +4000,13 @@ function LoadMissionControlInner() {
     return Array.isArray(raw) ? raw.filter(Boolean) : [];
   }, [progress?.run?.sourceFilter, selectedRunMeta?.sourceFilter]);
   const rightRailWidth = scope.contextOpen || selfHealExpanded ? 320 : 96;
+
+  useEffect(() => {
+    if (!requestedRunId || requestedRunId === scope.selectedRunId) return;
+    dispatch({ type: "SET_RUN", runId: requestedRunId });
+    dispatch({ type: "SET_TAB", tab: "live" });
+    refetchRuns();
+  }, [dispatch, refetchRuns, requestedRunId, scope.selectedRunId]);
 
   // Auto-select a run if the engine is actively running one
   // Only do this when the user has not manually selected a different run.

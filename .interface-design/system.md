@@ -141,3 +141,4 @@ The motion layer should support clarity, not decoration. Use stagger to reveal h
 ## Learnings
 - [2026-04-24] Steve explicitly prefers the IP Corp dashboard skin to avoid cream/beige backgrounds and stay on white, gray separators, and blues.
 - [2026-04-25] Steve prefers open-air workflow pages over boxed section stacks; hide optional detail in collapsible/expandable panels and remove status/header elements that do not materially change user decisions.
+- [2026-04-25] Pipeline launch flows must provide an immediate next step: animate or confirm the run locally, then expose a contextual button to the exact live monitoring surface instead of leaving users to hunt through navigation.
