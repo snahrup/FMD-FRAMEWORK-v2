@@ -124,7 +124,7 @@ def load_config(config_path: str | Path | None = None) -> EngineConfig:
         source_sql_driver=engine_section.get("source_sql_driver", "ODBC Driver 18 for SQL Server"),
 
         # ConnectorX
-        use_connectorx=engine_section.get("use_connectorx", True),
+        use_connectorx=engine_section.get("use_connectorx", False),
         connectorx_auth_mode=engine_section.get("connectorx_auth_mode", "windows"),
         sql_username=engine_section.get("sql_username", ""),
         sql_password=engine_section.get("sql_password", ""),

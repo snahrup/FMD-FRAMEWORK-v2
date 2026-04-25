@@ -203,6 +203,16 @@ class AuditLogger:
         )
 
         status = "Succeeded" if failed == 0 else "Failed"
+        aggregate = self._aggregate_task_log_run(run_id)
+        if aggregate:
+            succeeded = aggregate["succeeded"]
+            failed = aggregate["failed"]
+            skipped = aggregate["skipped"]
+            total_rows = aggregate["total_rows_read"]
+            total_bytes = aggregate["total_bytes"]
+            total_duration = aggregate["total_duration"]
+            status = "Succeeded" if failed == 0 else "Failed"
+
         log.info(
             "Run %s ended: %s (succeeded=%d, failed=%d, skipped=%d, rows=%d, %.1fs)",
             run_id[:8], status, succeeded, failed, skipped, total_rows, total_duration,
@@ -218,14 +228,15 @@ class AuditLogger:
             run_id=run_id,
             mode="",
             status=status,
-            total_entities=len(results),
+            total_entities=aggregate["total_entities"] if aggregate else len(results),
             succeeded_entities=succeeded,
             failed_entities=failed,
             skipped_entities=skipped,
             total_rows_read=total_rows,
-            total_rows_written=sum(r.rows_written for r in results),
+            total_rows_written=aggregate["total_rows_written"] if aggregate else sum(r.rows_written for r in results),
             total_bytes=total_bytes,
             total_duration=round(total_duration, 2),
+            layers=aggregate["layers"] if aggregate else "",
             error_summary=None,
         )
 
@@ -600,6 +611,59 @@ class AuditLogger:
             except Exception as exc:
                 log.warning("SQLite: Failed to write copy audit for entity %d: %s", entity_id, exc)
 
+    @staticmethod
+    def _aggregate_task_log_run(run_id: str) -> Optional[dict]:
+        """Aggregate the current run from task log truth.
+
+        Dagster framework mode delegates each layer as a separate framework
+        call with the same run ID. Each call writes its own run_end row, so the
+        final engine_runs summary must be rebuilt from the layer task rows.
+        """
+        try:
+            from dashboard.app.api import db as fmd_db
+            rows = fmd_db.query(
+                "SELECT id, EntityId, Layer, Status, RowsRead, RowsWritten, "
+                "BytesTransferred, DurationSeconds "
+                "FROM engine_task_log WHERE RunId = ? ORDER BY id",
+                (run_id,),
+            )
+        except Exception as exc:
+            log.debug("Task-log aggregate failed for %s: %s", run_id[:8], exc)
+            return None
+
+        latest: dict[tuple[int, str], dict] = {}
+        for row in rows:
+            item = dict(row)
+            layer = _normalize_layer(item.get("Layer"))
+            entity_id = int(item.get("EntityId") or 0)
+            if not entity_id:
+                continue
+            latest[(entity_id, layer)] = item
+
+        if not latest:
+            return None
+
+        latest_rows = list(latest.values())
+        succeeded = sum(1 for row in latest_rows if _normalize_status(row.get("Status")) == "succeeded")
+        failed = sum(1 for row in latest_rows if _normalize_status(row.get("Status")) == "failed")
+        skipped = sum(1 for row in latest_rows if _normalize_status(row.get("Status")) == "skipped")
+        layers = []
+        for layer in _CANONICAL_LAYERS:
+            if any(_normalize_layer(row.get("Layer")) == layer for row in latest_rows):
+                layers.append(layer)
+
+        return {
+            "total_entities": len(latest_rows),
+            "succeeded": succeeded,
+            "failed": failed,
+            "skipped": skipped,
+            "total_rows_read": sum(int(row.get("RowsRead") or 0) for row in latest_rows),
+            "total_rows_written": sum(int(row.get("RowsWritten") or 0) for row in latest_rows),
+            "total_bytes": sum(int(row.get("BytesTransferred") or 0) for row in latest_rows),
+            "total_duration": sum(float(row.get("DurationSeconds") or 0) for row in latest_rows),
+            "layers": ",".join(layers),
+        }
+
     def _write_engine_run(
         self,
         run_id: str,
@@ -620,7 +684,7 @@ class AuditLogger:
     ) -> None:
         """Write engine run record to SQLite."""
         now_str = _utcnow_iso_z()
-        normalized_layers = _normalize_layers(layers)
+        normalized_layers = _normalize_layers(layers) if layers else ""
 
         cpdb = _get_cpdb()
         if cpdb:
@@ -677,26 +741,46 @@ class AuditLogger:
         log_data: str = "",
     ) -> dict:
         """Build the engine_task_log payload for insert or update."""
-        load_type = "incremental" if entity.is_incremental and entity.last_load_value else "full"
+        load_type = (
+            "bulk_snapshot"
+            if result.watermark_strategy == "bulk_snapshot"
+            else "incremental"
+            if getattr(entity, "is_incremental", False) and getattr(entity, "last_load_value", None)
+            else "full"
+        )
         error_type = self._classify_error(result.error)
+        layer = _normalize_layer(result.layer)
+        source_name = getattr(entity, "source_name", "") or getattr(entity, "name", "") or ""
+        source_schema = getattr(entity, "source_schema", "") or getattr(entity, "schema", "") or ""
+        target_path = self._target_path_for(entity, layer)
+        try:
+            source_query = entity.build_source_query_display()[:4000]
+        except Exception:
+            source_query = ""
 
         return {
             "RunId": run_id,
-            "EntityId": entity.id,
-            "Layer": _normalize_layer(result.layer),
+            "EntityId": (
+                getattr(entity, "lz_entity_id", None)
+                or getattr(entity, "id", None)
+                or getattr(entity, "bronze_entity_id", None)
+                or getattr(entity, "silver_entity_id", None)
+                or result.entity_id
+            ),
+            "Layer": layer,
             "Status": _normalize_status(result.status),
-            "SourceServer": entity.source_server or "",
-            "SourceDatabase": entity.source_database or "",
-            "SourceTable": f"{entity.source_schema}.{entity.source_name}",
-            "SourceQuery": entity.build_source_query_display()[:4000],
+            "SourceServer": getattr(entity, "source_server", "") or "",
+            "SourceDatabase": getattr(entity, "source_database", "") or getattr(entity, "namespace", "") or "",
+            "SourceTable": f"{source_schema}.{source_name}".strip("."),
+            "SourceQuery": source_query,
             "RowsRead": result.rows_read,
             "RowsWritten": result.rows_written,
             "BytesTransferred": result.bytes_transferred,
             "DurationSeconds": round(result.duration_seconds, 2),
-            "TargetLakehouse": entity.lakehouse_guid or "",
-            "TargetPath": entity.file_path or "",
-            "WatermarkColumn": entity.watermark_column or "",
-            "WatermarkBefore": result.watermark_before or entity.last_load_value or "",
+            "TargetLakehouse": getattr(entity, "lakehouse_guid", "") or "",
+            "TargetPath": target_path,
+            "WatermarkColumn": getattr(entity, "watermark_column", "") or "",
+            "WatermarkBefore": result.watermark_before or getattr(entity, "last_load_value", "") or "",
             "WatermarkAfter": result.watermark_after or "",
             "LoadType": load_type,
             "ErrorType": error_type,
@@ -706,3 +790,43 @@ class AuditLogger:
             "LogData": log_data[:8000],
             "ExtractionMethod": result.extraction_method or "unknown",
         }
+
+    @staticmethod
+    def _target_path_for(entity, layer: str) -> str:
+        if layer == "landing":
+            lakehouse = getattr(entity, "lakehouse_guid", "") or ""
+            folder = getattr(entity, "file_path", "") or getattr(entity, "namespace", "") or getattr(entity, "source_database", "") or ""
+            file_name = getattr(entity, "file_name", "") or ""
+            if not file_name:
+                source_name = (getattr(entity, "source_name", "") or "").strip()
+                file_name = f"{source_name}.parquet" if source_name else ""
+            parts = [part.strip("/") for part in (lakehouse, "Files", folder, file_name) if part]
+            return "/".join(parts)
+
+        delta_path = getattr(entity, "delta_table_path", "")
+        return delta_path or ""
+
+    def log_layer_result(self, run_id: str, entity, result: RunResult) -> None:
+        """Record a non-landing layer result in engine_task_log."""
+        self._write_engine_task_log(run_id, entity, result)
+
+    def _write_engine_task_log(
+        self,
+        run_id: str,
+        entity: Entity,
+        result: RunResult,
+        log_data: str = "",
+    ) -> None:
+        """Compatibility wrapper for tests and older callers.
+
+        New code paths build the row in ``log_entity_result`` so an existing
+        open task row can be updated. Older tests and integrations called this
+        private helper directly; keeping it avoids breaking that contract.
+        """
+        cpdb = _get_cpdb()
+        if not cpdb:
+            return
+        try:
+            cpdb.insert_engine_task_log(self._build_engine_task_row(run_id, entity, result, log_data))
+        except Exception as exc:
+            log.warning("SQLite: Failed to write engine task log for entity %d: %s", entity.id, exc)

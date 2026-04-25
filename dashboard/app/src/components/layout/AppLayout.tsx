@@ -48,6 +48,12 @@ import {
   Search,
   Globe,
   ClipboardCheck,
+  Presentation,
+  MonitorDot,
+  ListChecks,
+  CalendarClock,
+  MapPinned,
+  GitBranch,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -73,11 +79,22 @@ interface NavGroup {
   items: NavItem[];
 }
 
+const DAGSTER_ITEMS: NavItem[] = [
+  { icon: MonitorDot, label: "Overview", href: "/dagster" },
+  { icon: ListChecks, label: "Runs", href: "/dagster/runs" },
+  { icon: Library, label: "Catalog", href: "/dagster/catalog" },
+  { icon: Workflow, label: "Jobs", href: "/dagster/jobs" },
+  { icon: CalendarClock, label: "Automation", href: "/dagster/automation" },
+  { icon: GitBranch, label: "Lineage", href: "/dagster/lineage" },
+  { icon: MapPinned, label: "Deployment", href: "/dagster/deployment" },
+];
+
 const CORE_GROUPS: NavGroup[] = [
   {
     label: "Estate",
     items: [
       { icon: LayoutDashboard, label: "Overview", href: "/overview" },
+      { icon: Presentation, label: "Demo Story", href: "/orchestration-story" },
       { icon: Globe, label: "Data Estate", href: "/estate" },
     ],
   },
@@ -96,6 +113,10 @@ const CORE_GROUPS: NavGroup[] = [
       { icon: Activity, label: "Error Intelligence", href: "/errors" },
       { icon: ScrollText, label: "Execution Log", href: "/logs" },
     ],
+  },
+  {
+    label: "Dagster",
+    items: DAGSTER_ITEMS,
   },
   {
     label: "Explore",
@@ -183,12 +204,17 @@ const BUSINESS_GROUPS: NavGroup[] = [
     label: "Portal",
     items: [
       { icon: LayoutDashboard, label: "Overview", href: "/overview" },
+      { icon: Presentation, label: "Demo Story", href: "/orchestration-story" },
       { icon: Bell, label: "Alerts", href: "/alerts" },
       { icon: Cable, label: "Sources", href: "/sources-portal" },
       { icon: Library, label: "Catalog", href: "/catalog-portal" },
       { icon: FileText, label: "Requests", href: "/requests" },
       { icon: HelpCircle, label: "Help", href: "/help" },
     ],
+  },
+  {
+    label: "Dagster",
+    items: DAGSTER_ITEMS,
   },
 ];
 
@@ -283,6 +309,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const managedShellRoutes = new Set([
     "/estate",
     "/overview",
+    "/orchestration-story",
     "/load-center",
     "/sources",
     "/load-mission-control",
@@ -290,8 +317,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     "/errors",
     "/logs",
     "/explore",
+    "/dagster",
   ]);
-  const usesManagedShell = managedShellRoutes.has(location.pathname);
+  const usesManagedShell = managedShellRoutes.has(location.pathname) || location.pathname.startsWith("/dagster/");
 
   // ── Business Portal sidebar — matches wireframe exactly ──
   const BPNavContent = (
@@ -306,12 +334,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       }}
     >
       {/* Logo */}
-      <div style={{ padding: "24px 24px 24px", borderBottom: "1px solid var(--bp-border)", marginBottom: 8 }}>
-        <div style={{ fontFamily: "var(--bp-font-display)", fontSize: 28, color: "var(--bp-ink-primary)", lineHeight: 1 }}>
-          FMD
-        </div>
-        <div style={{ fontSize: 11, fontWeight: 500, color: "var(--bp-ink-tertiary)", letterSpacing: "0.5px", textTransform: "uppercase", marginTop: 4 }}>
-          Business Portal
+      <div style={{ padding: "20px 22px 20px", borderBottom: "1px solid var(--bp-border)", marginBottom: 8 }}>
+        <img src="/ip-corp-logo-1400x624.png" alt="IP Corporation" style={{ width: 154, height: "auto", display: "block" }} />
+        <div style={{ fontSize: 11, fontWeight: 650, color: "var(--bp-ink-tertiary)", letterSpacing: "0.8px", textTransform: "uppercase", marginTop: 10 }}>
+          FMD Dashboard
         </div>
       </div>
 
@@ -319,8 +345,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <nav ref={navScrollRef} onScroll={handleNavScroll} style={{ flex: 1, padding: "8px 0", overflowY: "auto" }}>
         {sidebarGroups.map((group) => (
           <div key={group.label}>
+            {sidebarGroups.length > 1 && (
+              <div style={{ padding: "12px 24px 4px", fontSize: 10, fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "var(--bp-ink-muted)" }}>
+                {group.label}
+              </div>
+            )}
             {group.items.map((item) => {
-              const isActive = location.pathname === item.href;
+              const isActive = location.pathname === item.href || (item.href !== "/dagster" && location.pathname.startsWith(`${item.href}/`));
               return (
                 <Link key={item.href} to={item.href} style={{ textDecoration: "none" }}>
                   <div
@@ -433,12 +464,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       }}
     >
       {/* Logo */}
-      <div style={{ padding: "24px 24px 24px", borderBottom: "1px solid var(--bp-border)", marginBottom: 8 }}>
-        <div style={{ fontFamily: "var(--bp-font-display)", fontSize: 28, color: "var(--bp-ink-primary)", lineHeight: 1 }}>
-          FMD
-        </div>
-        <div style={{ fontSize: 11, fontWeight: 500, color: "var(--bp-ink-tertiary)", letterSpacing: "0.5px", textTransform: "uppercase", marginTop: 4 }}>
-          Engineering Console
+      <div style={{ padding: "20px 22px 20px", borderBottom: "1px solid var(--bp-border)", marginBottom: 8 }}>
+        <img src="/ip-corp-logo-1400x624.png" alt="IP Corporation" style={{ width: 154, height: "auto", display: "block" }} />
+        <div style={{ fontSize: 11, fontWeight: 650, color: "var(--bp-ink-tertiary)", letterSpacing: "0.8px", textTransform: "uppercase", marginTop: 10 }}>
+          Dagster-driven FMD
         </div>
       </div>
 
@@ -450,7 +479,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               {group.label}
             </div>
             {group.items.map((item) => {
-              const isActive = location.pathname === item.href;
+              const isActive = location.pathname === item.href || (item.href !== "/dagster" && location.pathname.startsWith(`${item.href}/`));
               return (
                 <Link key={item.href} to={item.href} style={{ textDecoration: "none" }}>
                   <div

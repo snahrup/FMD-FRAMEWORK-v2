@@ -14,6 +14,8 @@ Architecture:
 
 Endpoints:
     GET  /api/engine/status         - Engine state + last run summary
+    GET  /api/engine/runtime        - Runtime/orchestrator mode summary
+    POST /api/engine/preflight      - Real-load readiness checks
     POST /api/engine/start          - Start a load run (background thread)
     POST /api/engine/stop           - Graceful stop
     GET  /api/engine/plan           - Dry-run plan
@@ -40,7 +42,10 @@ import uuid
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
+
+from engine.dagster_bridge import DagsterBridgeError, launch_dagster_run
 
 log = logging.getLogger("fmd.engine.api")
 
@@ -147,6 +152,22 @@ def _parse_run_layers(raw) -> list[str]:
         if token in _RUN_LAYER_SET and token not in layers:
             layers.append(token)
     return layers or ["landing", "bronze", "silver"]
+
+
+def _coerce_int_list(raw) -> list[int]:
+    """Normalize JSON/list/CSV entity id inputs."""
+    if raw is None or raw == "":
+        return []
+    values = raw if isinstance(raw, list) else str(raw).split(",")
+    ids: list[int] = []
+    for value in values:
+        try:
+            entity_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if entity_id > 0 and entity_id not in ids:
+            ids.append(entity_id)
+    return ids
 
 
 def _query_mapped_task_log_rows(
@@ -557,6 +578,460 @@ def _parse_utc(value: str | None) -> Optional[datetime]:
         return None
 
 
+def _should_launch_with_dagster(body: dict, config: dict | None = None) -> bool:
+    raw = (
+        body.get("orchestrator")
+        or os.getenv("FMD_ENGINE_ORCHESTRATOR")
+        or ((config or {}).get("engine", {}) if isinstance(config, dict) else {}).get("orchestrator")
+        or "legacy"
+    )
+    return str(raw).strip().lower() == "dagster"
+
+
+def _dagster_runtime_mode(body: dict | None, config: dict | None = None) -> str:
+    dagster_cfg = (config or {}).get("dagster", {}) if isinstance(config, dict) else {}
+    raw = (
+        (body or {}).get("dagster_mode")
+        or (body or {}).get("runtime_mode")
+        or os.getenv("FMD_DAGSTER_RUNTIME_MODE")
+        or dagster_cfg.get("runtime_mode")
+        or "dry_run"
+    )
+    if bool((body or {}).get("dry_run")):
+        return "dry_run"
+    return str(raw).strip().lower() or "dry_run"
+
+
+def _is_real_framework_mode(body: dict | None, config: dict | None = None) -> bool:
+    return _should_launch_with_dagster(body or {}, config) and _dagster_runtime_mode(body, config) == "framework"
+
+
+def _windows_socket_stack_error() -> str | None:
+    if os.name != "nt":
+        return None
+    try:
+        import _overlapped  # noqa: F401, PLC0415
+    except Exception as exc:
+        return f"Python cannot import _overlapped: {exc}. Run an elevated Winsock reset/repair and reboot."
+    return None
+
+
+def _dagster_event_log_dir(config: dict | None, body: dict | None = None) -> Path:
+    dagster_cfg = (config or {}).get("dagster", {}) if isinstance(config, dict) else {}
+    raw = (
+        (body or {}).get("event_log_dir")
+        or os.getenv("FMD_DAGSTER_EVENT_LOG_DIR")
+        or dagster_cfg.get("event_log_dir")
+        or r"C:\Users\snahrup\CascadeProjects\FMD_ORCHESTRATOR\.runs"
+    )
+    return Path(str(raw)).resolve()
+
+
+def _launch_dagster_request(
+    *,
+    run_id: str,
+    mode: str,
+    layers: list[str],
+    entity_ids: list[int],
+    triggered_by: str,
+    body: dict,
+    config: dict,
+) -> dict:
+    request = SimpleNamespace(
+        run_id=run_id,
+        mode=mode,
+        layers=list(layers or ["landing", "bronze", "silver"]),
+        entity_ids=list(entity_ids or []),
+        triggered_by=triggered_by,
+    )
+    launch = launch_dagster_run(request=request, body=body, config=config)
+    dagster_cfg = config.get("dagster", {}) if isinstance(config, dict) else {}
+    _start_dagster_event_poller(
+        run_id=run_id,
+        layers=request.layers,
+        entity_ids=request.entity_ids,
+        event_log_dir=_dagster_event_log_dir(config, body),
+        timeout_seconds=int(dagster_cfg.get("event_sync_timeout_seconds") or 180),
+    )
+    return launch.to_api_payload(mode=mode)
+
+
+def _start_dagster_event_poller(
+    *,
+    run_id: str,
+    layers: list[str],
+    entity_ids: list[int],
+    event_log_dir: Path,
+    timeout_seconds: int,
+) -> None:
+    thread = threading.Thread(
+        target=_poll_dagster_event_log,
+        args=(run_id, list(layers or []), list(entity_ids or []), event_log_dir, timeout_seconds),
+        name=f"dagster-event-sync-{run_id[:8]}",
+        daemon=True,
+    )
+    thread.start()
+
+
+def _poll_dagster_event_log(
+    run_id: str,
+    layers: list[str],
+    entity_ids: list[int],
+    event_log_dir: Path,
+    timeout_seconds: int,
+) -> None:
+    event_path = event_log_dir / f"{run_id}.jsonl"
+    expected_layers = _parse_run_layers(",".join(layers or []))
+    seen_layers: dict[str, str] = {}
+    inserted = {"succeeded": 0, "failed": 0, "skipped": 0}
+    entity_layer_statuses: dict[int, dict[str, str]] = {}
+    framework_seen = False
+    offset = 0
+    deadline = time.time() + max(timeout_seconds, 15)
+
+    while time.time() < deadline:
+        if event_path.exists():
+            try:
+                with event_path.open("r", encoding="utf-8") as handle:
+                    handle.seek(offset)
+                    lines = handle.readlines()
+                    offset = handle.tell()
+            except OSError as exc:
+                log.warning("Failed to read Dagster event log %s: %s", event_path, exc)
+                lines = []
+
+            for line in lines:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                status = _sync_dagster_event_to_task_log(run_id, event, entity_ids)
+                if str(event.get("mode") or "").strip().lower() == "framework":
+                    framework_seen = True
+                layer = str(event.get("layer") or "").strip().lower()
+                if layer:
+                    seen_layers[layer] = status
+                    for entity_id in _event_entity_ids(event, entity_ids):
+                        entity_layer_statuses.setdefault(entity_id, {})[layer] = status
+                if status in inserted:
+                    inserted[status] += max(1, len(_event_entity_ids(event, entity_ids)))
+
+            if seen_layers and all(layer in seen_layers for layer in expected_layers):
+                succeeded_entities = 0
+                failed_entities = 0
+                skipped_entities = 0
+
+                for layer_statuses in entity_layer_statuses.values():
+                    statuses = [layer_statuses.get(layer, "not_started") for layer in expected_layers]
+                    attempted = [status for status in statuses if status != "not_started"]
+                    if not attempted:
+                        continue
+                    if any(status in _FAILURE_STATUSES for status in attempted):
+                        failed_entities += 1
+                    elif all(status in ("succeeded", "skipped") for status in statuses):
+                        if any(status == "skipped" for status in statuses):
+                            skipped_entities += 1
+                        else:
+                            succeeded_entities += 1
+
+                total_entities = len(entity_layer_statuses) or max(len(entity_ids), 1)
+                failed = failed_entities
+                final_status = "Failed" if failed else "Succeeded"
+                error_summary = "Dagster run failed. Review Dagster logs." if failed else ""
+                aggregate = _aggregate_run_from_task_log(run_id) if framework_seen else None
+                if aggregate:
+                    succeeded_entities = aggregate["succeeded"]
+                    failed_entities = aggregate["failed"]
+                    skipped_entities = aggregate["skipped"]
+                    failed = failed_entities
+                    final_status = "Failed" if failed else "Succeeded"
+                    total_entities = max(total_entities, succeeded_entities + failed_entities + skipped_entities)
+                _db_execute(
+                    "UPDATE engine_runs "
+                    "SET Status = ?, "
+                    "    SucceededEntities = ?, "
+                    "    FailedEntities = ?, "
+                    "    SkippedEntities = ?, "
+                    "    TotalEntities = ?, "
+                    "    CompletedUnits = ?, "
+                    "    TotalRowsRead = ?, "
+                    "    TotalRowsWritten = ?, "
+                    "    TotalBytesTransferred = ?, "
+                    "    TotalDurationSeconds = ?, "
+                    "    CurrentLayer = ?, "
+                    "    ErrorSummary = ?, "
+                    "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+                    "    HeartbeatAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+                    "    updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+                    "WHERE RunId = ?",
+                    (
+                        final_status,
+                        succeeded_entities,
+                        failed_entities,
+                        skipped_entities,
+                        total_entities,
+                        sum(inserted.values()),
+                        aggregate["rows_read"] if aggregate else 0,
+                        aggregate["rows_written"] if aggregate else 0,
+                        aggregate["bytes_transferred"] if aggregate else 0,
+                        aggregate["duration_seconds"] if aggregate else 0,
+                        next(reversed(seen_layers.keys()), ""),
+                        error_summary,
+                        run_id,
+                    ),
+                )
+                _write_pipeline_audit_terminal(run_id, final_status, error_summary or "Dagster run completed")
+                return
+
+        time.sleep(0.5)
+
+    _db_execute(
+        "UPDATE engine_runs "
+        "SET Status = 'Failed', "
+        "    ErrorSummary = ?, "
+        "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+        "    updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+        "WHERE RunId = ? AND Status IN ('InProgress', 'running', 'Starting', 'starting')",
+        (f"Dagster event log did not complete before timeout: {event_path}", run_id),
+    )
+    _write_pipeline_audit_terminal(run_id, "Failed", "Dagster event log sync timed out")
+
+
+def _event_entity_ids(event: dict, fallback_entity_ids: list[int]) -> list[int]:
+    details = event.get("details") if isinstance(event.get("details"), dict) else {}
+    results = details.get("results") if isinstance(details.get("results"), list) else []
+    raw_ids = details.get("entity_ids") or fallback_entity_ids or [0]
+    if results:
+        raw_ids = [item.get("entity_id") for item in results if isinstance(item, dict)]
+    ids: list[int] = []
+    for raw in raw_ids:
+        try:
+            ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    return ids or [0]
+
+
+def _event_result_rows(event: dict, fallback_entity_ids: list[int]) -> list[dict]:
+    details = event.get("details") if isinstance(event.get("details"), dict) else {}
+    results = details.get("results") if isinstance(details.get("results"), list) else []
+    rows = [item for item in results if isinstance(item, dict) and item.get("entity_id") is not None]
+    if rows:
+        return rows
+    layer = str(event.get("layer") or "").strip().lower()
+    status = str(event.get("status") or "unknown").strip().lower()
+    return [
+        {
+            "entity_id": entity_id,
+            "layer": layer,
+            "status": status,
+            "rows_read": 0,
+            "rows_written": 0,
+            "bytes_transferred": 0,
+            "duration_seconds": 0,
+            "load_type": str(event.get("mode") or "dagster"),
+            "error": event.get("error") or "",
+        }
+        for entity_id in _event_entity_ids(event, fallback_entity_ids)
+    ]
+
+
+def _terminal_task_row_exists(run_id: str, entity_id: int, layer: str) -> bool:
+    rows = _db_query(
+        "SELECT 1 FROM engine_task_log "
+        "WHERE RunId = ? AND EntityId = ? AND LOWER(COALESCE(Layer, '')) = LOWER(?) "
+        "AND LOWER(COALESCE(Status, '')) IN ('succeeded', 'failed', 'skipped', 'cancelled', 'aborted', 'interrupted') "
+        "LIMIT 1",
+        (run_id, entity_id, layer),
+    )
+    return bool(rows)
+
+
+def _aggregate_run_from_task_log(run_id: str, layers: list[str] | None = None) -> dict:
+    layer_filter = ""
+    params: list = [run_id]
+    normalized_layers = _parse_run_layers(",".join(layers or [])) if layers else []
+    if normalized_layers:
+        placeholders = ",".join("?" for _ in normalized_layers)
+        layer_filter = f" AND LOWER(COALESCE(Layer, '')) IN ({placeholders})"
+        params.extend(normalized_layers)
+    rows = _db_query(
+        "SELECT "
+        "SUM(CASE WHEN LOWER(COALESCE(Status, '')) = 'succeeded' THEN 1 ELSE 0 END) AS succeeded, "
+        "SUM(CASE WHEN LOWER(COALESCE(Status, '')) = 'failed' THEN 1 ELSE 0 END) AS failed, "
+        "SUM(CASE WHEN LOWER(COALESCE(Status, '')) = 'skipped' THEN 1 ELSE 0 END) AS skipped, "
+        "SUM(COALESCE(RowsRead, 0)) AS rows_read, "
+        "SUM(COALESCE(RowsWritten, 0)) AS rows_written, "
+        "SUM(COALESCE(BytesTransferred, 0)) AS bytes_transferred, "
+        "SUM(COALESCE(DurationSeconds, 0)) AS duration_seconds "
+        "FROM engine_task_log "
+        "WHERE RunId = ? "
+        "AND LOWER(COALESCE(Status, '')) IN ('succeeded', 'failed', 'skipped')"
+        f"{layer_filter}",
+        tuple(params),
+    )
+    row = rows[0] if rows else {}
+    return {
+        "succeeded": _to_int(row.get("succeeded")),
+        "failed": _to_int(row.get("failed")),
+        "skipped": _to_int(row.get("skipped")),
+        "rows_read": _to_int(row.get("rows_read")),
+        "rows_written": _to_int(row.get("rows_written")),
+        "bytes_transferred": _to_int(row.get("bytes_transferred")),
+        "duration_seconds": _to_float(row.get("duration_seconds")),
+    }
+
+
+def _sync_framework_event_to_task_log(run_id: str, event: dict, fallback_entity_ids: list[int]) -> str:
+    layer = str(event.get("layer") or "").strip().lower()
+    raw_status = str(event.get("status") or "").strip().lower()
+    status = {
+        "success": "succeeded",
+        "succeeded": "succeeded",
+        "failed": "failed",
+        "failure": "failed",
+        "skipped": "skipped",
+    }.get(raw_status, raw_status or "unknown")
+    now = str(event.get("timestamp") or "")
+    log_data = json.dumps(event, sort_keys=True)
+
+    inserted_fallback = 0
+    for item in _event_result_rows(event, fallback_entity_ids):
+        entity_id = _to_int(item.get("entity_id"))
+        item_layer = str(item.get("layer") or layer).strip().lower()
+        if entity_id <= 0 or not item_layer:
+            continue
+        if _terminal_task_row_exists(run_id, entity_id, item_layer):
+            continue
+        item_status = {
+            "success": "succeeded",
+            "succeeded": "succeeded",
+            "failed": "failed",
+            "failure": "failed",
+            "skipped": "skipped",
+        }.get(str(item.get("status") or status).strip().lower(), status)
+        _db_execute(
+            "INSERT INTO engine_task_log "
+            "(RunId, EntityId, Layer, Status, SourceServer, SourceDatabase, SourceTable, "
+            "RowsRead, RowsWritten, BytesTransferred, DurationSeconds, TargetLakehouse, "
+            "TargetPath, LoadType, ErrorType, ErrorMessage, ErrorSuggestion, LogData, "
+            "ExtractionMethod, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+            "COALESCE(NULLIF(?, ''), strftime('%Y-%m-%dT%H:%M:%SZ','now')))",
+            (
+                run_id,
+                entity_id,
+                item_layer,
+                item_status,
+                "Dagster",
+                "FMD_FRAMEWORK",
+                f"Framework {item_layer}",
+                _to_int(item.get("rows_read")),
+                _to_int(item.get("rows_written")),
+                _to_int(item.get("bytes_transferred")),
+                _to_float(item.get("duration_seconds")),
+                item_layer,
+                str(item.get("target_path") or f"dagster://{run_id}/{item_layer}"),
+                str(item.get("load_type") or "framework_event_fallback"),
+                "dagster" if item_status == "failed" else "",
+                str(item.get("error") or ""),
+                str(item.get("error_suggestion") or ("Open the embedded Dagster run logs for this run." if item_status == "failed" else "")),
+                log_data,
+                str(item.get("extraction_method") or "framework_event_fallback"),
+                now,
+            ),
+        )
+        inserted_fallback += 1
+
+    aggregate = _aggregate_run_from_task_log(run_id)
+    _db_execute(
+        "UPDATE engine_runs "
+        "SET CurrentLayer = ?, "
+        "    SucceededEntities = ?, "
+        "    FailedEntities = ?, "
+        "    SkippedEntities = ?, "
+        "    CompletedUnits = ?, "
+        "    TotalRowsRead = ?, "
+        "    TotalRowsWritten = ?, "
+        "    TotalBytesTransferred = ?, "
+        "    TotalDurationSeconds = ?, "
+        "    HeartbeatAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+        "    updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+        "WHERE RunId = ?",
+        (
+            layer,
+            aggregate["succeeded"],
+            aggregate["failed"],
+            aggregate["skipped"],
+            aggregate["succeeded"] + aggregate["failed"] + aggregate["skipped"],
+            aggregate["rows_read"],
+            aggregate["rows_written"],
+            aggregate["bytes_transferred"],
+            aggregate["duration_seconds"],
+            run_id,
+        ),
+    )
+    if inserted_fallback:
+        log.info("Inserted %d framework fallback task rows for Dagster run %s", inserted_fallback, run_id[:8])
+    return status
+
+
+def _sync_dagster_event_to_task_log(run_id: str, event: dict, fallback_entity_ids: list[int]) -> str:
+    layer = str(event.get("layer") or "").strip().lower()
+    raw_status = str(event.get("status") or "").strip().lower()
+    status = {
+        "success": "succeeded",
+        "succeeded": "succeeded",
+        "failed": "failed",
+        "failure": "failed",
+        "skipped": "skipped",
+    }.get(raw_status, raw_status or "unknown")
+    now = str(event.get("timestamp") or "")
+    log_data = json.dumps(event, sort_keys=True)
+    error = event.get("error") or ""
+    mode = str(event.get("mode") or "dagster")
+
+    if mode == "framework":
+        return _sync_framework_event_to_task_log(run_id, event, fallback_entity_ids)
+
+    for entity_id in _event_entity_ids(event, fallback_entity_ids):
+        _db_execute(
+            "INSERT INTO engine_task_log "
+            "(RunId, EntityId, Layer, Status, SourceServer, SourceDatabase, SourceTable, "
+            "RowsRead, RowsWritten, BytesTransferred, DurationSeconds, TargetLakehouse, "
+            "TargetPath, LoadType, ErrorType, ErrorMessage, ErrorSuggestion, LogData, "
+            "ExtractionMethod, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, 'dagster', "
+            "COALESCE(NULLIF(?, ''), strftime('%Y-%m-%dT%H:%M:%SZ','now')))",
+            (
+                run_id,
+                entity_id,
+                layer,
+                status,
+                "Dagster",
+                "FMD_ORCHESTRATOR",
+                f"Dagster {layer}",
+                layer,
+                f"dagster://{run_id}/{layer}",
+                mode,
+                "dagster" if status == "failed" else "",
+                str(error),
+                "Open the embedded Dagster run logs for this run." if status == "failed" else "",
+                log_data,
+                now,
+            ),
+        )
+    _db_execute(
+        "UPDATE engine_runs "
+        "SET CurrentLayer = ?, "
+        "    HeartbeatAt = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+        "    updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+        "WHERE RunId = ?",
+        (layer, run_id),
+    )
+    return status
+
+
 def _reconcile_open_extracting_rows(run_id: str, reason: str) -> None:
     """Convert stranded extracting rows into terminal failures for a dead run."""
     _db_execute(
@@ -785,6 +1260,8 @@ def handle_engine_request(handler, method: str, path: str, config: dict) -> None
         if method == "GET":
             if sub_path == "/status":
                 _handle_status(handler, config)
+            elif sub_path == "/runtime":
+                _handle_runtime(handler, config)
             elif sub_path == "/plan":
                 _handle_plan(handler, config, qs)
             elif sub_path == "/logs/stream":
@@ -804,6 +1281,8 @@ def handle_engine_request(handler, method: str, path: str, config: dict) -> None
                 _handle_settings_get(handler, config)
             elif sub_path == "/entities":
                 _handle_entities(handler, config)
+            elif sub_path == "/smoke-entity":
+                _handle_smoke_entity(handler)
             else:
                 handler._error_response(f"Unknown engine GET endpoint: {sub_path}", 404)
 
@@ -815,6 +1294,8 @@ def handle_engine_request(handler, method: str, path: str, config: dict) -> None
 
             if sub_path == "/start":
                 _handle_start(handler, config, body)
+            elif sub_path == "/preflight":
+                _handle_preflight(handler, config, body)
             elif sub_path == "/stop":
                 _handle_stop(handler, config)
             elif sub_path == "/retry":
@@ -853,18 +1334,32 @@ def handle_engine_request(handler, method: str, path: str, config: dict) -> None
 
 def _handle_status(handler, config: dict) -> None:
     """Return engine state, uptime, and last run summary."""
-    engine = _get_or_create_engine(config)
-
-    response = {
-        "status": engine.status,
-        "current_run_id": engine.current_run_id,
-        "uptime_seconds": round(time.time() - _engine_start_time, 1) if _engine_start_time else 0,
-        "engine_version": ENGINE_VERSION,
-        "load_method": engine._load_method,
-        "pipeline_fallback": engine._pipeline_fallback,
-        "pipeline_configured": bool(engine.config.pipeline_copy_sql_id),
-        "last_run": None,
-    }
+    if _should_launch_with_dagster({}, config):
+        engine_cfg = config.get("engine", {}) if isinstance(config, dict) else {}
+        response = {
+            "status": "idle",
+            "current_run_id": None,
+            "uptime_seconds": 0,
+            "engine_version": ENGINE_VERSION,
+            "orchestrator": "dagster",
+            "load_method": engine_cfg.get("load_method", "local"),
+            "pipeline_fallback": bool(engine_cfg.get("pipeline_fallback", False)),
+            "pipeline_configured": bool(engine_cfg.get("pipeline_copy_sql_id")),
+            "last_run": None,
+        }
+    else:
+        engine = _get_or_create_engine(config)
+        response = {
+            "status": engine.status,
+            "current_run_id": engine.current_run_id,
+            "uptime_seconds": round(time.time() - _engine_start_time, 1) if _engine_start_time else 0,
+            "engine_version": ENGINE_VERSION,
+            "orchestrator": "legacy",
+            "load_method": engine._load_method,
+            "pipeline_fallback": engine._pipeline_fallback,
+            "pipeline_configured": bool(engine.config.pipeline_copy_sql_id),
+            "last_run": None,
+        }
 
     cpdb = _get_cpdb()
     rows = None
@@ -920,6 +1415,10 @@ def _handle_status(handler, config: dict) -> None:
 
         response["last_run"] = run_info
 
+        if response["status"] == "idle" and row.get("Status") in ("InProgress", "running"):
+            response["status"] = "running"
+            response["current_run_id"] = run_info["run_id"]
+
         # If the in-process engine is idle but a worker subprocess is alive
         # and running (spawned via _spawn_worker), reflect that in top-level status
         if response["status"] == "idle" and worker_alive:
@@ -927,6 +1426,187 @@ def _handle_status(handler, config: dict) -> None:
             response["current_run_id"] = run_info["run_id"]
 
     handler._json_response(response)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/engine/runtime
+# ---------------------------------------------------------------------------
+
+def _handle_runtime(handler, config: dict) -> None:
+    """Return the current orchestration/runtime mode without exposing secrets."""
+    engine_cfg = config.get("engine", {}) if isinstance(config, dict) else {}
+    dagster_cfg = config.get("dagster", {}) if isinstance(config, dict) else {}
+    orchestrator = str(
+        os.getenv("FMD_ENGINE_ORCHESTRATOR")
+        or engine_cfg.get("orchestrator")
+        or "legacy"
+    ).strip().lower()
+    runtime_mode = _dagster_runtime_mode({}, config)
+    load_method = str(engine_cfg.get("load_method") or "local").strip().lower()
+    framework_path = str(
+        os.getenv("FMD_FRAMEWORK_PATH")
+        or dagster_cfg.get("framework_path")
+        or Path(__file__).resolve().parent.parent
+    )
+    dagster_url = str(
+        os.getenv("FMD_DAGSTER_UI_URL")
+        or dagster_cfg.get("ui_url")
+        or "http://127.0.0.1:3006"
+    ).rstrip("/")
+    real_load_enabled = orchestrator == "dagster" and runtime_mode == "framework"
+
+    warnings: list[str] = []
+    if orchestrator == "dagster" and runtime_mode == "dry_run":
+        warnings.append(
+            "Dry-run mode validates orchestration only. It does not extract source rows or write lakehouse data."
+        )
+    if load_method == "local":
+        warnings.append("Local load method requires VPN/source DB reachability and OneLake write access.")
+    if real_load_enabled and not framework_path:
+        warnings.append("Framework mode is enabled but the FMD framework path is empty.")
+    socket_error = _windows_socket_stack_error()
+    if socket_error:
+        warnings.append(socket_error)
+
+    handler._json_response({
+        "orchestrator": orchestrator,
+        "dagsterRuntimeMode": runtime_mode,
+        "loadMethod": load_method,
+        "frameworkPath": framework_path,
+        "dagsterUrl": dagster_url,
+        "realLoadEnabled": real_load_enabled,
+        "dryRun": runtime_mode == "dry_run",
+        "warnings": warnings,
+        "socketStackOk": socket_error is None,
+    })
+
+
+# ---------------------------------------------------------------------------
+# POST /api/engine/preflight
+# ---------------------------------------------------------------------------
+
+def _preflight_check(check_id: str, label: str, status: str, message: str) -> dict:
+    return {
+        "id": check_id,
+        "label": label,
+        "status": status,
+        "passed": status == "passed",
+        "message": message,
+    }
+
+
+def _handle_preflight(handler, config: dict, body: dict) -> None:
+    """Run real-load readiness checks without extracting or writing data."""
+    checks: list[dict] = []
+    runtime_mode = _dagster_runtime_mode(body, config)
+    engine_cfg = config.get("engine", {}) if isinstance(config, dict) else {}
+    load_method = str(engine_cfg.get("load_method") or "local").strip().lower()
+    entity_ids = _coerce_int_list(body.get("entity_ids"))
+    layers = _parse_run_layers(",".join(body.get("layers") or []))
+    wants_framework = runtime_mode == "framework"
+
+    checks.append(_preflight_check(
+        "runtime_mode",
+        "Dagster runtime mode",
+        "passed" if wants_framework else "failed",
+        (
+            "Dagster is configured for framework mode; real data movement is allowed."
+            if wants_framework
+            else "Configured mode is dry_run. This validates orchestration only and will not move data."
+        ),
+    ))
+    checks.append(_preflight_check(
+        "load_method",
+        "Engine load method",
+        "passed" if load_method in {"local", "pipeline", "notebook"} else "failed",
+        f"Configured load method: {load_method or 'unknown'}.",
+    ))
+    socket_error = _windows_socket_stack_error()
+    checks.append(_preflight_check(
+        "windows_socket_stack",
+        "Windows Python socket stack",
+        "passed" if socket_error is None else "failed",
+        "Python asyncio/socket imports are healthy." if socket_error is None else socket_error,
+    ))
+
+    if wants_framework and not entity_ids and not body.get("confirm_full_estate_real_load"):
+        checks.append(_preflight_check(
+            "scope_guard",
+            "Real-load scope guard",
+            "failed",
+            "Framework mode requires explicit entity_ids unless confirm_full_estate_real_load=true is supplied.",
+        ))
+        handler._json_response({
+            "ok": False,
+            "runtimeMode": runtime_mode,
+            "loadMethod": load_method,
+            "entityIds": entity_ids,
+            "layers": layers,
+            "checks": checks,
+        })
+        return
+
+    try:
+        engine = _get_or_create_engine(config)
+    except Exception as exc:
+        checks.append(_preflight_check(
+            "engine_init",
+            "Engine initialization",
+            "failed",
+            f"Engine could not initialize: {exc}",
+        ))
+        handler._json_response({
+            "ok": False,
+            "runtimeMode": runtime_mode,
+            "loadMethod": load_method,
+            "entityIds": entity_ids,
+            "layers": layers,
+            "checks": checks,
+        })
+        return
+
+    try:
+        entities = engine.get_worklist(entity_ids) if entity_ids else None
+        report = engine.preflight(entity_ids=entity_ids if entity_ids else None)
+        for item in report.to_dict().get("checks", []):
+            name = str(item.get("name") or "check")
+            passed = bool(item.get("passed"))
+            checks.append(_preflight_check(
+                name.lower().replace(" ", "_").replace("/", "_"),
+                name,
+                "passed" if passed else "failed",
+                str(item.get("message") or ""),
+            ))
+        if entity_ids:
+            resolved_ids = {int(getattr(entity, "id", 0)) for entity in entities or []}
+            missing = [entity_id for entity_id in entity_ids if entity_id not in resolved_ids]
+            checks.append(_preflight_check(
+                "entity_scope",
+                "Selected entity scope",
+                "passed" if not missing else "failed",
+                (
+                    f"{len(resolved_ids)} selected active entities resolved."
+                    if not missing
+                    else f"These selected entity IDs are not active/resolvable: {', '.join(str(i) for i in missing)}"
+                ),
+            ))
+    except Exception as exc:
+        checks.append(_preflight_check(
+            "preflight_exception",
+            "Preflight execution",
+            "failed",
+            f"Preflight failed before any data movement: {exc}",
+        ))
+
+    ok = all(check.get("status") in {"passed", "warning"} for check in checks)
+    handler._json_response({
+        "ok": ok,
+        "runtimeMode": runtime_mode,
+        "loadMethod": load_method,
+        "entityIds": entity_ids,
+        "layers": layers,
+        "checks": checks,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -1086,7 +1766,7 @@ def _handle_start(handler, config: dict, body: dict) -> None:
 
     mode = body.get("mode", "run")
     layers = body.get("layers")       # list or None
-    entity_ids = body.get("entity_ids")  # list or None
+    entity_ids = _coerce_int_list(body.get("entity_ids")) or None
     triggered_by = body.get("triggered_by", "dashboard")
     source_filter = body.get("source_filter") or []
 
@@ -1097,6 +1777,13 @@ def _handle_start(handler, config: dict, body: dict) -> None:
             f"Source filter specified ({', '.join(source_filter)}) but resolved to 0 entities. "
             "Refusing to launch — this would load everything. "
             "Check that the selected sources have active entities in lz_entities.",
+            400,
+        )
+        return
+
+    if _is_real_framework_mode(body, config) and not entity_ids and not body.get("confirm_full_estate_real_load"):
+        handler._error_response(
+            "Real framework mode requires explicit entity_ids or confirm_full_estate_real_load=true.",
             400,
         )
         return
@@ -1132,10 +1819,10 @@ def _handle_start(handler, config: dict, body: dict) -> None:
 
     # Pre-create engine_runs row — API owns this, worker will upsert into it
     _db_execute(
-        "INSERT INTO engine_runs (RunId, Status, Layers, TriggeredBy, EntityFilter, "
+        "INSERT INTO engine_runs (RunId, Mode, Status, Layers, TriggeredBy, EntityFilter, "
         "SourceFilter, ResolvedEntityCount, StartedAt) "
-        "VALUES (?, 'InProgress', ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
-        (run_id, layer_str, triggered_by, entity_filter_str,
+        "VALUES (?, ?, 'InProgress', ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
+        (run_id, mode, layer_str, triggered_by, entity_filter_str,
          source_filter_str, resolved_entity_count),
     )
 
@@ -1143,6 +1830,30 @@ def _handle_start(handler, config: dict, body: dict) -> None:
                  f"sources={source_filter_str or 'all'}, "
                  f"entities={resolved_entity_count or 'all'}, "
                  f"triggered_by={triggered_by}")
+
+    if _should_launch_with_dagster(body, config):
+        try:
+            payload = _launch_dagster_request(
+                run_id=run_id,
+                mode=mode,
+                layers=layers,
+                entity_ids=entity_ids,
+                triggered_by=triggered_by,
+                body=body,
+                config=config,
+            )
+            handler._json_response(payload)
+        except DagsterBridgeError as exc:
+            _db_execute(
+                "UPDATE engine_runs "
+                "SET Status = 'Failed', "
+                "    ErrorSummary = ?, "
+                "    EndedAt = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+                "WHERE RunId = ?",
+                (f"Dagster launch failed: {exc}", run_id),
+            )
+            handler._error_response(f"Dagster launch failed: {exc}", 502)
+        return
 
     # Build worker args
     worker_args = ["--run-id", run_id, "--triggered-by", triggered_by]
@@ -2050,6 +2761,79 @@ def _handle_settings_post(handler, config: dict, body: dict) -> None:
 # ---------------------------------------------------------------------------
 # GET /api/engine/entities
 # ---------------------------------------------------------------------------
+
+def _handle_smoke_entity(handler) -> None:
+    """Return a safe single entity candidate for real-loader smoke tests."""
+    rows = _db_query(
+        """
+        SELECT
+            e.LandingzoneEntityId AS entity_id,
+            COALESCE(NULLIF(d.DisplayName, ''), d.Name) AS source,
+            COALESCE(NULLIF(d.Namespace, ''), d.Name) AS namespace,
+            e.SourceSchema AS schema,
+            e.SourceName AS table_name,
+            e.IsIncremental AS is_incremental,
+            COALESCE(MAX(CASE WHEN LOWER(t.Status) = 'failed' THEN 1 ELSE 0 END), 0) AS recent_failures,
+            COALESCE(MIN(CASE WHEN LOWER(t.Status) = 'succeeded' AND COALESCE(t.RowsRead, 0) > 0 THEN t.RowsRead END), 0) AS historical_rows,
+            MAX(CASE WHEN LOWER(t.Status) = 'succeeded' THEN t.created_at ELSE NULL END) AS last_success_at
+        FROM lz_entities e
+        LEFT JOIN datasources d ON d.DataSourceId = e.DataSourceId
+        LEFT JOIN engine_task_log t
+          ON t.EntityId = e.LandingzoneEntityId
+         AND LOWER(COALESCE(t.Layer, '')) = 'landing'
+         AND t.created_at >= datetime('now', '-30 days')
+        WHERE e.IsActive = 1
+          AND TRIM(COALESCE(e.SourceName, '')) <> ''
+          AND TRIM(COALESCE(e.SourceSchema, '')) <> ''
+        GROUP BY
+            e.LandingzoneEntityId,
+            d.DisplayName,
+            d.Name,
+            d.Namespace,
+            e.SourceSchema,
+            e.SourceName,
+            e.IsIncremental
+        """
+    )
+    if not rows:
+        handler._json_response({"entity": None, "message": "No active entities found."})
+        return
+
+    monster_hints = ("history", "archive", "audit", "transaction", "ledger", "detail", "log")
+
+    def score(row: dict) -> tuple:
+        source_name = str(row.get("table_name") or "").lower()
+        historical_rows = _to_int(row.get("historical_rows"))
+        return (
+            1 if _to_int(row.get("recent_failures")) > 0 else 0,
+            1 if any(hint in source_name for hint in monster_hints) else 0,
+            0 if historical_rows > 0 else 1,
+            historical_rows if historical_rows > 0 else 999_999_999,
+            str(row.get("source") or ""),
+            str(row.get("schema") or ""),
+            str(row.get("table_name") or ""),
+        )
+
+    chosen = sorted(rows, key=score)[0]
+    historical_rows = _to_int(chosen.get("historical_rows"))
+    handler._json_response({
+        "entity": {
+            "entity_id": _to_int(chosen.get("entity_id")),
+            "source": str(chosen.get("source") or ""),
+            "namespace": str(chosen.get("namespace") or ""),
+            "schema": str(chosen.get("schema") or ""),
+            "table": str(chosen.get("table_name") or ""),
+            "is_incremental": bool(chosen.get("is_incremental")),
+            "historical_rows": historical_rows,
+            "last_success_at": chosen.get("last_success_at"),
+            "reason": (
+                "Active entity with no recent landing failures and the smallest known historical row count."
+                if historical_rows > 0
+                else "Active entity with complete metadata; no historical row-count signal was available."
+            ),
+        }
+    })
+
 
 def _handle_entities(handler, config: dict) -> None:
     """Return all active LZ entities for the manual reload selector."""

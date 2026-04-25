@@ -1,0 +1,10 @@
+# Runtime packages required for FMD real local loading.
+# Install into the Python environment that runs the FMD API/Dagster bridge.
+azure-identity>=1.17
+azure-storage-file-datalake>=12.15
+deltalake>=0.25
+msal>=1.30
+polars>=1.0
+pyarrow>=17
+pyodbc>=5.1
+requests>=2.32

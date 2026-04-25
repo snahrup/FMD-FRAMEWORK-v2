@@ -206,60 +206,52 @@ def test_lmc_progress_returns_valid_structure_with_run(mock_db, mock_logger):
 
     run_id = "run-001"
 
-    # Mock the queries
     mock_db.query.side_effect = [
-        # Run metadata query
         [make_lmc_run(run_id, "completed")],
-        # Total active entities
-        [],  # Will use default 0
-        # Layer stats
-        [
-            {
-                "Layer": "LZ",
-                "Status": "succeeded",
-                "cnt": 100,
-                "unique_entities": 100,
+        [],
+    ]
+    summary = {
+        "scopeEntities": [],
+        "scopedEntityIds": [],
+        "latestRows": [
+            {"Status": "succeeded", "RowsRead": 50000, "RowsWritten": 48000, "BytesTransferred": 25000000},
+        ],
+        "rowLookup": {},
+        "layers": {
+            "landing": {
+                "succeeded": 100,
+                "failed": 0,
+                "skipped": 0,
                 "total_rows_read": 50000,
                 "total_rows_written": 48000,
                 "total_bytes": 25000000,
                 "total_duration": 150.5,
                 "avg_duration": 1.505,
+                "unique_entities": 100,
             },
-        ],
-        # By source
-        [
-            {
-                "source": "MES",
-                "total_entities": 45,
-                "succeeded": 45,
-                "failed": 0,
-                "skipped": 0,
-                "rows_read": 22500,
-                "bytes": 12000000,
-            },
-        ],
-        # By source by layer
-        [],
-        # Error breakdown
-        [],
-        # Load type breakdown
-        [
-            {
-                "LoadType": "full",
-                "cnt": 45,
-                "total_rows": 22500,
-            },
-        ],
-        # Throughput
-        [
-            {
-                "rows_per_sec": 150.0,
-                "bytes_per_sec": 166666.7,
-            },
-        ],
-    ]
+        },
+        "bySource": [{
+            "source": "MES",
+            "total_entities": 45,
+            "succeeded": 45,
+            "failed": 0,
+            "skipped": 0,
+            "rows_read": 22500,
+            "bytes": 12000000,
+        }],
+        "bySourceByLayer": [],
+        "entitySummary": {"succeeded": 45, "failed": 0, "skipped": 0, "pending": 0},
+        "throughput": {"rows_per_sec": 150.0, "bytes_per_sec": 166666.7},
+        "rowsWritten": 48000,
+        "filesWritten": 1,
+        "errorBreakdown": [],
+        "loadTypeBreakdown": [{"LoadType": "full", "cnt": 45, "total_rows": 22500}],
+        "extractionMethods": [{"method": "pyodbc", "count": 45, "totalRows": 22500}],
+        "dominantExtractionMethod": "pyodbc",
+    }
 
-    result = get_lmc_progress({"run_id": run_id})
+    with patch("dashboard.app.api.routes.load_mission_control._summarize_run_truth", return_value=summary):
+        result = get_lmc_progress({"run_id": run_id})
 
     # Validate top-level structure
     assert "run" in result
@@ -274,8 +266,8 @@ def test_lmc_progress_returns_valid_structure_with_run(mock_db, mock_logger):
     assert "serverTime" in result
 
     # Validate layer stats
-    assert "LZ" in result["layers"]
-    lz = result["layers"]["LZ"]
+    assert "landing" in result["layers"]
+    lz = result["layers"]["landing"]
     assert lz["succeeded"] == 100
     assert lz["failed"] == 0
     assert lz["skipped"] == 0

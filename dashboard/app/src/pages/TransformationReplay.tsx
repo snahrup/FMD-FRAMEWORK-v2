@@ -69,17 +69,187 @@ interface ReplayStep {
   technicalDetail: string;
   beforeAfter?: { column: string; before: string; after: string }[];
   columnsAdded?: string[];
+  rulesRun?: string[];
   impact: ImpactKey;
 }
 
 interface MicroscopeResponse {
+  mode?: "onelake" | "metadata" | "demo";
+  entity?: {
+    id: number;
+    source: string;
+    tableName: string;
+    sourceSchema: string;
+    primaryKeys: string[];
+    pkValue?: string | null;
+    overall: string;
+    layers?: Record<string, { status: string; lastLoad?: string; rowCount?: number | null; physicalTableMatched?: boolean }>;
+  };
+  snapshots?: DemoLayerSnapshot[];
   transformations?: {
     step: number;
     before?: Record<string, string>;
     after?: Record<string, string>;
+    rulesRun?: string[];
   }[];
+  warnings?: string[];
   error?: string;
 }
+
+interface DemoLayerSnapshot {
+  layer: LayerKey;
+  title: string;
+  table: string;
+  receipt: string;
+  row: Record<string, string>;
+  rules: string[];
+  rowSource?: string;
+}
+
+const DEMO_ENTITY = {
+  source: "M3 ERP",
+  table: "OCUSMA",
+  primaryKey: "C-00173",
+  rowLabel: "Customer master row",
+};
+
+const DEMO_STEP_DIFFS: Record<number, { column: string; before: string; after: string }[]> = {
+  1: [
+    { column: "Customer ID", before: "SQL row C-00173", after: "landing parquet row C-00173" },
+    { column: "Customer Name", before: "  ACME RESINS, INC.  ", after: "  ACME RESINS, INC.  " },
+    { column: "Postal Code", before: "NULL", after: "NULL" },
+  ],
+  2: [
+    { column: "Customer ID", before: "Customer ID", after: "CustomerID" },
+    { column: "Customer Name", before: "Customer Name", after: "CustomerName" },
+    { column: "Modified Date", before: "Modified Date", after: "ModifiedDate" },
+  ],
+  3: [
+    { column: "HashedPKColumn", before: "missing", after: "sha256:8fb7c2a4..." },
+    { column: "PK input", before: "C-00173", after: "C-00173" },
+  ],
+  4: [
+    { column: "Row copies", before: "2 rows with PK C-00173", after: "1 canonical row" },
+    { column: "Kept row", before: "latest source extract wins", after: "row sequence 42" },
+  ],
+  5: [
+    { column: "CustomerName", before: "  ACME RESINS, INC.  ", after: "ACME RESINS, INC." },
+    { column: "PostalCode", before: "NULL", after: "UNKNOWN" },
+    { column: "ModifiedDate", before: "4/20/26 09:15 AM", after: "2026-04-20T09:15:00" },
+  ],
+  6: [
+    { column: "HashedNonKeyColumns", before: "missing", after: "md5:a73d91e5..." },
+    { column: "Hash input", before: "raw non-key values", after: "cleansed Bronze values" },
+  ],
+  7: [
+    { column: "RecordLoadDate", before: "missing", after: "2026-04-24T09:42:18Z" },
+  ],
+  8: [
+    { column: "Delta action", before: "staged row", after: "matched existing row and updated" },
+    { column: "Bronze table", before: "old hash md5:64bb...", after: "new hash md5:a73d..." },
+  ],
+  9: [
+    { column: "CustomerName", before: "ACME RESINS, INC.", after: "Acme Resins Inc" },
+    { column: "CreditHold", before: "N", after: "false" },
+    { column: "PostalCode", before: "UNKNOWN", after: "" },
+  ],
+  10: [
+    { column: "HashedNonKeyColumns", before: "md5:a73d91e5...", after: "md5:ef092c41..." },
+  ],
+  11: [
+    { column: "IsCurrent", before: "missing", after: "true" },
+    { column: "RecordStartDate", before: "missing", after: "2026-04-24T09:42:18Z" },
+    { column: "RecordEndDate", before: "missing", after: "9999-12-31T00:00:00Z" },
+    { column: "IsDeleted", before: "missing", after: "false" },
+  ],
+  12: [
+    { column: "Change category", before: "existing current record", after: "update detected" },
+    { column: "Old version", before: "IsCurrent=true", after: "IsCurrent=false" },
+    { column: "New version", before: "missing", after: "Action=UPDATE" },
+  ],
+  13: [
+    { column: "Silver current row", before: "old version active", after: "new version active" },
+    { column: "History", before: "1 active row", after: "1 closed row, 1 active row" },
+  ],
+};
+
+const DEMO_STEP_RULES: Record<number, string[]> = {
+  1: ["Copy source rows to landing parquet", "Preserve raw values", "Attach run and source receipt"],
+  2: ["Remove spaces from column names", "Preserve original column order"],
+  3: ["Hash primary key columns with SHA-256", "Treat NULL key fragments as empty strings"],
+  4: ["Drop duplicate primary key hashes", "Keep latest extracted row"],
+  5: ["Trim text", "Fill configured NULL defaults", "Parse source datetime formats"],
+  6: ["Hash non-key columns after Bronze cleansing", "Use hash as change detector"],
+  7: ["Stamp Bronze load time", "Record lakehouse write receipt"],
+  8: ["Insert new rows", "Update changed rows", "Delete missing rows on full loads"],
+  9: ["Apply Silver naming rules", "Map code flags to business booleans", "Blank placeholder values"],
+  10: ["Recompute non-key hash after Silver rules"],
+  11: ["Add SCD2 validity columns", "Set open-ended current record"],
+  12: ["Compare PK hash and non-key hash", "Classify insert/update/delete/no-change"],
+  13: ["Close old versions", "Insert new current versions", "Soft-delete removed rows"],
+};
+
+const DEMO_LAYER_SNAPSHOTS: DemoLayerSnapshot[] = [
+  {
+    layer: "source",
+    title: "Source system",
+    table: "M3 ERP.OCUSMA",
+    receipt: "Operational SQL row before FMD touches it.",
+    row: {
+      "Customer ID": "C-00173",
+      "Customer Name": "  ACME RESINS, INC.  ",
+      "Postal Code": "NULL",
+      "Credit Hold": "N",
+      "Modified Date": "4/20/26 09:15 AM",
+    },
+    rules: ["No transformation", "Read scoped source/entity metadata"],
+  },
+  {
+    layer: "landing",
+    title: "Landing",
+    table: "LH_DATA_LANDINGZONE/m3/ocusma/run=20260424",
+    receipt: "Raw parquet copy. Values are intentionally unchanged.",
+    row: {
+      "Customer ID": "C-00173",
+      "Customer Name": "  ACME RESINS, INC.  ",
+      "Postal Code": "NULL",
+      "_fmd_run_id": "demo-run-0424",
+      "_source_file": "OCUSMA_20260424.parquet",
+    },
+    rules: ["Raw copy", "Partition by run/source/entity", "Capture rows, bytes, errors"],
+  },
+  {
+    layer: "bronze",
+    title: "Bronze",
+    table: "LH_BRONZE_LAYER.m3.OCUSMA",
+    receipt: "Lakehouse-safe table with cleaned columns and change hashes.",
+    row: {
+      CustomerID: "C-00173",
+      CustomerName: "ACME RESINS, INC.",
+      PostalCode: "UNKNOWN",
+      ModifiedDate: "2026-04-20T09:15:00",
+      HashedPKColumn: "sha256:8fb7c2a4...",
+      HashedNonKeyColumns: "md5:a73d91e5...",
+    },
+    rules: ["Sanitize column names", "Hash keys", "Deduplicate", "Apply Bronze cleansing", "Delta merge"],
+  },
+  {
+    layer: "silver",
+    title: "Silver",
+    table: "LH_SILVER_LAYER.m3.Customer",
+    receipt: "Business-consumable, versioned record with SCD2 history.",
+    row: {
+      CustomerID: "C-00173",
+      CustomerName: "Acme Resins Inc",
+      PostalCode: "",
+      CreditHold: "false",
+      IsCurrent: "true",
+      Action: "UPDATE",
+      RecordEndDate: "9999-12-31T00:00:00Z",
+    },
+    rules: ["Apply Silver business rules", "Recompute hash", "Classify change", "Write SCD2 version"],
+  },
+];
 
 // ============================================================================
 // THE 13 TRANSFORMATION STEPS
@@ -349,6 +519,25 @@ function StepCard({
           {step.description}
         </p>
 
+        {step.rulesRun && step.rulesRun.length > 0 && (
+          <div className="mb-3 rounded-md p-3" style={{ border: '1px solid var(--bp-border-subtle)', background: 'var(--bp-surface-inset)' }}>
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-ink-tertiary)' }}>
+              Transformations run
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {step.rulesRun.map((rule) => (
+                <span
+                  key={rule}
+                  className="rounded-full px-2 py-1 text-[10px] font-semibold"
+                  style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)', color: 'var(--bp-ink-secondary)' }}
+                >
+                  {rule}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Technical detail (expandable) */}
         <button
           onClick={() => setExpanded(!expanded)}
@@ -455,6 +644,105 @@ function StepSkeleton({ index }: { index: number }) {
   );
 }
 
+function DemoReplayPanel({
+  snapshots,
+  entity,
+  mode,
+  warnings = [],
+}: {
+  snapshots?: DemoLayerSnapshot[];
+  entity?: MicroscopeResponse["entity"];
+  mode?: MicroscopeResponse["mode"];
+  warnings?: string[];
+}) {
+  const displaySnapshots = snapshots?.length ? snapshots : DEMO_LAYER_SNAPSHOTS;
+  const isBackendReplay = Boolean(snapshots?.length && entity);
+
+  return (
+    <section className="bp-card gs-stagger-card" style={{ padding: 18, border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+      <div className="bp-rail bp-rail-operational" style={{ top: 14, bottom: 14 }} />
+      <div className="flex flex-wrap items-start justify-between gap-4" style={{ paddingLeft: 6 }}>
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-copper)' }}>
+            1. Layer snapshots at a glance
+          </div>
+          <h2 className="mt-1 text-xl font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-display)' }}>
+            {entity ? `${entity.source} ${entity.tableName} row ${entity.pkValue || "sample"}` : `${DEMO_ENTITY.source} ${DEMO_ENTITY.table} row ${DEMO_ENTITY.primaryKey}`}
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm leading-relaxed" style={{ color: 'var(--bp-ink-secondary)' }}>
+            These four cards summarize what the same record looks like after each major layer.
+            The detailed transformation steps underneath explain how the row got from one snapshot to the next.
+          </p>
+        </div>
+        <div className="rounded-full px-3 py-2 text-xs font-semibold" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-inset)', color: 'var(--bp-ink-secondary)' }}>
+          {isBackendReplay
+            ? mode === "onelake"
+              ? "Backend-fed from local OneLake"
+              : "Backend-fed from local metadata"
+            : "Static fallback until API is available"}
+        </div>
+      </div>
+
+      {warnings.length > 0 && (
+        <div className="mt-4 rounded-lg p-3 text-xs" style={{ border: '1px solid var(--bp-caution)', background: 'var(--bp-caution-light)', color: 'var(--bp-ink-secondary)' }}>
+          {warnings[0]}
+        </div>
+      )}
+
+      <div className="mt-5 grid gap-3 lg:grid-cols-4">
+        {displaySnapshots.map((snapshot, index) => {
+          const layerStyle = LAYER_COLORS[snapshot.layer];
+          return (
+            <article
+              key={snapshot.layer}
+              className="gs-stagger-card rounded-xl p-4"
+              style={{
+                '--i': index,
+                border: '1px solid var(--bp-border)',
+                background: index % 2 === 0 ? 'var(--bp-surface-1)' : 'var(--bp-surface-inset)',
+              } as React.CSSProperties}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: layerStyle.color, background: layerStyle.bg, border: `1px solid ${layerStyle.border}` }}>
+                  {snapshot.title}
+                </span>
+                <span className="text-[10px]" style={{ color: 'var(--bp-ink-muted)' }}>
+                  {snapshot.rowSource ? snapshot.rowSource : `${index + 1}/4`}
+                </span>
+              </div>
+              <div className="mt-3 truncate text-xs font-semibold" title={snapshot.table} style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-mono)' }}>
+                {snapshot.table}
+              </div>
+              <p className="mt-2 min-h-[38px] text-xs leading-relaxed" style={{ color: 'var(--bp-ink-tertiary)' }}>
+                {snapshot.receipt}
+              </p>
+              <div className="mt-3 rounded-lg" style={{ border: '1px solid var(--bp-border-subtle)', background: 'var(--bp-surface-1)' }}>
+                {Object.entries(snapshot.row).slice(0, 6).map(([key, value], rowIndex) => (
+                  <div
+                    key={key}
+                    className="grid grid-cols-[0.9fr_1.1fr] gap-2 px-3 py-1.5 text-[10px]"
+                    style={{ borderTop: rowIndex === 0 ? 'none' : '1px solid var(--bp-border-subtle)' }}
+                  >
+                    <span className="truncate" title={key} style={{ color: 'var(--bp-ink-muted)' }}>{key}</span>
+                    <span className="truncate font-semibold" title={value} style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-mono)' }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1">
+                {snapshot.rules.slice(0, 3).map((rule) => (
+                  <span key={rule} className="rounded-full px-2 py-0.5 text-[9px] font-semibold" style={{ border: '1px solid var(--bp-border-subtle)', color: 'var(--bp-ink-tertiary)' }}>
+                    {rule}
+                  </span>
+                ))}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -480,19 +768,37 @@ export default function TransformationReplay() {
   if (!digestLoading && allEntities.length > 0) hasLoadedOnce.current = true;
   const showDigestLoading = digestLoading && !hasLoadedOnce.current;
 
+  const replayReadyEntities = useMemo(
+    () =>
+      allEntities.filter((entity) => {
+        const overall = (entity.overall || "").toLowerCase();
+        const layerStatuses = [entity.lzStatus, entity.bronzeStatus, entity.silverStatus].map((status) =>
+          (status || "").toLowerCase(),
+        );
+        return overall === "complete" || layerStatuses.every((status) => ["loaded", "complete", "succeeded", "success"].includes(status));
+      }),
+    [allEntities],
+  );
+
   // ── Derive selected entity ──
   const selectedEntity = useMemo<DigestEntity | undefined>(() => {
     if (!entityIdParam) return undefined;
-    return allEntities.find((e) => String(e.id) === entityIdParam);
-  }, [entityIdParam, allEntities]);
+    return replayReadyEntities.find((e) => String(e.id) === entityIdParam) || allEntities.find((e) => String(e.id) === entityIdParam);
+  }, [entityIdParam, replayReadyEntities, allEntities]);
 
-  // ── Fetch microscope data when entity + PK are both set ──
-  const fetchMicroscope = useCallback(async (entityId: string, pk: string) => {
+  // ── Fetch backend-fed replay data. This only needs local SQLite/OneLake state. ──
+  const fetchReplay = useCallback(async (entityId?: string | null, pk?: string | null) => {
     setMicroscopeLoading(true);
     setMicroscopeError(null);
     try {
-      const res = await fetch(`${API}/api/microscope?entity=${entityId}&pk=${encodeURIComponent(pk)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const params = new URLSearchParams();
+      if (entityId) params.set("entity", entityId);
+      if (pk) params.set("pk", pk);
+      const res = await fetch(`${API}/api/transformation-replay?${params.toString()}`);
+      if (!res.ok) {
+        const message = await res.text().catch(() => "");
+        throw new Error(message || `HTTP ${res.status}`);
+      }
       const data: MicroscopeResponse = await res.json();
       if (data.error) {
         setMicroscopeError(data.error);
@@ -501,7 +807,7 @@ export default function TransformationReplay() {
         setMicroscopeData(data);
       }
     } catch (e) {
-      setMicroscopeError(e instanceof Error ? e.message : "Failed to load microscope data");
+      setMicroscopeError(e instanceof Error ? e.message : "Failed to load transformation replay data");
       setMicroscopeData(null);
     } finally {
       setMicroscopeLoading(false);
@@ -509,26 +815,29 @@ export default function TransformationReplay() {
   }, []);
 
   useEffect(() => {
-    if (entityIdParam && pkParam) {
-      fetchMicroscope(entityIdParam, pkParam);
-    } else {
-      setMicroscopeData(null);
-      setMicroscopeError(null);
-    }
-  }, [entityIdParam, pkParam, fetchMicroscope]);
+    fetchReplay(entityIdParam, pkParam);
+  }, [entityIdParam, pkParam, fetchReplay]);
 
   // ── Merge steps with microscope transformations ──
   const enrichedSteps = useMemo<ReplayStep[]>(() => {
-    if (!microscopeData?.transformations) return REPLAY_STEPS;
+    if (!microscopeData?.transformations?.length) {
+      return REPLAY_STEPS.map((step) => ({
+        ...step,
+        beforeAfter: DEMO_STEP_DIFFS[step.id] || step.beforeAfter,
+        rulesRun: DEMO_STEP_RULES[step.id] || step.rulesRun,
+      }));
+    }
     return REPLAY_STEPS.map((step) => {
       const txn = microscopeData.transformations!.find((t) => t.step === step.id);
-      if (!txn || !txn.before || !txn.after) return step;
+      if (!txn || !txn.before || !txn.after) {
+        return { ...step, rulesRun: txn?.rulesRun || DEMO_STEP_RULES[step.id] || step.rulesRun };
+      }
       const beforeAfter = Object.keys(txn.after).map((col) => ({
         column: col,
         before: txn.before?.[col] ?? "",
         after: txn.after![col] ?? "",
       }));
-      return { ...step, beforeAfter };
+      return { ...step, beforeAfter, rulesRun: txn.rulesRun || DEMO_STEP_RULES[step.id] || step.rulesRun };
     });
   }, [microscopeData]);
 
@@ -601,12 +910,17 @@ export default function TransformationReplay() {
   }, [setSearchParams]);
 
   // ── Determine header subtitle ──
-  const subtitle = selectedEntity
+  const replayEntity = microscopeData?.entity;
+  const activeEntityId = entityIdParam || (replayEntity?.id ? String(replayEntity.id) : null);
+  const activePk = pkParam || replayEntity?.pkValue || "";
+
+  const subtitle = replayEntity
+    ? `${replayEntity.source}: ${replayEntity.tableName}${replayEntity.pkValue ? ` (PK: ${replayEntity.pkValue})` : ""}`
+    : selectedEntity
     ? pkParam
       ? `${selectedEntity.source}: ${selectedEntity.tableName} (PK: ${pkParam})`
       : `${selectedEntity.source}: ${selectedEntity.tableName}`
-    : "How Your Data Transforms \u2014 A Visual Walkthrough";
-
+    : `${DEMO_ENTITY.source}: ${DEMO_ENTITY.table} (${DEMO_ENTITY.rowLabel} ${DEMO_ENTITY.primaryKey})`;
   // ── Layer summary counts ──
   const layerSummary = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -680,30 +994,37 @@ export default function TransformationReplay() {
           </div>
         </div>
 
+        <DemoReplayPanel
+          snapshots={microscopeData?.snapshots}
+          entity={microscopeData?.entity}
+          mode={microscopeData?.mode}
+          warnings={microscopeData?.warnings}
+        />
+
         {/* Entity selector (optional) */}
         <div className="flex items-start gap-4">
           <div className="flex-1">
             <EntitySelector
-              entities={allEntities}
-              selectedId={entityIdParam}
+              entities={replayReadyEntities}
+              selectedId={activeEntityId}
               onSelect={handleEntitySelect}
               onClear={handleEntityClear}
               loading={showDigestLoading}
-              placeholder="Select an entity to see real transformation data..."
+              placeholder={`Select one of ${replayReadyEntities.length.toLocaleString()} completed entities...`}
             />
           </div>
-          {entityIdParam && (
+          {activeEntityId && (
             <div className="flex-shrink-0">
               <input
-                key={pkParam || ""}
+                key={activePk || ""}
                 type="text"
                 placeholder="Primary Key..."
-                defaultValue={pkParam || ""}
+                defaultValue={activePk || ""}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     const val = (e.target as HTMLInputElement).value.trim();
                     if (val) {
-                      setSearchParams({ entity: entityIdParam, pk: val }, { replace: true });
+                      setSearchParams({ entity: activeEntityId, pk: val }, { replace: true });
                     }
                   }
                 }}
@@ -726,6 +1047,19 @@ export default function TransformationReplay() {
 
       {/* ── Timeline ── */}
       <div ref={timelineRef} className="replay-timeline relative" aria-label="Transformation steps timeline">
+        <div className="mb-4 rounded-xl p-4" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
+          <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--bp-copper)' }}>
+            2. Step-by-step transformation receipts
+          </div>
+          <h2 className="mt-1 text-lg font-semibold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-display)' }}>
+            Every card below is one operation in the pipeline.
+          </h2>
+          <p className="mt-1 max-w-4xl text-sm leading-relaxed" style={{ color: 'var(--bp-ink-secondary)' }}>
+            Read these from top to bottom. Each step shows what ran, which notebook or operation owns it,
+            and the before/after values when that step changes the selected row.
+          </p>
+        </div>
+
         {/* Loading skeleton overlay when fetching microscope data */}
         {microscopeLoading && (
           <div className="space-y-2" role="status" aria-label="Loading transformation data">
@@ -825,20 +1159,20 @@ export default function TransformationReplay() {
                 Data has passed through all {REPLAY_STEPS.length} transformation steps across the
                 Landing Zone, Bronze, and Silver layers. The Silver table now contains clean,
                 deduplicated, versioned data with full SCD2 history tracking.
-                {selectedEntity && (
+                {(selectedEntity || replayEntity) && (
                   <span>
-                    {" "}Entity <code style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }}>{selectedEntity.tableName}</code> is
+                    {" "}Entity <code style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-primary)' }}>{selectedEntity?.tableName || replayEntity?.tableName}</code> is
                     ready for Gold layer materialization.
                   </span>
                 )}
               </p>
               {/* Cross-page link to Data Microscope */}
-              {selectedEntity && (
+              {(selectedEntity || replayEntity) && activeEntityId && (
                 <Link
-                  to={`/microscope${entityIdParam ? `?entity=${entityIdParam}` : ""}${pkParam ? `&pk=${encodeURIComponent(pkParam)}` : ""}`}
+                  to={`/microscope?entity=${activeEntityId}${activePk ? `&pk=${encodeURIComponent(activePk)}` : ""}`}
                   className="inline-flex items-center gap-1.5 mt-3 text-xs transition-colors"
                   style={{ color: 'var(--bp-copper)' }}
-                  aria-label={`View ${selectedEntity.tableName} in Data Microscope`}
+                  aria-label={`View ${selectedEntity?.tableName || replayEntity?.tableName} in Data Microscope`}
                 >
                   <Microscope className="w-3.5 h-3.5" />
                   <span>Inspect in Data Microscope</span>

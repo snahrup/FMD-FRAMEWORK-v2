@@ -71,6 +71,76 @@ def _normalize_entity_status_value(status) -> str | None:
     return aliases.get(raw, raw or None)
 
 
+def _normalize_entity_status_rows(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        "SELECT rowid, LandingzoneEntityId, Layer, Status, LoadEndDateTime, "
+        "ErrorMessage, UpdatedBy, updated_at FROM entity_status"
+    ).fetchall()
+    if not rows:
+        return
+
+    status_rank = {
+        "succeeded": 60,
+        "failed": 50,
+        "cancelled": 45,
+        "extracting": 40,
+        "skipped": 30,
+        "not_started": 10,
+        None: 0,
+    }
+    best_by_key: dict[tuple[int, str], tuple[tuple[int, int, str, str], dict]] = {}
+    changed = False
+
+    for row in rows:
+        layer = _normalize_entity_layer(row["Layer"])
+        if not layer:
+            continue
+        status = _normalize_entity_status_value(row["Status"])
+        record = dict(row)
+        record["Layer"] = layer
+        record["Status"] = status
+        key = (record["LandingzoneEntityId"], layer)
+        score = (
+            status_rank.get(status, 20),
+            1 if record["LoadEndDateTime"] else 0,
+            record["LoadEndDateTime"] or "",
+            record["updated_at"] or "",
+        )
+        existing = best_by_key.get(key)
+        if existing is None or score >= existing[0]:
+            best_by_key[key] = (score, record)
+        if layer != row["Layer"] or status != row["Status"]:
+            changed = True
+
+    changed = changed or len(best_by_key) != len(rows)
+    if not changed:
+        return
+
+    conn.execute("DELETE FROM entity_status")
+    conn.executemany(
+        "INSERT OR REPLACE INTO entity_status "
+        "(LandingzoneEntityId, Layer, Status, LoadEndDateTime, ErrorMessage, UpdatedBy, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                record["LandingzoneEntityId"],
+                record["Layer"],
+                record["Status"],
+                record["LoadEndDateTime"],
+                record["ErrorMessage"],
+                record["UpdatedBy"],
+                record["updated_at"],
+            )
+            for _, record in best_by_key.values()
+        ],
+    )
+    log.info(
+        "Migration: normalized entity_status rows from %d to %d canonical entity/layer records",
+        len(rows),
+        len(best_by_key),
+    )
+
+
 _NAMESPACE_DISPLAY_ALIASES = {
     "mes": "MES",
     "etq": "ETQ",
@@ -1377,35 +1447,10 @@ def init_db():
             except sqlite3.OperationalError:
                 log.debug("Column %s already exists in engine_runs, skipping", col)
 
-        # Normalize legacy entity_status casing so deprecated readers and ad hoc
-        # SQL agree on canonical layer/status values.
-        conn.execute(
-            "UPDATE entity_status "
-            "SET Layer = CASE LOWER(COALESCE(Layer, '')) "
-            "    WHEN 'landingzone' THEN 'landing' "
-            "    WHEN 'landing' THEN 'landing' "
-            "    WHEN 'bronze' THEN 'bronze' "
-            "    WHEN 'silver' THEN 'silver' "
-            "    ELSE LOWER(COALESCE(Layer, '')) "
-            "END "
-            "WHERE Layer IS NOT NULL"
-        )
-        conn.execute(
-            "UPDATE entity_status "
-            "SET Status = CASE LOWER(COALESCE(Status, '')) "
-            "    WHEN 'loaded' THEN 'succeeded' "
-            "    WHEN 'success' THEN 'succeeded' "
-            "    WHEN 'succeeded' THEN 'succeeded' "
-            "    WHEN 'error' THEN 'failed' "
-            "    WHEN 'failed' THEN 'failed' "
-            "    WHEN 'skipped' THEN 'skipped' "
-            "    WHEN 'not_started' THEN 'not_started' "
-            "    WHEN 'running' THEN 'extracting' "
-            "    WHEN 'in_progress' THEN 'extracting' "
-            "    ELSE LOWER(COALESCE(Status, '')) "
-            "END "
-            "WHERE Status IS NOT NULL"
-        )
+        # Normalize legacy entity_status rows in one pass. Updating
+        # LandingZone -> landing directly can violate the table primary key
+        # when both spellings already exist for the same entity.
+        _normalize_entity_status_rows(conn)
         run_rows = conn.execute(
             "SELECT RunId, Layers FROM engine_runs "
             "WHERE Layers IS NOT NULL AND TRIM(Layers) != ''"
@@ -2103,6 +2148,9 @@ WITH task_base AS (
         t.RowsRead,
         t.RowsWritten,
         t.SourceTable,
+        t.ExtractionMethod,
+        t.LoadType,
+        t.SourceServer,
         LOWER(TRIM(
             CASE
                 WHEN instr(COALESCE(t.SourceTable, ''), '.') > 0
@@ -2124,12 +2172,14 @@ mapped AS (
     SELECT
         COALESCE(
             le_lz.LandingzoneEntityId,
+            le_direct.LandingzoneEntityId,
             le_br.LandingzoneEntityId,
             le_sv.LandingzoneEntityId,
             CASE WHEN tb.Layer = 'landing' THEN tb.EntityId END
         ) AS LandingzoneEntityId,
         COALESCE(
             le_lz.DataSourceId,
+            le_direct.DataSourceId,
             le_br.DataSourceId,
             le_sv.DataSourceId
         ) AS DataSourceId,
@@ -2143,18 +2193,21 @@ mapped AS (
         tb.SourceTable,
         COALESCE(
             le_lz.SourceSchema,
+            le_direct.SourceSchema,
             le_br.SourceSchema,
             le_sv.SourceSchema,
             NULLIF(tb.ParsedSchema, '')
         ) AS SourceSchema,
         COALESCE(
             le_lz.SourceName,
+            le_direct.SourceName,
             le_br.SourceName,
             le_sv.SourceName,
             NULLIF(tb.ParsedTable, '')
         ) AS SourceName,
         COALESCE(
             le_lz.IsIncremental,
+            le_direct.IsIncremental,
             le_br.IsIncremental,
             le_sv.IsIncremental,
             0
@@ -2164,6 +2217,21 @@ mapped AS (
     LEFT JOIN lz_entities le_lz
            ON tb.Layer = 'landing'
           AND tb.EntityId = le_lz.LandingzoneEntityId
+    LEFT JOIN lz_entities le_direct
+           ON tb.Layer IN ('bronze', 'silver')
+          AND tb.EntityId = le_direct.LandingzoneEntityId
+          AND (
+              LOWER(COALESCE(tb.ExtractionMethod, '')) = 'dagster'
+              OR LOWER(COALESCE(tb.SourceServer, '')) = 'dagster'
+              OR LOWER(COALESCE(tb.LoadType, '')) = 'dry_run'
+              OR (
+                  LOWER(COALESCE(le_direct.SourceName, '')) = tb.ParsedTable
+                  AND (
+                      tb.ParsedSchema = ''
+                      OR LOWER(COALESCE(le_direct.SourceSchema, '')) = tb.ParsedSchema
+                  )
+              )
+          )
     LEFT JOIN bronze_entities be
            ON tb.Layer = 'bronze'
           AND tb.EntityId = be.BronzeLayerEntityId

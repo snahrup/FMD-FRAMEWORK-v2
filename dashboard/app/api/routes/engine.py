@@ -20,6 +20,7 @@ import json
 import logging
 import urllib.parse
 from datetime import datetime, timezone
+from pathlib import Path
 
 from dashboard.app.api.router import route, sse_route, HttpError
 
@@ -34,8 +35,8 @@ def _get_config() -> dict:
     global _CONFIG
     if _CONFIG is None:
         try:
-            from engine.config import load_config
-            _CONFIG = load_config().__dict__
+            cfg_path = Path(__file__).resolve().parent.parent / "config.json"
+            _CONFIG = json.loads(cfg_path.read_text(encoding="utf-8"))
         except Exception as e:
             log.warning("Failed to load engine config: %s", e)
             _CONFIG = {}
@@ -141,6 +142,11 @@ def get_engine_status(params: dict) -> dict:
     return _delegate("GET", "/api/engine/status", params)
 
 
+@route("GET", "/api/engine/runtime")
+def get_engine_runtime(params: dict) -> dict:
+    return _delegate("GET", "/api/engine/runtime", params)
+
+
 @route("GET", "/api/engine/vpn-status")
 def get_engine_vpn_status(params: dict) -> dict:
     checked_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -230,6 +236,11 @@ def get_engine_entities(params: dict) -> dict:
     return _delegate("GET", "/api/engine/entities", params)
 
 
+@route("GET", "/api/engine/smoke-entity")
+def get_engine_smoke_entity(params: dict) -> dict:
+    return _delegate("GET", "/api/engine/smoke-entity", params)
+
+
 # ---------------------------------------------------------------------------
 # POST routes
 # ---------------------------------------------------------------------------
@@ -237,6 +248,11 @@ def get_engine_entities(params: dict) -> dict:
 @route("POST", "/api/engine/start")
 def post_engine_start(params: dict) -> dict:
     return _delegate("POST", "/api/engine/start", params)
+
+
+@route("POST", "/api/engine/preflight")
+def post_engine_preflight(params: dict) -> dict:
+    return _delegate("POST", "/api/engine/preflight", params)
 
 
 @route("POST", "/api/engine/stop")

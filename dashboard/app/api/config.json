@@ -36,6 +36,7 @@
     "chunk_rows": 500000,
     "query_timeout": 120,
     "load_method": "local",
+    "orchestrator": "dagster",
     "onelake_mount_path": "${ONELAKE_MOUNT_PATH}",
     "pipeline_fallback": true,
     "notebook_bronze_id": "f7be6488-6508-4bcd-8c79-296a37f52a25",
@@ -45,6 +46,19 @@
     "notebook_maintenance_id": "",
     "pipeline_copy_sql_id": "9a06a21d-d139-4356-81d2-6d6e0630a01b",
     "pipeline_workspace_id": "c0366b24-e6f8-4994-b4df-b765ecb5bbf8"
+  },
+  "dagster": {
+    "launch_mode": "local_subprocess",
+    "orchestrator_path": "C:/Users/snahrup/CascadeProjects/FMD_ORCHESTRATOR",
+    "python": "C:/Users/snahrup/CascadeProjects/FMD_ORCHESTRATOR/.venv/Scripts/python.exe",
+    "dagster_home": "C:/Users/snahrup/CascadeProjects/FMD_ORCHESTRATOR",
+    "graphql_url": "http://127.0.0.1:3006/graphql",
+    "ui_url": "http://127.0.0.1:3006",
+    "job_name": "fmd_pipeline_job",
+    "framework_path": "C:/Users/snahrup/CascadeProjects/FMD_FRAMEWORK",
+    "runtime_mode": "dry_run",
+    "event_log_dir": "C:/Users/snahrup/CascadeProjects/FMD_ORCHESTRATOR/.runs",
+    "event_sync_timeout_seconds": 180
   },
   "logging": {
     "file": "fmd-dashboard.log",

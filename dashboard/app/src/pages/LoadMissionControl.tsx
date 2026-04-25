@@ -211,6 +211,10 @@ interface ProgressResponse {
   bySourceByLayer?: SourceLayerProgress[];
   errorBreakdown: Array<{ ErrorType: string; cnt: number }>;
   loadTypeBreakdown: Array<{ LoadType: string; cnt: number; total_rows: number }>;
+  runtimeMode?: string;
+  isDryRun?: boolean;
+  rowsWritten?: number;
+  filesWritten?: number;
   throughput: { rows_per_sec: number; bytes_per_sec: number };
   verification: Verification;
   selfHeal: SelfHealPayload;
@@ -297,6 +301,49 @@ interface EngineStatusResponse {
     completed_units: number;
     resumable: boolean;
   } | null;
+}
+
+interface EngineRuntimeResponse {
+  orchestrator: string;
+  dagsterRuntimeMode: "dry_run" | "framework" | string;
+  loadMethod: string;
+  frameworkPath: string;
+  dagsterUrl: string;
+  realLoadEnabled: boolean;
+  dryRun: boolean;
+  warnings: string[];
+  socketStackOk?: boolean;
+}
+
+interface SmokeEntity {
+  entity_id: number;
+  source: string;
+  namespace: string;
+  schema: string;
+  table: string;
+  is_incremental: boolean;
+  historical_rows: number;
+  last_success_at: string | null;
+  reason: string;
+}
+
+interface PreflightCheck {
+  id: string;
+  label: string;
+  status: "passed" | "warning" | "failed" | string;
+  message: string;
+}
+
+interface PreflightResponse {
+  ok: boolean;
+  runtimeMode: string;
+  checks: PreflightCheck[];
+  message?: string;
+}
+
+interface LaunchResult {
+  ok: boolean;
+  message?: string;
 }
 
 interface EntitiesResponse {
@@ -546,6 +593,42 @@ function useEngineStatus(pollMs = 5000) {
   return { engine, refetch: fetch_ };
 }
 
+function useEngineRuntime(pollMs = 10000) {
+  const [runtime, setRuntime] = useState<EngineRuntimeResponse | null>(null);
+
+  const fetch_ = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/api/engine/runtime`);
+      if (!res.ok) return;
+      setRuntime(await res.json());
+    } catch { /* swallow */ }
+  }, []);
+
+  useEffect(() => {
+    fetch_();
+    const iv = setInterval(fetch_, pollMs);
+    return () => clearInterval(iv);
+  }, [fetch_, pollMs]);
+
+  return { runtime, refetch: fetch_ };
+}
+
+function useSmokeEntity(enabled: boolean) {
+  const [entity, setEntity] = useState<SmokeEntity | null>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    fetch(`${API}/api/engine/smoke-entity`)
+      .then(r => r.ok ? r.json() : { entity: null })
+      .then(d => { if (!cancelled) setEntity(d.entity ?? null); })
+      .catch(() => { if (!cancelled) setEntity(null); });
+    return () => { cancelled = true; };
+  }, [enabled]);
+
+  return entity;
+}
+
 function useEntities(
   runId: string | null,
   params: { source?: string; layer?: string; status?: string; search?: string; limit?: number; offset?: number }
@@ -667,6 +750,7 @@ function useSSE(enabled: boolean) {
 }
 
 interface SourceInfo { name: string; displayName: string; entityCount: number; }
+type RunIntent = "orchestration_check" | "real_smoke_load" | "real_scoped_load" | "full_estate_load";
 
 function useSources() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
@@ -850,6 +934,7 @@ function StatusBadge({ currentRun, engineStatus }: { currentRun: LmcRun | null; 
 function CommandBand({
   runs,
   engine,
+  runtime,
   sources,
   onStart,
   onStop,
@@ -858,8 +943,9 @@ function CommandBand({
 }: {
   runs: LmcRun[];
   engine: EngineStatusResponse | null;
+  runtime: EngineRuntimeResponse | null;
   sources: SourceInfo[];
-  onStart: (layers: string[], sourceFilter: string[], mode?: string) => void;
+  onStart: (layers: string[], sourceFilter: string[], mode?: string, options?: { dryRun?: boolean; dagsterMode?: string; confirmFullEstateRealLoad?: boolean; entityIds?: number[] }) => Promise<LaunchResult>;
   onStop: () => void;
   onRetry: () => void;
   onResume: () => void;
@@ -870,7 +956,11 @@ function CommandBand({
   const [launchOpen, setLaunchOpen] = useState(false);
   const [launchLayers, setLaunchLayers] = useState<string[]>(["landing", "bronze", "silver"]);
   const [launchSources, setLaunchSources] = useState<string[]>([]);
-  const [bulkMode, setBulkMode] = useState(false);
+  const [runIntent, setRunIntent] = useState<RunIntent>("orchestration_check");
+  const [preflight, setPreflight] = useState<{ status: "idle" | "checking" | "passed" | "failed"; checks: PreflightCheck[]; message?: string }>({ status: "idle", checks: [] });
+  const [launchError, setLaunchError] = useState<string | null>(null);
+  const [launchBusy, setLaunchBusy] = useState(false);
+  const smokeEntity = useSmokeEntity(launchOpen);
 
   const currentRun = runs.find(r => r.runId === scope.selectedRunId) ?? null;
   const canResume = Boolean(
@@ -887,11 +977,143 @@ function CommandBand({
   );
 
   const allLayers = ["landing", "bronze", "silver"] as const;
+  const isFrameworkMode = runtime?.dagsterRuntimeMode === "framework";
+  const isDryRunMode = runtime?.dagsterRuntimeMode !== "framework";
+  const selectedEntityCount = launchSources.length === 0
+    ? sources.reduce((a, s) => a + s.entityCount, 0)
+    : sources.filter(s => launchSources.includes(s.name)).reduce((a, s) => a + s.entityCount, 0);
+  const runIntentCards: Array<{ id: RunIntent; title: string; body: string; disabled: boolean; reason?: string }> = [
+    {
+      id: "orchestration_check",
+      title: "Orchestration Check",
+      body: "Dagster validates graph, scope, ordering, and event flow. No source rows are extracted.",
+      disabled: false,
+    },
+    {
+      id: "real_scoped_load",
+      title: "Real Scoped Load",
+      body: "Extract selected source rows and write Landing/Bronze/Silver outputs for the selected scope.",
+      disabled: !isFrameworkMode || launchSources.length === 0,
+      reason: !isFrameworkMode ? "Requires Dagster framework mode." : "Select at least one source so the real load has an explicit scope.",
+    },
+    {
+      id: "real_smoke_load",
+      title: "Real Smoke Load",
+      body: "Run one explicitly selected entity through the real loader.",
+      disabled: !isFrameworkMode || !smokeEntity,
+      reason: !isFrameworkMode
+        ? "Requires Dagster framework mode."
+        : "No safe smoke entity is available from the control-plane DB.",
+    },
+    {
+      id: "full_estate_load",
+      title: "Full Estate Load",
+      body: "Run every active entity. Requires framework mode and a typed confirmation.",
+      disabled: true,
+      reason: !isFrameworkMode ? "Requires Dagster framework mode." : "Full-estate confirmation gate will be enabled after scoped smoke passes.",
+    },
+  ];
+  const activeRunIntent = runIntentCards.find(card => card.id === runIntent);
+  const isRealRunIntent = runIntent !== "orchestration_check";
+  const canStartLaunch = launchLayers.length > 0 && !activeRunIntent?.disabled;
+  const realRunReady = !isRealRunIntent || preflight.status === "passed";
 
   const toggleLayer = (l: string) =>
     setLaunchLayers(prev => prev.includes(l) ? prev.filter(x => x !== l) : [...prev, l]);
   const toggleSource = (s: string) =>
     setLaunchSources(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+
+  useEffect(() => {
+    setPreflight({ status: "idle", checks: [] });
+    setLaunchError(null);
+  }, [launchLayers, launchSources, runIntent, smokeEntity?.entity_id, runtime?.dagsterRuntimeMode]);
+
+  const resolveLaunchEntityIds = useCallback(async (): Promise<number[] | undefined> => {
+    if (runIntent === "real_smoke_load" && smokeEntity) {
+      return [smokeEntity.entity_id];
+    }
+    if (launchSources.length > 0) {
+      const idsRes = await fetch(`${API}/api/lmc/entity-ids-by-source?sources=${encodeURIComponent(launchSources.join(","))}`);
+      if (!idsRes.ok) {
+        throw new Error(`Could not resolve selected source tables (${idsRes.status}).`);
+      }
+      const idsData = await idsRes.json();
+      const ids = Array.isArray(idsData.entity_ids) ? idsData.entity_ids.filter((value: unknown) => Number.isFinite(Number(value))).map(Number) : [];
+      if (!ids.length) {
+        throw new Error("The selected sources do not resolve to any active entities.");
+      }
+      return ids;
+    }
+    return undefined;
+  }, [launchSources, runIntent, smokeEntity]);
+
+  const runPreflight = useCallback(async (): Promise<{ ok: boolean; entityIds?: number[] }> => {
+    setLaunchError(null);
+    setPreflight({ status: "checking", checks: [] });
+    try {
+      const entityIds = await resolveLaunchEntityIds();
+      const response = await fetch(`${API}/api/engine/preflight`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runtime_mode: runIntent === "orchestration_check" ? "dry_run" : "framework",
+          layers: launchLayers,
+          entity_ids: entityIds,
+          confirm_full_estate_real_load: runIntent === "full_estate_load",
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as PreflightResponse;
+      const checks = Array.isArray(payload.checks) ? payload.checks : [];
+      if (!response.ok || !payload.ok) {
+        const failed = checks.find(check => check.status === "failed");
+        const message = payload.message || failed?.message || `Preflight failed (${response.status}).`;
+        setPreflight({ status: "failed", checks, message });
+        return { ok: false, entityIds };
+      }
+      setPreflight({ status: "passed", checks, message: "Preflight passed. This run is safe to launch." });
+      return { ok: true, entityIds };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Preflight failed before launch.";
+      setPreflight({ status: "failed", checks: [], message });
+      return { ok: false };
+    }
+  }, [launchLayers, resolveLaunchEntityIds, runIntent]);
+
+  const submitLaunch = useCallback(async () => {
+    if (!canStartLaunch || launchBusy) return;
+    setLaunchBusy(true);
+    setLaunchError(null);
+    try {
+      let entityIds: number[] | undefined;
+      if (isRealRunIntent) {
+        const result = preflight.status === "passed"
+          ? { ok: true, entityIds: await resolveLaunchEntityIds() }
+          : await runPreflight();
+        if (!result.ok) return;
+        entityIds = result.entityIds;
+      }
+      const result = await onStart(
+        launchLayers,
+        launchSources.map(s => s),
+        "run",
+        {
+          dryRun: runIntent === "orchestration_check",
+          dagsterMode: runIntent === "orchestration_check" ? "dry_run" : "framework",
+          confirmFullEstateRealLoad: runIntent === "full_estate_load",
+          entityIds,
+        },
+      );
+      if (!result.ok) {
+        setLaunchError(result.message || "Pipeline launch failed.");
+        return;
+      }
+      setLaunchOpen(false);
+    } catch (error) {
+      setLaunchError(error instanceof Error ? error.message : "Pipeline launch failed before it could be started.");
+    } finally {
+      setLaunchBusy(false);
+    }
+  }, [canStartLaunch, isRealRunIntent, launchBusy, launchLayers, launchSources, onStart, preflight.status, resolveLaunchEntityIds, runIntent, runPreflight]);
 
   return (
     <div style={{
@@ -956,6 +1178,15 @@ function CommandBand({
 
         {/* Status badge — shows selected run's status, or engine status if no run selected */}
         <StatusBadge currentRun={currentRun} engineStatus={scope.engineStatus} />
+        <span style={{
+          ...S.badge,
+          border: `1px solid ${isDryRunMode ? "rgba(180,86,36,0.24)" : "rgba(34,197,94,0.28)"}`,
+          background: isDryRunMode ? "rgba(180,86,36,0.08)" : "rgba(34,197,94,0.08)",
+          color: isDryRunMode ? "var(--bp-copper)" : "var(--bp-operational)",
+          fontSize: 11,
+        }}>
+          {isDryRunMode ? "Dagster dry run" : "Dagster framework"} · {runtime?.loadMethod ?? "local"}
+        </span>
 
         {viewingHistoricalRun && engine?.current_run_id && (
           <button
@@ -1017,6 +1248,18 @@ function CommandBand({
             }}>
               <Square size={12} /> Stop
           </button>
+          ) : null}
+          {scope.engineStatus !== "running" ? (
+            <button
+              onClick={() => setLaunchOpen(true)}
+              style={{
+                ...S.badge, cursor: "pointer", border: "1px solid var(--bp-operational)",
+                background: "var(--bp-operational)", color: "#fff",
+                padding: "6px 14px", fontSize: 12,
+              }}
+            >
+              <Play size={12} /> New Pipeline Run
+            </button>
           ) : null}
           <button
             onClick={() => window.location.assign(`/load-center${scope.selectedRunId ? `?run=${scope.selectedRunId}` : ""}`)}
@@ -1158,51 +1401,157 @@ function CommandBand({
                         <strong>{launchLayers.map(l => LAYER_LABELS[l] ?? l).join(" → ")}</strong>
                         {" · "}
                         {launchSources.length === 0
-                          ? `All ${sources.reduce((a, s) => a + s.entityCount, 0).toLocaleString()} entities across ${sources.length} sources`
-                          : `${sources.filter(s => launchSources.includes(s.name)).reduce((a, s) => a + s.entityCount, 0).toLocaleString()} entities from ${sources.filter(s => launchSources.includes(s.name)).map(s => s.displayName).join(", ")}`
+                          ? `All ${selectedEntityCount.toLocaleString()} entities across ${sources.length} sources`
+                          : `${selectedEntityCount.toLocaleString()} entities from ${sources.filter(s => launchSources.includes(s.name)).map(s => s.displayName).join(", ")}`
                         }
                       </>
                   }
                 </div>
               </div>
 
-              {/* Bulk Snapshot toggle */}
-              <button
-                onClick={() => {
-                  setBulkMode(!bulkMode);
-                  if (!bulkMode) setLaunchLayers(["landing"]);
-                  else setLaunchLayers(["landing", "bronze", "silver"]);
-                }}
-                style={{
-                  ...S.sans, cursor: "pointer", width: "100%",
-                  display: "flex", alignItems: "center", gap: 12,
-                  padding: "10px 16px", borderRadius: 8,
-                  border: bulkMode ? "1.5px solid var(--bp-operational)" : "1px solid var(--bp-border)",
-                  background: bulkMode ? "rgba(34,197,94,0.06)" : "var(--bp-surface-1)",
-                  transition: "all 0.15s ease",
-                }}>
-                <Zap size={16} style={{ color: bulkMode ? "var(--bp-operational)" : "var(--bp-ink-muted)", flexShrink: 0 }} />
-                <div style={{ flex: 1, textAlign: "left" }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: bulkMode ? "var(--bp-operational)" : "var(--bp-ink)" }}>
-                    Bulk Snapshot Mode
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--bp-ink-muted)", marginTop: 1 }}>
-                    Fast parallel extraction via ConnectorX — no watermarks, no retries. Best for initial loads &amp; backfills.
-                  </div>
+              {/* Run intent */}
+              <div>
+                <div style={{ ...S.sans, fontSize: 12, fontWeight: 600, color: "var(--bp-ink-secondary)", marginBottom: 10 }}>
+                  Run Type
                 </div>
-                <div style={{
-                  width: 36, height: 20, borderRadius: 10,
-                  background: bulkMode ? "var(--bp-operational)" : "var(--bp-border)",
-                  position: "relative", transition: "background 0.15s ease",
-                }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {runIntentCards.map(card => {
+                    const active = runIntent === card.id;
+                    return (
+                      <button
+                        key={card.id}
+                        disabled={card.disabled}
+                        onClick={() => !card.disabled && setRunIntent(card.id)}
+                        style={{
+                          ...S.sans,
+                          cursor: card.disabled ? "not-allowed" : "pointer",
+                          textAlign: "left",
+                          padding: "12px",
+                          borderRadius: 8,
+                          border: active ? "1.5px solid var(--bp-operational)" : "1px solid var(--bp-border)",
+                          background: active ? "rgba(14,145,201,0.08)" : "var(--bp-surface-1)",
+                          opacity: card.disabled ? 0.56 : 1,
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: active ? "var(--bp-operational)" : "var(--bp-ink)" }}>
+                          {active ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+                          {card.title}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--bp-ink-muted)", lineHeight: 1.45, marginTop: 6 }}>
+                          {card.disabled ? card.reason : card.body}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {runtime?.warnings?.length ? (
                   <div style={{
-                    width: 16, height: 16, borderRadius: 8,
-                    background: "#fff", position: "absolute", top: 2,
-                    left: bulkMode ? 18 : 2, transition: "left 0.15s ease",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.15)",
-                  }} />
-                </div>
-              </button>
+                    marginTop: 10,
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: "1px solid rgba(180,86,36,0.18)",
+                    background: "rgba(180,86,36,0.06)",
+                    color: "var(--bp-copper)",
+                    fontSize: 11,
+                    lineHeight: 1.5,
+                  }}>
+                    {runtime.warnings[0]}
+                  </div>
+                ) : null}
+                {runIntent === "real_smoke_load" && smokeEntity ? (
+                  <div style={{
+                    marginTop: 10,
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: "1px solid rgba(14,145,201,0.24)",
+                    background: "rgba(14,145,201,0.07)",
+                    color: "var(--bp-ink)",
+                    fontSize: 11,
+                    lineHeight: 1.5,
+                  }}>
+                    Smoke entity: <strong>{smokeEntity.source}.{smokeEntity.schema}.{smokeEntity.table}</strong>
+                    {" "}({formatNumber(smokeEntity.historical_rows)} historical rows, ID {smokeEntity.entity_id})
+                  </div>
+                ) : null}
+                {isRealRunIntent ? (
+                  <div style={{
+                    marginTop: 10,
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: preflight.status === "passed"
+                      ? "1px solid rgba(34,197,94,0.28)"
+                      : preflight.status === "failed"
+                        ? "1px solid rgba(220,38,38,0.28)"
+                        : "1px solid var(--bp-border)",
+                    background: preflight.status === "passed"
+                      ? "rgba(34,197,94,0.07)"
+                      : preflight.status === "failed"
+                        ? "rgba(220,38,38,0.06)"
+                        : "var(--bp-surface-inset)",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ ...S.sans, fontSize: 12, fontWeight: 700, color: "var(--bp-ink-primary)" }}>
+                        Real-load preflight
+                      </div>
+                      <button
+                        type="button"
+                        disabled={!canStartLaunch || preflight.status === "checking"}
+                        onClick={() => { void runPreflight(); }}
+                        style={{
+                          ...S.badge,
+                          border: "1px solid var(--bp-border)",
+                          background: "var(--bp-surface-1)",
+                          color: "var(--bp-ink-secondary)",
+                          opacity: (!canStartLaunch || preflight.status === "checking") ? 0.5 : 1,
+                          cursor: (!canStartLaunch || preflight.status === "checking") ? "not-allowed" : "pointer",
+                          padding: "5px 10px",
+                          fontSize: 11,
+                        }}
+                      >
+                        {preflight.status === "checking" ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : <CheckCircle2 size={12} />}
+                        {preflight.status === "passed" ? "Recheck" : "Run Preflight"}
+                      </button>
+                    </div>
+                    <div style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-secondary)", marginTop: 6, lineHeight: 1.45 }}>
+                      {preflight.message
+                        || "Required before real data movement. Checks runtime mode, explicit scope, Python/socket readiness, source access, and lakehouse readiness."}
+                    </div>
+                    {preflight.checks.length > 0 ? (
+                      <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
+                        {preflight.checks.slice(0, 5).map(check => (
+                          <div key={check.id} style={{ display: "grid", gridTemplateColumns: "18px 1fr", gap: 8, alignItems: "start" }}>
+                            {check.status === "passed" ? (
+                              <CheckCircle2 size={14} style={{ color: "var(--bp-operational)", marginTop: 1 }} />
+                            ) : check.status === "failed" ? (
+                              <XCircle size={14} style={{ color: "var(--bp-fault)", marginTop: 1 }} />
+                            ) : (
+                              <AlertTriangle size={14} style={{ color: "var(--bp-caution)", marginTop: 1 }} />
+                            )}
+                            <div>
+                              <div style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-primary)" }}>{check.label}</div>
+                              <div style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-muted)", lineHeight: 1.35 }}>{check.message}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {launchError ? (
+                  <div style={{
+                    marginTop: 10,
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: "1px solid rgba(220,38,38,0.28)",
+                    background: "rgba(220,38,38,0.06)",
+                    color: "var(--bp-fault)",
+                    fontSize: 11,
+                    lineHeight: 1.45,
+                  }}>
+                    {launchError}
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {/* Modal footer */}
@@ -1222,21 +1571,19 @@ function CommandBand({
                 Cancel
               </button>
               <button
-                disabled={launchLayers.length === 0}
-                onClick={() => {
-                  onStart(launchLayers, launchSources.map(s => s), bulkMode ? "bulk" : "run");
-                  setLaunchOpen(false);
-                }}
+                disabled={!canStartLaunch || !realRunReady || launchBusy}
+                onClick={() => { void submitLaunch(); }}
                 style={{
-                  ...S.sans, cursor: launchLayers.length === 0 ? "not-allowed" : "pointer",
+                  ...S.sans, cursor: (!canStartLaunch || !realRunReady || launchBusy) ? "not-allowed" : "pointer",
                   fontSize: 13, fontWeight: 600, padding: "8px 24px",
                   borderRadius: 6, border: "none",
                   background: "var(--bp-operational)", color: "#fff",
-                  opacity: launchLayers.length === 0 ? 0.4 : 1,
+                  opacity: (!canStartLaunch || !realRunReady || launchBusy) ? 0.4 : 1,
                   display: "flex", alignItems: "center", gap: 8,
                 }}
               >
-                <Play size={14} /> Start Pipeline
+                {launchBusy ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Play size={14} />}
+                {isRealRunIntent && preflight.status !== "passed" ? "Preflight Required" : "Start Pipeline"}
               </button>
             </div>
           </div>
@@ -1268,12 +1615,35 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
 
   if (!progress) return null;
 
-  // When run is scoped to specific sources, derive KPIs from bySource instead of global layers
+  const runLayers = (progress.run?.layers ?? "")
+    .split(",")
+    .map(layer => layer.trim().toLowerCase())
+    .filter(layer => layer && progress.layers[layer]);
+  const selectedLayers = runLayers.length > 0
+    ? runLayers
+    : Object.keys(progress.layers).filter(layer => layer !== "gold");
+
+  const isDryRun = progress.isDryRun ?? (progress.loadTypeBreakdown ?? [])
+    .some(row => String(row.LoadType ?? "").toLowerCase() === "dry_run");
+
+  // When run is scoped to specific sources, derive KPIs from source-level truth.
   const scopedSources = hasRunScope
     ? (progress.bySource ?? []).filter(s => scope.runSources.includes(s.source))
     : (progress.bySource ?? []);
+  const scopedSourceNames = new Set(scopedSources.map(source => source.source));
+  const scopedLayerRows = (progress.bySourceByLayer ?? [])
+    .filter(row => selectedLayers.includes(row.layer))
+    .filter(row => !hasRunScope || scopedSourceNames.has(row.source));
 
   const allLayers = Object.values(progress.layers);
+  const scopedTableTotal = hasRunScope
+    ? (progress.run?.resolvedEntityCount
+      ?? scopedSources.reduce((a, s) => a + (s.total_entities ?? 0), 0))
+    : progress.totalActiveEntities;
+  const scopedLayerStepTotal = Math.max(scopedTableTotal * Math.max(selectedLayers.length, 1), scopedTableTotal);
+  const layerSucceeded = scopedLayerRows.reduce((a, row) => a + (row.succeeded ?? 0), 0);
+  const layerFailed = scopedLayerRows.reduce((a, row) => a + (row.failed ?? 0), 0);
+  const layerSkipped = scopedLayerRows.reduce((a, row) => a + (row.skipped ?? 0), 0);
 
   // When bulk progress SSE data is available and fresher, use it as the single source of truth
   // This prevents timing mismatches between SSE heartbeat and progress API polling
@@ -1281,28 +1651,28 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
 
   const succeeded = useBulk
     ? bulkProgress.succeeded
-    : hasRunScope
-      ? scopedSources.reduce((a, s) => a + (s.succeeded ?? 0), 0)
-      : allLayers.reduce((a, l) => a + l.succeeded, 0);
+    : layerSucceeded;
   const failed = useBulk
     ? bulkProgress.failed
-    : hasRunScope
-      ? scopedSources.reduce((a, s) => a + (s.failed ?? 0), 0)
-      : allLayers.reduce((a, l) => a + l.failed, 0);
-  const skipped = 0; // Bulk doesn't skip; for non-bulk use layer data
+    : layerFailed;
+  const skipped = useBulk ? 0 : layerSkipped; // Bulk doesn't skip; layer rows carry skips for normal runs.
   const scopedTotal = useBulk
     ? bulkProgress.total
-    : hasRunScope
-      ? (progress.run?.resolvedEntityCount
-        ?? scopedSources.reduce((a, s) => a + (s.total_entities ?? 0), 0))
-      : progress.totalActiveEntities;
+    : scopedLayerStepTotal;
   const pending = scopedTotal - succeeded - failed - skipped;
-  const totalRows = useBulk
+  const totalRows = isDryRun
+    ? 0
+    : useBulk
     ? bulkProgress.totalRows
     : hasRunScope
       ? scopedSources.reduce((a, s) => a + (s.rows_read ?? 0), 0)
-      : allLayers.reduce((a, l) => a + l.total_rows_written, 0);
+      : progress.rowsWritten ?? allLayers.reduce((a, l) => a + l.total_rows_written, 0);
   const totalDuration = allLayers.reduce((a, l) => a + l.total_duration, 0);
+  const successTitle = isDryRun ? "Dry-Run Checks Passed" : "Layer Steps Loaded";
+  const failedTitle = isDryRun ? "Dry-Run Checks Failed" : "Layer Steps Failed";
+  const remainingTitle = isDryRun ? "Checks Remaining" : "Layer Steps Remaining";
+  const unitLabel = isDryRun ? "orchestration check" : "layer load step";
+  const rowsTitle = isDryRun ? "Rows Written (Dry Run)" : "Rows This Run";
 
   return (
     <div style={{
@@ -1319,14 +1689,19 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
           animation: "slideInUp 0.5s ease-out 0s",
         }}>
           <div style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10 }}>
-            This Run Loaded
+            {successTitle}
           </div>
           <div style={{ ...S.data, fontSize: 32, fontWeight: 700, color: "var(--bp-operational)", lineHeight: 1, marginBottom: 6 }} className="metric-value">
             {formatNumber(succeeded)}
           </div>
           <div style={{ ...S.data, fontSize: 13, color: "var(--bp-ink-secondary)" }}>
-            of {formatNumber(scopedTotal)} targeted table{scopedTotal === 1 ? "" : "s"}
+            of {formatNumber(scopedTotal)} {unitLabel}{scopedTotal === 1 ? "" : "s"}
           </div>
+          {isDryRun && (
+            <div style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-muted)", marginTop: 8 }}>
+              Dry run only — no Fabric rows written.
+            </div>
+          )}
         </div>
 
         {/* Failed (alert metric) */}
@@ -1336,7 +1711,7 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
           animation: "slideInUp 0.5s ease-out 0.08s backwards",
         }}>
           <div style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10 }}>
-            This Run Failed
+            {failedTitle}
           </div>
           <div style={{ ...S.data, fontSize: 32, fontWeight: 700, color: failed > 0 ? "var(--bp-fault)" : "var(--bp-ink-tertiary)", lineHeight: 1, marginBottom: 6 }} className="metric-value">
             {formatNumber(failed)}
@@ -1353,7 +1728,7 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
           animation: "slideInUp 0.5s ease-out 0.16s backwards",
         }}>
           <div style={{ ...S.sans, fontSize: 11, fontWeight: 700, color: "var(--bp-ink-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10 }}>
-            This Run Remaining
+            {remainingTitle}
           </div>
           <div style={{ ...S.data, fontSize: 32, fontWeight: 700, color: pending > 0 ? "var(--bp-caution)" : "var(--bp-ink-tertiary)", lineHeight: 1, marginBottom: 6 }} className="metric-value">
             {formatNumber(pending > 0 ? pending : 0)}
@@ -1370,10 +1745,15 @@ function KpiStrip({ progress, bulkProgress }: { progress: ProgressResponse | nul
       }}>
         {/* Rows */}
         <div style={{ ...S.card, padding: "12px 16px" }}>
-          <div style={{ ...S.sans, fontSize: 10, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>Rows This Run</div>
+          <div style={{ ...S.sans, fontSize: 10, fontWeight: 600, color: "var(--bp-ink-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>{rowsTitle}</div>
           <div style={{ ...S.data, fontSize: 18, fontWeight: 600, color: "var(--bp-ink-primary)" }}>
             {formatNumber(totalRows)}
           </div>
+          {isDryRun && (
+            <div style={{ ...S.sans, fontSize: 10, color: "var(--bp-ink-muted)", marginTop: 3 }}>
+              Expected: 0. No extraction or Delta write occurred.
+            </div>
+          )}
         </div>
         {/* Elapsed */}
         <div style={{ ...S.card, padding: "12px 16px" }}>
@@ -3591,6 +3971,7 @@ function LoadMissionControlInner() {
 
   // Engine status (polls every 5s) — must be before useEffects that reference it
   const { engine } = useEngineStatus(scope.isRunActive ? 3000 : 10000);
+  const { runtime } = useEngineRuntime(scope.isRunActive ? 5000 : 15000);
 
   // Fetch progress for selected run (polls every 3s)
   const { data: progress, loading: progressLoading } = useProgress(
@@ -3602,6 +3983,9 @@ function LoadMissionControlInner() {
     [runs, scope.selectedRunId],
   );
   const selectedRunStatus = (progress?.run?.status ?? selectedRunMeta?.status ?? "").toLowerCase();
+  const selectedRunIsDryRun = Boolean(
+    progress?.loadTypeBreakdown?.some(row => String(row.LoadType ?? "").toLowerCase() === "dry_run")
+  );
   const retryDisabled = scope.isRunActive || selectedRunStatus === "inprogress" || selectedRunStatus === "running";
   const showSelfHealRail = Boolean(progress?.selfHeal && (progress.selfHeal.configured || progress.selfHeal.selectedAgent || progress.selfHeal.summary.totalCount > 0));
   const hasActiveSelfHeal = useMemo(
@@ -3668,29 +4052,34 @@ function LoadMissionControlInner() {
   // Available sources (fast dedicated endpoint, not dependent on slow progress query)
   const availableSources = useSources();
 
-  const handleStart = useCallback(async (layers: string[], sourceFilter: string[], mode?: string) => {
+  const handleStart = useCallback(async (
+    layers: string[],
+    sourceFilter: string[],
+    mode?: string,
+    options?: { dryRun?: boolean; dagsterMode?: string; confirmFullEstateRealLoad?: boolean; entityIds?: number[] },
+  ): Promise<LaunchResult> => {
     try {
       // Set run scope IMMEDIATELY before any async work — prevents poller from
       // seeing stale scope between click and engine startup
       dispatch({ type: "SET_RUN_SOURCES", sources: sourceFilter });
 
       // Resolve source names → entity_ids if source filter is active
-      let entityIds: number[] | undefined;
-      if (sourceFilter.length > 0) {
+      let entityIds: number[] | undefined = options?.entityIds;
+      if (!entityIds && sourceFilter.length > 0) {
         const idsRes = await fetch(
           `${API}/api/lmc/entity-ids-by-source?sources=${encodeURIComponent(sourceFilter.join(","))}`
         );
         if (!idsRes.ok) {
           console.error("Failed to resolve entity IDs for sources:", sourceFilter);
           dispatch({ type: "SET_RUN_SOURCES", sources: [] });
-          return; // HARD FAIL — do not launch with wrong scope
+          return { ok: false, message: "Could not resolve the selected sources to active entities. Nothing was launched." };
         }
         const idsData = await idsRes.json();
         entityIds = idsData.entity_ids;
         if (!entityIds || entityIds.length === 0) {
           console.error("No entities found for sources:", sourceFilter);
           dispatch({ type: "SET_RUN_SOURCES", sources: [] });
-          return; // HARD FAIL — empty scope means nothing to load
+          return { ok: false, message: "The selected sources have no active entities. Nothing was launched." };
         }
       }
 
@@ -3698,7 +4087,11 @@ function LoadMissionControlInner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          orchestrator: "dagster",
           mode: mode || "run",
+          dry_run: Boolean(options?.dryRun),
+          dagster_mode: options?.dagsterMode,
+          confirm_full_estate_real_load: Boolean(options?.confirmFullEstateRealLoad),
           layers: layers.length > 0 ? layers : undefined,
           entity_ids: entityIds,
           triggered_by: "dashboard",
@@ -3707,14 +4100,27 @@ function LoadMissionControlInner() {
           resolved_entity_count: entityIds?.length,
         }),
       });
+      const payload = await res.json().catch(() => ({} as Record<string, unknown>));
       if (res.ok) {
-        const d = await res.json();
-        if (d.run_id) {
-          dispatch({ type: "SET_RUN", runId: d.run_id });
+        const runId = typeof payload.run_id === "string" ? payload.run_id : "";
+        if (runId) {
+          dispatch({ type: "SET_RUN", runId });
         }
         refetchRuns();
+        return { ok: true };
       }
-    } catch (err) { console.error("Engine start failed:", err); }
+      const message = typeof payload.error === "string"
+        ? payload.error
+        : typeof payload.message === "string"
+          ? payload.message
+          : `Engine start failed (${res.status}).`;
+      dispatch({ type: "SET_RUN_SOURCES", sources: [] });
+      return { ok: false, message };
+    } catch (err) {
+      console.error("Engine start failed:", err);
+      dispatch({ type: "SET_RUN_SOURCES", sources: [] });
+      return { ok: false, message: err instanceof Error ? err.message : "Engine start failed." };
+    }
   }, [dispatch, refetchRuns]);
 
   const handleStop = useCallback(async () => {
@@ -3968,6 +4374,7 @@ function LoadMissionControlInner() {
             { label: "Run", value: scope.selectedRunId ? shortRunId(scope.selectedRunId) : "Not selected", tone: scope.selectedRunId ? "accent" : "neutral" },
             { label: "Sources", value: availableSources.length.toLocaleString(), tone: "accent" },
             { label: "Scope", value: scope.runSources.length > 0 ? `${scope.runSources.length} sources` : "All sources", tone: scope.runSources.length > 0 ? "accent" : "neutral" },
+            ...(scope.selectedRunId ? [{ label: "Mode", value: selectedRunIsDryRun ? "Dry run" : "Load", tone: selectedRunIsDryRun ? "warning" as const : "positive" as const }] : []),
             { label: "Status", value: scope.selectedRunId ? (selectedRunStatus || "pending").replaceAll("_", " ") : "Waiting", tone: scope.isRunActive ? "warning" : scope.selectedRunId ? "positive" : "neutral" },
           ]}
         />
@@ -3981,12 +4388,34 @@ function LoadMissionControlInner() {
           <CommandBand
             runs={runs}
             engine={engine}
+            runtime={runtime}
             sources={availableSources}
             onStart={handleStart}
             onStop={handleStop}
             onRetry={handleRetry}
             onResume={handleResume}
           />
+
+          {selectedRunIsDryRun && (
+            <div style={{
+              display: "flex", alignItems: "flex-start", gap: 12,
+              margin: "14px 32px 0",
+              padding: "12px 14px",
+              borderRadius: 10,
+              border: "1px solid rgba(180,86,36,0.22)",
+              background: "rgba(180,86,36,0.08)",
+            }}>
+              <AlertTriangle size={16} style={{ color: "var(--bp-copper)", flexShrink: 0, marginTop: 1 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ ...S.sans, fontSize: 12, fontWeight: 700, color: "var(--bp-ink-primary)", marginBottom: 3 }}>
+                  Dry-run orchestration result
+                </div>
+                <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)", lineHeight: 1.45 }}>
+                  Dagster validated the selected entities and layer ordering, but this run did not extract source rows or write Delta/Parquet files. Treat the green checks as control-plane coverage, not proof of landed data.
+                </div>
+              </div>
+            </div>
+          )}
 
           {retryFeedback && (
             <div style={{

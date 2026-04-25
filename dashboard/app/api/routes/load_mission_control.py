@@ -116,6 +116,22 @@ def _resolve_run_scope_entities(run_meta: dict) -> list[dict]:
     """Resolve the exact entity scope for a run from persisted engine_runs metadata."""
     entity_ids = _parse_entity_filter(run_meta.get("EntityFilter"))
     source_filter = _split_csv(run_meta.get("SourceFilter"))
+    run_id = str(run_meta.get("RunId") or "")
+
+    if not entity_ids and not source_filter and run_id:
+        inferred_rows = _safe_query(
+            f"""
+            {cpdb._MAPPED_ENGINE_TASK_LOG_CTE}
+            SELECT DISTINCT LandingzoneEntityId
+            FROM mapped
+            WHERE RunId = ?
+              AND LandingzoneEntityId IS NOT NULL
+            ORDER BY LandingzoneEntityId
+            """,
+            (run_id,),
+        )
+        entity_ids = [_int(row.get("LandingzoneEntityId")) for row in inferred_rows]
+        entity_ids = [entity_id for entity_id in entity_ids if entity_id]
 
     query = (
         "SELECT le.LandingzoneEntityId AS entityId, "
@@ -470,6 +486,13 @@ def _summarize_run_truth(run_meta: dict) -> dict:
         "bytes_per_sec": round(total_bytes / total_duration, 1) if total_duration else 0,
     }
 
+    total_rows_written = sum(_int(row.get("RowsWritten")) for row in throughput_rows)
+    total_files_written = len({
+        str(row.get("TargetPath") or row.get("SourceTable") or row.get("id"))
+        for row in throughput_rows
+        if _int(row.get("RowsWritten")) > 0 or _int(row.get("BytesTransferred")) > 0
+    })
+
     error_counts: dict[str, int] = {}
     load_type_counts: dict[str, dict] = {}
     extraction_method_counts: dict[str, dict] = {}
@@ -509,6 +532,8 @@ def _summarize_run_truth(run_meta: dict) -> dict:
         "bySourceByLayer": sorted(by_source_layer_map.values(), key=lambda row: (row["source"], row["layer"])),
         "entitySummary": entity_summary,
         "throughput": throughput,
+        "rowsWritten": total_rows_written,
+        "filesWritten": total_files_written,
         "errorBreakdown": error_breakdown,
         "loadTypeBreakdown": load_type_breakdown,
         "extractionMethods": extraction_methods,
@@ -630,6 +655,11 @@ def get_lmc_progress(params: dict) -> dict:
     error_breakdown = run_truth["errorBreakdown"]
     load_type_breakdown = run_truth["loadTypeBreakdown"]
     throughput = run_truth["throughput"]
+    runtime_mode = "dry_run" if any(
+        str(row.get("LoadType") or "").lower() == "dry_run"
+        for row in load_type_breakdown
+    ) else str(run_meta.get("Mode") or "").lower() or "unknown"
+    is_dry_run = runtime_mode == "dry_run"
 
     # Physical verification — LAZY: only when ?include_physical=1 is passed.
     # These LOWER() joins on lakehouse_row_counts are expensive (~3.5s each)
@@ -739,6 +769,10 @@ def get_lmc_progress(params: dict) -> dict:
         "bySourceByLayer": by_source_layer,
         "errorBreakdown": error_breakdown,
         "loadTypeBreakdown": load_type_breakdown,
+        "runtimeMode": runtime_mode,
+        "isDryRun": is_dry_run,
+        "rowsWritten": run_truth["rowsWritten"],
+        "filesWritten": run_truth["filesWritten"],
         "throughput": throughput,
         "verification": verification[0] if verification else {
             "total_active": 0, "lz_verified": 0, "brz_verified": 0,
@@ -775,6 +809,10 @@ def get_lmc_runs(params: dict) -> dict:
         run_truth = _summarize_run_truth(r)
         entity_summary = run_truth["entitySummary"]
         latest_rows = run_truth["latestRows"]
+        has_task_truth = bool(latest_rows)
+        succeeded = entity_summary["succeeded"] if has_task_truth or "succeeded" not in r else _int(r.get("succeeded"))
+        failed = entity_summary["failed"] if has_task_truth or "failed" not in r else _int(r.get("failed"))
+        skipped = entity_summary["skipped"] if has_task_truth or "skipped" not in r else _int(r.get("skipped"))
         mapped_runs.append({
             **r,
             "runId": r.get("RunId", ""),
@@ -787,9 +825,9 @@ def get_lmc_runs(params: dict) -> dict:
             "startedAt": r.get("StartedAt"),
             "endedAt": r.get("EndedAt"),
             "totalDurationSeconds": float(r.get("TotalDurationSeconds") or 0),
-            "succeeded": entity_summary["succeeded"],
-            "failed": entity_summary["failed"],
-            "skipped": entity_summary["skipped"],
+            "succeeded": succeeded,
+            "failed": failed,
+            "skipped": skipped,
             "totalRowsRead": sum(_int(row.get("RowsRead")) for row in latest_rows if str(row.get("Status") or "").lower() == "succeeded"),
             "totalBytes": sum(_int(row.get("BytesTransferred")) for row in latest_rows if str(row.get("Status") or "").lower() == "succeeded"),
             "totalTaskLogs": len(latest_rows),
@@ -1182,7 +1220,7 @@ def get_lmc_run_entities(params: dict) -> dict:
 
     entities = []
     for row in _get_run_task_rows(run_id):
-        entity_id = _int(row.get("LandingzoneEntityId"))
+        entity_id = _int(row.get("LandingzoneEntityId") or row.get("EntityId"))
         ds = source_lookup.get(_int(row.get("DataSourceId")), {})
         source_name = str(ds.get("Name") or "")
         if source_filter and source_name != source_filter:

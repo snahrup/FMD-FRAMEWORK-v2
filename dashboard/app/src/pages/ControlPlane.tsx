@@ -301,6 +301,9 @@ export default function ControlPlane() {
               <Wrench className="h-3.5 w-3.5" />
               Maintenance
             </button>
+            <span className="text-[11px] text-muted-foreground">
+              Maintenance endpoints pending
+            </span>
             <button
               onClick={() => setRefreshKey(k => k + 1)}
               className="flex items-center gap-2 px-3 py-1.5 text-xs bg-muted hover:bg-muted/80 border border-border rounded-lg text-muted-foreground transition-colors"
