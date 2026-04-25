@@ -206,6 +206,7 @@ const BUSINESS_GROUPS: NavGroup[] = [
     items: [
       { icon: LayoutDashboard, label: "Overview", href: "/overview" },
       { icon: Presentation, label: "Demo Story", href: "/orchestration-story" },
+      { icon: Workflow, label: "Canvas Builder", href: "/canvas" },
       { icon: Bell, label: "Alerts", href: "/alerts" },
       { icon: Cable, label: "Sources", href: "/sources-portal" },
       { icon: Library, label: "Catalog", href: "/catalog-portal" },
