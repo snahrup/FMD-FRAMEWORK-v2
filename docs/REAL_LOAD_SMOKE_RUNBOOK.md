@@ -47,6 +47,17 @@ Receipts are written under:
 The receipt includes the run id, entity id, Mission Control URL, audited target
 paths, resolved local paths, row counts, byte counts, and every pass/fail check.
 
+Mission Control also reads the receipt through:
+
+```text
+GET /api/lmc/run/<run-id>/receipt
+```
+
+When the selected run is a real load, the page shows a **Real Load Evidence**
+panel with the receipt status, artifact paths, and row counts. If the panel says
+`Receipt pending`, the run may have task-log rows but has not yet been physically
+verified.
+
 ## Important Guardrail
 
 If `ONELAKE_MOUNT_PATH` is not configured, the verifier cannot physically inspect
