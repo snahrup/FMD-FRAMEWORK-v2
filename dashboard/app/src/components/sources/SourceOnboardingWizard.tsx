@@ -162,6 +162,7 @@ export function SourceOnboardingWizard({
   const [importError, setImportError] = useState<string | null>(null);
   const [importComplete, setImportComplete] = useState(false);
   const [importStarting, setImportStarting] = useState(false);
+  const [importRunId, setImportRunId] = useState<string | null>(null);
   const importEventSourceRef = useRef<EventSource | null>(null);
   const importCompleteRef = useRef(false);
 
@@ -231,6 +232,19 @@ export function SourceOnboardingWizard({
   const currentSource = sources.find(s => s.sourceName === selectedSource);
   const steps = currentSource?.steps || [];
   const getStep = (num: number) => steps.find(s => s.stepNumber === num);
+  const selectedDataSourceName = getStep(2)?.referenceId || '';
+  const selectedMatchedDataSource = selectedDataSourceName
+    ? registeredDataSources.find(ds => ds.Name.toLowerCase() === selectedDataSourceName.toLowerCase())
+    : undefined;
+  const selectedSourceEntityScope = registeredEntities.filter(e => {
+    const eName = e.DataSourceName?.toLowerCase() || '';
+    return Boolean(selectedDataSourceName) && (
+      eName === selectedDataSourceName.toLowerCase()
+      || eName === (selectedMatchedDataSource?.Namespace?.toLowerCase() || '')
+      || eName === selectedSource.toLowerCase()
+    );
+  });
+  const selectedSourceEntityCount = selectedSourceEntityScope.length;
 
   // Visual step → internal step mapping
   const isInternalComplete = (num: number) => getStep(num)?.status === 'complete';
@@ -603,19 +617,17 @@ export function SourceOnboardingWizard({
     setImportProgress(0);
     setImportPhase('');
     setImportLabel('Starting...');
+    setImportRunId(null);
 
     try {
       // Get datasource info — look up the actual numeric DataSourceId
       // Step 2 referenceId stores the database name, not a numeric ID.
       // We need to resolve it to the DataSourceId from the registered datasources.
-      const dsStep = steps.find(s => s.stepNumber === 2);
-      const dsDbName = dsStep?.referenceId || '';
+      const dsDbName = selectedDataSourceName;
       const dsName = selectedSource || 'Unknown';
 
       // Resolve datasource ID: match by Name (database name stored in step 2)
-      const matchedDs = registeredDataSources.find(
-        ds => ds.Name.toLowerCase() === dsDbName.toLowerCase()
-      );
+      const matchedDs = selectedMatchedDataSource;
       const dsId = matchedDs ? parseInt(matchedDs.DataSourceId, 10) : 0;
 
       if (!dsId) {
@@ -626,18 +638,23 @@ export function SourceOnboardingWizard({
       }
 
       // Collect only this source's registered tables (not ALL entities)
-      const sourceEntities = registeredEntities.filter(e => {
-        // Match by DataSourceName (from digest, this is the namespace or db name)
-        // Also try matching by the resolved datasource name
-        const eName = e.DataSourceName?.toLowerCase() || '';
-        return eName === dsDbName.toLowerCase()
-          || eName === (matchedDs?.Namespace?.toLowerCase() || '')
-          || eName === dsName.toLowerCase();
-      });
+      const sourceEntities = selectedSourceEntityScope;
 
-      const tables = sourceEntities.length > 0
-        ? sourceEntities.map(e => ({ schema: e.SourceSchema, table: e.SourceName }))
-        : registeredEntities.map(e => ({ schema: e.SourceSchema, table: e.SourceName }));
+      if (sourceEntities.length === 0) {
+        throw new Error(
+          `No active registered tables were found for "${dsName}" (${dsDbName}). ` +
+          'Nothing was launched because widening this import to every source would be unsafe.'
+        );
+      }
+
+      const tables = sourceEntities.map(e => ({ schema: e.SourceSchema, table: e.SourceName }));
+      const entityIds = sourceEntities
+        .map(e => parseInt(e.LandingzoneEntityId, 10))
+        .filter(Number.isFinite);
+
+      if (entityIds.length === 0) {
+        throw new Error(`No active entity IDs were resolved for "${dsName}". Nothing was launched.`);
+      }
 
       const res = await fetch('/api/sources/import', {
         method: 'POST',
@@ -646,6 +663,8 @@ export function SourceOnboardingWizard({
           datasourceId: dsId,
           datasourceName: dsName,
           tables,
+          entityIds,
+          sourceFilter: [matchedDs?.Name || dsDbName],
           username: sourceCredentials.username,
           password: sourceCredentials.password,
         }),
@@ -667,6 +686,7 @@ export function SourceOnboardingWizard({
           setImportPhase(evt.phase || '');
           setImportLabel(evt.label || '');
           setImportProgress(evt.progress || 0);
+          if (evt.runId) setImportRunId(evt.runId);
 
           if (evt.phase === 'complete') {
             setImportComplete(true);
@@ -699,6 +719,7 @@ export function SourceOnboardingWizard({
                 setImportComplete(true);
                 importCompleteRef.current = true;
               }
+              if (status.engineRunId) setImportRunId(status.engineRunId);
               if (status.error) setImportError(status.error);
             })
             .catch(() => {});
@@ -767,11 +788,11 @@ export function SourceOnboardingWizard({
               className="px-3 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground min-w-[200px]"
             >
               <option value="">Select a source...</option>
-              {sources.filter(s => s.steps.filter(st => st.status === 'complete').length < 4).map(s => {
+              {sources.map(s => {
                 const done = s.steps.filter(st => st.status === 'complete').length;
                 return (
                   <option key={s.sourceName} value={s.sourceName}>
-                    {s.sourceName} ({done}/4 complete)
+                    {s.sourceName} ({done === 4 ? 'ready' : `${done}/4 complete`})
                   </option>
                 );
               })}
@@ -1457,13 +1478,13 @@ export function SourceOnboardingWizard({
                       )}
 
                       {/* Tables currently in scope */}
-                      {registeredEntities.length > 0 && (
+                      {selectedSourceEntityCount > 0 && (
                         <div className="pt-4 border-t border-border">
                           <p className="text-xs font-medium text-muted-foreground mb-2">
-                            Tables in scope ({registeredEntities.length})
+                            Tables in scope ({selectedSourceEntityCount})
                           </p>
                           <div className="space-y-1 max-h-40 overflow-y-auto">
-                            {registeredEntities.map(e => (
+                            {selectedSourceEntityScope.map(e => (
                               <div key={e.LandingzoneEntityId} className="flex items-center gap-2 text-xs">
                                 <CheckCircle2 className="h-3 w-3 text-[#3D7C4F] shrink-0" />
                                 <span className="font-mono text-foreground">{e.SourceSchema}.{e.SourceName}</span>
@@ -1490,19 +1511,19 @@ export function SourceOnboardingWizard({
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-xs font-bold text-primary bg-primary/10 rounded-full w-5 h-5 flex items-center justify-center">3</span>
-                    <h3 className="text-sm font-semibold text-foreground">Import Data</h3>
+                    <h3 className="text-sm font-semibold text-foreground">Start Real Load</h3>
                   </div>
 
                   {isVisualStepComplete(2) ? (
                     <div className="ml-7">
-                      {/* Ready to import — source configured */}
+                      {/* Ready to launch — source configured */}
                       <div className="bg-[#E7F3EB] border border-[#3D7C4F]/30 rounded-lg p-4 mb-4">
                         <div className="flex items-center gap-2 text-sm text-[#3D7C4F] mb-2">
                           <CheckCircle2 className="h-5 w-5" />
-                          <span className="font-semibold">Source ready to import</span>
+                          <span className="font-semibold">Source ready for a scoped real load</span>
                         </div>
                         <p className="text-xs text-[#3D7C4F]/80">
-                          <strong>{selectedSource}</strong> is configured with {registeredEntities.length} table{registeredEntities.length !== 1 ? 's' : ''} in scope. Click Import to start loading data.
+                          <strong>{selectedSource}</strong> is configured with {selectedSourceEntityCount} table{selectedSourceEntityCount !== 1 ? 's' : ''} in scope. The run will start only if framework-mode preflight passes.
                         </p>
                       </div>
 
@@ -1585,7 +1606,7 @@ export function SourceOnboardingWizard({
                               <div className="flex items-center gap-2 text-xs text-[#3D7C4F]">
                                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                                 <span className="font-medium">
-                                  Import started for all {registeredEntities.length} tables. Data will be available once processing completes.
+                                  Real load launched{importRunId ? ` as run ${importRunId.slice(0, 8)}` : ''}. Track physical Landing, Bronze, and Silver evidence in Mission Control.
                                 </span>
                               </div>
                             </div>
@@ -1598,19 +1619,19 @@ export function SourceOnboardingWizard({
                         {!importJobId && !importStarting ? (
                           <button
                             onClick={startImport}
-                            disabled={importStarting}
+                            disabled={importStarting || selectedSourceEntityCount === 0}
                             className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm disabled:opacity-50 transition-colors"
                           >
                             <Rocket className="h-4 w-4" />
-                            Import {registeredEntities.length} Table{registeredEntities.length !== 1 ? 's' : ''}
+                            Start Real Load for {selectedSourceEntityCount} Table{selectedSourceEntityCount !== 1 ? 's' : ''}
                           </button>
                         ) : importComplete ? (
                           <a
-                            href="/load-center"
+                            href={importRunId ? `/load-mission-control?run=${encodeURIComponent(importRunId)}` : '/load-mission-control'}
                             className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm transition-colors"
                           >
                             <ExternalLink className="h-4 w-4" />
-                            View in Load Center
+                            View Run in Mission Control
                           </a>
                         ) : importError ? (
                           <button
@@ -1622,8 +1643,14 @@ export function SourceOnboardingWizard({
                           </button>
                         ) : null}
 
+                        {selectedSourceEntityCount === 0 && !importJobId && (
+                          <div className="rounded-lg border border-[#B7791F]/30 bg-[#FFF7E6] p-3 text-xs text-[#8A5A12]">
+                            No active entities are resolved for this source yet. Add tables to scope before starting a real load.
+                          </div>
+                        )}
+
                         <button
-                          onClick={() => { if (importEventSourceRef.current) { importEventSourceRef.current.close(); importEventSourceRef.current = null; } importCompleteRef.current = false; setShowNewSource(true); setSelectedSource(''); setActiveVisualStep(null); setImportJobId(null); setImportComplete(false); setImportError(null); }}
+                          onClick={() => { if (importEventSourceRef.current) { importEventSourceRef.current.close(); importEventSourceRef.current = null; } importCompleteRef.current = false; setShowNewSource(true); setSelectedSource(''); setActiveVisualStep(null); setImportJobId(null); setImportRunId(null); setImportComplete(false); setImportError(null); }}
                           className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 text-xs transition-colors"
                         >
                           <Plus className="h-3.5 w-3.5" />
@@ -1631,19 +1658,18 @@ export function SourceOnboardingWizard({
                         </button>
                       </div>
 
-                      {/* Info box — what happens (user-facing, no internal vocabulary) */}
+                      {/* Info box — what happens (user-facing, no false completion claims) */}
                       {!importJobId && !importStarting && (
                         <div className="mt-4 bg-muted/50 rounded-lg p-3 border border-border">
-                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">What happens when you import</p>
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">What happens when you start a real load</p>
                           <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-                            <li>Your tables are added to scope and analyzed for optimal loading</li>
-                            <li>Data is copied from the source database</li>
-                            <li>Tables are standardized and deduplicated</li>
-                            <li>Business logic and data quality rules are applied</li>
-                            <li>Data is ready for reporting and analysis</li>
+                            <li>FMD resolves this source to a specific list of active entities</li>
+                            <li>Framework-mode preflight checks Python, dependencies, source scope, and write paths</li>
+                            <li>Dagster launches the real Landing, Bronze, and Silver engine path</li>
+                            <li>Mission Control tracks the run and exposes physical artifact evidence</li>
                           </ol>
                           <p className="text-[10px] text-muted-foreground/70 mt-2">
-                            First import does a full analysis. All future imports are incremental (only new/changed rows).
+                            If preflight fails, nothing is launched and the reason is shown here.
                           </p>
                         </div>
                       )}

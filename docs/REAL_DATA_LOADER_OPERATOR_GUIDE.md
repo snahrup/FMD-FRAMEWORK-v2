@@ -80,6 +80,31 @@ Current selected candidate:
 9. Run Silver for the same entity.
 10. Only then enable Real Scoped Load for a selected source.
 
+## Adding a Source and Starting a Real Load
+
+Source Manager is the operator-facing onboarding path:
+
+1. Open **Source Manager**.
+2. Create or select a source.
+3. Configure the gateway connection and source metadata.
+4. Discover tables and add only the intended tables to scope.
+5. Use **Start Real Load** from the final wizard step.
+
+The final wizard step now uses the real engine/Dagster path. It resolves the selected source to active entity IDs, runs framework-mode preflight, and then starts a scoped Landing/Bronze/Silver run. It will not silently widen to every source when the selected source cannot be resolved.
+
+Expected success behavior:
+
+- The wizard reports the launched engine run ID.
+- The user follows that run in **Mission Control**.
+- Mission Control shows run truth from `engine_runs` and `engine_task_log`.
+- Real smoke verification writes a receipt at `.runs\real-smoke\<run-id>\receipt.json` when physical artifacts are proven.
+
+Expected failure behavior:
+
+- If Dagster is still in dry-run mode, preflight fails and nothing launches.
+- If the source has no active entities, the wizard fails and nothing launches.
+- If Python, ODBC, VPN, or OneLake/Delta prerequisites are missing, preflight fails and nothing launches.
+
 ## Reading Load Mission Control
 
 - Runtime badge says whether you are in `Dagster dry run` or `Dagster framework`.
