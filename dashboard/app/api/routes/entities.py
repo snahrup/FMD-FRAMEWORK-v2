@@ -432,10 +432,13 @@ def register_entity(params):
               isIncremental, incrementalColumn, customNotebookName
     """
     ds_name = (params.get("dataSourceName") or "").strip()
+    ds_id_param = params.get("dataSourceId")
     source_name = (params.get("sourceName") or "").strip()
 
-    if not ds_name or not source_name:
-        raise HttpError("dataSourceName and sourceName are required", 400)
+    if not source_name:
+        raise HttpError("sourceName is required", 400)
+    if not ds_name and not ds_id_param:
+        raise HttpError("dataSourceId or dataSourceName is required", 400)
 
     schema = (params.get("sourceSchema") or "dbo").strip()
     file_name = (params.get("fileName") or source_name).strip()
@@ -444,13 +447,22 @@ def register_entity(params):
     inc_col = (params.get("incrementalColumn") or "").strip()
     custom_nb = (params.get("customNotebookName") or "").strip()
 
-    # Look up DataSourceId from SQLite
+    # Look up DataSourceId from SQLite. Prefer the stable ID when the UI has it;
+    # duplicate database names across connections make name-only matching unsafe.
     datasources = cpdb.get_datasources()
-    ds_match = [d for d in datasources if d.get("Name") == ds_name]
+    ds_match = []
+    if ds_id_param is not None and str(ds_id_param).strip():
+        try:
+            requested_ds_id = int(ds_id_param)
+        except (TypeError, ValueError):
+            raise HttpError("dataSourceId must be numeric", 400)
+        ds_match = [d for d in datasources if int(d.get("DataSourceId", 0) or 0) == requested_ds_id]
+    if not ds_match and ds_name:
+        ds_match = [d for d in datasources if d.get("Name") == ds_name]
     if not ds_match:
         available = [d.get("Name", "") for d in datasources]
         raise HttpError(
-            f'DataSource "{ds_name}" not found. Available: {", ".join(available)}', 400
+            f'DataSource "{ds_name or ds_id_param}" not found. Available: {", ".join(available)}', 400
         )
     ds_id = int(ds_match[0]["DataSourceId"])
 

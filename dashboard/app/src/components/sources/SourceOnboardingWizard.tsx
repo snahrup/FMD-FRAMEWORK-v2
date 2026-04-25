@@ -547,6 +547,7 @@ export function SourceOnboardingWizard({
     const step2 = getStep(2);
     const dsName = step2?.referenceId || '';
     const ds = registeredDataSources.find(d => d.Name === dsName);
+    const dsId = ds ? parseInt(ds.DataSourceId, 10) : undefined;
     const dsType = ds?.Type || sourceType;
     const fp = filePath || dsName.toLowerCase();
 
@@ -561,7 +562,7 @@ export function SourceOnboardingWizard({
     // Dispatch to background context — survives navigation
     const taskId = bgTasks.startEntityRegistration(
       `Registering ${tables.length} ${sourceLabel || 'entities'}`,
-      { dataSourceName: dsName, dataSourceType: dsType, tables }
+      { dataSourceName: dsName, dataSourceId: Number.isFinite(dsId) ? dsId : undefined, dataSourceType: dsType, tables }
     );
     activeTaskIdRef.current = taskId;
 

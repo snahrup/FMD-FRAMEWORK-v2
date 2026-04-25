@@ -92,7 +92,7 @@ def test_register_entity_requires_body():
 def test_register_entity_missing_datasource_name():
     status, _, body = dispatch("POST", "/api/entities", {}, {"sourceName": "test_table"})
     assert status == 400
-    assert "datasourcename" in json.loads(body)["error"].lower()
+    assert "datasourceid or datasourcename" in json.loads(body)["error"].lower()
 
 
 def test_register_entity_missing_source_name():
@@ -132,6 +132,28 @@ def test_register_entity_success():
     assert result["success"] is True
     assert "entityId" in result
     assert result["entityId"] > 0
+
+
+def test_register_entity_prefers_datasource_id():
+    """Registering by stable DataSourceId should work even if the name is stale."""
+    cpdb.upsert_connection({
+        "ConnectionId": 2, "Name": "CON_TEST_ID", "Type": "SQL", "IsActive": 1,
+    })
+    cpdb.upsert_datasource({
+        "DataSourceId": 22, "ConnectionId": 2,
+        "Name": "DS_STABLE", "Namespace": "TEST", "Type": "SQL",
+        "Description": "", "IsActive": 1,
+    })
+
+    status, _, body = dispatch("POST", "/api/entities", {}, {
+        "dataSourceId": 22,
+        "dataSourceName": "STALE_NAME",
+        "sourceName": "by_id_table",
+        "sourceSchema": "dbo",
+    })
+    assert status == 200
+    result = json.loads(body)
+    assert result["success"] is True
 
 
 # ---------------------------------------------------------------------------
