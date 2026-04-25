@@ -15,6 +15,7 @@ export interface BackgroundTask {
 
 export interface EntityRegistrationPayload {
   dataSourceName: string;
+  dataSourceId?: number;
   dataSourceType: string;
   tables: { schema: string; tableName: string; fileName: string; filePath: string }[];
 }
@@ -89,6 +90,7 @@ export function BackgroundTaskProvider({ children }: { children: ReactNode }) {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 dataSourceName: payload.dataSourceName,
+                dataSourceId: payload.dataSourceId,
                 dataSourceType: payload.dataSourceType,
                 sourceSchema: table.schema,
                 sourceName: table.tableName,
