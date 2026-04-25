@@ -26,12 +26,14 @@ test.describe("FMD Canvas Builder", () => {
 
     await page.goto(CANVAS_URL, { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("heading", { name: /Design a pipeline visually/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Build the pipeline path/i })).toBeVisible();
     await expect(page.getByRole("link", { name: /Canvas Builder/i })).toBeVisible();
-    await expect(page.getByText("Node Palette")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Validation" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Compiled Run Plan" })).toBeVisible();
-    await expect(page.getByText("Ready to launch")).toBeVisible();
+    await expect(page.getByText("Node Palette")).toHaveCount(0);
+
+    await page.getByRole("button", { name: /Add nodes/i }).click();
+    await expect(page.getByRole("heading", { name: "Node Palette" })).toBeVisible();
+    await page.getByRole("button", { name: /Add nodes/i }).click();
+    await expect(page.getByText("Node Palette")).toHaveCount(0);
 
     const bronzeNode = page.locator(".fmd-canvas-node").filter({ hasText: "Bronze Delta" });
     await expect(bronzeNode).toHaveCount(1);
@@ -42,6 +44,8 @@ test.describe("FMD Canvas Builder", () => {
     await page.getByRole("button", { name: /Dry run/i }).click();
 
     await expect(page.getByText("Dry run compiled successfully.")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "Validation" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Compiled Run Plan" })).toBeVisible();
     await expect(page.getByText(/\d+ entities across landing, bronze, silver/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /Start Pipeline/i })).toBeEnabled();
 
