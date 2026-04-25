@@ -6,12 +6,15 @@ Endpoints:
     GET /api/lmc/progress              — Enhanced overall progress (real counts from task_log)
     GET /api/lmc/runs                  — Run history with real entity counts
     GET /api/lmc/run/{run_id}          — Per-run detail (layers, sources, errors, optimization)
+    GET /api/lmc/run/{run_id}/receipt  — Real-load receipt / physical artifact evidence
     GET /api/lmc/run/{run_id}/entities — Filterable per-entity list for a run
     GET /api/lmc/entity/{entity_id}/history — Entity across all runs (retries, watermarks)
 """
 
+import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
 from dashboard.app.api.router import route, HttpError
 from dashboard.app.api import db
@@ -59,6 +62,68 @@ def _safe_scalar(sql: str, params: tuple = (), default=0):
             return list(first.values())[0]
         return first
     return default
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def _receipt_path_for_run(run_id: str) -> Path:
+    return _project_root() / ".runs" / "real-smoke" / run_id / "receipt.json"
+
+
+def _flatten_receipt_artifacts(receipt: dict) -> list[dict]:
+    artifacts: list[dict] = []
+    for entity in receipt.get("entities") or []:
+        qualified_name = entity.get("qualifiedName") or ""
+        for layer, payload in (entity.get("layers") or {}).items():
+            task = payload.get("task") or {}
+            artifact = payload.get("artifactCheck") or {}
+            task_check = payload.get("taskCheck") or {}
+            artifacts.append({
+                "entityId": payload.get("entityId") or entity.get("landingEntityId"),
+                "qualifiedName": qualified_name,
+                "layer": layer,
+                "status": payload.get("status") or artifact.get("status") or task_check.get("status") or "unknown",
+                "taskStatus": task.get("Status"),
+                "rowsRead": _int(task.get("RowsRead")),
+                "rowsWritten": _int(task.get("RowsWritten")),
+                "bytesTransferred": _int(task.get("BytesTransferred")),
+                "targetPath": artifact.get("targetPath") or task.get("TargetPath") or "",
+                "localPath": artifact.get("localPath"),
+                "artifactStatus": artifact.get("status") or "not_checked",
+                "artifactMessage": artifact.get("message") or "",
+                "completedAt": task.get("created_at"),
+            })
+    return artifacts
+
+
+def _task_log_receipt_artifacts(run_id: str) -> list[dict]:
+    rows = _safe_query(
+        "SELECT EntityId, Layer, Status, SourceTable, RowsRead, RowsWritten, BytesTransferred, "
+        "TargetPath, LoadType, ExtractionMethod, ErrorMessage, created_at "
+        "FROM engine_task_log WHERE RunId = ? ORDER BY id",
+        (run_id,),
+    )
+    artifacts = []
+    for row in rows:
+        layer = str(row.get("Layer") or "").lower()
+        artifacts.append({
+            "entityId": _int(row.get("EntityId")),
+            "qualifiedName": row.get("SourceTable") or "",
+            "layer": layer,
+            "status": str(row.get("Status") or "unknown").lower(),
+            "taskStatus": row.get("Status"),
+            "rowsRead": _int(row.get("RowsRead")),
+            "rowsWritten": _int(row.get("RowsWritten")),
+            "bytesTransferred": _int(row.get("BytesTransferred")),
+            "targetPath": row.get("TargetPath") or "",
+            "localPath": None,
+            "artifactStatus": "not_checked",
+            "artifactMessage": "No machine receipt was found for this run; physical artifact status has not been verified.",
+            "completedAt": row.get("created_at"),
+        })
+    return artifacts
 
 
 def _int(v) -> int:
@@ -1192,6 +1257,78 @@ def get_lmc_run_detail(params: dict) -> dict:
             "event": f"{row['Layer']}:{row['Status']}",
             "detail": f"{_int(row['cnt'])} entries, {_int(row['rows_read'])} rows",
         } for row in timeline],
+        "serverTime": _utcnow_iso(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/lmc/run/{run_id}/receipt — Real smoke receipt / artifact evidence
+# ---------------------------------------------------------------------------
+
+@route("GET", "/api/lmc/run/{run_id}/receipt")
+def get_lmc_run_receipt(params: dict) -> dict:
+    """Return machine-readable real-load receipt evidence for a selected run."""
+    run_id = params.get("run_id", "")
+    if not run_id:
+        raise HttpError("run_id is required", 400)
+
+    run_rows = _safe_query("SELECT * FROM engine_runs WHERE RunId = ?", (run_id,))
+    if not run_rows:
+        raise HttpError(f"Run {run_id} not found", 404)
+
+    receipt_path = _receipt_path_for_run(run_id)
+    task_artifacts = _task_log_receipt_artifacts(run_id)
+    if not receipt_path.exists():
+        return {
+            "runId": run_id,
+            "available": False,
+            "ok": False,
+            "generatedAt": None,
+            "receiptPath": str(receipt_path),
+            "summary": {
+                "passed": 0,
+                "warnings": 0,
+                "notChecked": len(task_artifacts),
+                "failed": 0,
+            },
+            "checks": [],
+            "artifacts": task_artifacts,
+            "message": "No real-load receipt file has been generated for this run yet.",
+            "serverTime": _utcnow_iso(),
+        }
+
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        log.warning("Failed to read real-load receipt %s: %s", receipt_path, exc)
+        return {
+            "runId": run_id,
+            "available": False,
+            "ok": False,
+            "generatedAt": None,
+            "receiptPath": str(receipt_path),
+            "summary": {"passed": 0, "warnings": 0, "notChecked": 0, "failed": 1},
+            "checks": [{
+                "id": "receipt_parse",
+                "status": "failed",
+                "message": f"Receipt exists but could not be parsed: {exc}",
+            }],
+            "artifacts": task_artifacts,
+            "message": "Receipt exists but is not readable JSON.",
+            "serverTime": _utcnow_iso(),
+        }
+
+    return {
+        "runId": run_id,
+        "available": True,
+        "ok": bool(receipt.get("ok")),
+        "generatedAt": receipt.get("generatedAt"),
+        "receiptPath": str(receipt_path),
+        "missionControlUrl": receipt.get("missionControlUrl"),
+        "summary": receipt.get("summary") or {},
+        "checks": receipt.get("checks") or [],
+        "artifacts": _flatten_receipt_artifacts(receipt) or task_artifacts,
+        "message": "Real-load receipt loaded.",
         "serverTime": _utcnow_iso(),
     }
 

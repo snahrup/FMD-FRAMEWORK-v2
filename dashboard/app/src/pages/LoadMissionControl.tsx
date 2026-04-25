@@ -405,6 +405,41 @@ interface RunDetailResponse {
   selfHeal: SelfHealPayload;
 }
 
+interface RunReceiptArtifact {
+  entityId: number;
+  qualifiedName: string;
+  layer: string;
+  status: string;
+  taskStatus: string;
+  rowsRead: number;
+  rowsWritten: number;
+  bytesTransferred: number;
+  targetPath: string;
+  localPath: string | null;
+  artifactStatus: string;
+  artifactMessage: string;
+  completedAt: string | null;
+}
+
+interface RunReceiptResponse {
+  runId: string;
+  available: boolean;
+  ok: boolean;
+  generatedAt: string | null;
+  receiptPath: string;
+  missionControlUrl?: string | null;
+  summary: {
+    passed?: number;
+    warnings?: number;
+    notChecked?: number;
+    failed?: number;
+  };
+  checks: Array<{ id: string; status: string; message: string }>;
+  artifacts: RunReceiptArtifact[];
+  message: string;
+  serverTime: string;
+}
+
 // Source × Layer matrix cell data (computed client-side)
 interface MatrixCell {
   source: string;
@@ -715,6 +750,35 @@ function useRunScopeInventory(runId: string | null, enabled: boolean, pollMs = 1
     setLoading(true);
     try {
       const res = await fetch(`${API}/api/lmc/run/${runId}/scope-inventory`);
+      if (!res.ok) return;
+      setData(await res.json());
+    } catch { /* swallow */ }
+    finally { setLoading(false); }
+  }, [enabled, runId]);
+
+  useEffect(() => {
+    fetch_();
+    if (!enabled || !runId || pollMs <= 0) return;
+    const iv = setInterval(fetch_, pollMs);
+    return () => clearInterval(iv);
+  }, [enabled, fetch_, pollMs, runId]);
+
+  return { data, loading, refetch: fetch_ };
+}
+
+function useRunReceipt(runId: string | null, enabled: boolean, pollMs = 15000) {
+  const [data, setData] = useState<RunReceiptResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetch_ = useCallback(async () => {
+    if (!enabled || !runId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/api/lmc/run/${runId}/receipt`);
       if (!res.ok) return;
       setData(await res.json());
     } catch { /* swallow */ }
@@ -2003,6 +2067,179 @@ function PhaseRail({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function ArtifactEvidencePanel({
+  receipt,
+  loading,
+  runId,
+  isDryRun,
+  onRefresh,
+}: {
+  receipt: RunReceiptResponse | null;
+  loading: boolean;
+  runId: string | null;
+  isDryRun: boolean;
+  onRefresh: () => void;
+}) {
+  if (!runId || (isDryRun && !receipt?.available)) return null;
+
+  const summary = receipt?.summary ?? {};
+  const failed = summary.failed ?? 0;
+  const warnings = summary.warnings ?? 0;
+  const notChecked = summary.notChecked ?? 0;
+  const passed = summary.passed ?? 0;
+  const tone = receipt?.ok
+    ? { color: "var(--bp-operational)", bg: "rgba(34,197,94,0.07)", label: "Verified" }
+    : receipt?.available
+      ? { color: failed > 0 ? "var(--bp-fault)" : "var(--bp-copper)", bg: failed > 0 ? "rgba(220,38,38,0.06)" : "rgba(180,86,36,0.07)", label: failed > 0 ? "Needs attention" : "Partially verified" }
+      : { color: "var(--bp-ink-muted)", bg: "var(--bp-surface-inset)", label: "Receipt pending" };
+
+  const artifacts = receipt?.artifacts ?? [];
+  const visibleArtifacts = artifacts.slice(0, 6);
+
+  return (
+    <div style={{
+      margin: "18px 32px 0",
+      padding: "18px 20px",
+      border: "1px solid var(--bp-border-subtle)",
+      borderRadius: 14,
+      background: "var(--bp-surface-1)",
+    }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+        <div style={{
+          width: 36,
+          height: 36,
+          borderRadius: 10,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: tone.bg,
+          color: tone.color,
+          flexShrink: 0,
+        }}>
+          {receipt?.ok ? <CheckCircle2 size={18} /> : receipt?.available ? <AlertTriangle size={18} /> : <HelpCircle size={18} />}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ ...S.sans, fontSize: 15, fontWeight: 800, color: "var(--bp-ink-primary)" }}>
+              Real Load Evidence
+            </div>
+            <span style={{
+              ...S.badge,
+              background: tone.bg,
+              color: tone.color,
+              border: `1px solid ${tone.color}33`,
+              fontSize: 11,
+            }}>
+              {loading ? <Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} /> : null}
+              {tone.label}
+            </span>
+            {receipt?.generatedAt ? (
+              <span style={{ ...S.data, fontSize: 11, color: "var(--bp-ink-muted)" }}>
+                Generated {new Date(receipt.generatedAt).toLocaleString()}
+              </span>
+            ) : null}
+          </div>
+          <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-secondary)", lineHeight: 1.5, marginTop: 6 }}>
+            {receipt?.available
+              ? "This is the machine receipt for the selected run: task-log rows plus physical artifact checks for Landing Parquet and Delta tables."
+              : "This run has task-log rows, but no machine receipt has been generated yet. Run the real smoke verifier to prove physical Landing/Bronze/Silver artifacts."}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+            {[
+              { label: "Passed", value: passed, color: "var(--bp-operational)" },
+              { label: "Warnings", value: warnings, color: "var(--bp-copper)" },
+              { label: "Not checked", value: notChecked, color: "var(--bp-ink-muted)" },
+              { label: "Failed", value: failed, color: "var(--bp-fault)" },
+            ].map(item => (
+              <span key={item.label} style={{
+                ...S.badge,
+                background: `${item.color}12`,
+                border: `1px solid ${item.color}22`,
+                color: item.color,
+                fontSize: 11,
+              }}>
+                {item.label}: {formatNumber(item.value)}
+              </span>
+            ))}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onRefresh}
+          style={{
+            ...S.badge,
+            cursor: "pointer",
+            border: "1px solid var(--bp-border)",
+            background: "var(--bp-surface-1)",
+            color: "var(--bp-ink-secondary)",
+            padding: "6px 10px",
+            fontSize: 11,
+            flexShrink: 0,
+          }}
+        >
+          <RefreshCw size={12} />
+          Refresh
+        </button>
+      </div>
+
+      {visibleArtifacts.length > 0 ? (
+        <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
+          {visibleArtifacts.map((artifact, index) => {
+            const artifactTone = artifact.artifactStatus === "passed"
+              ? { color: "var(--bp-operational)", icon: CheckCircle2 }
+              : artifact.artifactStatus === "failed"
+                ? { color: "var(--bp-fault)", icon: XCircle }
+                : { color: "var(--bp-ink-muted)", icon: HelpCircle };
+            const Icon = artifactTone.icon;
+            return (
+              <div
+                key={`${artifact.layer}-${artifact.entityId}-${index}`}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "20px 120px minmax(180px, 1fr) 110px minmax(220px, 1.3fr)",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "10px 12px",
+                  border: "1px solid var(--bp-border-subtle)",
+                  borderRadius: 10,
+                  background: "var(--bp-surface-inset)",
+                  minWidth: 0,
+                }}
+              >
+                <Icon size={14} style={{ color: artifactTone.color }} />
+                <div style={{ ...S.sans, fontSize: 12, fontWeight: 800, color: layerColor(artifact.layer), textTransform: "capitalize" }}>
+                  {artifact.layer}
+                </div>
+                <div style={{ ...S.sans, fontSize: 12, color: "var(--bp-ink-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {artifact.qualifiedName || `Entity ${artifact.entityId}`}
+                </div>
+                <div style={{ ...S.data, fontSize: 11, color: "var(--bp-ink-secondary)" }}>
+                  {formatNumber(artifact.rowsWritten)} rows
+                </div>
+                <div title={artifact.localPath || artifact.targetPath} style={{
+                  ...S.data,
+                  fontSize: 11,
+                  color: "var(--bp-ink-muted)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}>
+                  {artifact.localPath || artifact.targetPath || artifact.artifactMessage}
+                </div>
+              </div>
+            );
+          })}
+          {artifacts.length > visibleArtifacts.length ? (
+            <div style={{ ...S.sans, fontSize: 11, color: "var(--bp-ink-muted)", paddingLeft: 2 }}>
+              Showing {visibleArtifacts.length} of {artifacts.length} artifact checks.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -4131,6 +4368,15 @@ function LoadMissionControlInner() {
     progress?.isDryRun ?? progress?.loadTypeBreakdown?.some(row => String(row.LoadType ?? "").toLowerCase() === "dry_run")
   );
   const selectedRunActive = missionTruth?.isActive ?? scope.isRunActive;
+  const {
+    data: runReceipt,
+    loading: receiptLoading,
+    refetch: refetchReceipt,
+  } = useRunReceipt(
+    scope.selectedRunId,
+    Boolean(scope.selectedRunId && !selectedRunIsDryRun),
+    selectedRunActive ? 5000 : 20000,
+  );
   const selectedRunScopeLabel = missionTruth?.scopeLabel
     ?? (scope.runSources.length > 0 ? `${scope.runSources.length} sources` : "All sources");
   const retryDisabled = selectedRunActive || selectedRunStatus === "inprogress" || selectedRunStatus === "running";
@@ -4760,6 +5006,13 @@ function LoadMissionControlInner() {
               )}
 
               <PhaseRail progress={progress} engine={engine} missionTruth={missionTruth} />
+              <ArtifactEvidencePanel
+                receipt={runReceipt}
+                loading={receiptLoading}
+                runId={scope.selectedRunId}
+                isDryRun={selectedRunIsDryRun}
+                onRefresh={refetchReceipt}
+              />
               <SourceLayerMatrix progress={progress} engine={engine} sourceNames={availableSources} />
             </div>
           )}
