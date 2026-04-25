@@ -74,6 +74,7 @@ import LoadMissionControl from '@/pages/LoadMissionControl'
 import OrchestrationStory from '@/pages/OrchestrationStory'
 import DagsterConsole from '@/pages/DagsterConsole'
 import PipelineCanvas from '@/pages/PipelineCanvas'
+import LaunchReadiness from '@/pages/LaunchReadiness'
 import TableCardListFixture from '@/test-fixtures/TableCardListFixture'
 const SchemaValidation = lazy(() => import('@/pages/SchemaValidation'))
 const DataEstate = lazy(() => import('@/pages/DataEstate'))
@@ -178,6 +179,8 @@ function App() {
         <Route path="/mission-control" element={<Navigate to="/load-mission-control" replace />} />
         <Route path="/orchestration-story" element={<OrchestrationStory />} />
         <Route path="/story" element={<Navigate to="/orchestration-story" replace />} />
+        <Route path="/launch-readiness" element={<LaunchReadiness />} />
+        <Route path="/roadmap" element={<Navigate to="/launch-readiness" replace />} />
         <Route path="/dagster/*" element={<DagsterConsole />} />
         <Route path="/__test/table-card-list" element={<TableCardListFixture />} />
         <Route path="/schema-validation" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><SchemaValidation /></Suspense>} />

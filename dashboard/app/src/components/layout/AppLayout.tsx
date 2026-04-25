@@ -110,6 +110,7 @@ const CORE_GROUPS: NavGroup[] = [
     label: "Monitor",
     items: [
       { icon: Radar, label: "Mission Control", href: "/load-mission-control" },
+      { icon: ClipboardCheck, label: "Launch Readiness", href: "/launch-readiness" },
       { icon: Grid3X3, label: "Execution Matrix", href: "/matrix" },
       { icon: Activity, label: "Error Intelligence", href: "/errors" },
       { icon: ScrollText, label: "Execution Log", href: "/logs" },
@@ -207,6 +208,7 @@ const BUSINESS_GROUPS: NavGroup[] = [
       { icon: LayoutDashboard, label: "Overview", href: "/overview" },
       { icon: Presentation, label: "Demo Story", href: "/orchestration-story" },
       { icon: Workflow, label: "Canvas Builder", href: "/canvas" },
+      { icon: ClipboardCheck, label: "Launch Readiness", href: "/launch-readiness" },
       { icon: Bell, label: "Alerts", href: "/alerts" },
       { icon: Cable, label: "Sources", href: "/sources-portal" },
       { icon: Library, label: "Catalog", href: "/catalog-portal" },
@@ -316,6 +318,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     "/canvas",
     "/sources",
     "/load-mission-control",
+    "/launch-readiness",
     "/matrix",
     "/errors",
     "/logs",

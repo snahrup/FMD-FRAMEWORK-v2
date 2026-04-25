@@ -316,10 +316,10 @@ _import_jobs_lock = threading.Lock()
 
 _PHASE_LABELS = {
     "registering": "Registering entities",
-    "optimizing": "Analyzing load config",
-    "loading_lz": "Loading Landing Zone",
-    "loading_bronze": "Loading Bronze",
-    "loading_silver": "Loading Silver",
+    "optimizing": "Running real-load preflight",
+    "loading_lz": "Launching Landing Zone",
+    "loading_bronze": "Launching Bronze",
+    "loading_silver": "Launching Silver",
     "complete": "Complete",
     "failed": "Failed",
 }
@@ -338,6 +338,7 @@ class ImportJob:
         self.started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self.finished_at = None
         self.error = None
+        self.engine_run_id = None
         self._events: list[dict] = []
         self._cond = threading.Condition()
 
@@ -374,8 +375,11 @@ class ImportJob:
         self.phase_label = _PHASE_LABELS["complete"]
         self.progress = 100
         self.finished_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        evt = {"phase": "complete", "label": self.phase_label, "progress": 100}
+        if self.engine_run_id:
+            evt["runId"] = self.engine_run_id
         with self._cond:
-            self._events.append({"phase": "complete", "label": "Complete", "progress": 100})
+            self._events.append(evt)
             self._cond.notify_all()
 
     def wait_for_event(self, last_index: int, timeout: float = 30.0) -> list[dict]:
@@ -398,56 +402,76 @@ class ImportJob:
             "startedAt": self.started_at,
             "finishedAt": self.finished_at,
             "error": self.error,
+            "engineRunId": self.engine_run_id,
         }
 
 
 def _run_source_import(job: ImportJob, body: dict):
-    """Background thread — runs the multi-phase import pipeline."""
-    datasource_id = body["datasourceId"]
+    """Background thread — launches a real scoped engine/Dagster load."""
     tables = body.get("tables", [])
-    username = body.get("username", "")
-    password = body.get("password", "")
+    entity_ids = [int(v) for v in body.get("entityIds", []) if str(v).strip()]
+    source_filter = body.get("sourceFilter") or []
 
     try:
-        job.set_phase("registering", progress=5)
-        # Phase 1: register entities (light — SQLite writes only)
-        if tables:
-            for i, t in enumerate(tables):
-                schema = t.get("schema", "dbo")
-                table = t.get("table", t.get("name", ""))
-                if not table:
-                    continue
-                try:
-                    db.execute(
-                        "INSERT OR IGNORE INTO lz_entities "
-                        "(DataSourceId, SourceSchema, SourceName, FileName, FilePath, FileType, IsActive) "
-                        "VALUES (?, ?, ?, ?, ?, 'parquet', 1)",
-                        (datasource_id, schema, table, table, f"/{schema}/{table}.parquet"),
-                    )
-                    job.tables_done = i + 1
-                    pct = 5 + int(((i + 1) / len(tables)) * 10)
-                    job.set_phase("registering", progress=pct, current_table=f"{schema}.{table}")
-                except Exception as ex:
-                    log.warning("Import: failed to register %s.%s: %s", schema, table, ex)
-        job.set_phase("registering", progress=15)
-        if tables:
-            _queue_export("lz_entities")
+        if not entity_ids:
+            raise ValueError(
+                "No active entities were resolved for this source. "
+                "Refusing to start a broad import."
+            )
 
-        # Phase 2: optimizing (stub — full analyze requires VPN)
-        job.set_phase("optimizing", progress=30)
+        job.tables_done = len(tables)
+        job.set_phase("registering", progress=10, current_table=f"{len(entity_ids)} scoped entities")
+        _queue_export("lz_entities")
+        _queue_export("bronze_entities")
+        _queue_export("silver_entities")
 
-        # Phase 3-5: pipeline triggers delegated to pipeline route module
-        # Import jobs running in the route layer do not directly call
-        # trigger_pipeline() to avoid circular imports.  The pipeline
-        # names are recorded in the job events for the frontend to act on.
-        job.set_phase("loading_lz", progress=40)
-        job.set_phase("loading_lz", progress=55)
-        job.set_phase("loading_bronze", progress=60)
-        job.set_phase("loading_bronze", progress=75)
-        job.set_phase("loading_silver", progress=80)
-        job.set_phase("loading_silver", progress=95)
+        from dashboard.app.api.routes.engine import _delegate as _engine_delegate
+
+        job.set_phase("optimizing", progress=25)
+        preflight = _engine_delegate("POST", "/api/engine/preflight", {
+            "runtime_mode": "framework",
+            "dagster_mode": "framework",
+            "entity_ids": entity_ids,
+            "source_filter": source_filter,
+        })
+        if preflight.get("status") != "passed":
+            failed = [
+                f"{c.get('label')}: {c.get('message')}"
+                for c in preflight.get("checks", [])
+                if c.get("status") != "passed"
+            ]
+            raise RuntimeError(
+                "Real-load preflight failed. "
+                + ("; ".join(failed[:4]) if failed else "Review Mission Control preflight checks.")
+            )
+
+        job.set_phase("loading_lz", progress=45)
+        launch = _engine_delegate("POST", "/api/engine/start", {
+            "orchestrator": "dagster",
+            "mode": "run",
+            "dry_run": False,
+            "dagster_mode": "framework",
+            "layers": ["landing", "bronze", "silver"],
+            "entity_ids": entity_ids,
+            "triggered_by": "source_onboarding",
+            "source_filter": source_filter,
+            "resolved_entity_count": len(entity_ids),
+        })
+        run_id = launch.get("run_id")
+        if not run_id:
+            raise RuntimeError("Engine accepted the import request but did not return a run id.")
+
+        job.engine_run_id = str(run_id)
+        job.set_phase("loading_bronze", progress=70, current_table=f"Run {job.engine_run_id[:8]}")
+        job.set_phase("loading_silver", progress=90, current_table=f"Run {job.engine_run_id[:8]}")
         job.complete()
-        log.info("Import job %s completed for %s", job.job_id, job.datasource_name)
+        log.info(
+            "Import job %s launched engine run %s for %s (%d entities)",
+            job.job_id,
+            job.engine_run_id,
+            job.datasource_name,
+            len(entity_ids),
+        )
     except Exception as ex:
         log.exception("Import job %s failed: %s", job.job_id, ex)
         job.add_error(str(ex)[:500])
