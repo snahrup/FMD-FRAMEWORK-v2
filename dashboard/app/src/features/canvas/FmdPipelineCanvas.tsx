@@ -360,9 +360,9 @@ function NodeInspector({
               Executor
               <select value={String(selected.config.executor ?? "fmd_framework")} onChange={(event) => setConfig("executor", event.target.value)}>
                 <option value="fmd_framework">FMD / Dagster</option>
-                <option value="fabric_pipeline">Fabric Pipeline</option>
-                <option value="fabric_notebook">Fabric Notebook</option>
-                <option value="external_adapter">External Adapter</option>
+                <option value="fabric_pipeline">Fabric Pipeline mirror (planned)</option>
+                <option value="fabric_notebook">Fabric Notebook mirror (planned)</option>
+                <option value="external_adapter">External adapter mirror (planned)</option>
               </select>
             </label>
             <label>

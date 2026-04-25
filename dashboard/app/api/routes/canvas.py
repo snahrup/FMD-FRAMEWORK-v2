@@ -403,7 +403,7 @@ def compile_run_plan(flow: dict[str, Any]) -> dict[str, Any]:
                 adapter_steps.append({
                     **step,
                     "status": "modeled",
-                    "note": "Adapter node is included in the plan, but MVP execution is delegated through FMD/Dagster.",
+                    "note": "Planned Fabric/external mirror only in this build. It does not create, sync, or run a Fabric artifact yet; execution remains routed through FMD/Dagster.",
                 })
 
     if not layers:
@@ -435,6 +435,10 @@ def compile_run_plan(flow: dict[str, Any]) -> dict[str, Any]:
             "entityCount": len(entity_ids),
             "stepCount": len(steps),
             "adapterStepCount": len(adapter_steps),
+            "adapterExecutionNote": (
+                "Fabric/external mirror nodes are planned only in this build; they do not create or sync Fabric artifacts yet."
+                if adapter_steps else None
+            ),
         },
         "compiledAt": _now(),
     }
@@ -597,4 +601,3 @@ def post_canvas_run(params: dict) -> dict:
         "engine": engine_result,
         "serverTime": _now(),
     }
-
