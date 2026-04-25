@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   addEdge,
@@ -413,6 +413,7 @@ function FmdPipelineCanvasInner() {
   const [activeRun, setActiveRun] = useState<ActiveCanvasRun | null>(null);
   const [runPulse, setRunPulse] = useState(0);
   const [notice, setNotice] = useState<{ tone: "success" | "warning" | "error"; message: string } | null>(null);
+  const hasFitInitialViewport = useRef(false);
 
   const currentFlow = useMemo(() => buildFlowFromReactState(baseFlow, nodes, edges), [baseFlow, nodes, edges]);
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId)?.data.canvasNode ?? null, [nodes, selectedNodeId]);
@@ -474,11 +475,17 @@ function FmdPipelineCanvasInner() {
   }, [activeRun]);
 
   useEffect(() => {
-    if (!reactFlow || renderedNodes.length === 0) return;
+    if (!reactFlow || renderedNodes.length === 0 || loading || hasFitInitialViewport.current) return;
+    hasFitInitialViewport.current = true;
     window.requestAnimationFrame(() => {
-      void reactFlow.setViewport({ x: 6, y: 18, zoom: 0.44 }, { duration: 180 });
+      void reactFlow.fitView({
+        padding: 0.14,
+        minZoom: 0.68,
+        maxZoom: 0.96,
+        duration: 220,
+      });
     });
-  }, [reactFlow, renderedNodes.length]);
+  }, [loading, reactFlow, renderedNodes.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -717,7 +724,9 @@ function FmdPipelineCanvasInner() {
                 setRightPanelMode("inspect");
               }}
               onPaneClick={() => setSelectedNodeId(null)}
-              defaultViewport={{ x: 6, y: 18, zoom: 0.44 }}
+              defaultViewport={{ x: 80, y: 132, zoom: 0.88 }}
+              minZoom={0.65}
+              maxZoom={1.25}
               snapToGrid
               snapGrid={[24, 24]}
             >
