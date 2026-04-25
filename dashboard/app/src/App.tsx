@@ -71,6 +71,8 @@ import DatabaseExplorer from '@/pages/DatabaseExplorer'
 import DataManager from '@/pages/DataManager'
 import LoadCenter from '@/pages/LoadCenter'
 import LoadMissionControl from '@/pages/LoadMissionControl'
+import OrchestrationStory from '@/pages/OrchestrationStory'
+import DagsterConsole from '@/pages/DagsterConsole'
 import TableCardListFixture from '@/test-fixtures/TableCardListFixture'
 const SchemaValidation = lazy(() => import('@/pages/SchemaValidation'))
 const DataEstate = lazy(() => import('@/pages/DataEstate'))
@@ -114,14 +116,18 @@ function App() {
         <Route path="/help" element={<BPPage><BusinessHelp /></BPPage>} />
         {/* Engineering Console routes */}
         <Route path="/matrix" element={<ExecutionMatrix />} />
+        <Route path="/execution-matrix" element={<Navigate to="/matrix" replace />} />
         <Route path="/engine" element={<EngineControl />} />
         <Route path="/control" element={<ControlPlane />} />
+        <Route path="/control-plane" element={<Navigate to="/control" replace />} />
         <Route path="/logs" element={<ExecutionLog />} />
+        <Route path="/execution-log" element={<Navigate to="/logs" replace />} />
         <Route path="/errors" element={<ErrorIntelligence />} />
         <Route path="/admin" element={<AdminGateway />} />
         <Route path="/flow" element={<FlowExplorer />} />
         <Route path="/explore" element={<ExploreHub />} />
         <Route path="/sources" element={<SourceManager />} />
+        <Route path="/source-manager" element={<Navigate to="/sources" replace />} />
         <Route path="/blender" element={<DataBlender />} />
         <Route path="/counts" element={<RecordCounts />} />
         <Route path="/journey" element={<DataJourney />} />
@@ -130,6 +136,7 @@ function App() {
         <Route path="/runner" element={<Navigate to="/load-center" replace />} />
         <Route path="/validation" element={<ValidationChecklist />} />
         <Route path="/notebook-debug" element={<NotebookDebug />} />
+        <Route path="/pipeline-testing" element={<Navigate to="/notebook-debug" replace />} />
         <Route path="/live" element={<LiveMonitor />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/setup" element={<EnvironmentSetup />} />
@@ -165,9 +172,14 @@ function App() {
         <Route path="/data-manager" element={<DataManager />} />
         <Route path="/load-center" element={<LoadCenter />} />
         <Route path="/load-mission-control" element={<LoadMissionControl />} />
+        <Route path="/mission-control" element={<Navigate to="/load-mission-control" replace />} />
+        <Route path="/orchestration-story" element={<OrchestrationStory />} />
+        <Route path="/story" element={<Navigate to="/orchestration-story" replace />} />
+        <Route path="/dagster/*" element={<DagsterConsole />} />
         <Route path="/__test/table-card-list" element={<TableCardListFixture />} />
         <Route path="/schema-validation" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><SchemaValidation /></Suspense>} />
         <Route path="/estate" element={<Suspense fallback={<div className="p-8" style={{ color: "var(--bp-ink-muted)" }}>Loading…</div>}><DataEstate /></Suspense>} />
+        <Route path="/data-estate" element={<Navigate to="/estate" replace />} />
         {/* Labs pages — always routed, nav visibility controlled by feature flags */}
         <Route path="/labs/cleansing" element={<CleansingRuleEditor />} />
         <Route path="/labs/scd-audit" element={<ScdAudit />} />

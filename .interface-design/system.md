@@ -1,17 +1,17 @@
 # FMD Dashboard — Interface Design System
 
 ## Direction & Feel
-**Manufacturing control room meets editorial authority.** Warm paper surfaces, industrial copper accent, zero shadows (borders only). The dashboard monitors enterprise data pipelines across 1,666 entities — density over whitespace, precision over decoration.
+**Manufacturing control room meets IP Corp enterprise web system.** White surfaces, soft gray separators, IP blue accents, zero shadows (borders only). The dashboard monitors enterprise data pipelines across 1,666 entities — density over whitespace, precision over decoration.
 
 Do not treat modernization as a rebrand. Preserve the current visual language that already works:
 - current typography direction
-- current warm paper and copper palette
+- current white/gray/IP-blue palette
 - current motion vocabulary and pacing
 
 The work is to make the product feel more coherent, intentional, and authored for IP Corporation, not to replace the aesthetic with something unrelated.
 
 ## Signature Element
-**Status Rail** — 3px left-edge color bar on every card, table row, and panel. Colors map to semantic status: green (operational/success), amber (caution/warning), red (fault/failure), copper (accent/active), gold/silver/bronze (tier/layer), gray (muted/inactive). Defined in CSS as `.bp-rail` with variants.
+**Status Rail** — 3px left-edge color bar on every card, table row, and panel. Colors map to semantic status: green (operational/success), amber (caution/warning), red (fault/failure), IP blue (accent/active), gold/silver/bronze (tier/layer), gray (muted/inactive). Defined in CSS as `.bp-rail` with variants.
 
 ## Depth Strategy
 **Borders only** — zero shadows throughout. Surface elevation via background color shifts:
@@ -19,6 +19,8 @@ The work is to make the product feel more coherent, intentional, and authored fo
 - Surface 1: `--bp-surface-1` (#FEFDFB)
 - Inset: `--bp-surface-inset` (#F9F7F3)
 - Code block: `--bp-code-block` (#2B2A27) for dark panels
+
+Current IP Corp skin overrides the warm legacy defaults to white and cool gray: canvas `#F7F9FB`, surface `#FFFFFF`, inset `#F1F5F9`.
 
 ## Spacing
 4px base (`--bp-space-1` through `--bp-space-8`). Cards use 16-20px padding. Tables use 12px cell padding. KPI strips use 20-24px padding.
@@ -31,8 +33,8 @@ The work is to make the product feel more coherent, intentional, and authored fo
 - Section labels: 10-11px Manrope 600 uppercase, tracking-wider, muted
 
 ## Color Palette (BP Tokens)
-- Accent: `--bp-copper` (#B45624) — primary interactive, CTAs
-- Surfaces: warm paper tones (cream, parchment)
+- Accent: `--bp-copper` currently remapped to IP blue (#0B8CC2) — primary interactive, CTAs
+- Surfaces: white and light cool gray, not cream or beige
 - Status: `--bp-operational` green, `--bp-caution` amber, `--bp-fault` red
 - Layers: `--bp-gold`, `--bp-silver`, `--bp-bronze` with metallic gradients
 - Ink: 4-level hierarchy (primary, secondary, tertiary, muted)
@@ -135,3 +137,6 @@ Apply the modernization treatment consistently across page families:
 - guided empty states with a next step
 
 The motion layer should support clarity, not decoration. Use stagger to reveal hierarchy and progress, not to show off.
+
+## Learnings
+- [2026-04-24] Steve explicitly prefers the IP Corp dashboard skin to avoid cream/beige backgrounds and stay on white, gray separators, and blues.

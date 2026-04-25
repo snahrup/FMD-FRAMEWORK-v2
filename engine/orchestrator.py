@@ -646,7 +646,7 @@ class LoadOrchestrator:
             # entity_ids are landing-level LandingzoneEntityIds; filter silver
             # scope to the silver entities derived from those LZ entities.
             placeholders = ",".join("?" for _ in entity_ids)
-            sql += f" AND be.LandingzoneEntityId IN ({placeholders})"
+            sql += f" AND le.LandingzoneEntityId IN ({placeholders})"
             params = tuple(entity_ids)
 
         rows = self._cpdb_query(sql, params)
@@ -1000,6 +1000,7 @@ class LoadOrchestrator:
 
             results.append(result)
             self._completed_units += 1
+            self._audit.log_layer_result(run_id, entity, result)
             # Track entity status in control plane DB
             self._audit.mark_bronze_entity_processed(entity, result, run_id)
             self._queue_case_for_self_heal(run_id, entity, result)
@@ -1084,6 +1085,7 @@ class LoadOrchestrator:
 
             results.append(result)
             self._completed_units += 1
+            self._audit.log_layer_result(run_id, entity, result)
             # Track entity status in control plane DB
             self._audit.mark_silver_entity_processed(entity, result, run_id)
             self._queue_case_for_self_heal(run_id, entity, result)
@@ -1580,6 +1582,10 @@ class LoadOrchestrator:
         # Step 1: Extract
         parquet_bytes, extract_result = self._extractor.extract(entity, run_id)
 
+        if extract_result.succeeded and parquet_bytes is None:
+            self._audit.log_entity_result(run_id, entity, extract_result)
+            return extract_result
+
         if not extract_result.succeeded or parquet_bytes is None:
             # Ensure every attempted landing gets an engine_task_log row —
             # this covers zero-row incrementals and extract failures that
@@ -1638,6 +1644,8 @@ class LoadOrchestrator:
             ),
             watermark_before=extract_result.watermark_before,
             watermark_after=extract_result.watermark_after,
+            extraction_method=extract_result.extraction_method,
+            watermark_strategy=extract_result.watermark_strategy,
         )
 
         # Step 4: Update metadata

@@ -32,7 +32,8 @@ export function BusinessIntentHeader({
         className="bp-card gs-page-enter"
         style={{
           padding: 18,
-          background: "linear-gradient(135deg, rgba(180,86,36,0.04) 0%, rgba(250,247,243,0.96) 52%, rgba(255,255,255,0.96) 100%)",
+          background: "var(--bp-surface-1)",
+          border: "1px solid var(--bp-border)",
           overflow: "hidden",
         }}
       >

@@ -46,6 +46,38 @@ def _strip_tz(df: pl.DataFrame) -> pl.DataFrame:
     return df
 
 
+def _prepare_delta_frame(df: pl.DataFrame) -> pl.DataFrame:
+    """Normalize a frame before Delta writes.
+
+    Delta cannot persist Polars Null-typed columns. Those happen when a source
+    column is present but every sampled value is null, which is common in
+    narrow smoke tests and sparse operational tables.
+    """
+    df = _strip_tz(df)
+    null_cols = [
+        col_name
+        for col_name, dtype in zip(df.columns, df.dtypes)
+        if dtype == pl.Null
+    ]
+    if null_cols:
+        log.info("Casting %d all-null Delta columns to string: %s", len(null_cols), ", ".join(null_cols[:12]))
+        df = df.with_columns([pl.col(col_name).cast(pl.Utf8) for col_name in null_cols])
+    return df
+
+
+def _normalize_adls_delta_path(path: str) -> str:
+    """Normalize the lakehouse GUID segment for delta-rs ADLS access.
+
+    Fabric/OneLake stores the GUID segment lower-case when delta-rs writes via
+    abfss. Reading back with the original upper-case GUID can fail with
+    "No files in log segment" even though the Delta log and parquet file exist.
+    """
+    parts = path.replace("\\", "/").split("/", 1)
+    if len(parts) == 2 and "-" in parts[0]:
+        return f"{parts[0].lower()}/{parts[1]}"
+    return path
+
+
 def _should_reset_delta_table(exc: Exception, mode: str) -> bool:
     """Return True when overwrite can safely recover by recreating the table."""
     if str(mode).lower() != "overwrite":
@@ -56,6 +88,8 @@ def _should_reset_delta_table(exc: Exception, mode: str) -> bool:
         "unsupported reader version",
         "unsupported writer version",
         "invalid protocol",
+        "no files in log segment",
+        "no files in log",
     )
     return any(marker in msg for marker in reset_markers)
 
@@ -297,6 +331,7 @@ class OneLakeIO:
         classify the entity as failed, not skipped.
         """
         t0 = time.perf_counter()
+        table_path = _normalize_adls_delta_path(table_path)
         uri = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{table_path}"
         try:
             from engine.auth import SCOPE_ONELAKE
@@ -347,10 +382,7 @@ class OneLakeIO:
             # Ensure parent directories exist
             os.makedirs(local_path, exist_ok=True)
 
-            # Cast timezone-aware datetimes to naive UTC (Delta protocol
-            # requires the timestampNtz feature for tz-aware columns, and
-            # OneLake/Fabric handles UTC implicitly).
-            df = _strip_tz(df)
+            df = _prepare_delta_frame(df)
 
             expected_rows = len(df)
 
@@ -395,9 +427,10 @@ class OneLakeIO:
     ) -> bool:
         """Write Delta table via ADLS SDK."""
         t0 = time.perf_counter()
+        table_path = _normalize_adls_delta_path(table_path)
         uri = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{table_path}"
         try:
-            df = _strip_tz(df)
+            df = _prepare_delta_frame(df)
             expected_rows = len(df)
 
             from engine.auth import SCOPE_ONELAKE
@@ -439,6 +472,7 @@ class OneLakeIO:
 
     def _reset_delta_adls(self, workspace_id: str, table_path: str) -> None:
         """Delete a remote Delta table directory so overwrite can recreate it cleanly."""
+        table_path = _normalize_adls_delta_path(table_path)
         self._ensure_adls_client()
         fs = self._service_client.get_file_system_client(workspace_id)
         directory = fs.get_directory_client(table_path)
@@ -457,6 +491,7 @@ class OneLakeIO:
                 return False
             return os.path.exists(os.path.join(local_path, "_delta_log"))
 
+        table_path = _normalize_adls_delta_path(table_path)
         uri = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{table_path}"
         try:
             from engine.auth import SCOPE_ONELAKE
@@ -521,6 +556,7 @@ class OneLakeIO:
                     return False
                 dt = DeltaTable(local_path)
             else:
+                table_path = _normalize_adls_delta_path(table_path)
                 uri = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{table_path}"
                 from engine.auth import SCOPE_ONELAKE
                 token = self._token_provider.get_token(SCOPE_ONELAKE)
