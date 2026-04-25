@@ -2283,11 +2283,33 @@ body {
 .fmd-canvas-flow .react-flow__edge-path {
   stroke-linecap: round;
   stroke-linejoin: round;
+  transition: opacity 180ms var(--ease-claude), stroke 180ms var(--ease-claude), stroke-width 180ms var(--ease-claude);
+}
+
+.fmd-canvas-edge--queued .react-flow__edge-path {
+  stroke-dasharray: 0;
+}
+
+.fmd-canvas-edge--complete .react-flow__edge-path {
+  stroke-dasharray: 2 9;
 }
 
 .fmd-canvas-edge--running .react-flow__edge-path {
-  stroke-dasharray: 7 7;
-  animation: fmdCanvasDash 800ms linear infinite;
+  stroke-dasharray: 12 10;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--bp-copper) 38%, transparent));
+  animation:
+    fmdCanvasDash 720ms linear infinite,
+    fmdCanvasEdgeSignal 1.2s var(--ease-claude) infinite;
+}
+
+.fmd-canvas-edge--outgoing .react-flow__edge-path {
+  stroke-dasharray: 3 11;
+  opacity: 0.86;
+  animation-duration: 980ms, 1.45s;
+}
+
+.fmd-canvas-edge--running .react-flow__edge-interaction {
+  stroke-width: 22;
 }
 
 .fmd-canvas-loading {
@@ -2630,8 +2652,17 @@ body {
 }
 
 @keyframes fmdCanvasDash {
-  from { stroke-dashoffset: 14; }
+  from { stroke-dashoffset: 22; }
   to { stroke-dashoffset: 0; }
+}
+
+@keyframes fmdCanvasEdgeSignal {
+  0%, 100% {
+    filter: drop-shadow(0 0 2px color-mix(in srgb, var(--bp-copper) 24%, transparent));
+  }
+  50% {
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--bp-copper) 46%, transparent));
+  }
 }
 
 @keyframes fmdCanvasPulse {
