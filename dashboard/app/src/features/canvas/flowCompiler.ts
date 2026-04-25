@@ -90,9 +90,9 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
   },
   {
     type: "fabric_pipeline",
-    label: "Fabric Pipeline",
-    eyebrow: "Compute",
-    description: "Future adapter for calling a named Fabric Data Pipeline.",
+    label: "Fabric Pipeline Mirror",
+    eyebrow: "Planned sync",
+    description: "Planned mirror that will create/update a real Fabric Data Pipeline from this canvas; not active execution yet.",
     palette: "fabric",
     future: true,
     defaults: {
@@ -104,9 +104,9 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
   },
   {
     type: "fabric_notebook",
-    label: "Fabric Notebook",
-    eyebrow: "Spark",
-    description: "Future adapter for Spark-backed notebook compute.",
+    label: "Fabric Notebook Mirror",
+    eyebrow: "Planned sync",
+    description: "Planned mirror for Spark notebook compute managed from this canvas; not active execution yet.",
     palette: "fabric",
     future: true,
     defaults: {
@@ -396,7 +396,7 @@ export function compileRunPlan(flow: FmdCanvasFlow): FmdRunPlan {
         adapterSteps.push({
           ...step,
           status: "modeled",
-          note: "Adapter node is planned, but execution remains routed through FMD/Dagster until the adapter is activated.",
+          note: "Planned Fabric/external mirror only in this build. It does not create, sync, or run a Fabric artifact yet; execution remains routed through FMD/Dagster.",
         });
       }
     }
@@ -426,6 +426,9 @@ export function compileRunPlan(flow: FmdCanvasFlow): FmdRunPlan {
       entityCount: entityIds.length,
       stepCount: steps.length,
       adapterStepCount: adapterSteps.length,
+      adapterExecutionNote: adapterSteps.length
+        ? "Fabric/external mirror nodes are planned only in this build; they do not create or sync Fabric artifacts yet."
+        : undefined,
     },
     compiledAt: new Date().toISOString(),
   };
@@ -465,4 +468,3 @@ export function layerTone(type: CanvasNodeType): { color: string; label: string 
       return { color: "var(--bp-ink-muted)", label: "Node" };
   }
 }
-

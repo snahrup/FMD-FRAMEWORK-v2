@@ -119,6 +119,7 @@ export interface FmdRunPlan {
     entityCount: number;
     stepCount: number;
     adapterStepCount: number;
+    adapterExecutionNote?: string;
   };
   compiledAt?: string;
 }
@@ -161,4 +162,3 @@ export interface NodeTemplate {
   future?: boolean;
   defaults: FmdCanvasNodeConfig;
 }
-
