@@ -1950,7 +1950,7 @@ body {
 /* ── FMD Pipeline Canvas ── */
 .fmd-canvas {
   min-height: 100vh;
-  padding: 24px;
+  padding: 18px;
   color: var(--bp-ink-primary);
   background: var(--bp-canvas);
   font-family: var(--bp-font-body);
@@ -1973,7 +1973,7 @@ body {
 }
 
 .fmd-canvas-hero__copy {
-  padding: 24px 28px;
+  padding: 18px 22px;
   border-left: 3px solid var(--bp-copper);
 }
 
@@ -1991,27 +1991,27 @@ body {
 
 .fmd-canvas-hero h1 {
   margin: 0;
-  max-width: 880px;
+  max-width: 760px;
   color: var(--bp-ink-primary);
-  font-size: clamp(30px, 4vw, 48px);
-  font-weight: 760;
-  letter-spacing: -0.045em;
-  line-height: 0.98;
+  font-size: clamp(24px, 2.6vw, 34px);
+  font-weight: 740;
+  letter-spacing: -0.026em;
+  line-height: 1.08;
 }
 
 .fmd-canvas-hero p {
-  max-width: 820px;
-  margin: 12px 0 0;
+  max-width: 760px;
+  margin: 8px 0 0;
   color: var(--bp-ink-secondary);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .fmd-canvas-receipt {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 18px;
+  padding: 14px;
   border-left: 3px solid var(--bp-copper);
 }
 
@@ -2060,7 +2060,7 @@ body {
 
 .fmd-canvas-shell {
   display: grid;
-  grid-template-columns: 270px minmax(640px, 1fr) 380px;
+  grid-template-columns: 200px minmax(360px, 1fr) 280px;
   min-height: calc(100vh - 190px);
   overflow: hidden;
 }
@@ -2072,13 +2072,13 @@ body {
 
 .fmd-canvas-palette {
   border-right: 1px solid var(--bp-border);
-  padding: 18px;
+  padding: 14px;
   overflow-y: auto;
 }
 
 .fmd-canvas-right {
   border-left: 1px solid var(--bp-border);
-  padding: 18px;
+  padding: 14px;
   overflow-y: auto;
 }
 
@@ -2109,11 +2109,11 @@ body {
 
 .fmd-canvas-palette__card {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 16px;
+  grid-template-columns: 28px minmax(0, 1fr) 14px;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  padding: 10px;
+  padding: 9px;
   border: 1px solid var(--bp-border);
   border-left: 3px solid var(--node-tone);
   border-radius: 8px;
@@ -2171,7 +2171,7 @@ body {
 
 .fmd-canvas-workbench {
   display: grid;
-  grid-template-rows: auto minmax(520px, 1fr);
+  grid-template-rows: auto minmax(340px, 1fr);
   min-width: 0;
   background: var(--bp-canvas);
 }
@@ -2180,7 +2180,7 @@ body {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 18px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--bp-border);
   background: var(--bp-surface-1);
 }
@@ -2227,7 +2227,7 @@ body {
 
 .fmd-canvas-flow {
   position: relative;
-  min-height: 520px;
+  min-height: 340px;
 }
 
 .fmd-canvas-flow .react-flow {
@@ -2258,7 +2258,7 @@ body {
 
 .fmd-canvas-node {
   position: relative;
-  width: 210px;
+  width: 190px;
   padding: 12px 12px 12px 15px;
   border: 1px solid var(--bp-border);
   border-radius: 10px;
@@ -2505,7 +2505,7 @@ body {
   animation: spin 1s linear infinite;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1080px) {
   .fmd-canvas-shell {
     grid-template-columns: 230px minmax(560px, 1fr);
   }

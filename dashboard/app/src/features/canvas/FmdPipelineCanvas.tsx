@@ -83,11 +83,11 @@ const NODE_ICON: Record<CanvasNodeType, LucideIcon> = {
 };
 
 const DEFAULT_POSITIONS: Record<string, { x: number; y: number }> = {
-  "source-sql": { x: 40, y: 160 },
-  "landing-zone": { x: 300, y: 160 },
-  bronze: { x: 560, y: 160 },
-  silver: { x: 820, y: 160 },
-  "quality-gate": { x: 1080, y: 160 },
+  "source-sql": { x: 24, y: 56 },
+  "landing-zone": { x: 240, y: 56 },
+  bronze: { x: 456, y: 56 },
+  silver: { x: 672, y: 56 },
+  "quality-gate": { x: 888, y: 56 },
 };
 
 function apiErrorMessage(error: unknown): string {
@@ -399,15 +399,22 @@ function FmdPipelineCanvasInner() {
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId)?.data.canvasNode ?? null, [nodes, selectedNodeId]);
   const localValidation = useMemo(() => validateFlow(currentFlow), [currentFlow]);
   const localRunPlan = useMemo(() => compileRunPlan(currentFlow), [currentFlow]);
+  const renderedNodes = useMemo(() => nodes.map((node) => {
+    const counts = issueCounts(node.data.canvasNode, validation);
+    return { ...node, data: { ...node.data, ...counts } };
+  }), [nodes, validation]);
 
   useEffect(() => {
     setValidation(localValidation);
     setRunPlan(localRunPlan);
-    setNodes((existing) => existing.map((node) => {
-      const counts = issueCounts(node.data.canvasNode, localValidation);
-      return { ...node, data: { ...node.data, ...counts } };
-    }));
-  }, [localValidation, localRunPlan, setNodes]);
+  }, [localValidation, localRunPlan]);
+
+  useEffect(() => {
+    if (!reactFlow || renderedNodes.length === 0) return;
+    window.requestAnimationFrame(() => {
+      void reactFlow.setViewport({ x: 6, y: 18, zoom: 0.44 }, { duration: 180 });
+    });
+  }, [reactFlow, renderedNodes.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -594,7 +601,7 @@ function FmdPipelineCanvasInner() {
           >
             {loading && <div className="fmd-canvas-loading"><Loader2 size={16} className="fmd-spin" /> Loading canvas...</div>}
             <ReactFlow
-              nodes={nodes}
+              nodes={renderedNodes}
               edges={edges}
               nodeTypes={NODE_TYPES}
               onInit={(instance) => setReactFlow(instance as ReactFlowInstance<RFNode, RFEdge>)}
@@ -603,7 +610,7 @@ function FmdPipelineCanvasInner() {
               onConnect={onConnect}
               onNodeClick={(_, node) => setSelectedNodeId(node.id)}
               onPaneClick={() => setSelectedNodeId(null)}
-              fitView
+              defaultViewport={{ x: 6, y: 18, zoom: 0.44 }}
               snapToGrid
               snapGrid={[24, 24]}
             >
