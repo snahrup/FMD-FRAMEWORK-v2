@@ -69,6 +69,7 @@ interface CanvasNodeData extends Record<string, unknown> {
 
 type RFNode = Node<CanvasNodeData>;
 type RFEdge = Edge;
+type RightPanelMode = "inspect" | "review";
 
 const NODE_ICON: Record<CanvasNodeType, LucideIcon> = {
   sql_source: Database,
@@ -138,7 +139,7 @@ function toReactEdges(flow: FmdCanvasFlow): RFEdge[] {
     label: edge.label,
     animated: false,
     type: "smoothstep",
-    style: { stroke: "var(--bp-border-strong)", strokeWidth: 1.5 },
+    style: { stroke: "var(--bp-copper)", strokeWidth: 1.65 },
   }));
 }
 
@@ -172,7 +173,7 @@ function CanvasNodeCard(props: NodeProps<Node<CanvasNodeData>>) {
   const Icon = NODE_ICON[node.type] ?? Workflow;
   const template = templateForType(node.type);
   return (
-    <div className={`fmd-canvas-node ${selected ? "fmd-canvas-node--selected" : ""}`} style={{ "--node-tone": tone.color } as React.CSSProperties}>
+    <div className={`fmd-canvas-node gs-stagger-card ${selected ? "fmd-canvas-node--selected" : ""}`} style={{ "--node-tone": tone.color } as React.CSSProperties}>
       <Handle type="target" position={Position.Left} className="fmd-canvas-node__handle" />
       <div className="fmd-canvas-node__rail" />
       <div className="fmd-canvas-node__top">
@@ -193,7 +194,7 @@ function CanvasNodeCard(props: NodeProps<Node<CanvasNodeData>>) {
 
 const NODE_TYPES = { fmdNode: CanvasNodeCard };
 
-function PaletteCard({ template }: { template: NodeTemplate }) {
+function PaletteCard({ template, index }: { template: NodeTemplate; index: number }) {
   const Icon = NODE_ICON[template.type] ?? Workflow;
   const tone = layerTone(template.type);
   return (
@@ -204,8 +205,8 @@ function PaletteCard({ template }: { template: NodeTemplate }) {
         event.dataTransfer.setData("application/fmd-node-type", template.type);
         event.dataTransfer.effectAllowed = "move";
       }}
-      className="fmd-canvas-palette__card"
-      style={{ "--node-tone": tone.color } as React.CSSProperties}
+      className="fmd-canvas-palette__card gs-stagger-card"
+      style={{ "--node-tone": tone.color, "--i": Math.min(index, 15) } as React.CSSProperties}
     >
       <span className="fmd-canvas-palette__icon"><Icon size={15} /></span>
       <span>
@@ -264,7 +265,10 @@ function RunPlanPanel({ plan }: { plan: FmdRunPlan }) {
           </div>
         ))}
       </div>
-      <pre className="fmd-canvas-payload">{JSON.stringify(plan.launchPayload, null, 2)}</pre>
+      <details className="fmd-canvas-details">
+        <summary>Launch payload</summary>
+        <pre className="fmd-canvas-payload">{JSON.stringify(plan.launchPayload, null, 2)}</pre>
+      </details>
     </section>
   );
 }
@@ -389,6 +393,8 @@ function FmdPipelineCanvasInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>(toReactNodes(createDefaultFlow(), validateFlow(createDefaultFlow())));
   const [edges, setEdges, onEdgesChange] = useEdgesState(toReactEdges(createDefaultFlow()));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [isPaletteOpen, setPaletteOpen] = useState(false);
+  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode | null>(null);
   const [reactFlow, setReactFlow] = useState<ReactFlowInstance<RFNode, RFEdge> | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -477,6 +483,7 @@ function FmdPipelineCanvasInner() {
     };
     setNodes((currentNodes) => [...currentNodes, nextNode]);
     setSelectedNodeId(canvasNode.id);
+    setRightPanelMode("inspect");
   }, [nodes.length, reactFlow, setNodes]);
 
   const saveFlow = useCallback(async () => {
@@ -508,6 +515,7 @@ function FmdPipelineCanvasInner() {
       });
       setValidation(payload.validation);
       setRunPlan(payload.runPlan);
+      setRightPanelMode("review");
       setNotice({ tone: payload.validation.ok ? "success" : "warning", message: payload.validation.ok ? "Dry run compiled successfully." : "Dry run compiled with blocking validation issues." });
     } catch (error) {
       setNotice({ tone: "error", message: apiErrorMessage(error) });
@@ -525,6 +533,7 @@ function FmdPipelineCanvasInner() {
       });
       setValidation(payload.validation);
       setRunPlan(payload.runPlan);
+      setRightPanelMode("review");
       const runId = payload.engine.run_id || payload.engine.current_run_id || "started";
       setNotice({ tone: "success", message: `Pipeline launch accepted: ${runId}` });
     } catch (error) {
@@ -534,44 +543,42 @@ function FmdPipelineCanvasInner() {
     }
   }, [currentFlow]);
 
-  const statusTone = validation.ok ? "ready" : "blocked";
+  const shellClassName = [
+    "fmd-canvas-shell",
+    isPaletteOpen ? "is-palette-open" : "",
+    rightPanelMode ? "is-panel-open" : "",
+  ].filter(Boolean).join(" ");
 
   return (
     <main className="fmd-canvas gs-page-enter">
       <section className="fmd-canvas-hero">
         <div className="fmd-canvas-hero__copy">
           <div className="fmd-canvas-kicker"><Workflow size={14} /> FMD governed canvas</div>
-          <h1>Design a pipeline visually. Run it through the real FMD engine.</h1>
+          <h1>Build the pipeline path.</h1>
           <p>
-            Drag typed nodes, connect the medallion path, validate the flow, and launch a scoped Dagster/FMD run.
-            Fabric pipelines and notebooks are modeled as compute adapters without making them the source of truth.
+            Start with the graph. Open node tools, inspection, and run review only when you need them.
           </p>
         </div>
-        <aside className={`fmd-canvas-receipt fmd-canvas-receipt--${statusTone}`}>
-          <span>{validation.ok ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}</span>
-          <div>
-            <strong>{validation.ok ? "Ready to launch" : "Blocked by validation"}</strong>
-            <p>{runPlan.summary.entityCount} entities | {runPlan.layers.join(", ")} | {runPlan.summary.stepCount} executable steps</p>
-          </div>
-        </aside>
       </section>
 
       {notice && <div className={`fmd-canvas-notice fmd-canvas-notice--${notice.tone}`}>{notice.message}</div>}
 
-      <section className="fmd-canvas-shell">
-        <aside className="fmd-canvas-palette">
+      <section className={shellClassName}>
+        {isPaletteOpen && (
+        <aside className="fmd-canvas-palette gs-modal-enter">
           <div className="fmd-canvas-sidebar-title">
             <h2>Node Palette</h2>
-            <p>Constrained building blocks. No arbitrary code nodes for business users.</p>
+            <p>Drag in only the building blocks that this flow needs.</p>
           </div>
           <div className="fmd-canvas-palette__group">
-            {NODE_TEMPLATES.map((template) => <PaletteCard key={template.type} template={template} />)}
+            {NODE_TEMPLATES.map((template, index) => <PaletteCard key={template.type} template={template} index={index} />)}
           </div>
           <div className="fmd-canvas-fabric-note">
             <ServerCog size={16} />
             <span>Fabric compute nodes are available as modeled seams. Activating them later will map named pipelines/notebooks into this same run-plan contract.</span>
           </div>
         </aside>
+        )}
 
         <section className="fmd-canvas-workbench">
           <div className="fmd-canvas-toolbar">
@@ -580,6 +587,25 @@ function FmdPipelineCanvasInner() {
               <p>{currentFlow.description}</p>
             </div>
             <div className="fmd-canvas-actions">
+              <button type="button" aria-pressed={isPaletteOpen} className={isPaletteOpen ? "is-active" : ""} onClick={() => setPaletteOpen((value) => !value)}>
+                <Layers size={14} /> Add nodes
+              </button>
+              <button
+                type="button"
+                aria-pressed={rightPanelMode === "inspect"}
+                className={rightPanelMode === "inspect" ? "is-active" : ""}
+                onClick={() => setRightPanelMode((mode) => mode === "inspect" ? null : "inspect")}
+              >
+                <Workflow size={14} /> Inspect
+              </button>
+              <button
+                type="button"
+                aria-pressed={rightPanelMode === "review"}
+                className={rightPanelMode === "review" ? "is-active" : ""}
+                onClick={() => setRightPanelMode((mode) => mode === "review" ? null : "review")}
+              >
+                <ShieldCheck size={14} /> Review
+              </button>
               <button type="button" onClick={saveFlow} disabled={saving}>
                 {saving ? <Loader2 size={14} className="fmd-spin" /> : <Save size={14} />} Save
               </button>
@@ -608,7 +634,10 @@ function FmdPipelineCanvasInner() {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
-              onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+              onNodeClick={(_, node) => {
+                setSelectedNodeId(node.id);
+                setRightPanelMode("inspect");
+              }}
               onPaneClick={() => setSelectedNodeId(null)}
               defaultViewport={{ x: 6, y: 18, zoom: 0.44 }}
               snapToGrid
@@ -621,11 +650,22 @@ function FmdPipelineCanvasInner() {
           </div>
         </section>
 
-        <aside className="fmd-canvas-right">
-          <NodeInspector selected={selectedNode} onUpdate={updateSelectedNode} onDelete={deleteNode} />
-          <ValidationPanel validation={validation} />
-          <RunPlanPanel plan={runPlan} />
+        {rightPanelMode && (
+        <aside className="fmd-canvas-right gs-modal-enter">
+          <div className="fmd-canvas-panel-switcher">
+            <button type="button" className={rightPanelMode === "inspect" ? "is-active" : ""} onClick={() => setRightPanelMode("inspect")}>Inspect</button>
+            <button type="button" className={rightPanelMode === "review" ? "is-active" : ""} onClick={() => setRightPanelMode("review")}>Review plan</button>
+          </div>
+          {rightPanelMode === "inspect" ? (
+            <NodeInspector selected={selectedNode} onUpdate={updateSelectedNode} onDelete={deleteNode} />
+          ) : (
+            <>
+              <ValidationPanel validation={validation} />
+              <RunPlanPanel plan={runPlan} />
+            </>
+          )}
         </aside>
+        )}
       </section>
     </main>
   );
