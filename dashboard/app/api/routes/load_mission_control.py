@@ -25,6 +25,11 @@ _LAYER_LAKEHOUSE = {
     "bronze": "LH_BRONZE_LAYER",
     "silver": "LH_SILVER_LAYER",
 }
+_RUNNING_STATUSES = {"inprogress", "in-progress", "running", "started", "starting", "queued"}
+_STOPPING_STATUSES = {"stopping", "cancelling", "canceling"}
+_SUCCEEDED_STATUSES = {"succeeded", "success", "completed", "complete", "done"}
+_FAILED_STATUSES = {"failed", "error", "errored"}
+_STOPPED_STATUSES = {"cancelled", "canceled", "stopped", "aborted", "interrupted"}
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +85,183 @@ def _parse_entity_filter(raw: str | None) -> list[int]:
 def _parse_run_layers(raw: str | None) -> list[str]:
     layers = [layer.lower() for layer in _split_csv(raw)]
     return [layer for layer in layers if layer in _SUPPORTED_LAYERS] or list(_SUPPORTED_LAYERS)
+
+
+def _normalize_run_status(raw: str | None) -> str:
+    status = str(raw or "").strip().lower().replace(" ", "")
+    if status in _SUCCEEDED_STATUSES:
+        return "succeeded"
+    if status in _FAILED_STATUSES:
+        return "failed"
+    if status in _STOPPED_STATUSES:
+        return "stopped"
+    if status in _STOPPING_STATUSES:
+        return "stopping"
+    if status in _RUNNING_STATUSES:
+        return "running"
+    return status or "unknown"
+
+
+def _human_status(status: str) -> str:
+    return {
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "stopped": "Stopped",
+        "stopping": "Stopping",
+        "running": "In Progress",
+        "unknown": "Unknown",
+    }.get(status, status.replace("_", " ").replace("-", " ").title())
+
+
+def _build_mission_truth(
+    *,
+    run_meta: dict,
+    run_truth: dict,
+    total_active: int,
+    runtime_mode: str,
+    is_dry_run: bool,
+) -> dict:
+    """Canonical presentation contract for Mission Control.
+
+    The UI intentionally consumes this object instead of recomputing status,
+    scope, rows, and remaining work from several partially-overlapping sources.
+    """
+    run_status = _normalize_run_status(run_meta.get("Status"))
+    is_active = run_status in {"running", "stopping"}
+    is_terminal = run_status in {"succeeded", "failed", "stopped"}
+    run_layers = _parse_run_layers(run_meta.get("Layers"))
+    layer_count = len(run_layers)
+    source_filter = _split_csv(run_meta.get("SourceFilter"))
+    by_source = run_truth.get("bySource") or []
+    source_names = source_filter or [str(row.get("source") or "") for row in by_source if row.get("source")]
+    entity_count = (
+        _int(run_meta.get("ResolvedEntityCount"))
+        or len(run_truth.get("scopeEntities") or [])
+        or _int(run_meta.get("TotalEntities"))
+        or _int(total_active)
+    )
+    layer_step_total = entity_count * max(layer_count, 1)
+    by_source_by_layer = [
+        row for row in (run_truth.get("bySourceByLayer") or [])
+        if str(row.get("layer") or "").lower() in run_layers
+    ]
+
+    if by_source_by_layer:
+        layer_steps_succeeded = sum(_int(row.get("succeeded")) for row in by_source_by_layer)
+        layer_steps_failed = sum(_int(row.get("failed")) for row in by_source_by_layer)
+        layer_steps_skipped = sum(_int(row.get("skipped")) for row in by_source_by_layer)
+    else:
+        layers_by_key = run_truth.get("layers") or {}
+        layer_steps_succeeded = sum(_int(layers_by_key.get(layer, {}).get("succeeded")) for layer in run_layers)
+        layer_steps_failed = sum(_int(layers_by_key.get(layer, {}).get("failed")) for layer in run_layers)
+        layer_steps_skipped = sum(_int(layers_by_key.get(layer, {}).get("skipped")) for layer in run_layers)
+
+    remaining = max(
+        layer_step_total - layer_steps_succeeded - layer_steps_failed - layer_steps_skipped,
+        0,
+    )
+    if run_status == "succeeded":
+        remaining = 0
+
+    layers_payload = []
+    for layer in run_layers:
+        layer_rows = [row for row in by_source_by_layer if str(row.get("layer") or "").lower() == layer]
+        if layer_rows:
+            succeeded = sum(_int(row.get("succeeded")) for row in layer_rows)
+            failed = sum(_int(row.get("failed")) for row in layer_rows)
+            skipped = sum(_int(row.get("skipped")) for row in layer_rows)
+        else:
+            layer_stats = (run_truth.get("layers") or {}).get(layer, {})
+            succeeded = _int(layer_stats.get("succeeded"))
+            failed = _int(layer_stats.get("failed"))
+            skipped = _int(layer_stats.get("skipped"))
+        layer_remaining = max(entity_count - succeeded - failed - skipped, 0)
+        if run_status == "succeeded":
+            layer_remaining = 0
+        layers_payload.append({
+            "key": layer,
+            "label": {
+                "landing": "Landing Zone",
+                "bronze": "Bronze",
+                "silver": "Silver",
+            }.get(layer, layer.title()),
+            "total": entity_count,
+            "succeeded": succeeded,
+            "failed": failed,
+            "skipped": skipped,
+            "remaining": layer_remaining,
+        })
+
+    rows_read = sum(_int(row.get("RowsRead")) for row in run_truth.get("latestRows") or [])
+    rows_written = _int(run_truth.get("rowsWritten"))
+    files_written = _int(run_truth.get("filesWritten"))
+    throughput_rows = float((run_truth.get("throughput") or {}).get("rows_per_sec") or 0)
+    throughput_bytes = float((run_truth.get("throughput") or {}).get("bytes_per_sec") or 0)
+    if is_dry_run:
+        rows_read = 0
+        rows_written = 0
+        files_written = 0
+        throughput_rows = 0
+        throughput_bytes = 0
+
+    if is_dry_run:
+        row_count_trust = "No data written"
+    elif files_written > 0 or rows_written > 0:
+        row_count_trust = "Control-plane counts"
+    else:
+        row_count_trust = "No physical writes recorded"
+
+    operator_state = "waiting"
+    if run_status == "running":
+        operator_state = "running"
+    elif run_status == "stopping":
+        operator_state = "stopping"
+    elif run_status == "succeeded":
+        operator_state = "complete"
+    elif run_status == "failed":
+        operator_state = "failed"
+    elif run_status == "stopped":
+        operator_state = "stopped"
+
+    source_count = len(source_names) if source_names else len(by_source)
+    if source_filter:
+        scope_label = f"{source_count} selected source{'s' if source_count != 1 else ''}"
+    elif entity_count == _int(total_active) or not source_names:
+        scope_label = "All active sources"
+    else:
+        scope_label = f"{entity_count:,} scoped entities"
+
+    return {
+        "runId": run_meta.get("RunId"),
+        "runStatus": run_status,
+        "statusLabel": _human_status(run_status),
+        "isTerminal": is_terminal,
+        "isActive": is_active,
+        "isDryRun": is_dry_run,
+        "modeLabel": "Dry run" if is_dry_run else "Load",
+        "runtimeLabel": "Dagster dry run" if is_dry_run else "Dagster framework",
+        "runtimeMode": runtime_mode,
+        "sourceNames": source_names,
+        "sourceCount": source_count,
+        "scopeLabel": scope_label,
+        "entityCount": entity_count,
+        "layers": layers_payload,
+        "layerKeys": run_layers,
+        "layerCount": layer_count,
+        "layerStepTotal": layer_step_total,
+        "layerStepsSucceeded": layer_steps_succeeded,
+        "layerStepsFailed": layer_steps_failed,
+        "layerStepsSkipped": layer_steps_skipped,
+        "layerStepsRemaining": remaining,
+        "rowsRead": rows_read,
+        "rowsWritten": rows_written,
+        "filesWritten": files_written,
+        "throughputRowsPerSecond": throughput_rows,
+        "throughputBytesPerSecond": throughput_bytes,
+        "operatorState": operator_state,
+        "unitLabel": "orchestration check" if is_dry_run else "layer load step",
+        "rowCountTrustLabel": row_count_trust,
+    }
 
 
 def _classify_load_strategy(entity: dict) -> dict:
@@ -660,6 +842,13 @@ def get_lmc_progress(params: dict) -> dict:
         for row in load_type_breakdown
     ) else str(run_meta.get("Mode") or "").lower() or "unknown"
     is_dry_run = runtime_mode == "dry_run"
+    mission_truth = _build_mission_truth(
+        run_meta=run_meta,
+        run_truth=run_truth,
+        total_active=_int(total_active),
+        runtime_mode=runtime_mode,
+        is_dry_run=is_dry_run,
+    )
 
     # Physical verification — LAZY: only when ?include_physical=1 is passed.
     # These LOWER() joins on lakehouse_row_counts are expensive (~3.5s each)
@@ -771,9 +960,14 @@ def get_lmc_progress(params: dict) -> dict:
         "loadTypeBreakdown": load_type_breakdown,
         "runtimeMode": runtime_mode,
         "isDryRun": is_dry_run,
-        "rowsWritten": run_truth["rowsWritten"],
-        "filesWritten": run_truth["filesWritten"],
-        "throughput": throughput,
+        "missionTruth": mission_truth,
+        "rowsWritten": mission_truth["rowsWritten"],
+        "filesWritten": mission_truth["filesWritten"],
+        "throughput": {
+            **throughput,
+            "rows_per_sec": mission_truth["throughputRowsPerSecond"],
+            "bytes_per_sec": mission_truth["throughputBytesPerSecond"],
+        },
         "verification": verification[0] if verification else {
             "total_active": 0, "lz_verified": 0, "brz_verified": 0,
             "slv_verified": 0, "lz_last_scan": None, "brz_last_scan": None,
