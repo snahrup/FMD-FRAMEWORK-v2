@@ -18,7 +18,23 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.verify_real_smoke_load import verify  # noqa: E402
+from scripts.verify_real_smoke_load import _artifact_check, _task_check, verify  # noqa: E402
+
+
+class _FakeRemoteVerifier:
+    def __init__(self, status: str = "passed") -> None:
+        self.status = status
+
+    def check(self, *, layer: str, task: dict) -> dict:
+        return {
+            "targetPath": task.get("TargetPath"),
+            "localPath": None,
+            "resolution": "adls_sdk",
+            "verificationMode": "adls_sdk",
+            "status": self.status,
+            "rowCount": 10,
+            "message": f"{layer} artifact is readable through ADLS.",
+        }
 
 
 def _write_silver_delta_log(delta_dir: Path) -> None:
@@ -192,6 +208,36 @@ class RealSmokeVerifierTests(unittest.TestCase):
 
         self.assertFalse(receipt["ok"])
         self.assertIn("Dagster orchestration receipt", json.dumps(receipt))
+
+    def test_uses_adls_remote_verification_when_no_local_mount_exists(self) -> None:
+        artifact = _artifact_check(
+            layer="bronze",
+            task={"TargetPath": "BRONZE-GUID/Tables/MES/alel_lab_batch_hdr_tbl", "RowsWritten": 5},
+            mount_path="",
+            lakehouse_map={},
+            remote_verifier=_FakeRemoteVerifier(),
+        )
+
+        self.assertEqual(artifact["status"], "passed")
+        self.assertEqual(artifact["verificationMode"], "adls_sdk")
+        self.assertIn("ADLS", artifact["message"])
+
+    def test_incremental_landing_noop_is_warning_not_failure(self) -> None:
+        status, message = _task_check(
+            "landing",
+            {
+                "Status": "succeeded",
+                "RowsRead": 0,
+                "RowsWritten": 0,
+                "BytesTransferred": 0,
+                "LoadType": "incremental",
+                "WatermarkBefore": "2600",
+                "WatermarkAfter": "2600",
+            },
+        )
+
+        self.assertEqual(status, "warning")
+        self.assertIn("no new source rows", message)
 
 
 if __name__ == "__main__":

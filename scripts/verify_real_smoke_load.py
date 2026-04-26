@@ -2,7 +2,8 @@
 
 This script is intentionally independent from the running dashboard API. It
 reads the local control-plane SQLite database, resolves the run's audited target
-paths, and checks the physical OneLake mount when one is configured.
+paths, and checks the physical artifacts through either a local OneLake mount or
+the same ADLS SDK path used by the real loader.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -162,6 +164,138 @@ def _load_lakehouse_map(conn: sqlite3.Connection) -> dict[str, str]:
     return mapping
 
 
+def _parse_log_data(task: dict[str, Any]) -> dict[str, Any]:
+    raw = task.get("LogData")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(str(raw))
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _normalize_remote_path(target_path: str) -> tuple[str | None, str]:
+    """Return ``(workspace_id, artifact_path)`` for supported remote paths.
+
+    Most engine task rows store GUID-relative paths, e.g.
+    ``<lakehouse-guid>/Tables/m3/table``.  Some future rows may store full
+    ``abfss://`` URIs.  The OneLakeIO helper wants the workspace separately
+    from the artifact path, so split only when the URI contains it.
+    """
+    normalized = target_path.replace("\\", "/").strip()
+    if not normalized:
+        return None, ""
+    if normalized.startswith("abfss://"):
+        parsed = urlparse(normalized)
+        workspace = parsed.netloc.split("@", 1)[0]
+        return workspace or None, parsed.path.lstrip("/")
+    if normalized.startswith("https://"):
+        return None, normalized
+    return None, normalized
+
+
+class _RemoteArtifactVerifier:
+    """Lazy ADLS artifact reader used only when local mount verification is impossible."""
+
+    def __init__(self, config_path: Path):
+        self._config_path = config_path
+        self._config = None
+        self._io = None
+        self._init_error = ""
+
+    def _ensure(self) -> bool:
+        if self._io is not None:
+            return True
+        if self._init_error:
+            return False
+        try:
+            from engine.auth import TokenProvider
+            from engine.config import load_config
+            from engine.onelake_io import OneLakeIO
+
+            self._config = load_config(self._config_path)
+            self._io = OneLakeIO(self._config, TokenProvider(self._config))
+            return True
+        except Exception as exc:
+            self._init_error = str(exc)
+            return False
+
+    def _workspace_id(self, task: dict[str, Any], uri_workspace_id: str | None) -> str:
+        if uri_workspace_id:
+            return uri_workspace_id
+        log_data = _parse_log_data(task)
+        target = log_data.get("target") if isinstance(log_data.get("target"), dict) else {}
+        workspace = str(target.get("workspace") or "").strip()
+        if workspace:
+            return workspace
+        if self._ensure() and self._config is not None:
+            return str(getattr(self._config, "workspace_data_id", "") or "").strip()
+        return ""
+
+    def check(self, *, layer: str, task: dict[str, Any]) -> dict[str, Any]:
+        target_path = str(task.get("TargetPath") or "")
+        uri_workspace_id, artifact_path = _normalize_remote_path(target_path)
+        base: dict[str, Any] = {
+            "targetPath": target_path,
+            "localPath": None,
+            "resolution": "adls_sdk",
+            "status": "not_checked",
+            "verificationMode": "adls_sdk",
+        }
+        if not artifact_path:
+            return {**base, "message": "Task log did not record a target path."}
+        if artifact_path.startswith("https://"):
+            return {**base, "resolution": "unsupported_remote_url", "message": "HTTPS OneLake paths are recorded, but this verifier only reads GUID-relative or abfss paths."}
+        if not self._ensure():
+            return {**base, "message": f"ADLS verifier could not initialize: {self._init_error}"}
+
+        workspace_id = self._workspace_id(task, uri_workspace_id)
+        if not workspace_id:
+            return {**base, "message": "ADLS verifier could not resolve the Fabric workspace id."}
+
+        base["workspaceId"] = workspace_id
+        expected_rows = int(task.get("RowsWritten") or task.get("RowsRead") or 0)
+
+        try:
+            if layer == "landing":
+                df = self._io.read_parquet(workspace_id, artifact_path)
+                artifact_type = "parquet"
+            else:
+                df = self._io.read_delta(workspace_id, artifact_path)
+                artifact_type = "delta"
+        except Exception as exc:
+            return {**base, "status": "failed", "message": f"ADLS SDK read raised while checking {layer}: {exc}"}
+
+        if df is None:
+            return {**base, "status": "failed", "message": f"ADLS SDK could not read {layer} {artifact_type} artifact."}
+
+        row_count = len(df)
+        result = {**base, "status": "passed", "rowCount": row_count}
+        if expected_rows > 0 and row_count < expected_rows:
+            return {
+                **result,
+                "status": "failed",
+                "message": f"ADLS {artifact_type} exists but row count {row_count} is below expected minimum {expected_rows}.",
+            }
+        if layer == "silver":
+            columns = {str(column) for column in getattr(df, "columns", [])}
+            result["schemaColumns"] = sorted(columns)
+            missing_scd = sorted(SCD_COLUMNS - columns)
+            if missing_scd:
+                return {
+                    **result,
+                    "status": "failed",
+                    "message": "Silver Delta is readable through ADLS, but SCD Type 2 columns are missing: " + ", ".join(missing_scd),
+                }
+            result["message"] = f"Silver Delta is readable through ADLS with {row_count:,} rows and SCD Type 2 columns."
+            return result
+
+        label = "Landing parquet" if layer == "landing" else f"{layer.title()} Delta"
+        result["message"] = f"{label} is readable through ADLS with {row_count:,} rows."
+        return result
+
+
 def _resolve_local_path(target_path: str, mount_path: str, lakehouse_map: dict[str, str]) -> tuple[str | None, str]:
     if not target_path:
         return None, "no_target_path"
@@ -230,6 +364,7 @@ def _artifact_check(
     task: dict[str, Any],
     mount_path: str,
     lakehouse_map: dict[str, str],
+    remote_verifier: _RemoteArtifactVerifier | None = None,
 ) -> dict[str, Any]:
     target_path = str(task.get("TargetPath") or "")
     local_path, resolution = _resolve_local_path(target_path, mount_path, lakehouse_map)
@@ -242,6 +377,16 @@ def _artifact_check(
     }
 
     if not local_path:
+        if (
+            remote_verifier is not None
+            and target_path
+            and not target_path.startswith("dagster://")
+            and resolution in {"no_onelake_mount", "remote_path"} | ({resolution} if resolution.startswith("lakehouse_guid_not_mapped") else set())
+        ):
+            remote_check = remote_verifier.check(layer=layer, task=task)
+            if str(remote_check.get("status") or "not_checked") != "not_checked":
+                return remote_check
+            check["remoteCheck"] = remote_check
         if resolution == "remote_path":
             check["message"] = "Remote OneLake/ADLS path recorded; local verifier cannot physically inspect it."
         elif resolution.startswith("lakehouse_guid_not_mapped"):
@@ -285,7 +430,23 @@ def _task_check(layer: str, task: dict[str, Any] | None) -> tuple[str, str]:
     rows_read = int(task.get("RowsRead") or 0)
     rows_written = int(task.get("RowsWritten") or 0)
     bytes_transferred = int(task.get("BytesTransferred") or 0)
+    load_type = str(task.get("LoadType") or "").strip().lower()
+    watermark_before = str(task.get("WatermarkBefore") or "").strip()
+    watermark_after = str(task.get("WatermarkAfter") or "").strip()
+    error_suggestion = str(task.get("ErrorSuggestion") or "")
+    incremental_noop = (
+        load_type == "incremental"
+        and rows_read == 0
+        and rows_written == 0
+        and (
+            (watermark_before and watermark_before == watermark_after)
+            or "incremental loads this is ok" in error_suggestion.lower()
+            or "no data since watermark" in error_suggestion.lower()
+        )
+    )
     if layer == "landing":
+        if incremental_noop:
+            return "warning", "Landing incremental found no new source rows since the current watermark."
         if rows_read <= 0:
             return "failed", "Landing succeeded but RowsRead is zero."
         if rows_written <= 0:
@@ -313,6 +474,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
     config_path = Path(args.config_path).resolve()
     layers = [_normalize_layer(layer) for layer in args.layers]
     mount_path = args.onelake_mount or _configured_onelake_mount(config_path)
+    remote_verifier = None if getattr(args, "skip_remote_artifact_check", False) else _RemoteArtifactVerifier(config_path)
 
     receipt: dict[str, Any] = {
         "ok": False,
@@ -417,6 +579,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
                     task=task or {},
                     mount_path=mount_path,
                     lakehouse_map=lakehouse_map,
+                    remote_verifier=remote_verifier,
                 )
                 artifact_status = str(artifact.get("status") or "not_checked")
                 if artifact_status == "not_checked" and args.allow_unverified_artifacts:
@@ -475,6 +638,11 @@ def main() -> int:
         "--allow-unverified-artifacts",
         action="store_true",
         help="Do not hard-fail when TargetPath is remote or ONELAKE_MOUNT_PATH is unavailable.",
+    )
+    parser.add_argument(
+        "--skip-remote-artifact-check",
+        action="store_true",
+        help="Skip ADLS SDK artifact verification when no local OneLake mount is available.",
     )
     args = parser.parse_args()
 
