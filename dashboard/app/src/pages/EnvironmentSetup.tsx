@@ -1,19 +1,22 @@
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, Server, Wand2, Settings2, Rocket, RefreshCw } from "lucide-react";
+import { Loader2, Server, History, Settings2, Rocket, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SetupWizard } from "./setup/SetupWizard";
 import { SetupSettings } from "./setup/SetupSettings";
 import { ProvisionAll } from "./setup/ProvisionAll";
-import type { EnvironmentConfig, SetupMode } from "./setup/types";
+import { DeploymentProfiles } from "./setup/DeploymentProfiles";
+import type { DeploymentProfileSummary, DeploymentProfilesResponse, EnvironmentConfig, SetupMode } from "./setup/types";
 import { EMPTY_CONFIG } from "./setup/types";
 
 const API = "/api";
 
 export default function EnvironmentSetup() {
-  const [mode, setMode] = useState<SetupMode>("provision");
+  const [mode, setMode] = useState<SetupMode>("deploy");
   const [config, setConfig] = useState<EnvironmentConfig>(EMPTY_CONFIG);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [profiles, setProfiles] = useState<DeploymentProfileSummary[]>([]);
+  const [activeProfileKey, setActiveProfileKey] = useState<string | undefined>();
+  const [profilesLoading, setProfilesLoading] = useState(false);
 
   const loadConfig = useCallback(async (signal: AbortSignal) => {
     setLoading(true);
@@ -30,9 +33,6 @@ export default function EnvironmentSetup() {
       const cfg = data.config ?? (data.workspaces ? data : null);
       if (cfg) {
         setConfig({ ...EMPTY_CONFIG, ...cfg });
-        if (cfg.workspaces?.data_dev?.id) {
-          setMode("settings");
-        }
       }
     } catch (ex) {
       if (signal.aborted) return;
@@ -42,11 +42,28 @@ export default function EnvironmentSetup() {
     }
   }, []);
 
+  const loadProfiles = useCallback(async () => {
+    setProfilesLoading(true);
+    try {
+      const resp = await fetch(`${API}/deployments`);
+      const data = (await resp.json()) as DeploymentProfilesResponse & { error?: string };
+      if (!resp.ok || data.error) throw new Error(data.error || `${resp.status} ${resp.statusText}`);
+      setProfiles(data.profiles || []);
+      setActiveProfileKey(data.activeProfileKey);
+    } catch {
+      setProfiles([]);
+      setActiveProfileKey(undefined);
+    } finally {
+      setProfilesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const ac = new AbortController();
     loadConfig(ac.signal);
+    loadProfiles();
     return () => ac.abort();
-  }, [loadConfig]);
+  }, [loadConfig, loadProfiles]);
 
   if (loading) {
     return (
@@ -78,9 +95,9 @@ export default function EnvironmentSetup() {
         {/* Mode toggle */}
         <div className="flex items-center gap-1 rounded-lg p-1" role="tablist" aria-label="Setup mode" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-inset)' }}>
           {([
-            { key: "provision" as const, icon: Rocket, label: "Provision" },
-            { key: "wizard" as const, icon: Wand2, label: "Wizard" },
-            { key: "settings" as const, icon: Settings2, label: "Settings" },
+            { key: "deploy" as const, icon: Rocket, label: "Deploy" },
+            { key: "profiles" as const, icon: History, label: "Profiles" },
+            { key: "settings" as const, icon: Settings2, label: "Manual Settings" },
           ]).map(({ key, icon: Icon, label }) => (
             <button
               key={key}
@@ -125,8 +142,8 @@ export default function EnvironmentSetup() {
 
       {/* Content */}
       <div className="rounded-xl p-6" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
-        {mode === "provision" && (
-          <div id="panel-provision" role="tabpanel">
+        {mode === "deploy" && (
+          <div id="panel-deploy" role="tabpanel">
             <ProvisionAll
               onComplete={(newConfig) => {
                 setConfig(newConfig);
@@ -135,9 +152,15 @@ export default function EnvironmentSetup() {
             />
           </div>
         )}
-        {mode === "wizard" && (
-          <div id="panel-wizard" role="tabpanel">
-            <SetupWizard config={config} onConfigChange={setConfig} />
+        {mode === "profiles" && (
+          <div id="panel-profiles" role="tabpanel">
+            <DeploymentProfiles
+              profiles={profiles}
+              activeProfileKey={activeProfileKey}
+              loading={profilesLoading}
+              onRefresh={loadProfiles}
+              onOpenProfile={() => setMode("deploy")}
+            />
           </div>
         )}
         {mode === "settings" && (

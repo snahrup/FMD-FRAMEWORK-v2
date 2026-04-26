@@ -777,98 +777,38 @@ def get_setup_validate(params: dict) -> dict:
 
 @route("POST", "/api/setup/provision-all")
 def post_setup_provision_all(params: dict) -> dict:
+    """Legacy compatibility wrapper for the new deployment engine.
+
+    The old route used hardcoded names and claimed unsupported propagation
+    targets. Keep the endpoint alive for older UI callers, but route all real
+    work through /api/deployments so there is only one provisioning path.
+    """
     capacity_id = str(params.get("capacityId", "")).strip()
     capacity_display_name = str(params.get("capacityDisplayName", "")).strip()
     if not capacity_id:
         raise HttpError("capacityId is required", 400)
 
-    steps: list[dict[str, Any]] = []
-
-    def record_step(name: str, status: str, *, item_id: str = "", details: str = "") -> None:
-        step: dict[str, Any] = {"name": name, "status": status}
-        if item_id:
-            step["id"] = item_id
-        if details:
-            step["details"] = details
-        steps.append(step)
-
     try:
-        workspaces: dict[str, Any] = {}
-        for key, display_name in _WORKSPACE_NAMES.items():
-            item, created = _create_workspace(display_name, capacity_id=capacity_id)
-            normalized = _normalize_entity(item)
-            workspaces[key] = normalized
-            record_step(
-                f"Workspace: {display_name}",
-                "ok",
-                item_id=normalized["id"],
-                details="Created" if created else "Reused existing workspace",
-            )
+        from dashboard.app.api.deployment_profiles import DEFAULT_RESOURCE_NAMES
+        from dashboard.app.api.routes.deployment import post_deployment_activate, post_deployment_execute
 
-        lakehouses: dict[str, Any] = {}
-        data_workspace_id = workspaces["data_dev"]["id"]
-        for key, display_name in _LAKEHOUSE_NAMES.items():
-            item, created = _create_lakehouse(data_workspace_id, display_name)
-            normalized = _normalize_lakehouse(item)
-            lakehouses[key] = normalized
-            record_step(
-                f"Lakehouse: {display_name}",
-                "ok",
-                item_id=normalized["id"],
-                details="Created" if created else "Reused existing lakehouse",
-            )
+        resource_names = json.loads(json.dumps(DEFAULT_RESOURCE_NAMES))
+        resource_names["profileKey"] = str(params.get("profileKey") or "legacy-provision-all")
+        resource_names["displayName"] = str(params.get("displayName") or "Legacy Provision All")
+        resource_names["authMode"] = str(params.get("authMode") or "service_principal")
+        resource_names["capacityId"] = capacity_id
+        resource_names["capacityDisplayName"] = capacity_display_name or capacity_id
 
-        sql_db_item, sql_db_created = _create_sql_database(workspaces["config"]["id"], "SQL_INTEGRATION_FRAMEWORK")
-        database = _normalize_sql_database(sql_db_item)
-        record_step(
-            "SQL Database: SQL_INTEGRATION_FRAMEWORK",
-            "ok",
-            item_id=database["id"],
-            details="Created" if sql_db_created else "Reused existing SQL database",
-        )
-
-        token = _get_fabric_token()
-        notebooks_live = _list_notebooks_live(workspaces["code_dev"]["id"], token)
-        notebooks = {
-            key: (
-                _normalize_entity(found)
-                if (found := _find_by_name(notebooks_live, name))
-                else None
-            )
-            for key, name in _NOTEBOOK_NAMES.items()
+        execute_result = post_deployment_execute(resource_names)
+        activation_result = None
+        if execute_result.get("status") == "deployed":
+            activation_result = post_deployment_activate({"profileKey": execute_result["profileKey"]})
+        return {
+            "steps": execute_result.get("steps", []),
+            "config": (activation_result or execute_result).get("config", execute_result.get("config")),
+            "results": (activation_result or {}).get("propagation", []),
+            "deployment": execute_result,
+            "activation": activation_result,
         }
-        pipelines_live = _list_pipelines_live(workspaces["code_dev"]["id"], token)
-        pipelines = {
-            key: (
-                _normalize_entity(found)
-                if (found := _find_by_name(pipelines_live, name))
-                else None
-            )
-            for key, name in _PIPELINE_NAMES.items()
-        }
-        for pipeline in pipelines.values():
-            if pipeline:
-                _upsert_pipeline_row(pipeline, workspaces["code_dev"]["id"])
-
-        config = {
-            "capacity": {
-                "id": capacity_id,
-                "displayName": capacity_display_name or capacity_id,
-                "sku": "",
-                "state": "Active",
-            },
-            "workspaces": workspaces,
-            "connections": _default_connections(),
-            "lakehouses": lakehouses,
-            "notebooks": notebooks,
-            "pipelines": pipelines,
-            "database": database,
-        }
-
-        results = _save_environment_config(config)
-        record_step("Save & propagate config", "ok", details=", ".join(result["target"] for result in results))
-
-        return {"steps": steps, "config": config, "results": results}
     except HttpError as exc:
-        record_step("Provisioning failed", "error", details=str(exc))
-        return {"error": str(exc), "steps": steps}
+        return {"error": str(exc), "steps": [{"name": "Deployment failed", "status": "error", "details": str(exc)}]}

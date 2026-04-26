@@ -5,6 +5,7 @@ param(
     [string[]]$Layers = @("landing", "bronze", "silver"),
     [string]$RunId = "",
     [string]$ApiBaseUrl = "http://127.0.0.1:5288",
+    [string]$OneLakeMountPath = "",
     [switch]$RequireApiPreflight,
     [switch]$SkipApiPreflight,
     [switch]$AllowUnverifiedArtifacts
@@ -33,6 +34,21 @@ function Resolve-Python {
     return "python"
 }
 
+function Resolve-OneLakeMount {
+    param([string]$Requested)
+    if ($Requested) {
+        return $Requested
+    }
+    if ($env:ONELAKE_MOUNT_PATH) {
+        return $env:ONELAKE_MOUNT_PATH
+    }
+    $defaultMount = Join-Path $env:USERPROFILE "OneLake - Microsoft"
+    if (Test-Path $defaultMount) {
+        return $defaultMount
+    }
+    return ""
+}
+
 function Invoke-Native {
     param(
         [string]$Exe,
@@ -51,6 +67,10 @@ function Invoke-Native {
 
 $FrameworkPath = (Resolve-Path $FrameworkPath).Path
 $Python = Resolve-Python -Requested $Python
+$OneLakeMountPath = Resolve-OneLakeMount -Requested $OneLakeMountPath
+if ($OneLakeMountPath) {
+    $env:ONELAKE_MOUNT_PATH = $OneLakeMountPath
+}
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 Set-Location $FrameworkPath
 
@@ -58,6 +78,7 @@ Write-Host "FMD real smoke load"
 Write-Host "Project: $FrameworkPath"
 Write-Host "Python:  $Python"
 Write-Host "Layers:  $($Layers -join ', ')"
+Write-Host "OneLake: $(if ($OneLakeMountPath) { $OneLakeMountPath } else { 'not configured; ADLS verifier fallback will be used' })"
 
 Write-Step "Verify Python runtime"
 $runtimeProbe = "import _overlapped; import pyodbc, polars, pyarrow, deltalake; print('python socket stack and real-loader deps ok')"
@@ -136,6 +157,9 @@ $verifyArgs = @(
 )
 if ($AllowUnverifiedArtifacts) {
     $verifyArgs += "--allow-unverified-artifacts"
+}
+if ($OneLakeMountPath) {
+    $verifyArgs += @("--onelake-mount", $OneLakeMountPath)
 }
 Invoke-Native -Exe $Python -Arguments $verifyArgs
 

@@ -1,424 +1,378 @@
-import { useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Loader2,
-  Rocket,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  FolderOpen,
-  Database,
-  Server,
-  Zap,
-  Link2,
-  Copy,
-  ExternalLink,
-  Settings2,
-} from "lucide-react";
-import { FabricDropdown } from "./components/FabricDropdown";
-import type { EnvironmentConfig, FabricCapacity } from "./types";
+import { cn } from "@/lib/utils";
+import { AlertTriangle, CheckCircle2, Loader2, Play, Rocket, ShieldCheck } from "lucide-react";
+import { DeploymentAuthPanel } from "./DeploymentAuthPanel";
+import { DeploymentNameStep } from "./DeploymentNameStep";
+import { DeploymentPreview, hasRequiredBlockedSteps } from "./DeploymentPreview";
+import { DeploymentProgress, deploymentSucceeded } from "./DeploymentProgress";
+import { DeploymentProof, proofPassed } from "./DeploymentProof";
+import { DeploymentProfiles } from "./DeploymentProfiles";
+import type {
+  DeploymentAuthStatus,
+  DeploymentExecuteResult,
+  DeploymentPreviewResult,
+  DeploymentProfileSummary,
+  DeploymentProfilesResponse,
+  DeploymentResourceNames,
+  DeploymentStage,
+  DeploymentStep,
+  DeploymentValidationResult,
+  EnvironmentConfig,
+  SaveResult,
+} from "./types";
+import { DEFAULT_DEPLOYMENT_NAMES, EMPTY_CONFIG } from "./types";
 
-const API = "/api";
-
-interface ProvisionStep {
-  name: string;
-  status: "creating" | "ok" | "error" | "warning";
-  id?: string;
-  details?: string;
-}
+const STAGES: { key: DeploymentStage; label: string; description: string }[] = [
+  { key: "auth", label: "Auth", description: "Fabric identity" },
+  { key: "names", label: "Names", description: "Resources" },
+  { key: "preview", label: "Preview", description: "Dry run" },
+  { key: "execute", label: "Execute", description: "Create or reuse" },
+  { key: "validate", label: "Proof", description: "Validate" },
+  { key: "activate", label: "Activate", description: "Use profile" },
+];
 
 interface ProvisionAllProps {
   onComplete: (config: EnvironmentConfig) => void;
 }
 
-const STEP_ICONS: Record<string, typeof Server> = {
-  Connections: Link2,
-  Workspace: FolderOpen,
-  Lakehouse: Database,
-  SQL: Server,
-  Save: Zap,
-};
-
-function getStepIcon(name: string) {
-  for (const [prefix, Icon] of Object.entries(STEP_ICONS)) {
-    if (name.startsWith(prefix)) return Icon;
-  }
-  return Zap;
+function postJson<T>(path: string, body?: unknown): Promise<T> {
+  return fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }).then(async (resp) => {
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || data.error) throw new Error(data.error || `${resp.status} ${resp.statusText}`);
+    return data as T;
+  });
 }
 
-const STATUS_STYLES = {
-  creating: { color: "var(--bp-copper)", bg: "var(--bp-copper-light)" },
-  ok: { color: "var(--bp-operational)", bg: "var(--bp-operational-light)" },
-  error: { color: "var(--bp-fault)", bg: "var(--bp-fault-light)" },
-  warning: { color: "var(--bp-caution)", bg: "var(--bp-caution-light)" },
-};
+function normalizeSteps(data: { steps?: DeploymentStep[]; plan?: { steps?: DeploymentStep[] } }): DeploymentStep[] {
+  return data.steps || data.plan?.steps || [];
+}
+
+function buildPayload(names: DeploymentResourceNames) {
+  return {
+    profileKey: names.profileKey,
+    displayName: names.displayName,
+    authMode: names.authMode,
+    capacity: {
+      id: names.capacityId,
+      displayName: names.capacityDisplayName,
+    },
+    workspaces: names.workspaces,
+    lakehouses: names.lakehouses,
+    database: names.database,
+    items: names.items,
+  };
+}
+
+function mergeEnvironmentConfig(result: DeploymentExecuteResult): EnvironmentConfig | null {
+  const cfg = result.config as Partial<EnvironmentConfig> | undefined;
+  if (!cfg) return null;
+  return {
+    ...EMPTY_CONFIG,
+    ...cfg,
+    workspaces: { ...EMPTY_CONFIG.workspaces, ...(cfg.workspaces || {}) },
+    lakehouses: { ...EMPTY_CONFIG.lakehouses, ...(cfg.lakehouses || {}) },
+    notebooks: { ...EMPTY_CONFIG.notebooks, ...(cfg.notebooks || {}) },
+    pipelines: { ...EMPTY_CONFIG.pipelines, ...(cfg.pipelines || {}) },
+    connections: { ...EMPTY_CONFIG.connections, ...(cfg.connections || {}) },
+  };
+}
+
+function statusFromSteps(stage: DeploymentStage, activeStage: DeploymentStage, completed: Set<DeploymentStage>) {
+  if (completed.has(stage)) return "done";
+  if (stage === activeStage) return "active";
+  return "todo";
+}
 
 export function ProvisionAll({ onComplete }: ProvisionAllProps) {
-  const [capacity, setCapacity] = useState<FabricCapacity | null>(null);
-  const [provisioning, setProvisioning] = useState(false);
-  const [steps, setSteps] = useState<ProvisionStep[]>([]);
+  const [activeStage, setActiveStage] = useState<DeploymentStage>("auth");
+  const [completedStages, setCompletedStages] = useState<Set<DeploymentStage>>(new Set());
+  const [names, setNames] = useState<DeploymentResourceNames>(DEFAULT_DEPLOYMENT_NAMES);
+  const [authStatus, setAuthStatus] = useState<DeploymentAuthStatus | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [profiles, setProfiles] = useState<DeploymentProfileSummary[]>([]);
+  const [activeProfileKey, setActiveProfileKey] = useState<string | undefined>();
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [previewSteps, setPreviewSteps] = useState<DeploymentStep[]>([]);
+  const [executeSteps, setExecuteSteps] = useState<DeploymentStep[]>([]);
+  const [proof, setProof] = useState<DeploymentValidationResult | null>(null);
+  const [propagation, setPropagation] = useState<SaveResult[]>([]);
+  const [busy, setBusy] = useState<"preview" | "execute" | "validate" | "activate" | "profile" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const configRef = useRef<EnvironmentConfig | null>(null);
+  const [resultConfig, setResultConfig] = useState<EnvironmentConfig | null>(null);
 
-  const handleProvision = async () => {
-    const selectedCapacity = capacity;
-    if (!selectedCapacity) return;
-    const provisionCapacity: FabricCapacity = selectedCapacity;
-    setProvisioning(true);
-    setSteps([]);
-    setError(null);
-    setDone(false);
-    const placeholders: ProvisionStep[] = [
-      { name: "Connections: carry forward", status: "creating" },
-      { name: "Workspace: INTEGRATION DATA (D)", status: "creating" },
-      { name: "Workspace: INTEGRATION CODE (D)", status: "creating" },
-      { name: "Workspace: INTEGRATION CONFIG", status: "creating" },
-      { name: "Workspace: INTEGRATION DATA (P)", status: "creating" },
-      { name: "Workspace: INTEGRATION CODE (P)", status: "creating" },
-      { name: "Lakehouse: LH_DATA_LANDINGZONE", status: "creating" },
-      { name: "Lakehouse: LH_BRONZE_LAYER", status: "creating" },
-      { name: "Lakehouse: LH_SILVER_LAYER", status: "creating" },
-      { name: "SQL Database: SQL_INTEGRATION_FRAMEWORK", status: "creating" },
-      { name: "Save & propagate config", status: "creating" },
-    ];
-    setSteps(placeholders);
-
+  const loadAuth = useCallback(async () => {
+    setAuthLoading(true);
+    setAuthError(null);
     try {
-      const resp = await fetch(`${API}/setup/provision-all`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          capacityId: provisionCapacity.id,
-          capacityDisplayName: provisionCapacity.displayName,
-        }),
-      });
+      const resp = await fetch("/api/deployments/auth/status");
       const data = await resp.json();
-      if (data.error) {
-        setError(data.error);
-        setSteps([]);
-        return;
-      }
-
-      setSteps(data.steps || []);
-      setDone(true);
-
-      if (data.config) {
-        const newConfig: EnvironmentConfig = {
-          capacity: provisionCapacity,
-          workspaces: {
-            data_dev: data.config.workspaces?.data_dev || null,
-            code_dev: data.config.workspaces?.code_dev || null,
-            config: data.config.workspaces?.config || null,
-            data_prod: data.config.workspaces?.data_prod || null,
-            code_prod: data.config.workspaces?.code_prod || null,
-          },
-          connections: data.config.connections || {},
-          lakehouses: {
-            LH_DATA_LANDINGZONE: data.config.lakehouses?.LH_DATA_LANDINGZONE || null,
-            LH_BRONZE_LAYER: data.config.lakehouses?.LH_BRONZE_LAYER || null,
-            LH_SILVER_LAYER: data.config.lakehouses?.LH_SILVER_LAYER || null,
-          },
-          database: data.config.database || null,
-          notebooks: data.config.notebooks || {},
-          pipelines: data.config.pipelines || {},
-        };
-        configRef.current = newConfig;
-      }
-    } catch (ex: unknown) {
-      const message =
-        typeof ex === "object" && ex !== null
-          ? String((ex as { message?: unknown }).message ?? ex)
-          : String(ex);
-      setError(message);
-      setSteps([]);
+      if (!resp.ok || data.error) throw new Error(data.error || `${resp.status} ${resp.statusText}`);
+      setAuthStatus(data);
+      setNames((current) => ({ ...current, authMode: data.activeMode || current.authMode }));
+    } catch (ex) {
+      setAuthError(ex instanceof Error ? ex.message : String(ex));
     } finally {
-      setProvisioning(false);
+      setAuthLoading(false);
+    }
+  }, []);
+
+  const loadProfiles = useCallback(async () => {
+    setProfilesLoading(true);
+    try {
+      const resp = await fetch("/api/deployments");
+      const data = (await resp.json()) as DeploymentProfilesResponse;
+      if (!resp.ok || (data as { error?: string }).error) throw new Error((data as { error?: string }).error || `${resp.status} ${resp.statusText}`);
+      setProfiles(data.profiles || []);
+      setActiveProfileKey(data.activeProfileKey);
+    } catch {
+      setProfiles([]);
+    } finally {
+      setProfilesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAuth();
+    loadProfiles();
+  }, [loadAuth, loadProfiles]);
+
+  const canPreview = names.profileKey.trim() && names.displayName.trim() && names.capacityId.trim();
+  const previewBlocked = hasRequiredBlockedSteps(previewSteps);
+  const executeReady = previewSteps.length > 0 && !previewBlocked;
+  const deployed = deploymentSucceeded(executeSteps);
+  const validated = proofPassed(proof);
+
+  const markStage = (stage: DeploymentStage) => {
+    setCompletedStages((current) => new Set([...current, stage]));
+  };
+
+  const runPreview = async () => {
+    setBusy("preview");
+    setError(null);
+    setProof(null);
+    setExecuteSteps([]);
+    setPropagation([]);
+    try {
+      const data = await postJson<DeploymentPreviewResult>("/api/deployments/preview", buildPayload(names));
+      setPreviewSteps(normalizeSteps(data));
+      markStage("preview");
+      setActiveStage("execute");
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(null);
     }
   };
 
-  const handleCopyIds = () => {
-    const lines: string[] = [];
-    for (const step of steps) {
-      if (step.id) lines.push(`${step.name}: ${step.id}`);
+  const runExecute = async () => {
+    setBusy("execute");
+    setError(null);
+    try {
+      const data = await postJson<DeploymentExecuteResult>("/api/deployments/execute", buildPayload(names));
+      setExecuteSteps(normalizeSteps(data));
+      setPropagation(data.propagation || []);
+      const nextConfig = mergeEnvironmentConfig(data);
+      if (nextConfig) setResultConfig(nextConfig);
+      markStage("execute");
+      setActiveStage("validate");
+      loadProfiles();
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(null);
     }
-    navigator.clipboard.writeText(lines.join("\n"));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleGoToSettings = () => {
-    if (configRef.current) onComplete(configRef.current);
+  const runValidate = async () => {
+    setBusy("validate");
+    setError(null);
+    try {
+      const data = await postJson<DeploymentValidationResult>(`/api/deployments/${encodeURIComponent(names.profileKey)}/validate`);
+      setProof(data);
+      markStage("validate");
+      if (data.ok) setActiveStage("activate");
+      loadProfiles();
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(null);
+    }
   };
 
-  const successCount = steps.filter((s) => s.status === "ok").length;
-  const errorCount = steps.filter((s) => s.status === "error").length;
+  const runActivate = async () => {
+    setBusy("activate");
+    setError(null);
+    try {
+      const data = await postJson<DeploymentExecuteResult>(`/api/deployments/${encodeURIComponent(names.profileKey)}/activate`);
+      const nextConfig = mergeEnvironmentConfig(data) || resultConfig;
+      setPropagation(data.propagation || propagation);
+      markStage("activate");
+      loadProfiles();
+      if (nextConfig) onComplete(nextConfig);
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const openProfile = async (profileKey: string) => {
+    setBusy("profile");
+    setError(null);
+    try {
+      const resp = await fetch(`/api/deployments/${encodeURIComponent(profileKey)}`);
+      const data = await resp.json();
+      if (!resp.ok || data.error) throw new Error(data.error || `${resp.status} ${resp.statusText}`);
+      const profile = data.profile || data;
+      setNames((current) => ({
+        ...current,
+        profileKey: profile.profileKey || profile.ProfileKey || profileKey,
+        displayName: profile.displayName || profile.DisplayName || current.displayName,
+        authMode: profile.authMode || profile.AuthMode || current.authMode,
+        capacityId: profile.capacityId || profile.CapacityId || current.capacityId,
+        capacityDisplayName: profile.capacityName || profile.CapacityName || current.capacityDisplayName,
+      }));
+      setPreviewSteps(data.preview?.steps || data.resourcePlan?.steps || []);
+      setExecuteSteps(data.steps || []);
+      setProof(data.validationProof || data.proof || null);
+      setActiveStage("execute");
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const stageIndex = useMemo(() => STAGES.findIndex((stage) => stage.key === activeStage), [activeStage]);
 
   return (
-    <div className="space-y-5">
-      {/* Hero banner */}
-      <div className="rounded-lg p-6" style={{ border: '1px dashed var(--bp-border-strong)', background: 'var(--bp-copper-light)' }}>
-        <div className="flex items-start gap-4">
-          <div className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-border)' }}>
-            <Rocket className="h-6 w-6" style={{ color: 'var(--bp-copper)' }} />
+    <div className="space-y-6">
+      <section className="relative overflow-hidden rounded-2xl p-6" style={{ border: "1px solid var(--bp-border)", background: "linear-gradient(135deg, var(--bp-copper-light), var(--bp-surface-1) 55%, var(--bp-surface-inset))" }}>
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ border: "1px solid var(--bp-border)", color: "var(--bp-copper)", background: "var(--bp-surface-1)" }}>
+              <Rocket className="h-3.5 w-3.5" />
+              Fabric one-click deployment
+            </div>
+            <h2 style={{ color: "var(--bp-ink-primary)", fontFamily: "var(--bp-font-display)", fontSize: 28 }}>
+              Guided Fabric setup with preview, proof, and activation gates
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--bp-ink-secondary)" }}>
+              Name every resource, dry-run the Fabric plan, execute only when required blockers are gone,
+              then validate before activating the profile. This screen only shows config propagation targets
+              returned by the backend.
+            </p>
           </div>
-          <div className="space-y-2 flex-1">
-            <h3 className="text-lg font-bold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-display)' }}>Provision Fresh Environment</h3>
-            <p className="text-sm leading-relaxed" style={{ color: 'var(--bp-ink-secondary)', fontFamily: 'var(--bp-font-body)' }}>
-              One click creates <strong>5 workspaces</strong>, <strong>3 lakehouses</strong>, and{" "}
-              <strong>1 SQL database</strong> with correct naming conventions. Assigns Service
-              Principal + FabricAdmins admin access to every workspace. Saves all IDs to every
-              config target automatically.
-            </p>
-            <p className="text-xs" style={{ color: 'var(--bp-ink-muted)' }}>
-              Idempotent — safe to run again. Existing resources with matching names will be reused,
-              not duplicated.
-            </p>
+          <div className="rounded-xl p-4 text-sm" style={{ border: "1px solid var(--bp-border)", background: "rgba(255,255,255,0.45)" }}>
+            <div className="flex items-center gap-2" style={{ color: deployed ? "var(--bp-operational)" : "var(--bp-ink-muted)" }}>
+              <ShieldCheck className="h-4 w-4" />
+              <span>{deployed ? "Deployment succeeded" : "Awaiting deployment"}</span>
+            </div>
+            <div className="mt-2 flex items-center gap-2" style={{ color: validated ? "var(--bp-operational)" : "var(--bp-ink-muted)" }}>
+              <CheckCircle2 className="h-4 w-4" />
+              <span>{validated ? "Proof checks passed" : "Proof not complete"}</span>
+            </div>
           </div>
         </div>
+      </section>
+
+      <div className="grid gap-2 md:grid-cols-6">
+        {STAGES.map((stage, index) => {
+          const status = statusFromSteps(stage.key, activeStage, completedStages);
+          return (
+            <button
+              type="button"
+              key={stage.key}
+              onClick={() => setActiveStage(stage.key)}
+              className={cn("rounded-xl p-3 text-left transition-all", index <= stageIndex ? "opacity-100" : "opacity-70")}
+              style={{
+                border: status === "active" ? "1px solid var(--bp-copper)" : "1px solid var(--bp-border)",
+                background: status === "active" ? "var(--bp-copper-light)" : "var(--bp-surface-1)",
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full text-[10px]" style={{ background: status === "done" ? "var(--bp-operational)" : status === "active" ? "var(--bp-copper)" : "var(--bp-border)", color: "white" }}>
+                  {status === "done" ? "✓" : index + 1}
+                </span>
+                <span className="text-xs font-semibold" style={{ color: "var(--bp-ink-primary)" }}>{stage.label}</span>
+              </div>
+              <p className="mt-1 text-[10px]" style={{ color: "var(--bp-ink-muted)" }}>{stage.description}</p>
+            </button>
+          );
+        })}
       </div>
 
-      {/* Capacity picker — only before provisioning */}
-      {!done && (
-        <div className="max-w-sm">
-          <FabricDropdown
-            label="Fabric Capacity"
-            endpoint="/setup/capacities"
-            responseKey="capacities"
-            value={capacity}
-            onChange={(e) => setCapacity(e as FabricCapacity | null)}
-            subtitle="Select the capacity for the new workspaces"
-          />
-        </div>
-      )}
-
-      {/* Provision button */}
-      {!done && (
-        <Button
-          onClick={handleProvision}
-          disabled={!capacity || provisioning}
-          size="lg"
-          className="gap-2 bp-btn-primary"
-        >
-          {provisioning ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Rocket className="h-4 w-4" />
-          )}
-          {provisioning ? "Provisioning..." : "Provision Everything"}
-        </Button>
-      )}
-
-      {/* Error */}
       {error && (
-        <div role="alert" className="rounded-md p-3 text-xs" style={{ border: '1px solid var(--bp-fault)', background: 'var(--bp-fault-light)', color: 'var(--bp-fault)' }}>
+        <div role="alert" className="flex items-start gap-2 rounded-lg p-3 text-xs" style={{ border: "1px solid var(--bp-fault)", background: "var(--bp-fault-light)", color: "var(--bp-fault)" }}>
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           {error}
         </div>
       )}
 
-      {/* Progress steps */}
-      {steps.length > 0 && (
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <h4 className="text-xs font-medium" style={{ color: 'var(--bp-ink-tertiary)', fontFamily: 'var(--bp-font-body)' }}>
-              {provisioning ? "Provisioning..." : done ? "Provisioning Complete" : "Progress"}
-            </h4>
-            <div className="flex items-center gap-2">
-              {done && (
-                <span className="text-xs" style={{ color: 'var(--bp-ink-tertiary)' }}>
-                  {successCount} succeeded{errorCount > 0 ? `, ${errorCount} failed` : ""}
-                </span>
-              )}
-              {done && (
-                <button
-                  onClick={handleCopyIds}
-                  aria-label="Copy resource IDs to clipboard"
-                  className="text-[10px] flex items-center gap-1 transition-colors"
-                  style={{ color: copied ? 'var(--bp-operational)' : 'var(--bp-ink-muted)' }}
-                >
-                  <Copy className="h-3 w-3" />
-                  {copied ? "Copied!" : "Copy IDs"}
-                </button>
-              )}
+      <div className="grid gap-6 xl:grid-cols-[1fr_340px]">
+        <div className="rounded-2xl p-5" style={{ border: "1px solid var(--bp-border)", background: "var(--bp-surface-1)" }}>
+          {activeStage === "auth" && (
+            <DeploymentAuthPanel
+              authStatus={authStatus}
+              selectedMode={names.authMode}
+              loading={authLoading}
+              error={authError}
+              onModeChange={(authMode) => setNames((current) => ({ ...current, authMode }))}
+              onRefresh={loadAuth}
+            />
+          )}
+          {activeStage === "names" && <DeploymentNameStep value={names} onChange={setNames} />}
+          {activeStage === "preview" && <DeploymentPreview steps={previewSteps} />}
+          {activeStage === "execute" && <DeploymentProgress steps={executeSteps.length ? executeSteps : previewSteps} propagation={propagation} />}
+          {activeStage === "validate" && <DeploymentProof proof={proof} />}
+          {activeStage === "activate" && (
+            <div className="space-y-4">
+              <DeploymentProof proof={proof} />
+              <DeploymentProgress steps={executeSteps} propagation={propagation} />
             </div>
-          </div>
+          )}
 
-          <div className="rounded-md divide-y" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
-            {steps.map((step, i) => {
-              const style = STATUS_STYLES[step.status];
-              const Icon = getStepIcon(step.name);
-              return (
-                <div key={i} className="flex items-center gap-3 px-4 py-2.5" style={{ borderColor: 'var(--bp-border-subtle)' }}>
-                  <Icon className="h-4 w-4 shrink-0" style={{ color: style.color }} />
-                  <span className="text-sm font-medium flex-1" style={{ color: 'var(--bp-ink-primary)' }}>{step.name}</span>
-                  {step.status === "creating" && (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: 'var(--bp-copper)' }} />
-                  )}
-                  {step.status === "ok" && (
-                    <CheckCircle2 className="h-3.5 w-3.5" style={{ color: 'var(--bp-operational)' }} />
-                  )}
-                  {step.status === "error" && (
-                    <XCircle className="h-3.5 w-3.5" style={{ color: 'var(--bp-fault)' }} />
-                  )}
-                  {step.status === "warning" && (
-                    <AlertTriangle className="h-3.5 w-3.5" style={{ color: 'var(--bp-caution)' }} />
-                  )}
-                  {step.details && (
-                    <span
-                      className="text-[10px] max-w-[200px] truncate"
-                      style={{ color: step.status === "error" ? 'var(--bp-fault)' : 'var(--bp-ink-muted)' }}
-                      title={step.details}
-                    >
-                      {step.details}
-                    </span>
-                  )}
-                  {step.id && (
-                    <span
-                      className="text-[9px] max-w-[180px] truncate"
-                      style={{ fontFamily: 'var(--bp-font-mono)', color: 'var(--bp-ink-muted)' }}
-                      title={step.id}
-                    >
-                      {step.id}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Success confirmation panel */}
-      {done && errorCount === 0 && (
-        <div className="rounded-lg p-6 space-y-4" style={{ border: '1px solid var(--bp-operational)', background: 'var(--bp-operational-light)' }}>
-          <div className="flex items-start gap-3">
-            <div className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'var(--bp-surface-1)', border: '1px solid var(--bp-operational)' }}>
-              <CheckCircle2 className="h-5 w-5" style={{ color: 'var(--bp-operational)' }} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold" style={{ color: 'var(--bp-operational)' }}>
-                Environment Provisioned Successfully
-              </h3>
-              <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-secondary)' }}>
-                All {successCount} resources created. Config saved to <strong>item_config.yaml</strong>,{" "}
-                <strong>config.json</strong>, <strong>SQL metadata</strong>, and{" "}
-                <strong>variable libraries</strong>.
-              </p>
-            </div>
-          </div>
-
-          {/* Resource summary grid */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
-              <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--bp-ink-muted)' }}>Workspaces</div>
-              <div className="text-2xl font-bold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>5</div>
-              <div className="text-[10px] mt-0.5" style={{ color: 'var(--bp-ink-tertiary)' }}>2 DEV + 2 PROD + 1 CONFIG</div>
-            </div>
-            <div className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
-              <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--bp-ink-muted)' }}>Lakehouses</div>
-              <div className="text-2xl font-bold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>3</div>
-              <div className="text-[10px] mt-0.5" style={{ color: 'var(--bp-ink-tertiary)' }}>LZ + Bronze + Silver</div>
-            </div>
-            <div className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
-              <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--bp-ink-muted)' }}>SQL Database</div>
-              <div className="text-2xl font-bold" style={{ color: 'var(--bp-ink-primary)', fontFamily: 'var(--bp-font-mono)', fontVariantNumeric: 'tabular-nums' }}>1</div>
-              <div className="text-[10px] mt-0.5" style={{ color: 'var(--bp-ink-tertiary)' }}>Metadata DB</div>
-            </div>
-          </div>
-
-          {/* Config targets confirmation */}
-          <div className="rounded-md p-3" style={{ border: '1px solid var(--bp-border)', background: 'var(--bp-surface-1)' }}>
-            <div className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--bp-ink-muted)' }}>
-              Config Propagated To
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {[
-                "config/item_config.yaml",
-                "dashboard/app/api/config.json",
-                "SQL metadata tables",
-                "Variable libraries",
-              ].map((target) => (
-                <div key={target} className="flex items-center gap-1.5 text-[11px]">
-                  <CheckCircle2 className="h-3 w-3 shrink-0" style={{ color: 'var(--bp-operational)' }} />
-                  <span style={{ color: 'var(--bp-ink-tertiary)' }}>{target}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex items-center gap-3 pt-1">
-            <Button onClick={handleGoToSettings} variant="outline" size="sm" className="gap-1.5">
-              <Settings2 className="h-3.5 w-3.5" />
-              Review in Settings
-            </Button>
-            <a
-              href="https://app.fabric.microsoft.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs transition-colors"
-              style={{ color: 'var(--bp-ink-tertiary)' }}
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              Open Fabric Portal
-            </a>
-            <Button
-              onClick={() => {
-                setDone(false);
-                setSteps([]);
-                setCapacity(null);
-                configRef.current = null;
-              }}
-              variant="ghost"
-              size="sm"
-              className="gap-1.5"
-              style={{ color: 'var(--bp-ink-tertiary)' }}
-            >
-              <Rocket className="h-3.5 w-3.5" />
-              Provision Again
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Partial success with errors */}
-      {done && errorCount > 0 && (
-        <div className="rounded-lg p-5 space-y-3" style={{ border: '1px solid var(--bp-caution)', background: 'var(--bp-caution-light)' }}>
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" style={{ color: 'var(--bp-caution)' }} />
-            <div>
-              <p className="text-sm font-medium" style={{ color: 'var(--bp-caution)' }}>
-                Provisioned with {errorCount} error{errorCount > 1 ? "s" : ""}
-              </p>
-              <p className="text-xs mt-1" style={{ color: 'var(--bp-ink-secondary)' }}>
-                {successCount} resources succeeded, {errorCount} failed. Review errors above and
-                re-run — idempotent, won't duplicate existing resources.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button
-              onClick={() => {
-                setDone(false);
-                setSteps([]);
-              }}
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-            >
-              <Rocket className="h-3.5 w-3.5" />
-              Retry
-            </Button>
-            {configRef.current && (
-              <Button onClick={handleGoToSettings} variant="ghost" size="sm" className="gap-1.5">
-                <Settings2 className="h-3.5 w-3.5" />
-                Review in Settings
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t pt-4" style={{ borderColor: "var(--bp-border-subtle)" }}>
+            <p className="text-xs" style={{ color: "var(--bp-ink-muted)" }}>
+              Current profile: <span style={{ fontFamily: "var(--bp-font-mono)", color: "var(--bp-ink-primary)" }}>{names.profileKey || "not named"}</span>
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="ghost" onClick={() => setActiveStage("names")}>Edit names</Button>
+              <Button onClick={runPreview} disabled={!canPreview || busy === "preview"} className="gap-1.5">
+                {busy === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                Preview
               </Button>
-            )}
+              <Button onClick={runExecute} disabled={!executeReady || busy === "execute"} className="gap-1.5 bp-btn-primary">
+                {busy === "execute" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
+                Execute
+              </Button>
+              <Button variant="outline" onClick={runValidate} disabled={!deployed || busy === "validate"} className="gap-1.5">
+                {busy === "validate" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                Validate
+              </Button>
+              <Button variant="outline" onClick={runActivate} disabled={!deployed || !validated || busy === "activate"}>
+                Activate
+              </Button>
+            </div>
           </div>
         </div>
-      )}
+
+        <aside className="rounded-2xl p-5" style={{ border: "1px solid var(--bp-border)", background: "var(--bp-surface-inset)" }}>
+          <DeploymentProfiles
+            profiles={profiles}
+            activeProfileKey={activeProfileKey}
+            loading={profilesLoading || busy === "profile"}
+            onRefresh={loadProfiles}
+            onOpenProfile={openProfile}
+          />
+        </aside>
+      </div>
     </div>
   );
 }

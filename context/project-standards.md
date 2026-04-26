@@ -43,3 +43,4 @@
 ## Learnings
 - [2026-04-09] Mobile audit coverage should be derived from static `<Route path=\"...\" />` entries in `dashboard/app/src/App.tsx` so route coverage stays aligned with the dashboard without a hand-maintained list.
 - [2026-04-09] Mobile Playwright audits need their own Vite-backed config because the main dashboard Playwright harness assumes a different base URL and desktop-oriented test environment.
+- [2026-04-26] FMD handoff work must be treated as operational readiness, not demo readiness: include repeatable verification evidence, explicit unsupported limits, and no UI claims that imply unproven Fabric/data movement.
