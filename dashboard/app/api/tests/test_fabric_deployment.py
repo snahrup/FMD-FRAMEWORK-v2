@@ -34,6 +34,10 @@ class FakeFabric:
             return 201, item, {}
         if "/items" in url and method == "GET":
             return 200, {"value": []}, {}
+        if url.endswith("/workspaces/ws-existing/dataPipelines") and method == "POST":
+            return 201, {"id": "pipe-new", "displayName": payload["displayName"], "type": "DataPipeline"}, {}
+        if url.endswith("/workspaces/ws-existing/notebooks") and method == "POST":
+            return 201, {"id": "nb-new", "displayName": payload["displayName"], "type": "Notebook"}, {}
         if "/sqlDatabases" in url and method == "GET":
             return 200, {"value": []}, {}
         return 404, {"message": "not found"}, {}
@@ -59,14 +63,26 @@ def test_create_or_reuse_lakehouse_creates_when_missing():
     assert item["id"] == "lh-new"
 
 
-def test_missing_item_definition_returns_warning_not_fake_success():
+def test_missing_data_pipeline_definition_creates_real_placeholder_item():
     fake = FakeFabric()
     client = FabricDeploymentClient(TokenProvider(), request_fn=fake.request)
 
     item, action = client.create_or_reuse_item("ws-existing", "Missing Pipeline", "DataPipeline")
 
-    assert item is None
-    assert action == "warning"
+    assert item["id"] == "pipe-new"
+    assert action == "create"
+    assert any(call[1].endswith("/workspaces/ws-existing/dataPipelines") for call in fake.calls)
+
+
+def test_missing_notebook_definition_creates_real_placeholder_item():
+    fake = FakeFabric()
+    client = FabricDeploymentClient(TokenProvider(), request_fn=fake.request)
+
+    item, action = client.create_or_reuse_item("ws-existing", "Missing Notebook", "Notebook")
+
+    assert item["id"] == "nb-new"
+    assert action == "create"
+    assert any(call[1].endswith("/workspaces/ws-existing/notebooks") for call in fake.calls)
 
 
 def test_api_error_is_normalized():

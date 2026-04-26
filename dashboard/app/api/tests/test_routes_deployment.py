@@ -52,7 +52,7 @@ class FakeClient:
         }, "create"
 
     def create_or_reuse_item(self, workspace_id, display_name, item_type, definition=None):
-        return None, "warning"
+        return {"id": f"item-{display_name.lower().replace(' ', '-')}", "displayName": display_name}, "create"
 
 
 @pytest.fixture
@@ -137,11 +137,11 @@ def test_preview_persists_planned_profile():
     assert profile["Status"] == "planned"
 
 
-def test_execute_persists_result_and_warning_items():
+def test_execute_persists_result_and_created_items():
     result = _call("POST", "/api/deployments/execute", body=_resource_names())
 
     assert result["status"] == "deployed"
-    assert any(step["status"] == "warning" for step in result["steps"])
+    assert all(step["status"] == "succeeded" for step in result["steps"])
     profile = cpdb.get_deployment_profile("ipcorp-dev")
     assert profile is not None
     assert json.loads(profile["ResultSnapshot"])["workspaces"]["data_dev"]["id"].startswith("ws-")
