@@ -1063,7 +1063,7 @@ function CommandBand({
   runtime: EngineRuntimeResponse | null;
   missionTruth?: MissionTruth | null;
   sources: SourceInfo[];
-  onStart: (layers: string[], sourceFilter: string[], mode?: string, options?: { dryRun?: boolean; dagsterMode?: string; confirmFullEstateRealLoad?: boolean; entityIds?: number[] }) => Promise<LaunchResult>;
+  onStart: (layers: string[], sourceFilter: string[], mode?: string, options?: { dryRun?: boolean; dagsterMode?: string; confirmFullEstateRealLoad?: boolean; entityIds?: number[]; forceFullRefresh?: boolean }) => Promise<LaunchResult>;
   onStop: () => void;
   onRetry: () => void;
   onResume: () => void;
@@ -1221,6 +1221,7 @@ function CommandBand({
           dagsterMode: runIntent === "orchestration_check" ? "dry_run" : "framework",
           confirmFullEstateRealLoad: runIntent === "full_estate_load",
           entityIds,
+          forceFullRefresh: runIntent === "real_smoke_load",
         },
       );
       if (!result.ok) {
@@ -4458,7 +4459,7 @@ function LoadMissionControlInner() {
     layers: string[],
     sourceFilter: string[],
     mode?: string,
-    options?: { dryRun?: boolean; dagsterMode?: string; confirmFullEstateRealLoad?: boolean; entityIds?: number[] },
+    options?: { dryRun?: boolean; dagsterMode?: string; confirmFullEstateRealLoad?: boolean; entityIds?: number[]; forceFullRefresh?: boolean },
   ): Promise<LaunchResult> => {
     try {
       // Set run scope IMMEDIATELY before any async work — prevents poller from
@@ -4494,6 +4495,7 @@ function LoadMissionControlInner() {
           dry_run: Boolean(options?.dryRun),
           dagster_mode: options?.dagsterMode,
           confirm_full_estate_real_load: Boolean(options?.confirmFullEstateRealLoad),
+          force_full_refresh: Boolean(options?.forceFullRefresh),
           layers: layers.length > 0 ? layers : undefined,
           entity_ids: entityIds,
           triggered_by: "dashboard",

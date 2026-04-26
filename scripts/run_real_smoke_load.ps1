@@ -8,7 +8,8 @@ param(
     [string]$OneLakeMountPath = "",
     [switch]$RequireApiPreflight,
     [switch]$SkipApiPreflight,
-    [switch]$AllowUnverifiedArtifacts
+    [switch]$AllowUnverifiedArtifacts,
+    [switch]$Incremental
 )
 
 $ErrorActionPreference = "Stop"
@@ -79,6 +80,7 @@ Write-Host "Project: $FrameworkPath"
 Write-Host "Python:  $Python"
 Write-Host "Layers:  $($Layers -join ', ')"
 Write-Host "OneLake: $(if ($OneLakeMountPath) { $OneLakeMountPath } else { 'not configured; ADLS verifier fallback will be used' })"
+Write-Host "Mode:    $(if ($Incremental) { 'incremental watermark mode' } else { 'full-refresh seed mode (watermarks unchanged)' })"
 
 Write-Step "Verify Python runtime"
 $runtimeProbe = "import _overlapped; import pyodbc, polars, pyarrow, deltalake; print('python socket stack and real-loader deps ok')"
@@ -117,6 +119,7 @@ if ($SkipApiPreflight) {
         runtime_mode = "framework"
         entity_ids = @($EntityId)
         layers = $Layers
+        force_full_refresh = (-not [bool]$Incremental)
     } | ConvertTo-Json -Depth 5
     try {
         $preflight = Invoke-RestMethod -Method Post -Uri "$ApiBaseUrl/api/engine/preflight" -ContentType "application/json" -Body $body -TimeoutSec 30
@@ -144,6 +147,9 @@ $workerArgs = @(
     "--entity-ids", "$EntityId",
     "--triggered-by", "real-smoke-load"
 )
+if (-not $Incremental) {
+    $workerArgs += "--force-full-refresh"
+}
 Invoke-Native -Exe $Python -Arguments $workerArgs -LogPath $workerLog
 
 Write-Step "Verify receipt"
