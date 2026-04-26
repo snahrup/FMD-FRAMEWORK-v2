@@ -43,6 +43,8 @@ def main():
                         help="Bulk snapshot mode: parallel full-load, no watermarks/retries")
     parser.add_argument("--workers", type=int, default=8,
                         help="Max parallel workers for bulk mode (default: 8)")
+    parser.add_argument("--force-full-refresh", action="store_true",
+                        help="For scoped proof/backfill runs, ignore landing watermarks for this run only")
     args = parser.parse_args()
 
     # Console-only logging (API redirects stdout to per-run log file)
@@ -176,6 +178,7 @@ def main():
             layers=args.layers,
             entity_ids=args.entity_ids,
             triggered_by=args.triggered_by,
+            force_full_refresh=args.force_full_refresh,
         )
         # Update PID (run_id may have been generated inside run())
         effective_run_id = args.run_id or engine.current_run_id

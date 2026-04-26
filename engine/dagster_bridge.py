@@ -124,6 +124,8 @@ def launch_dagster_run(
         cmd.extend(["--entity-ids", *[str(entity_id) for entity_id in request.entity_ids]])
     if body.get("fail_layers"):
         cmd.extend(["--fail-layers", *[str(layer) for layer in body.get("fail_layers") or []]])
+    if bool(body.get("force_full_refresh")):
+        cmd.append("--force-full-refresh")
 
     env = os.environ.copy()
     env.setdefault("PYTHONNOUSERSITE", "1")

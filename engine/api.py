@@ -1865,6 +1865,8 @@ def _handle_start(handler, config: dict, body: dict) -> None:
         worker_args += ["--layers"] + layers
     if entity_ids:
         worker_args += ["--entity-ids"] + [str(i) for i in entity_ids]
+    if bool(body.get("force_full_refresh")):
+        worker_args.append("--force-full-refresh")
 
     # Spawn detached worker
     worker_pid = _spawn_worker(run_id, worker_args)

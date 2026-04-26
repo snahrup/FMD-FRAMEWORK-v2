@@ -395,6 +395,21 @@ class TestOrchestratorState:
         result = orch._try_entity_local("run-1", _make_entity())
         assert result.status == "succeeded"
 
+    def test_force_full_refresh_entities_ignores_watermark_without_mutating_original(self):
+        original = _make_entity(
+            is_incremental=True,
+            watermark_column="SEQU",
+            last_load_value="2600",
+        )
+
+        refreshed = LoadOrchestrator._force_full_refresh_entities([original])
+
+        assert refreshed[0].is_incremental is False
+        assert refreshed[0].last_load_value is None
+        assert refreshed[0].build_source_query_display() == "SELECT * FROM [dbo].[TestTable]"
+        assert original.is_incremental is True
+        assert original.last_load_value == "2600"
+
 
 # ---------------------------------------------------------------------------
 # _TRANSIENT_ERRORS constant validation
