@@ -30,6 +30,11 @@ Until that is true, the platform can impress in a demo but cannot be treated as 
 
 The ultimate objective is not "Steve can make it work." The objective is "IP Corp can receive it, install it, operate it, troubleshoot it, recover it, update it, and govern it with normal internal staff and documented procedures."
 
+Related implementation workstream:
+
+- `docs/superpowers/plans/2026-04-25-fabric-one-click-deployment.md`
+- `docs/FABRIC_ONE_CLICK_DEPLOYMENT.md`
+
 ---
 
 ## Current State Snapshot
@@ -103,6 +108,7 @@ FMD is launch-ready only when all of these are true.
 
 ### IP Corp Handoff
 
+- [ ] One-click deployment can create/reuse a new Fabric capacity/workspace/lakehouse/SQL layout and propagate generated IDs through FMD.
 - [ ] No runtime path depends on `C:\Users\snahrup`, `C:\Users\sasnahrup`, a personal Desktop folder, a personal Downloads folder, or a developer-only worktree.
 - [ ] All service identities, secrets, and Fabric permissions are owned by IP Corp, documented, and rotatable.
 - [ ] Services can restart after reboot without a developer terminal.

@@ -277,6 +277,41 @@ def init_db():
                 updated_at      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
             );
 
+            CREATE TABLE IF NOT EXISTS deployment_profiles (
+                DeploymentProfileId INTEGER PRIMARY KEY AUTOINCREMENT,
+                ProfileKey          TEXT NOT NULL UNIQUE,
+                DisplayName         TEXT NOT NULL,
+                Status              TEXT NOT NULL DEFAULT 'draft',
+                AuthMode            TEXT NOT NULL DEFAULT 'service_principal',
+                CapacityId          TEXT,
+                CapacityName        TEXT,
+                ConfigSnapshot      TEXT NOT NULL DEFAULT '{}',
+                ResourcePlan        TEXT NOT NULL DEFAULT '{}',
+                ResultSnapshot      TEXT NOT NULL DEFAULT '{}',
+                ValidationSnapshot  TEXT NOT NULL DEFAULT '{}',
+                ActivatedAt         TEXT,
+                CreatedAt           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+                UpdatedAt           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS deployment_steps (
+                DeploymentStepId    INTEGER PRIMARY KEY AUTOINCREMENT,
+                ProfileKey          TEXT NOT NULL,
+                StepKey             TEXT NOT NULL,
+                StepType            TEXT NOT NULL,
+                DisplayName         TEXT NOT NULL,
+                Status              TEXT NOT NULL DEFAULT 'pending',
+                FabricResourceId    TEXT,
+                FabricWorkspaceId   TEXT,
+                Action              TEXT NOT NULL DEFAULT 'create',
+                Required            INTEGER NOT NULL DEFAULT 1,
+                StartedAt           TEXT,
+                EndedAt             TEXT,
+                ErrorMessage        TEXT,
+                Details             TEXT NOT NULL DEFAULT '{}',
+                UNIQUE(ProfileKey, StepKey)
+            );
+
             CREATE TABLE IF NOT EXISTS lz_entities (
                 LandingzoneEntityId INTEGER PRIMARY KEY,
                 DataSourceId        INTEGER NOT NULL,
@@ -1565,6 +1600,125 @@ def upsert_pipeline(row: dict) -> None:
             conn.close()
 
 
+def upsert_deployment_profile(row: dict) -> None:
+    with _db_lock:
+        conn = _get_conn()
+        try:
+            conn.execute(
+                "INSERT INTO deployment_profiles "
+                "(ProfileKey, DisplayName, Status, AuthMode, CapacityId, CapacityName, "
+                "ConfigSnapshot, ResourcePlan, ResultSnapshot, ValidationSnapshot, ActivatedAt, UpdatedAt) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(ProfileKey) DO UPDATE SET "
+                "DisplayName = excluded.DisplayName, "
+                "Status = excluded.Status, "
+                "AuthMode = excluded.AuthMode, "
+                "CapacityId = excluded.CapacityId, "
+                "CapacityName = excluded.CapacityName, "
+                "ConfigSnapshot = excluded.ConfigSnapshot, "
+                "ResourcePlan = excluded.ResourcePlan, "
+                "ResultSnapshot = excluded.ResultSnapshot, "
+                "ValidationSnapshot = excluded.ValidationSnapshot, "
+                "ActivatedAt = COALESCE(excluded.ActivatedAt, ActivatedAt), "
+                "UpdatedAt = excluded.UpdatedAt",
+                (
+                    _v(row.get("ProfileKey")),
+                    _v(row.get("DisplayName")),
+                    _v(row.get("Status", "draft")),
+                    _v(row.get("AuthMode", "service_principal")),
+                    _v(row.get("CapacityId", "")),
+                    _v(row.get("CapacityName", "")),
+                    _v(row.get("ConfigSnapshot", "{}")),
+                    _v(row.get("ResourcePlan", "{}")),
+                    _v(row.get("ResultSnapshot", "{}")),
+                    _v(row.get("ValidationSnapshot", "{}")),
+                    _v(row.get("ActivatedAt")),
+                    _now(),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def upsert_deployment_step(row: dict) -> None:
+    with _db_lock:
+        conn = _get_conn()
+        try:
+            conn.execute(
+                "INSERT INTO deployment_steps "
+                "(ProfileKey, StepKey, StepType, DisplayName, Status, FabricResourceId, "
+                "FabricWorkspaceId, Action, Required, StartedAt, EndedAt, ErrorMessage, Details) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(ProfileKey, StepKey) DO UPDATE SET "
+                "StepType = excluded.StepType, "
+                "DisplayName = excluded.DisplayName, "
+                "Status = excluded.Status, "
+                "FabricResourceId = excluded.FabricResourceId, "
+                "FabricWorkspaceId = excluded.FabricWorkspaceId, "
+                "Action = excluded.Action, "
+                "Required = excluded.Required, "
+                "StartedAt = COALESCE(excluded.StartedAt, StartedAt), "
+                "EndedAt = excluded.EndedAt, "
+                "ErrorMessage = excluded.ErrorMessage, "
+                "Details = excluded.Details",
+                (
+                    _v(row.get("ProfileKey")),
+                    _v(row.get("StepKey")),
+                    _v(row.get("StepType", "")),
+                    _v(row.get("DisplayName", "")),
+                    _v(row.get("Status", "pending")),
+                    _v(row.get("FabricResourceId", "")),
+                    _v(row.get("FabricWorkspaceId", "")),
+                    _v(row.get("Action", "create")),
+                    1 if row.get("Required", True) else 0,
+                    _v(row.get("StartedAt")),
+                    _v(row.get("EndedAt")),
+                    _v(row.get("ErrorMessage", "")),
+                    _v(row.get("Details", "{}")),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def mark_deployment_profile_status(
+    profile_key: str,
+    status: str,
+    *,
+    activated: bool = False,
+    validation_snapshot: str | None = None,
+) -> None:
+    with _db_lock:
+        conn = _get_conn()
+        try:
+            if activated:
+                conn.execute(
+                    "UPDATE deployment_profiles SET Status = 'deployed', UpdatedAt = ? WHERE Status = 'active'",
+                    (_now(),),
+                )
+            conn.execute(
+                "UPDATE deployment_profiles SET "
+                "Status = ?, "
+                "ValidationSnapshot = COALESCE(?, ValidationSnapshot), "
+                "ActivatedAt = CASE WHEN ? THEN ? ELSE ActivatedAt END, "
+                "UpdatedAt = ? "
+                "WHERE ProfileKey = ?",
+                (
+                    _v(status),
+                    _v(validation_snapshot) if validation_snapshot is not None else None,
+                    1 if activated else 0,
+                    _now() if activated else None,
+                    _now(),
+                    _v(profile_key),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
 def upsert_lz_entity(row: dict) -> None:
     with _db_lock:
         conn = _get_conn()
@@ -2031,6 +2185,50 @@ def get_pipelines() -> list[dict]:
         rows = conn.execute(
             "SELECT PipelineId, Name, PipelineGuid, WorkspaceGuid, IsActive "
             "FROM pipelines ORDER BY Name"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def list_deployment_profiles() -> list[dict]:
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT DeploymentProfileId, ProfileKey, DisplayName, Status, AuthMode, "
+            "CapacityId, CapacityName, ConfigSnapshot, ResourcePlan, ResultSnapshot, "
+            "ValidationSnapshot, ActivatedAt, CreatedAt, UpdatedAt "
+            "FROM deployment_profiles ORDER BY UpdatedAt DESC, CreatedAt DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_deployment_profile(profile_key: str) -> dict | None:
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT DeploymentProfileId, ProfileKey, DisplayName, Status, AuthMode, "
+            "CapacityId, CapacityName, ConfigSnapshot, ResourcePlan, ResultSnapshot, "
+            "ValidationSnapshot, ActivatedAt, CreatedAt, UpdatedAt "
+            "FROM deployment_profiles WHERE ProfileKey = ?",
+            (profile_key,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_deployment_steps(profile_key: str) -> list[dict]:
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT DeploymentStepId, ProfileKey, StepKey, StepType, DisplayName, Status, "
+            "FabricResourceId, FabricWorkspaceId, Action, Required, StartedAt, EndedAt, "
+            "ErrorMessage, Details "
+            "FROM deployment_steps WHERE ProfileKey = ? ORDER BY DeploymentStepId",
+            (profile_key,),
         ).fetchall()
         return [dict(r) for r in rows]
     finally:

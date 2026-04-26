@@ -23,6 +23,18 @@ If the dashboard API is running and you want API preflight to be mandatory:
 pwsh .\scripts\run_real_smoke_load.ps1 -RequireApiPreflight
 ```
 
+If OneLake Explorer is signed in, the runner auto-detects the default mount:
+
+```text
+C:\Users\<user>\OneLake - Microsoft
+```
+
+You can override it explicitly:
+
+```powershell
+pwsh .\scripts\run_real_smoke_load.ps1 -OneLakeMountPath "C:\Users\snahrup\OneLake - Microsoft"
+```
+
 ## What Counts As Passing
 
 - `engine_runs.Status` is terminal and `Succeeded`.
@@ -65,3 +77,11 @@ local OneLake artifacts. By default that is treated as a failure because DB-only
 success is not proof of real data movement. Use `-AllowUnverifiedArtifacts` only
 when the run intentionally uses remote ADLS paths and a separate remote artifact
 check has been completed.
+
+## Deployment Connection
+
+The Environment Setup deployment cockpit writes the active Fabric IDs into
+`dashboard/app/api/config.json` and mirrors those IDs into SQLite. After
+activating a new deployment profile, rerun this smoke harness to prove that the
+new capacity, workspaces, lakehouses, SQL metadata binding, and OneLake target
+paths work together end-to-end.

@@ -4390,7 +4390,7 @@ function LoadMissionControlInner() {
       ? missionTruth.sourceNames
       : progress?.run?.sourceFilter ?? selectedRunMeta?.sourceFilter ?? [];
     return Array.isArray(raw) ? raw.filter(Boolean) : [];
-  }, [missionTruth?.sourceNames, progress?.run?.sourceFilter, selectedRunMeta?.sourceFilter]);
+  }, [missionTruth, progress?.run?.sourceFilter, selectedRunMeta?.sourceFilter]);
   const rightRailWidth = scope.contextOpen || selfHealExpanded ? 320 : 96;
 
   useEffect(() => {

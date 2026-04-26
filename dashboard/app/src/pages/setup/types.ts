@@ -48,8 +48,115 @@ export interface EnvironmentConfig {
   database: FabricSqlDatabase | null;
 }
 
-export type SetupMode = "provision" | "wizard" | "settings";
+export type SetupMode = "deploy" | "profiles" | "settings";
 export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
+
+export type DeploymentAuthMode = "service_principal" | "delegated_oauth";
+export type DeploymentStage = "auth" | "names" | "preview" | "execute" | "validate" | "activate";
+export type DeploymentStepStatus = "pending" | "running" | "succeeded" | "warning" | "failed" | "skipped";
+export type DeploymentAction = "create" | "reuse" | "blocked" | "warning";
+export type DeploymentProfileStatus =
+  | "draft"
+  | "planned"
+  | "deploying"
+  | "failed"
+  | "deployed"
+  | "validated"
+  | "active"
+  | "archived";
+
+export interface DeploymentAuthModeStatus {
+  available: boolean;
+  reason?: string;
+}
+
+export interface DeploymentAuthStatus {
+  authModes: Record<DeploymentAuthMode, DeploymentAuthModeStatus>;
+  activeMode: DeploymentAuthMode;
+  scopes: string[];
+}
+
+export interface DeploymentOAuthStart {
+  deviceCode?: string;
+  userCode?: string;
+  verificationUri?: string;
+  message?: string;
+}
+
+export interface DeploymentResourceNames {
+  profileKey: string;
+  displayName: string;
+  authMode: DeploymentAuthMode;
+  capacityId: string;
+  capacityDisplayName: string;
+  workspaces: Record<"data_dev" | "code_dev" | "config" | "data_prod" | "code_prod", string>;
+  lakehouses: Record<"landing" | "bronze" | "silver", string>;
+  database: { metadata: string };
+  items: {
+    landingBronzeNotebook: string;
+    bronzeSilverNotebook: string;
+    copySqlPipeline: string;
+  };
+}
+
+export interface DeploymentStep {
+  stepKey: string;
+  displayName: string;
+  status: DeploymentStepStatus;
+  action: DeploymentAction;
+  required?: boolean;
+  fabricResourceId?: string;
+  fabricWorkspaceId?: string;
+  details?: string | Record<string, unknown>;
+  errorMessage?: string;
+}
+
+export interface DeploymentPreviewResult {
+  profileKey: string;
+  status?: DeploymentProfileStatus;
+  steps: DeploymentStep[];
+  warnings?: string[];
+}
+
+export interface DeploymentExecuteResult {
+  profileKey: string;
+  status: DeploymentProfileStatus;
+  steps: DeploymentStep[];
+  config?: Partial<EnvironmentConfig> | Record<string, unknown>;
+  propagation?: SaveResult[];
+  warnings?: string[];
+}
+
+export interface DeploymentProofCheck {
+  id: string;
+  label?: string;
+  status: "passed" | "warning" | "failed" | "skipped" | "not_run";
+  details?: string;
+  evidence?: string | Record<string, unknown>;
+}
+
+export interface DeploymentValidationResult {
+  ok: boolean;
+  checks: DeploymentProofCheck[];
+  warnings?: string[];
+}
+
+export interface DeploymentProfileSummary {
+  profileKey: string;
+  displayName: string;
+  status: DeploymentProfileStatus;
+  authMode?: DeploymentAuthMode;
+  capacityId?: string;
+  capacityName?: string;
+  activatedAt?: string;
+  updatedAt?: string;
+  createdAt?: string;
+}
+
+export interface DeploymentProfilesResponse {
+  activeProfileKey?: string;
+  profiles: DeploymentProfileSummary[];
+}
 
 export interface StepDef {
   step: WizardStep;
@@ -94,6 +201,34 @@ export const NAMING_CONVENTIONS = {
   },
   database: "SQL_INTEGRATION_FRAMEWORK",
 } as const;
+
+export const DEFAULT_DEPLOYMENT_NAMES: DeploymentResourceNames = {
+  profileKey: "ipcorp-dev",
+  displayName: "IP Corp Dev",
+  authMode: "delegated_oauth",
+  capacityId: "",
+  capacityDisplayName: "",
+  workspaces: {
+    data_dev: "IPCorp FMD Data Dev",
+    code_dev: "IPCorp FMD Code Dev",
+    config: "IPCorp FMD Config",
+    data_prod: "IPCorp FMD Data Prod",
+    code_prod: "IPCorp FMD Code Prod",
+  },
+  lakehouses: {
+    landing: "LH_FMD_LANDING",
+    bronze: "LH_FMD_BRONZE",
+    silver: "LH_FMD_SILVER",
+  },
+  database: {
+    metadata: "SQL_FMD_CONTROL_PLANE",
+  },
+  items: {
+    landingBronzeNotebook: "NB_FMD_LOAD_LANDING_BRONZE",
+    bronzeSilverNotebook: "NB_FMD_LOAD_BRONZE_SILVER",
+    copySqlPipeline: "PL_FMD_LDZ_COPY_SQL",
+  },
+};
 
 export const EMPTY_CONFIG: EnvironmentConfig = {
   capacity: null,
