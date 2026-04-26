@@ -247,20 +247,21 @@ def build_preview_plan(spec: dict[str, Any], client) -> list[dict[str, Any]]:
         item_type = ITEM_TYPES[key]
         items = client.list_items(code_workspace_id, item_type) if code_workspace_id else []
         match = find_by_display_name(items, name)
+        action = "reuse" if match else "create"
         steps.append(
             make_step(
                 profile_key=profile_key,
                 step_key=f"item.{key}",
                 step_type=item_type,
                 display_name=name,
-                action="reuse" if match else "warning",
+                action=action,
                 status="pending",
-                required=False,
+                required=True,
                 fabric_resource_id=str((match or {}).get("id", "")),
                 fabric_workspace_id=code_workspace_id,
                 details={
                     "workspaceKey": "code_dev",
-                    "message": "Definition deployment is not enabled yet; existing items are reused when present.",
+                    "message": "Creates or reuses the Fabric item. Definition upload is tracked separately.",
                 },
             )
         )
@@ -404,20 +405,8 @@ def execute_resource_plan(spec: dict[str, Any], client) -> dict[str, Any]:
                 )
             )
         except FabricDeploymentError as exc:
-            steps.append(
-                make_step(
-                    profile_key=profile_key,
-                    step_key=f"item.{key}",
-                    step_type=item_type,
-                    display_name=name,
-                    action="warning",
-                    status="warning",
-                    required=False,
-                    fabric_workspace_id=code_workspace_id,
-                    error_message=str(exc),
-                    details={"message": "Optional item binding failed; deployment can continue."},
-                )
-            )
+            add_failed(f"item.{key}", item_type, name, "create", exc)
+            return {"status": "failed", "result": result, "steps": steps}
 
     return {"status": "deployed" if not failed else "failed", "result": result, "steps": steps}
 

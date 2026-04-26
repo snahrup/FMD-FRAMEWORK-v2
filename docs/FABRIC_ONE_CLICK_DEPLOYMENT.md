@@ -9,9 +9,9 @@ The deployment profile lets an operator name every resource before anything is c
 - Five Fabric workspaces: data dev, code dev, config, data prod, code prod.
 - Three data lakehouses in the data dev workspace: landing, bronze, silver.
 - One metadata SQL database in the config workspace.
-- Optional Fabric items in the code workspace: landing-to-bronze notebook, bronze-to-silver notebook, copy SQL pipeline.
+- Fabric items in the code workspace: landing-to-bronze notebook, bronze-to-silver notebook, copy SQL pipeline.
 
-Notebook and pipeline definition upload is intentionally not faked. If a matching item already exists, FMD binds to it. If it does not exist and no definition payload is configured, the step is recorded as a warning/manual-binding item.
+Notebook and pipeline definition upload is intentionally not faked. If a matching item already exists, FMD binds to it. If it does not exist, FMD creates the notebook or data pipeline item with the requested name, then records that the runnable definition still needs to be uploaded by the dedicated definition-deployment workstream.
 
 ## Required Fabric Permissions
 
@@ -22,7 +22,7 @@ The identity used for deployment must be able to:
 - Assign workspaces to the selected capacity.
 - Create lakehouses in the data workspace.
 - Create or list SQL database items in the config workspace.
-- List notebook and pipeline items in the code workspace.
+- Create or list notebook and pipeline items in the code workspace.
 
 For unattended deployments, use service-principal mode. For a first-run admin deployment, delegated OAuth/device-code mode is available when the tenant has a public-client app configured.
 
@@ -115,7 +115,7 @@ Common failures:
 
 ## Known Limits
 
-- This build creates/reuses Fabric workspaces, lakehouses, and SQL database items.
-- This build does not upload notebook definitions or Fabric pipeline definitions yet.
+- This build creates/reuses Fabric workspaces, lakehouses, SQL database items, notebooks, and data pipeline items.
+- This build does not upload runnable notebook definitions or Fabric pipeline definitions yet. Created notebook/pipeline items are real Fabric items, but they are placeholders until the definition-deployment workstream lands.
 - This build does not write Fabric variable libraries.
 - This build does not delete Fabric resources. Decommissioning should be a separate explicit workflow with typed confirmation.

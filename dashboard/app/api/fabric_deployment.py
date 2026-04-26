@@ -293,16 +293,32 @@ class FabricDeploymentClient:
         existing = find_by_display_name(self.list_items(workspace_id, item_type), display_name)
         if existing:
             return existing, "reuse"
-        if definition is None:
-            return None, "warning"
-        payload = {
-            "displayName": display_name,
-            "type": item_type,
-            "definition": definition,
-        }
+
+        item_path = {
+            "Notebook": "notebooks",
+            "DataPipeline": "dataPipelines",
+        }.get(item_type)
+        if item_path:
+            payload: dict[str, Any] = {
+                "displayName": display_name,
+                "description": "Provisioned by FMD one-click deployment.",
+            }
+            if definition is not None:
+                payload["definition"] = definition
+            path = f"/workspaces/{workspace_id}/{item_path}"
+        else:
+            if definition is None:
+                return None, "warning"
+            payload = {
+                "displayName": display_name,
+                "type": item_type,
+                "definition": definition,
+            }
+            path = f"/workspaces/{workspace_id}/items"
+
         status, response, headers = self._request(
             "POST",
-            f"/workspaces/{workspace_id}/items",
+            path,
             payload=payload,
             timeout=30,
         )
