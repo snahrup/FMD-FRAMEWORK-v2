@@ -79,14 +79,14 @@ interface NavGroup {
   items: NavItem[];
 }
 
-const DAGSTER_ITEMS: NavItem[] = [
-  { icon: MonitorDot, label: "Overview", href: "/dagster" },
-  { icon: ListChecks, label: "Runs", href: "/dagster/runs" },
-  { icon: Library, label: "Catalog", href: "/dagster/catalog" },
-  { icon: Workflow, label: "Jobs", href: "/dagster/jobs" },
-  { icon: CalendarClock, label: "Automation", href: "/dagster/automation" },
-  { icon: GitBranch, label: "Lineage", href: "/dagster/lineage" },
-  { icon: MapPinned, label: "Deployment", href: "/dagster/deployment" },
+const RUNTIME_DIAGNOSTIC_ITEMS: NavItem[] = [
+  { icon: MonitorDot, label: "Runtime Overview", href: "/dagster" },
+  { icon: ListChecks, label: "Run History", href: "/dagster/runs" },
+  { icon: Library, label: "Asset Catalog", href: "/dagster/catalog" },
+  { icon: Workflow, label: "Run Definitions", href: "/dagster/jobs" },
+  { icon: CalendarClock, label: "Schedules", href: "/dagster/automation" },
+  { icon: GitBranch, label: "Execution Graph", href: "/dagster/lineage" },
+  { icon: MapPinned, label: "Deployment Health", href: "/dagster/deployment" },
 ];
 
 const CORE_GROUPS: NavGroup[] = [
@@ -94,31 +94,25 @@ const CORE_GROUPS: NavGroup[] = [
     label: "Estate",
     items: [
       { icon: LayoutDashboard, label: "Overview", href: "/overview" },
-      { icon: Presentation, label: "Demo Story", href: "/orchestration-story" },
       { icon: Globe, label: "Data Estate", href: "/estate" },
     ],
   },
   {
     label: "Load",
     items: [
-      { icon: Play, label: "Load Center", href: "/load-center" },
-      { icon: Workflow, label: "Canvas Builder", href: "/canvas" },
       { icon: Cable, label: "Source Manager", href: "/sources" },
+      { icon: Workflow, label: "Canvas Builder", href: "/canvas" },
+      { icon: Play, label: "Run Pipeline", href: "/load-center" },
     ],
   },
   {
     label: "Monitor",
     items: [
       { icon: Radar, label: "Mission Control", href: "/load-mission-control" },
-      { icon: ClipboardCheck, label: "Launch Readiness", href: "/launch-readiness" },
-      { icon: Grid3X3, label: "Execution Matrix", href: "/matrix" },
+      { icon: Grid3X3, label: "Estate Health Matrix", href: "/matrix" },
       { icon: Activity, label: "Error Intelligence", href: "/errors" },
       { icon: ScrollText, label: "Execution Log", href: "/logs" },
     ],
-  },
-  {
-    label: "Dagster",
-    items: DAGSTER_ITEMS,
   },
   {
     label: "Explore",
@@ -167,11 +161,12 @@ const CORE_GROUPS: NavGroup[] = [
 // Groups not in CORE_GROUPS are appended as new sections.
 const EXTENDED_ITEMS: Record<string, NavItem[]> = {
   Monitor: [
-    { icon: Gauge, label: "Engine Control", href: "/engine" },
+    { icon: ClipboardCheck, label: "Handoff Readiness", href: "/launch-readiness" },
+    { icon: Gauge, label: "Runtime Diagnostics", href: "/engine" },
     { icon: Cog, label: "Control Plane", href: "/control" },
     { icon: Radio, label: "Live Monitor", href: "/live" },
     { icon: CheckSquare, label: "Validation", href: "/validation" },
-    { icon: Bug, label: "Pipeline Testing", href: "/notebook-debug" },
+    { icon: Bug, label: "Pipeline Test Lab", href: "/notebook-debug" },
   ],
   Explore: [
     { icon: Workflow, label: "Flow Explorer", href: "/flow" },
@@ -196,7 +191,11 @@ const EXTENDED_ITEMS: Record<string, NavItem[]> = {
   ],
   Admin: [
     { icon: ShieldCheck, label: "Admin Gateway", href: "/admin" },
-    { icon: BookOpen, label: "Notebook Config", href: "/notebook-config" },
+    { icon: BookOpen, label: "Load Step Config", href: "/notebook-config" },
+  ],
+  "Advanced Runtime": [
+    { icon: Presentation, label: "Runtime Architecture Story", href: "/orchestration-story" },
+    ...RUNTIME_DIAGNOSTIC_ITEMS,
   ],
 };
 
@@ -206,19 +205,15 @@ const BUSINESS_GROUPS: NavGroup[] = [
     label: "Portal",
     items: [
       { icon: LayoutDashboard, label: "Overview", href: "/overview" },
-      { icon: Presentation, label: "Demo Story", href: "/orchestration-story" },
+      { icon: Play, label: "Run Pipeline", href: "/load-center" },
       { icon: Workflow, label: "Canvas Builder", href: "/canvas" },
-      { icon: ClipboardCheck, label: "Launch Readiness", href: "/launch-readiness" },
+      { icon: Radar, label: "Mission Control", href: "/load-mission-control" },
       { icon: Bell, label: "Alerts", href: "/alerts" },
-      { icon: Cable, label: "Sources", href: "/sources-portal" },
+      { icon: Cable, label: "Source Health", href: "/sources-portal" },
       { icon: Library, label: "Catalog", href: "/catalog-portal" },
       { icon: FileText, label: "Requests", href: "/requests" },
       { icon: HelpCircle, label: "Help", href: "/help" },
     ],
-  },
-  {
-    label: "Dagster",
-    items: DAGSTER_ITEMS,
   },
 ];
 
@@ -473,7 +468,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <div style={{ padding: "20px 22px 20px", borderBottom: "1px solid var(--bp-border)", marginBottom: 8 }}>
         <img src="/ip-corp-logo-1400x624.png" alt="IP Corporation" style={{ width: 154, height: "auto", display: "block" }} />
         <div style={{ fontSize: 11, fontWeight: 650, color: "var(--bp-ink-tertiary)", letterSpacing: "0.8px", textTransform: "uppercase", marginTop: 10 }}>
-          Dagster-driven FMD
+          FMD Operations
         </div>
       </div>
 

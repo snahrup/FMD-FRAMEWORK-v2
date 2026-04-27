@@ -6,7 +6,7 @@ Endpoints:
     GET /api/lmc/progress              — Enhanced overall progress (real counts from task_log)
     GET /api/lmc/runs                  — Run history with real entity counts
     GET /api/lmc/run/{run_id}          — Per-run detail (layers, sources, errors, optimization)
-    GET /api/lmc/run/{run_id}/receipt  — Real-load receipt / physical artifact evidence
+    GET /api/lmc/run/{run_id}/receipt  — Verification receipt / physical artifact evidence
     GET /api/lmc/run/{run_id}/entities — Filterable per-entity list for a run
     GET /api/lmc/entity/{entity_id}/history — Entity across all runs (retries, watermarks)
 """
@@ -152,6 +152,25 @@ def _parse_run_layers(raw: str | None) -> list[str]:
     return [layer for layer in layers if layer in _SUPPORTED_LAYERS] or list(_SUPPORTED_LAYERS)
 
 
+def _resolved_run_entity_count(run_meta: dict, fallback_total: int = 0) -> int:
+    """Return the operator-facing entity count for a run.
+
+    engine_runs.TotalEntities can contain older internal unit counts for some
+    launch paths. Once a run has an explicit resolved/entity scope, that scoped
+    table count is the only number Mission Control should present.
+    """
+    resolved_count = _int(run_meta.get("ResolvedEntityCount"))
+    if resolved_count > 0:
+        return resolved_count
+    entity_filter_count = len(_parse_entity_filter(run_meta.get("EntityFilter")))
+    if entity_filter_count > 0:
+        return entity_filter_count
+    total_entities = _int(run_meta.get("TotalEntities"))
+    if total_entities > 0:
+        return total_entities
+    return _int(fallback_total)
+
+
 def _normalize_run_status(raw: str | None) -> str:
     status = str(raw or "").strip().lower().replace(" ", "")
     if status in _SUCCEEDED_STATUSES:
@@ -200,9 +219,8 @@ def _build_mission_truth(
     by_source = run_truth.get("bySource") or []
     source_names = source_filter or [str(row.get("source") or "") for row in by_source if row.get("source")]
     entity_count = (
-        _int(run_meta.get("ResolvedEntityCount"))
+        _resolved_run_entity_count(run_meta)
         or len(run_truth.get("scopeEntities") or [])
-        or _int(run_meta.get("TotalEntities"))
         or _int(total_active)
     )
     layer_step_total = entity_count * max(layer_count, 1)
@@ -221,6 +239,12 @@ def _build_mission_truth(
         layer_steps_failed = sum(_int(layers_by_key.get(layer, {}).get("failed")) for layer in run_layers)
         layer_steps_skipped = sum(_int(layers_by_key.get(layer, {}).get("skipped")) for layer in run_layers)
 
+    layer_steps_succeeded = min(layer_steps_succeeded, layer_step_total)
+    layer_steps_failed = min(layer_steps_failed, max(layer_step_total - layer_steps_succeeded, 0))
+    layer_steps_skipped = min(
+        layer_steps_skipped,
+        max(layer_step_total - layer_steps_succeeded - layer_steps_failed, 0),
+    )
     remaining = max(
         layer_step_total - layer_steps_succeeded - layer_steps_failed - layer_steps_skipped,
         0,
@@ -303,8 +327,8 @@ def _build_mission_truth(
         "isTerminal": is_terminal,
         "isActive": is_active,
         "isDryRun": is_dry_run,
-        "modeLabel": "Dry run" if is_dry_run else "Load",
-        "runtimeLabel": "Dagster dry run" if is_dry_run else "Dagster framework",
+        "modeLabel": "Plan check" if is_dry_run else "Load",
+        "runtimeLabel": "Plan check" if is_dry_run else "Managed execution",
         "runtimeMode": runtime_mode,
         "sourceNames": source_names,
         "sourceCount": source_count,
@@ -324,7 +348,7 @@ def _build_mission_truth(
         "throughputRowsPerSecond": throughput_rows,
         "throughputBytesPerSecond": throughput_bytes,
         "operatorState": operator_state,
-        "unitLabel": "orchestration check" if is_dry_run else "layer load step",
+        "unitLabel": "plan check" if is_dry_run else "layer step",
         "rowCountTrustLabel": row_count_trust,
     }
 
@@ -914,6 +938,7 @@ def get_lmc_progress(params: dict) -> dict:
         runtime_mode=runtime_mode,
         is_dry_run=is_dry_run,
     )
+    resolved_entity_count = _resolved_run_entity_count(run_meta, _int(total_active))
 
     # Physical verification — LAZY: only when ?include_physical=1 is passed.
     # These LOWER() joins on lakehouse_row_counts are expensive (~3.5s each)
@@ -1007,7 +1032,7 @@ def get_lmc_progress(params: dict) -> dict:
             "runId": run_meta.get("RunId", run_id),
             "mode": run_meta.get("Mode", ""),
             "status": run_meta.get("Status", "Unknown"),
-            "totalEntities": _int(run_meta.get("TotalEntities", total_active)),
+            "totalEntities": resolved_entity_count,
             "layers": run_meta.get("Layers", ""),
             "triggeredBy": run_meta.get("TriggeredBy", ""),
             "startedAt": run_meta.get("StartedAt"),
@@ -1015,7 +1040,7 @@ def get_lmc_progress(params: dict) -> dict:
             "errorSummary": run_meta.get("ErrorSummary", ""),
             "sourceFilter": _split_csv(run_meta.get("SourceFilter")),
             "entityFilter": _parse_entity_filter(run_meta.get("EntityFilter")),
-            "resolvedEntityCount": _int(run_meta.get("ResolvedEntityCount", run_meta.get("TotalEntities", total_active))),
+            "resolvedEntityCount": resolved_entity_count,
         },
         "totalActiveEntities": _int(total_active),
         "layers": layers,
@@ -1328,7 +1353,7 @@ def get_lmc_run_receipt(params: dict) -> dict:
         "summary": receipt.get("summary") or {},
         "checks": receipt.get("checks") or [],
         "artifacts": _flatten_receipt_artifacts(receipt) or task_artifacts,
-        "message": "Real-load receipt loaded.",
+        "message": "Verification receipt loaded.",
         "serverTime": _utcnow_iso(),
     }
 

@@ -16,7 +16,7 @@ import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
-from dashboard.app.api.router import route, HttpError
+from dashboard.app.api.router import route, HttpError, dispatch
 from dashboard.app.api import db
 import dashboard.app.api.control_plane_db as cpdb
 from dashboard.app.api.routes.data_access import (
@@ -266,6 +266,23 @@ def _get_outstanding_registered_entities(
             outstanding.append(entity)
 
     return outstanding
+
+
+def _run_scope(params: dict) -> str:
+    raw = str(params.get("scope") or params.get("runScope") or "active_catalog").strip().lower()
+    if raw in {"outstanding", "finish_outstanding", "completion", "gaps_only"}:
+        return "outstanding"
+    return "active_catalog"
+
+
+def _entities_for_run_scope(
+    truth: dict,
+    requested_sources: list[str] | None,
+    scope: str,
+) -> list[dict]:
+    if scope == "outstanding":
+        return _get_outstanding_registered_entities(truth, requested_sources)
+    return _filter_registered_entities(truth.get("registered", []), requested_sources)
 
 
 def _build_completion_plan(entities: list[dict]) -> dict:
@@ -917,7 +934,11 @@ def post_load_center_run(params: dict) -> dict:
     - Gap-filling: ensures Bronze/Silver exist for every LZ table
     - Auto-optimization: discovers watermarks for new tables, switches to incremental
 
-    Body: { "sources": ["MES", "ETQ"] | null (all), "dryRun": bool }
+    Body: {
+      "sources": ["MES", "ETQ"] | null (all),
+      "dryRun": bool,
+      "scope": "active_catalog" | "outstanding"
+    }
     """
     with _run_lock:
         if _run_state.get("active"):
@@ -925,13 +946,17 @@ def post_load_center_run(params: dict) -> dict:
 
     dry_run = params.get("dryRun", False)
     requested_sources = params.get("sources")  # null = all
+    run_scope = _run_scope(params)
 
     truth = _build_canonical_pipeline_truth()
-    entities = _get_outstanding_registered_entities(truth, requested_sources)
+    entities = _entities_for_run_scope(truth, requested_sources, run_scope)
     plan = _build_completion_plan(entities)["plan"]
+    plan.setdefault("summary", {})
+    plan["summary"]["runScope"] = run_scope
+    plan["summary"]["sourceScope"] = requested_sources or "all"
 
     if dry_run:
-        return {"dryRun": True, "plan": plan}
+        return {"dryRun": True, "runScope": run_scope, "plan": plan}
 
     # Actually trigger the load — mutate in-place to avoid reassigning the global dict
     with _run_lock:
@@ -942,6 +967,9 @@ def post_load_center_run(params: dict) -> dict:
             "plan": plan["summary"],
             "phase": "starting",
             "progress": {},
+            "runScope": run_scope,
+            "requestedSources": requested_sources or [],
+            "triggeredBy": "load_center",
         })
         # Persist to SQLite (durable across restart/navigation)
         try:
@@ -970,7 +998,7 @@ def post_load_center_run(params: dict) -> dict:
     t = threading.Thread(target=_run_worker, daemon=True, name="smart-load")
     t.start()
 
-    return {"status": "started", "plan": plan["summary"], "runState": _run_state}
+    return {"status": "started", "runScope": run_scope, "plan": plan["summary"], "runState": _run_state}
 
 
 def _execute_smart_load(plan: dict, state: dict):
@@ -1003,10 +1031,14 @@ def _execute_smart_load(plan: dict, state: dict):
 
     # Phase 2: Trigger the engine for all entities
     # Collect all entity IDs that need loading
-    all_entity_ids = list(set(
-        [e["entityId"] for e in plan["fullLoad"]] +
-        [e["entityId"] for e in plan["incremental"]]
-    ))
+    all_entity_ids: list[int] = []
+    seen_entity_ids: set[int] = set()
+    for planned_entity in [*plan["fullLoad"], *plan["incremental"]]:
+        entity_id = int(planned_entity["entityId"])
+        if entity_id in seen_entity_ids:
+            continue
+        seen_entity_ids.add(entity_id)
+        all_entity_ids.append(entity_id)
 
     if not all_entity_ids:
         state["phase"] = "complete"
@@ -1022,37 +1054,46 @@ def _execute_smart_load(plan: dict, state: dict):
     }
     _persist_phase()
 
-    # Trigger the engine via internal HTTP call to /api/engine/start
+    # Trigger the same managed run contract used by Canvas and Source Manager.
+    # Route dispatch avoids a fragile self-HTTP call and forces the production
+    # load path instead of inheriting dashboard plan-check config.
     try:
-        dashboard_base_url = os.environ.get("FMD_DASHBOARD_URL", "http://127.0.0.1:8787").rstrip("/")
-        import urllib.request
-        body = json.dumps({
+        import dashboard.app.api.routes.engine  # noqa: F401, PLC0415
+
+        launch_body = {
+            "orchestrator": "dagster",
             "mode": "run",
+            "dry_run": False,
+            "dagster_mode": "framework",
+            "runtime_mode": "framework",
             "layers": ["landing", "bronze", "silver"],
             "entity_ids": all_entity_ids,
             "triggered_by": "load_center",
-        }).encode()
-        req = urllib.request.Request(
-            f"{dashboard_base_url}/api/engine/start",
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        resp = urllib.request.urlopen(req, timeout=30)
-        result = json.loads(resp.read())
+            "source_filter": state.get("requestedSources") or [],
+            "resolved_entity_count": len(all_entity_ids),
+            "confirm_full_estate_real_load": True,
+            "load_center_scope": state.get("runScope") or "active_catalog",
+        }
+        status, _headers, body = dispatch("POST", "/api/engine/start", {}, launch_body)
+        result = json.loads(body or "{}")
+        if status >= 400:
+            message = result.get("error") or result.get("message") or f"Pipeline launch failed ({status})."
+            raise RuntimeError(message)
         state["progress"]["load"]["engineResult"] = result
+        state["progress"]["load"]["engineRunId"] = result.get("run_id") or result.get("current_run_id")
+        state["progress"]["load"]["engineLaunchMode"] = "dagster_framework"
         state["phase"] = "engine_running"
         _persist_phase()
 
-        # The engine runs async — we just report that it started
-        # The frontend will poll /api/engine/status for detailed progress
+        # The managed run is async — report that it started and let the
+        # frontend poll for detailed progress.
 
     except Exception as e:
-        # Engine not available — fall back to notebook trigger via REST API
-        log.info("Engine start failed (%s), triggering via Fabric notebooks", e)
-        state["phase"] = "notebook_trigger"
+        log.exception("Load Center pipeline launch failed: %s", e)
+        state["phase"] = "failed"
+        state["error"] = f"Pipeline launch failed: {e}"
         _persist_phase()
-        _trigger_notebooks_direct(state)
+        raise
 
 
 def _ensure_bronze_registration(lz_entity_id: int):

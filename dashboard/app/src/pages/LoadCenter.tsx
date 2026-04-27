@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Play,
   RefreshCw,
@@ -192,6 +192,17 @@ interface RunPlan {
   };
 }
 
+interface LoadLaunchResponse {
+  status?: string;
+  message?: string;
+  error?: string;
+  run_id?: string;
+  current_run_id?: string;
+  engineRunId?: string;
+  runState?: RunState;
+  progress?: Record<string, unknown>;
+}
+
 interface VpnStatus {
   status?: string;
   connected: boolean;
@@ -229,8 +240,9 @@ const API = "/api";
 
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  const payload = await res.json().catch(() => null) as unknown;
+  if (!res.ok) throw new Error(readApiError(payload) || `API error: ${res.status}`);
+  return payload as T;
 }
 
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
@@ -239,8 +251,47 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : "{}",
   });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  const payload = await res.json().catch(() => null) as unknown;
+  if (!res.ok) throw new Error(readApiError(payload) || `API error: ${res.status}`);
+  return payload as T;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function readApiError(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+  for (const key of ["error", "message", "detail"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
+}
+
+function extractMissionRunId(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+  for (const key of ["run_id", "current_run_id", "engineRunId", "runId"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  const progress = payload.progress;
+  if (isRecord(progress)) {
+    const load = progress.load;
+    if (isRecord(load)) {
+      const direct = load.engineRunId;
+      if (typeof direct === "string" && direct.trim()) return direct;
+      const result = load.engineResult;
+      if (isRecord(result)) {
+        for (const key of ["run_id", "current_run_id", "runId"]) {
+          const value = result[key];
+          if (typeof value === "string" && value.trim()) return value;
+        }
+      }
+    }
+  }
+  const runState = payload.runState;
+  return isRecord(runState) ? extractMissionRunId(runState) : null;
 }
 
 // ============================================================================
@@ -289,7 +340,7 @@ function rowSubLabel(layer: LayerSummary | undefined): string {
 const SELF_HEAL_WORKFLOW = [
   { key: "queued", label: "Queue failure" },
   { key: "collecting_context", label: "Collect context" },
-  { key: "invoking_agent", label: "Invoke local CLI" },
+  { key: "invoking_agent", label: "Analyze fix" },
   { key: "validating_patch", label: "Validate patch" },
   { key: "retrying", label: "Retry entity" },
   { key: "resolved", label: "Return to run" },
@@ -314,6 +365,15 @@ function truncateText(value: string | null | undefined, max = 180): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
+function userStatusLabel(value: string | null | undefined): string {
+  const normalized = String(value || "unknown")
+    .replaceAll("_", " ")
+    .replace(/\bengine\b/gi, "pipeline")
+    .replace(/\bdaemon\b/gi, "repair worker")
+    .replace(/\bagent\b/gi, "runner");
+  return normalized.replace(/\b\w/g, char => char.toUpperCase());
+}
+
 function statusTone(status: string | null | undefined): { background: string; color: string } {
   switch ((status || "").toLowerCase()) {
     case "loaded":
@@ -334,37 +394,6 @@ function statusTone(status: string | null | undefined): { background: string; co
 // ============================================================================
 // COMPONENTS
 // ============================================================================
-
-/** Small colored pill showing the data source method */
-function MethodBadge({ method }: { method: string }) {
-  const colors: Record<string, string> = {
-    sql_endpoint: "var(--bp-success, #22c55e)",
-    filesystem: "var(--bp-warning, #f59e0b)",
-    mixed: "var(--bp-warning, #f59e0b)",
-    unavailable: "var(--bp-error, #ef4444)",
-  };
-  const labels: Record<string, string> = {
-    sql_endpoint: "Live SQL",
-    filesystem: "Filesystem",
-    mixed: "Mixed",
-    unavailable: "Unavailable",
-  };
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 600,
-        padding: "2px 8px",
-        borderRadius: 4,
-        background: `${colors[method] || colors.unavailable}18`,
-        color: colors[method] || colors.unavailable,
-        letterSpacing: "0.3px",
-      }}
-    >
-      {labels[method] || method}
-    </span>
-  );
-}
 
 /** Big KPI card */
 function KPI({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
@@ -578,7 +607,7 @@ function LoadCenterSelfHealRail({
 }) {
   const panelWidth = expanded ? 340 : 104;
   const compactSignal = activeCase
-    ? activeCase.status.replaceAll("_", " ")
+    ? userStatusLabel(activeCase.status)
     : selfHeal.summary.queuedCount > 0
       ? `${selfHeal.summary.queuedCount} queued`
       : runtimeTone.label;
@@ -660,10 +689,10 @@ function LoadCenterSelfHealRail({
                 </span>
               ))}
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 999, background: runtimeTone.background, color: runtimeTone.color, fontSize: 11, fontWeight: 700 }}>
-                Daemon: {runtimeTone.label}
+                Repair Worker: {runtimeTone.label}
               </span>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 999, background: "rgba(148,163,184,0.12)", color: "var(--bp-ink-secondary)", fontSize: 11, fontWeight: 700 }}>
-                Agent: {(selfHeal.selectedAgent || "not detected").replaceAll("_", " ")}
+                Runner: {userStatusLabel(selfHeal.selectedAgent || "not detected")}
               </span>
             </div>
 
@@ -695,7 +724,7 @@ function LoadCenterSelfHealRail({
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
                   <span style={{ padding: "4px 8px", borderRadius: 999, background: "rgba(59,130,246,0.12)", color: "#1d4ed8", fontSize: 11, fontWeight: 700 }}>
-                    {activeCase.status.replaceAll("_", " ")}
+                    {userStatusLabel(activeCase.status)}
                   </span>
                   <span style={{ padding: "4px 8px", borderRadius: 999, background: "rgba(148,163,184,0.12)", color: "var(--bp-ink-secondary)", fontSize: 11, fontWeight: 700 }}>
                     attempt {activeCase.attemptCount}/{activeCase.maxAttempts}
@@ -705,7 +734,7 @@ function LoadCenterSelfHealRail({
                   {activeCase.events.slice(0, 4).map((event) => (
                     <div key={event.id} style={{ borderLeft: "2px solid rgba(59,130,246,0.28)", paddingLeft: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "var(--bp-ink-primary)" }}>
-                        {event.step.replaceAll("_", " ")}
+                        {userStatusLabel(event.step)}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--bp-ink-secondary)", lineHeight: 1.5, marginTop: 2 }}>
                         {event.message}
@@ -720,7 +749,7 @@ function LoadCenterSelfHealRail({
                   Self-heal standing by
                 </div>
                 <div style={{ fontSize: 12, color: "var(--bp-ink-secondary)", marginTop: 6, lineHeight: 1.6 }}>
-                  Failed entities are queued immediately, but code mutation and targeted retries only start after the active engine run is idle.
+                  Failed entities are queued immediately, but repair work and targeted retries only start after the active pipeline run is idle.
                 </div>
                 <div style={{ fontSize: 11, color: "var(--bp-ink-muted)", marginTop: 8, lineHeight: 1.55 }}>
                   {selfHeal.runtime.lastMessage || "No queued self-heal cases yet."}
@@ -740,11 +769,13 @@ function LoadCenterSelfHealRail({
 
 export default function LoadCenter() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { allEntities } = useEntityDigest();
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [vpnStatus, setVpnStatus] = useState<VpnStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [launchNotice, setLaunchNotice] = useState<string | null>(null);
   const [expandedSource, setExpandedSource] = useState<string | null>(null);
   const [sourceDetail, setSourceDetail] = useState<SourceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -757,14 +788,16 @@ export default function LoadCenter() {
   const [queueIssueFilter, setQueueIssueFilter] = useState<"all" | "withIssue" | "withoutIssue">("all");
   const [selfHealExpanded, setSelfHealExpanded] = useState(false);
 
-  const loadStatus = useCallback(async (force = false) => {
+  const loadStatus = useCallback(async (force = false): Promise<StatusResponse | null> => {
     try {
       setLoading(true);
       setError(null);
       const data = await fetchJson<StatusResponse>(`/load-center/status${force ? "?force=1" : ""}`);
       setStatus(data);
+      return data;
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -823,28 +856,53 @@ export default function LoadCenter() {
   const handleDryRun = async () => {
     try {
       setRunLoading(true);
-      const plan = await postJson<RunPlan>("/load-center/run", { dryRun: true });
+      setLaunchNotice(null);
+      const plan = await postJson<RunPlan>("/load-center/run", { dryRun: true, scope: "active_catalog" });
       setRunPlan(plan);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Dry run failed");
+      setError(e instanceof Error ? e.message : "Plan preview failed");
     } finally {
       setRunLoading(false);
     }
   };
 
+  const pollForMissionRunId = useCallback(async (): Promise<string | null> => {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 350 : 800));
+      const latest = await loadStatus();
+      const runId =
+        extractMissionRunId(latest)
+        || latest?.engineRunState?.active?.runId
+        || latest?.engineRunState?.resumable?.runId
+        || null;
+      if (runId) return runId;
+    }
+    return null;
+  }, [loadStatus]);
+
   const handleRun = async () => {
     try {
       setRunLoading(true);
       setRunPlan(null);
+      setError(null);
+      setLaunchNotice(null);
+      let missionRunId: string | null = null;
       if (resumableEngineRunId) {
-        await postJson("/engine/resume", { run_id: resumableEngineRunId });
+        const payload = await postJson<LoadLaunchResponse>("/engine/resume", { run_id: resumableEngineRunId });
+        missionRunId = extractMissionRunId(payload) || resumableEngineRunId;
       } else {
-        await postJson("/load-center/run", { dryRun: false });
+        const payload = await postJson<LoadLaunchResponse>("/load-center/run", { dryRun: false, scope: "active_catalog" });
+        missionRunId = extractMissionRunId(payload);
       }
-      // Refresh status to pick up run state
+      missionRunId = missionRunId || await pollForMissionRunId();
+      if (missionRunId) {
+        navigate(`/load-mission-control?run_id=${encodeURIComponent(missionRunId)}`);
+        return;
+      }
+      setLaunchNotice("FMD accepted the launch, but the exact Mission Control run id was not returned yet. No success evidence is being shown until the run appears.");
       await loadStatus();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : resumableEngineRunId ? "Resume failed" : "Run failed");
+      setError(e instanceof Error ? e.message : resumableEngineRunId ? "Resume failed" : "Pipeline launch failed");
     } finally {
       setRunLoading(false);
     }
@@ -893,15 +951,15 @@ export default function LoadCenter() {
     const candidate = progress.load?.engineResult?.run_id;
     return typeof candidate === "string" && candidate ? candidate : null;
   }, [activeEngineRunId, isRunning, runState, status?.engineRunState?.resumable?.runId]);
-  const primaryActionLabel = resumableEngineRunId ? "Resume Interrupted Run" : "Finish Outstanding";
-  const primaryActionLongLabel = resumableEngineRunId ? "Resume Interrupted Engine Run" : "Finish Outstanding Entities";
+  const primaryActionLabel = resumableEngineRunId ? "Resume Interrupted Run" : "Run Active Catalog";
+  const primaryActionLongLabel = resumableEngineRunId ? "Resume Interrupted Pipeline Run" : "Run Active Catalog Through Layers";
   const completionSummary = status?.completionPlan?.summary;
   const tablesInScopeCount = status?.totalRegistered ?? 0;
   const missingLandingCount = Math.max(tablesInScopeCount - (totals?.lz?.tables ?? 0), 0);
   const missingBronzeCount = Math.max(tablesInScopeCount - (totals?.bronze?.tables ?? 0), 0);
   const missingSilverCount = Math.max(tablesInScopeCount - (totals?.silver?.tables ?? 0), 0);
   const selfHeal = status?.selfHeal;
-  const selfHealCases = selfHeal?.cases ?? [];
+  const selfHealCases = useMemo(() => selfHeal?.cases ?? [], [selfHeal?.cases]);
   const showSelfHealPanel = Boolean(selfHeal && (selfHeal.configured || selfHeal.selectedAgent || selfHeal.summary.totalCount > 0));
   const activeSelfHealCase = useMemo(() => {
     return selfHealCases.find((caseRow) =>
@@ -942,9 +1000,9 @@ export default function LoadCenter() {
       return { background: "rgba(59,130,246,0.12)", color: "#1d4ed8", label: "armed" };
     }
     if (selfHeal.runtime.healthy) {
-      return { background: "rgba(34,197,94,0.12)", color: "#15803d", label: selfHeal.runtime.status.replaceAll("_", " ") };
+      return { background: "rgba(34,197,94,0.12)", color: "#15803d", label: userStatusLabel(selfHeal.runtime.status) };
     }
-    return { background: "rgba(245,158,11,0.12)", color: "#b45309", label: selfHeal.runtime.status.replaceAll("_", " ") };
+    return { background: "rgba(245,158,11,0.12)", color: "#b45309", label: userStatusLabel(selfHeal.runtime.status) };
   }, [selfHeal]);
   useEffect(() => {
     if (!showSelfHealPanel) {
@@ -1029,9 +1087,9 @@ export default function LoadCenter() {
     : focusedGapIssue?.message
       ? `Latest recorded issue: ${focusedGapIssue.layer} · ${truncateText(focusedGapIssue.message, 220)}`
     : focusedMissingLayers.length > 0
-      ? `Still missing ${focusedMissingLayers.join(" + ")} before the asset can re-enter tool mode.`
+      ? `Still missing ${focusedMissingLayers.join(" + ")} before the asset can return to a ready state.`
       : focusedEntity
-        ? "This table is in scope, but Load Center should still own the completion workflow."
+        ? "This table is in scope, but Run Pipeline should still own the completion workflow."
         : null;
   const maxTables = useMemo(() => {
     if (!status?.sources) return 1;
@@ -1073,28 +1131,28 @@ export default function LoadCenter() {
     <div className="bp-page-shell-wide space-y-4">
       <CompactPageHeader
         eyebrow="Load"
-        title="Load Center"
-        summary="Finish imports, inspect what is still missing across Landing, Bronze, and Silver, and understand exactly what the next completion run will do."
+        title="Run Pipeline"
+        summary="Run the active source catalog through Landing, Bronze, and Silver. FMD decides full versus incremental table-by-table based on metadata and watermark history."
         meta={
           status?.scannedAt
             ? `Physical scan ${timeAgo(status.scannedAt)} · ${status.queryTimeSec}s query`
-            : "The single place that finishes imports and reconciles missing layers"
+            : "The single place to launch a governed load and reconcile missing layers"
         }
         guideItems={[
           {
             label: "What This Page Is",
-            value: "Import completion console",
-            detail: "Load Center is the operational workspace for finishing registered entities and reconciling what is still missing in Landing, Bronze, and Silver.",
+            value: "Governed load launcher",
+            detail: "Run Pipeline is the operational workspace for running active registered tables through Landing, Bronze, and Silver without guessing which ones need full or incremental handling.",
           },
           {
             label: "Why It Matters",
-            value: "Queue truth, not guesswork",
-            detail: "This page should answer which entities are still incomplete, why they are incomplete, and whether the next run needs a full load, incremental recovery, or operator intervention.",
+            value: "One run contract",
+            detail: "Operators should not need to choose between technical run paths. This page routes the active catalog into one managed FMD execution path.",
           },
           {
             label: "What Happens Next",
-            value: "Plan, then execute",
-            detail: "Review the outstanding queue, preview the completion plan when needed, then run the finish pass and hand off to Mission Control for live monitoring.",
+            value: "Launch, then monitor",
+            detail: "Preview the plan when needed, launch the active catalog, then use Mission Control as the live source of truth for row counts, failures, retries, and completion.",
           },
         ]}
         guideLinks={[
@@ -1153,7 +1211,7 @@ export default function LoadCenter() {
           { label: "Tables In Scope", value: tablesInScopeCount.toLocaleString(), tone: "accent" },
           { label: "Outstanding", value: (status?.outstandingCount ?? 0).toLocaleString(), tone: (status?.outstandingCount ?? 0) > 0 ? "warning" : "positive" },
           { label: "Downstream Gaps", value: (status?.gapCount ?? 0).toLocaleString(), tone: (status?.gapCount ?? 0) > 0 ? "warning" : "positive" },
-          { label: "Daemon", value: selfHeal ? selfHealRuntimeTone.label : "Unavailable", tone: selfHeal ? "accent" : "neutral" },
+          { label: "Repair Worker", value: selfHeal ? selfHealRuntimeTone.label : "Unavailable", tone: selfHeal ? "accent" : "neutral" },
         ]}
       />
 
@@ -1162,6 +1220,13 @@ export default function LoadCenter() {
         <div style={{ padding: "10px 16px", borderRadius: 8, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444", fontSize: 13, marginBottom: 16 }}>
           <XCircle style={{ width: 14, height: 14, display: "inline", verticalAlign: "middle", marginRight: 6 }} />
           {error}
+        </div>
+      )}
+
+      {launchNotice && (
+        <div style={{ padding: "10px 16px", borderRadius: 8, background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.18)", color: "#1d4ed8", fontSize: 13, marginBottom: 16 }}>
+          <AlertTriangle style={{ width: 14, height: 14, display: "inline", verticalAlign: "middle", marginRight: 6 }} />
+          {launchNotice}
         </div>
       )}
 
@@ -1185,10 +1250,10 @@ export default function LoadCenter() {
         <div style={{ padding: "12px 16px", borderRadius: 8, background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.18)", marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "#b45309" }}>
             <AlertTriangle style={{ width: 14, height: 14 }} />
-            Interrupted completion run detected
+            Interrupted pipeline run detected
           </div>
           <div style={{ fontSize: 12, color: "var(--bp-ink-secondary)", marginTop: 4, lineHeight: 1.55 }}>
-            The last completion pass already launched engine run <strong style={{ color: "var(--bp-ink-primary)" }}>{resumableEngineRunId.slice(0, 8)}</strong>. The primary action will resume that run instead of rebuilding the queue from scratch.
+            The last completion pass already launched pipeline run <strong style={{ color: "var(--bp-ink-primary)" }}>{resumableEngineRunId.slice(0, 8)}</strong>. The primary action will resume that run instead of rebuilding the queue from scratch.
           </div>
         </div>
       )}
@@ -1232,13 +1297,13 @@ export default function LoadCenter() {
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
             <div style={{ maxWidth: 720 }}>
               <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--bp-copper)" }}>
-                Import completion console
+                Governed load console
               </div>
               <h2 style={{ fontSize: 20, fontWeight: 700, color: "var(--bp-ink-primary)", margin: "10px 0 0" }}>
-                Stop guessing what is missing
+                Run the catalog, then fix only what fails
               </h2>
               <p style={{ fontSize: 13, color: "var(--bp-ink-secondary)", margin: "10px 0 0", lineHeight: 1.65 }}>
-                {status.outstandingCount.toLocaleString()} of {tablesInScopeCount.toLocaleString()} registered entities are still missing at least one clean layer. The queue below shows exactly what is missing, what the next load will do, and the latest recorded reason a prior attempt failed.
+                The primary action runs all {tablesInScopeCount.toLocaleString()} active registered entities through managed FMD execution. FMD uses incremental loading when watermark metadata is ready and full loading when a table must be seeded or has no safe watermark strategy. The queue below remains the cleanup view for entities still missing a clean layer.
               </p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
                 <span
@@ -1329,7 +1394,7 @@ export default function LoadCenter() {
                 }}
               >
                 <Zap style={{ width: 14, height: 14 }} />
-                Preview Completion Plan
+                Preview Run Plan
               </button>
             </div>
           </div>
@@ -1339,9 +1404,9 @@ export default function LoadCenter() {
               { label: "Missing Landing", value: missingLandingCount, detail: "Registered entities whose latest landing state is not loaded.", accent: missingLandingCount > 0 ? "#ef4444" : "#22c55e" },
               { label: "Missing Bronze", value: missingBronzeCount, detail: "Entities still blocked before bronze is usable.", accent: missingBronzeCount > 0 ? "#f59e0b" : "#22c55e" },
               { label: "Missing Silver", value: missingSilverCount, detail: "Entities still blocked before silver is usable.", accent: missingSilverCount > 0 ? "#f59e0b" : "#22c55e" },
-              { label: "Outstanding Queue", value: status.outstandingCount, detail: "Registered entities still missing at least one clean layer.", accent: status.outstandingCount > 0 ? "#ef4444" : "#22c55e" },
-              { label: "Full Loads Next", value: completionSummary?.fullLoadCount ?? 0, detail: "Entities the next run must reseed from source.", accent: (completionSummary?.fullLoadCount ?? 0) > 0 ? "#f59e0b" : "#22c55e" },
-              { label: "Incremental Next", value: completionSummary?.incrementalCount ?? 0, detail: "Entities the next run can advance via watermark.", accent: (completionSummary?.incrementalCount ?? 0) > 0 ? "#15803d" : "#22c55e" },
+              { label: "Cleanup Queue", value: status.outstandingCount, detail: "Registered entities still missing at least one clean layer.", accent: status.outstandingCount > 0 ? "#ef4444" : "#22c55e" },
+              { label: "Full Loads in Plan", value: completionSummary?.fullLoadCount ?? 0, detail: "Entities the run must seed or reseed from source.", accent: (completionSummary?.fullLoadCount ?? 0) > 0 ? "#f59e0b" : "#22c55e" },
+              { label: "Incremental in Plan", value: completionSummary?.incrementalCount ?? 0, detail: "Entities the run can advance via watermark.", accent: (completionSummary?.incrementalCount ?? 0) > 0 ? "#15803d" : "#22c55e" },
             ].map((item) => (
               <div key={item.label} style={{ border: "1px solid rgba(91,84,76,0.10)", borderRadius: 12, background: "rgba(255,255,255,0.86)", padding: "14px 16px" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--bp-ink-muted)" }}>
@@ -1473,7 +1538,7 @@ export default function LoadCenter() {
                                     color: tone.color,
                                   }}
                                 >
-                                  {layerLabel(layer)}: {layerStatus.replaceAll("_", " ")}
+                                  {layerLabel(layer)}: {userStatusLabel(layerStatus)}
                                 </span>
                               );
                             })}
@@ -1495,14 +1560,14 @@ export default function LoadCenter() {
                             <div style={{ marginBottom: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.16)" }}>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                                 <span style={{ fontSize: 11, fontWeight: 700, color: "#1d4ed8" }}>
-                                  Self-heal {entity.selfHealCase.status.replaceAll("_", " ")}
+                                  Self-heal {userStatusLabel(entity.selfHealCase.status)}
                                 </span>
                                 <span style={{ fontSize: 11, color: "var(--bp-ink-secondary)" }}>
                                   case {entity.selfHealCase.id} · attempt {entity.selfHealCase.attemptCount}/{entity.selfHealCase.maxAttempts}
                                 </span>
                               </div>
                               <div style={{ fontSize: 11, color: "var(--bp-ink-secondary)", marginTop: 4, lineHeight: 1.5 }}>
-                                {entity.selfHealCase.events[0]?.message || "Queued for bounded CLI-driven self-heal."}
+                                {entity.selfHealCase.events[0]?.message || "Queued for bounded repair."}
                               </div>
                             </div>
                           )}
@@ -1510,7 +1575,7 @@ export default function LoadCenter() {
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "var(--bp-ink-primary)" }}>
                                 <AlertTriangle style={{ width: 14, height: 14, color: "#b45309", flexShrink: 0 }} />
-                                {layerLabel(entity.latestIssue.layer)} · {entity.latestIssue.status.replaceAll("_", " ")}
+                                {layerLabel(entity.latestIssue.layer)} · {userStatusLabel(entity.latestIssue.status)}
                               </div>
                               <div style={{ fontSize: 11, color: "var(--bp-ink-muted)", marginTop: 4 }}>
                                 {entity.latestIssue.at ? `${timeAgo(entity.latestIssue.at)} · ` : ""}run {shortRunId(entity.latestIssue.runId)}
@@ -1573,7 +1638,7 @@ export default function LoadCenter() {
             No loaded sources yet
           </h2>
           <p style={{ fontSize: 14, color: "var(--bp-ink-muted)", maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.6 }}>
-            Nothing has completed the managed import path yet. Use this page to preview the completion plan or finish the outstanding entities once registration is in place.
+            Nothing has completed the managed import path yet. Use this page to preview the run plan or launch the active registered catalog once source connectivity is ready.
           </p>
           <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
             <button
@@ -1587,7 +1652,7 @@ export default function LoadCenter() {
               }}
             >
               <Zap style={{ width: 14, height: 14 }} />
-              Preview Completion Plan
+              Preview Run Plan
             </button>
             <button
               onClick={handleRefresh}

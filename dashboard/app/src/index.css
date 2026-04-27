@@ -2052,6 +2052,23 @@ body {
   line-height: 1.45;
 }
 
+.fmd-canvas-run-handoff__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.fmd-canvas-run-handoff__meta span {
+  padding: 4px 8px;
+  border: 1px solid rgba(11, 140, 194, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--bp-ink-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
 .fmd-canvas-run-handoff button {
   display: inline-flex;
   align-items: center;
@@ -2515,6 +2532,28 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.fmd-canvas-inspector__managed-path {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+  padding: 10px 11px;
+  border: 1px solid rgba(14, 145, 201, 0.18);
+  border-radius: 10px;
+  background: rgba(14, 145, 201, 0.055);
+}
+
+.fmd-canvas-inspector__managed-path strong {
+  color: var(--bp-ink-primary);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.fmd-canvas-inspector__managed-path span {
+  color: var(--bp-ink-muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .fmd-canvas-danger {

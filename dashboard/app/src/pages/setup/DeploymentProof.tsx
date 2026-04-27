@@ -32,7 +32,7 @@ export function DeploymentProof({ proof }: DeploymentProofProps) {
   if (!proof) {
     return (
       <div className="rounded-xl p-8 text-center text-sm" style={{ border: "1px dashed var(--bp-border-strong)", color: "var(--bp-ink-muted)" }}>
-        Validation proof will show Fabric token, resource, OneLake, Delta, SQL metadata, Dagster, and smoke checks reported by the backend.
+        Validation proof will show Fabric token, resource, OneLake, Delta, SQL metadata, managed execution, and smoke checks reported by the backend.
       </div>
     );
   }

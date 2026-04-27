@@ -7,7 +7,7 @@
 // ============================================================================
 
 import { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMetricContract } from "@/hooks/useMetricContract";
 import { useTerminology } from "@/hooks/useTerminology";
 import { useSourceConfig, resolveSourceLabel, getSourceColor } from "@/hooks/useSourceConfig";
@@ -16,7 +16,7 @@ import {
   KpiCard,
   SourceBadge,
 } from "@/components/business";
-import { RefreshCw, Search, ChevronRight, Database } from "lucide-react";
+import { AlertTriangle, Loader2, Play, RefreshCw, Search, ChevronRight, Database } from "lucide-react";
 import { isSuccessStatus } from "@/lib/exploreWorksurface";
 
 const API = import.meta.env.VITE_API_URL || "";
@@ -205,6 +205,7 @@ function SourceCard({ src }: { src: SourceHealth }) {
 // ── Main Component ──
 
 export default function BusinessSources() {
+  const navigate = useNavigate();
   const { t } = useTerminology();
   useSourceConfig(); // trigger cache hydration for resolveSourceLabel / getSourceColor
   const {
@@ -218,6 +219,8 @@ export default function BusinessSources() {
   const [lzEntities, setLzEntities] = useState<LZEntity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
 
   // Table list filters
   const [search, setSearch] = useState("");
@@ -256,6 +259,27 @@ export default function BusinessSources() {
       setError(err instanceof Error ? err.message : "Failed to load source data");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRunPipeline() {
+    try {
+      setLaunching(true);
+      setLaunchError(null);
+      const res = await fetch(`${API}/api/load-center/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun: false, scope: "active_catalog" }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || payload?.error) {
+        throw new Error(payload?.error || `Pipeline launch failed (${res.status})`);
+      }
+      navigate("/load-center");
+    } catch (err) {
+      setLaunchError(err instanceof Error ? err.message : "Pipeline launch failed");
+    } finally {
+      setLaunching(false);
     }
   }
 
@@ -322,8 +346,8 @@ export default function BusinessSources() {
           },
           {
             label: "What Happens Next",
-            value: "Move from source health into table detail",
-            detail: "Inspect table-level coverage below, open the engineering source manager when a connector needs work, or return to overview if you need the higher-level operating picture first.",
+            value: "Launch or inspect",
+            detail: "Run the active catalog when you are ready, inspect table-level coverage below, or open Source Manager when a connector itself needs work.",
           },
         ]}
         links={[
@@ -332,20 +356,35 @@ export default function BusinessSources() {
           { label: "Open Source Manager", to: "/sources" },
         ]}
         actions={
-          <button
-            onClick={() => {
-              void refreshMetrics();
-              void fetchAll();
-            }}
-            className="ml-auto flex items-center gap-1.5 text-[12px] transition-colors"
-            style={{ color: "var(--bp-ink-muted)" }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--bp-copper)")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--bp-ink-muted)")}
-            aria-label="Refresh"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Refresh
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={handleRunPipeline}
+              disabled={launching}
+              className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12px] font-semibold transition-colors"
+              style={{
+                background: "var(--bp-copper)",
+                color: "#fff",
+                opacity: launching ? 0.72 : 1,
+              }}
+            >
+              {launching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              Run Pipeline
+            </button>
+            <button
+              onClick={() => {
+                void refreshMetrics();
+                void fetchAll();
+              }}
+              className="flex items-center gap-1.5 text-[12px] transition-colors"
+              style={{ color: "var(--bp-ink-muted)" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--bp-copper)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--bp-ink-muted)")}
+              aria-label="Refresh"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Refresh
+            </button>
+          </div>
         }
       />
 
@@ -361,6 +400,20 @@ export default function BusinessSources() {
           }}
         >
           {pageError}
+        </div>
+      )}
+
+      {launchError && (
+        <div
+          className="mb-5 flex items-start gap-2 rounded-lg px-4 py-3 text-[13px]"
+          style={{
+            background: "rgba(185, 58, 42, 0.08)",
+            color: "var(--bp-fault)",
+            border: "1px solid rgba(185, 58, 42, 0.22)",
+          }}
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{launchError}</span>
         </div>
       )}
 

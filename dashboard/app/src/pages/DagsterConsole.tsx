@@ -41,7 +41,7 @@ const DAGSTER_VIEWS: DagsterView[] = [
     id: "overview",
     label: "Overview",
     eyebrow: "Control plane",
-    description: "Dagster home base for recent activity, definitions, and run health.",
+    description: "Runtime diagnostics for recent activity, definitions, and run health.",
     route: "/dagster",
     dagsterPath: "/overview",
     icon: MonitorDot,
@@ -59,7 +59,7 @@ const DAGSTER_VIEWS: DagsterView[] = [
     id: "catalog",
     label: "Catalog",
     eyebrow: "Definitions",
-    description: "Browse Dagster's catalog of assets and orchestration definitions.",
+    description: "Browse the runtime catalog of assets and execution definitions.",
     route: "/dagster/catalog",
     dagsterPath: "/assets",
     icon: Boxes,
@@ -86,7 +86,7 @@ const DAGSTER_VIEWS: DagsterView[] = [
     id: "lineage",
     label: "Lineage",
     eyebrow: "Graph",
-    description: "Open Dagster's lineage graph for cross-asset dependency investigation.",
+    description: "Open the execution graph for cross-asset dependency investigation.",
     route: "/dagster/lineage",
     dagsterPath: "/asset-graph",
     icon: GitBranch,
@@ -163,7 +163,7 @@ export default function DagsterConsole() {
         }
       } catch (error) {
         if (!cancelled) {
-          setStatusError(error instanceof Error ? error.message : "Dagster status check failed");
+          setStatusError(error instanceof Error ? error.message : "Runtime status check failed");
           setStatus(null);
         }
       } finally {
@@ -230,19 +230,20 @@ export default function DagsterConsole() {
         <div className="dagster-console__hero-copy">
           <div className="dagster-console__kicker">
             <GitBranch size={14} />
-            Dagster embedded control room
+            Advanced runtime diagnostics
           </div>
-          <h1>Operate Dagster without leaving FMD.</h1>
+          <h1>Inspect FMD execution without leaving the dashboard.</h1>
           <p>
-            FMD stays the business and data cockpit. Dagster is embedded here for run history, graph
-            investigation, job launches, code-location checks, and automation views.
+            This advanced view is for run history, graph investigation, job definitions,
+            deployment checks, and automation diagnostics. Day-to-day users should stay in
+            Canvas, Load Center, and Mission Control.
           </p>
         </div>
 
-        <aside className="dagster-console__status bp-card" aria-label="Dagster status">
+        <aside className="dagster-console__status bp-card" aria-label="Runtime status">
           <div className={`dagster-console__status-pill dagster-console__status-pill--${statusTone}`}>
             <span />
-            {isDagsterReachable ? "Dagster online" : status ? "Dagster offline" : "Checking Dagster"}
+            {isDagsterReachable ? "Runtime online" : status ? "Runtime offline" : "Checking runtime"}
           </div>
           <div className="dagster-console__status-row">
             <span>UI endpoint</span>
@@ -260,9 +261,9 @@ export default function DagsterConsole() {
             <span>Browser</span>
             <strong>
               {browserReachable === true
-                ? "Can reach Dagster"
+                ? "Can reach runtime"
                 : browserReachable === false
-                  ? "Cannot reach Dagster"
+                  ? "Cannot reach runtime"
                   : "Checking frame access"}
             </strong>
           </div>
@@ -275,7 +276,7 @@ export default function DagsterConsole() {
       </section>
 
       <section className="dagster-console__workspace dagster-console__workspace--single">
-        <nav className="dagster-console__views dagster-console__views--horizontal" aria-label="Dagster pages">
+        <nav className="dagster-console__views dagster-console__views--horizontal" aria-label="Runtime diagnostic pages">
           {DAGSTER_VIEWS.map((view) => {
             const Icon = view.icon;
             const active = activeView.id === view.id;
@@ -321,7 +322,7 @@ export default function DagsterConsole() {
                 className="dagster-console__button dagster-console__button--primary"
               >
                 <ExternalLink size={14} />
-                Open Dagster
+                Open diagnostics
               </a>
             </div>
           </div>
@@ -329,7 +330,7 @@ export default function DagsterConsole() {
           {!isDagsterReachable && status && (
             <div className="dagster-console__offline">
               <AlertTriangle size={16} />
-              <span>Dagster is not responding right now. Start the Dagster webserver, then refresh this page.</span>
+              <span>The runtime diagnostics service is not responding right now. Start the local service, then refresh this page.</span>
             </div>
           )}
 
@@ -337,12 +338,12 @@ export default function DagsterConsole() {
             {!frameLoaded && canAttemptEmbed && (
               <div className="dagster-console__frame-loading">
                 <span />
-                Loading embedded Dagster {activeView.label.toLowerCase()}...
+                Loading embedded runtime {activeView.label.toLowerCase()}...
               </div>
             )}
             {canAttemptEmbed ? (
               <iframe
-                title={`Dagster ${activeView.label}`}
+                title={`Runtime ${activeView.label}`}
                 src={iframeSrc}
                 className="dagster-console__iframe"
                 onLoad={() => setFrameLoaded(true)}
@@ -350,15 +351,15 @@ export default function DagsterConsole() {
             ) : (
               <div className="dagster-console__empty-frame">
                 <Workflow size={34} />
-                <h3>Dagster is not running on this machine</h3>
+                <h3>Runtime diagnostics are not running on this machine</h3>
                 <p>
-                  This FMD section embeds the Dagster webserver at {baseUrl}. The section is wired
-                  correctly, but there is no local Dagster service responding yet.
+                  This FMD section embeds the local diagnostics service at {baseUrl}. The section is wired
+                  correctly, but there is no local service responding yet.
                 </p>
                 <pre>{`cd C:\\Users\\snahrup\\CascadeProjects\\FMD_ORCHESTRATOR
 .\\scripts\\install.ps1
 .\\scripts\\start_dagster_dev.ps1 -Port 3006 -FrameworkPath C:\\Users\\snahrup\\CascadeProjects\\FMD_FRAMEWORK_runtime-rewrite`}</pre>
-                <a href={baseUrl} target="_blank" rel="noreferrer">Open Dagster directly</a>
+                <a href={baseUrl} target="_blank" rel="noreferrer">Open diagnostics directly</a>
               </div>
             )}
           </div>

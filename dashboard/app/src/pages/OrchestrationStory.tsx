@@ -99,7 +99,7 @@ const layers: LayerStory[] = [
     fmdWork: [
       "Converts raw landing files into table format.",
       "Applies standard metadata columns and load bookkeeping.",
-      "Only runs for entities that successfully landed when scoped by the runtime.",
+      "Only runs for entities that successfully landed within the selected run scope.",
     ],
     proof: ["Bronze table", "Schema", "Primary keys", "Successful upstream landing"],
     demoLine: "Bronze is where raw data becomes usable infrastructure.",
@@ -145,7 +145,7 @@ const controlSteps: ControlStep[] = [
     title: "User starts in FMD Dashboard",
     owner: "Business-facing UI",
     summary: "Sources, layers, and scope are selected in language the team understands.",
-    detail: "The dashboard remains the primary experience. Users do not need to know Dagster exists.",
+    detail: "The dashboard remains the primary experience. Users stay focused on sources, layers, status, and evidence.",
     icon: MonitorDot,
   },
   {
@@ -156,29 +156,29 @@ const controlSteps: ControlStep[] = [
     icon: PlayCircle,
   },
   {
-    title: "Dagster bridge chooses orchestration path",
-    owner: "Bridge adapter",
-    summary: "If Dagster mode is enabled, the request is converted into Dagster run config.",
-    detail: "On VSC-Fabric we use the local subprocess launch path to run the Dagster job with the existing FMD framework path.",
+    title: "FMD builds a managed run plan",
+    owner: "Run planner",
+    summary: "The request is converted into a governed run plan with exact scope, layers, and checks.",
+    detail: "FMD chooses the right managed execution path behind the scenes while preserving the same operator workflow.",
     icon: GitBranch,
   },
   {
-    title: "Dagster runs the medallion graph",
+    title: "FMD runs the medallion graph",
     owner: "Control plane",
     summary: "Landing -> Bronze -> Silver becomes a visible, debuggable graph.",
-    detail: "Dagster gives the operator run history, layer-level logs, and a better failure surface.",
+    detail: "The operator gets run history, layer-level logs, and a clearer failure surface without switching tools.",
     icon: Workflow,
   },
   {
     title: "FMD engine still performs data work",
     owner: "FMD data plane",
     summary: "The existing LoadOrchestrator executes source/Fabric/lakehouse logic.",
-    detail: "Dagster wraps the run. It does not replace the Fabric-specific business logic yet.",
+    detail: "Managed execution coordinates the run. It does not replace the Fabric-specific business logic.",
     icon: Wrench,
   },
 ];
 
-const dagsterGives = [
+const managedExecutionGives = [
   "Visible orchestration graph",
   "Cleaner layer-level failures",
   "Run metadata and tags",
@@ -186,7 +186,7 @@ const dagsterGives = [
   "OSS-portable control plane",
 ];
 
-const dagsterDoesNot = [
+const managedExecutionDoesNot = [
   "Replace FMD source connectors",
   "Magically fix Fabric permissions",
   "Own business transformations yet",
@@ -243,8 +243,8 @@ function LayerNode({
 function ControlRail({ activeLayer }: { activeLayer: LayerStory }) {
   return (
     <section className="os-card os-control-rail">
-      <div className="os-section-kicker">What Dagster changes</div>
-      <h2>FMD stays the user experience. Dagster becomes the operator-grade run shell.</h2>
+      <div className="os-section-kicker">What managed execution changes</div>
+      <h2>FMD stays the user experience while every run becomes easier to inspect.</h2>
       <div className="os-control-steps">
         {controlSteps.map((step, index) => {
           const Icon = step.icon;
@@ -271,8 +271,8 @@ function ControlRail({ activeLayer }: { activeLayer: LayerStory }) {
       <div className="os-operator-note">
         <CircuitBoard size={18} />
         <span>
-          During a real run, Dagster shows the graph and layer logs while FMD records entity-level results back in
-          the dashboard. Current focus: <strong>{activeLayer.label}</strong>.
+          During a real run, FMD shows the graph, layer logs, and entity-level results in one dashboard. Current
+          focus: <strong>{activeLayer.label}</strong>.
         </span>
       </div>
     </section>
@@ -912,11 +912,11 @@ export default function OrchestrationStory() {
         >
           <div className="os-kicker">Demo explainer</div>
           <h1>
-            How FMD uses <span>Dagster</span> without hiding the data journey.
+            How FMD moves data through each layer without hiding the journey.
           </h1>
           <p className="os-hero-copy">
-            The dashboard remains the business cockpit. Dagster becomes the orchestration control plane behind it,
-            and the existing FMD engine still performs the source, Fabric, and lakehouse work.
+            The dashboard remains the business cockpit. Managed execution coordinates the run behind the scenes,
+            while FMD performs the source, Fabric, and lakehouse work.
           </p>
           <div className="os-mode-switch" aria-label="Audience mode">
             <button className={cx(mode === "business" && "is-active")} onClick={() => setMode("business")}>
@@ -935,19 +935,19 @@ export default function OrchestrationStory() {
           transition={{ delay: 0.1, duration: 0.48 }}
         >
           <div className="os-kicker">Reality check</div>
-          <h2>Dagster is the run shell. FMD is still the data plane.</h2>
+          <h2>FMD is both the operating surface and the data plane.</h2>
           <p>
-            This distinction is the key demo message: Dagster improves how the pipeline is launched, observed,
-            retried, and explained. It does not erase the metadata-driven FMD framework.
+            The key message: operators launch, observe, retry, and explain the pipeline from one place. FMD still
+            uses the metadata-driven framework to do the actual data movement.
           </p>
           <div className="os-split-list">
             <div className="os-mini-panel">
               <strong><CheckCircle2 size={15} /> Gives us</strong>
-              <ul>{dagsterGives.map((item) => <li key={item}>{item}</li>)}</ul>
+              <ul>{managedExecutionGives.map((item) => <li key={item}>{item}</li>)}</ul>
             </div>
             <div className="os-mini-panel">
               <strong><XCircle size={15} /> Does not yet</strong>
-              <ul>{dagsterDoesNot.map((item) => <li key={item}>{item}</li>)}</ul>
+              <ul>{managedExecutionDoesNot.map((item) => <li key={item}>{item}</li>)}</ul>
             </div>
           </div>
         </motion.aside>
@@ -985,9 +985,9 @@ export default function OrchestrationStory() {
             <section className="os-card os-brief-card">
               <h3>Demo takeaway</h3>
               <p>
-                A user launches from FMD. The API keeps the same contract, but routes the run through Dagster when
-                Dagster mode is enabled. Dagster shows the medallion graph and run logs. Each Dagster layer delegates
-                back to FMD, which performs the actual source extraction, Fabric writes, and layer processing.
+                A user launches from FMD. The API keeps the same contract, builds the exact run scope, and shows the
+                medallion graph and run logs. Each layer delegates back to FMD, which performs the actual source
+                extraction, Fabric writes, and layer processing.
               </p>
               <a className="os-demo-link" href="/replay?demo=1">
                 <History size={15} />
@@ -1028,12 +1028,12 @@ export default function OrchestrationStory() {
         <motion.div className="os-card os-brief-card" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.31 }}>
           <Workflow color="var(--bp-copper)" />
           <h3>For operators</h3>
-          <p>Use Dagster UI when a run needs investigation: graph view, layer logs, run history, and failure boundary.</p>
+          <p>Use Mission Control when a run needs investigation: graph view, layer logs, run history, and failure boundary.</p>
         </motion.div>
         <motion.div className="os-card os-brief-card" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }}>
           <Layers3 color="var(--bp-copper)" />
           <h3>For the architecture</h3>
-          <p>Keep FMD as the data plane while gradually moving orchestration responsibility into Dagster OSS code.</p>
+          <p>Keep FMD as the product surface while gradually hardening the managed execution layer behind it.</p>
         </motion.div>
       </section>
     </div>

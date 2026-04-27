@@ -76,6 +76,11 @@ type RightPanelMode = "inspect" | "review";
 
 interface ActiveCanvasRun {
   runId: string;
+  status: "starting" | "running";
+  message: string;
+  launchedAt: string;
+  entityCount: number;
+  layerCount: number;
 }
 
 const NODE_ICON: Record<CanvasNodeType, LucideIcon> = {
@@ -180,7 +185,7 @@ function CanvasNodeCard(props: NodeProps<Node<CanvasNodeData>>) {
   const Icon = NODE_ICON[node.type] ?? Workflow;
   const template = templateForType(node.type);
   const runState = data.runState;
-  const stateLabel = runState === "running" ? "Running" : runState === "complete" ? "Handed off" : runState === "queued" ? "Queued" : null;
+  const stateLabel = runState === "running" ? "Running" : runState === "complete" ? "Started" : runState === "queued" ? "Queued" : null;
   return (
     <div className={`fmd-canvas-node gs-stagger-card ${selected ? "fmd-canvas-node--selected" : ""} ${runState ? `fmd-canvas-node--${runState}` : ""}`} style={{ "--node-tone": tone.color } as React.CSSProperties}>
       <Handle type="target" position={Position.Left} className="fmd-canvas-node__handle" />
@@ -236,7 +241,7 @@ function ValidationPanel({ validation }: { validation: FmdValidationResult }) {
         <span>{validation.ok ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}</span>
         <div>
           <h3>Validation</h3>
-          <p>{validation.ok ? "Flow can be dry-run and launched." : `${validation.errors.length} blocking issue(s) need attention.`}</p>
+          <p>{validation.ok ? "Flow can be reviewed and launched." : `${validation.errors.length} blocking issue(s) need attention.`}</p>
         </div>
       </div>
       <div className="fmd-canvas-validation-list">
@@ -271,12 +276,12 @@ function RunPlanPanel({ plan }: { plan: FmdRunPlan }) {
           <div key={step.nodeId} className="fmd-canvas-plan__step">
             <span>{step.layer ?? "adapter"}</span>
             <strong>{step.label}</strong>
-            <small>{step.entityIds.length ? `${step.entityIds.length} scoped entities` : step.executor}</small>
+            <small>{step.entityIds.length ? `${step.entityIds.length} scoped entities` : "Managed by FMD"}</small>
           </div>
         ))}
       </div>
       <details className="fmd-canvas-details">
-        <summary>Launch payload</summary>
+        <summary>Advanced launch payload</summary>
         <pre className="fmd-canvas-payload">{JSON.stringify(plan.launchPayload, null, 2)}</pre>
       </details>
     </section>
@@ -355,16 +360,11 @@ function NodeInspector({
               placeholder="599, 600"
             />
           </label>
+          <div className="fmd-canvas-inspector__managed-path">
+            <strong>Execution path</strong>
+            <span>Managed automatically by FMD.</span>
+          </div>
           <div className="fmd-canvas-inspector__grid">
-            <label>
-              Executor
-              <select value={String(selected.config.executor ?? "fmd_framework")} onChange={(event) => setConfig("executor", event.target.value)}>
-                <option value="fmd_framework">FMD / Dagster</option>
-                <option value="fabric_pipeline">Fabric Pipeline mirror (planned)</option>
-                <option value="fabric_notebook">Fabric Notebook mirror (planned)</option>
-                <option value="external_adapter">External adapter mirror (planned)</option>
-              </select>
-            </label>
             <label>
               Retry policy
               <select value={String(selected.config.retryPolicy ?? "")} onChange={(event) => setConfig("retryPolicy", event.target.value)}>
@@ -422,6 +422,7 @@ function FmdPipelineCanvasInner() {
   const runStepNodeIds = useMemo(() => runPlan.steps.map((step) => step.nodeId), [runPlan.steps]);
   const activeRunStepIndex = activeRun && runStepNodeIds.length > 0 ? Math.min(runPulse, runStepNodeIds.length - 1) : -1;
   const activeRunNodeId = activeRunStepIndex >= 0 ? runStepNodeIds[activeRunStepIndex] : null;
+  const activeRunStep = activeRunStepIndex >= 0 ? runPlan.steps[activeRunStepIndex] : null;
   const completedRunNodeIds = useMemo(
     () => new Set(activeRun ? runStepNodeIds.slice(0, activeRunStepIndex) : []),
     [activeRun, activeRunStepIndex, runStepNodeIds],
@@ -486,13 +487,26 @@ function FmdPipelineCanvasInner() {
     hasFitInitialViewport.current = true;
     window.requestAnimationFrame(() => {
       void reactFlow.fitView({
-        padding: 0.14,
-        minZoom: 0.68,
-        maxZoom: 0.96,
+        padding: 0.08,
+        minZoom: 0.9,
+        maxZoom: 1.08,
         duration: 220,
       });
     });
   }, [loading, reactFlow, renderedNodes.length]);
+
+  useEffect(() => {
+    if (!reactFlow || renderedNodes.length === 0 || loading || !hasFitInitialViewport.current) return;
+    const timeout = window.setTimeout(() => {
+      void reactFlow.fitView({
+        padding: rightPanelMode ? 0.12 : 0.08,
+        minZoom: rightPanelMode ? 0.72 : 0.9,
+        maxZoom: rightPanelMode ? 0.92 : 1.08,
+        duration: 180,
+      });
+    }, 90);
+    return () => window.clearTimeout(timeout);
+  }, [activeRun, isPaletteOpen, loading, reactFlow, renderedNodes.length, rightPanelMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -588,7 +602,7 @@ function FmdPipelineCanvasInner() {
       setValidation(payload.validation);
       setRunPlan(payload.runPlan);
       setRightPanelMode("review");
-      setNotice({ tone: payload.validation.ok ? "success" : "warning", message: payload.validation.ok ? "Dry run compiled successfully." : "Dry run compiled with blocking validation issues." });
+      setNotice({ tone: payload.validation.ok ? "success" : "warning", message: payload.validation.ok ? "Plan validation completed." : "Plan validation found blocking issues." });
     } catch (error) {
       setNotice({ tone: "error", message: apiErrorMessage(error) });
     }
@@ -609,13 +623,20 @@ function FmdPipelineCanvasInner() {
       const rawRunId = payload.engine.run_id || payload.engine.current_run_id || "";
       const runId = typeof rawRunId === "string" && rawRunId.trim() ? rawRunId.trim() : "";
       if (runId) {
-        setActiveRun({ runId });
+        setActiveRun({
+          runId,
+          status: "running",
+          message: "The run was accepted by FMD. Mission Control is now the live operating view.",
+          launchedAt: new Date().toISOString(),
+          entityCount: payload.runPlan.summary.entityCount,
+          layerCount: payload.runPlan.summary.layerCount,
+        });
         setNotice(null);
       } else {
-        setNotice({ tone: "success", message: "Pipeline launch accepted. Open Mission Control to confirm the live run." });
+        setNotice({ tone: "success", message: "Pipeline launch accepted. Open Mission Control to confirm the live run id and live row counts." });
       }
     } catch (error) {
-      setNotice({ tone: "error", message: apiErrorMessage(error) });
+      setNotice({ tone: "error", message: `Pipeline did not start: ${apiErrorMessage(error)}` });
     } finally {
       setLaunching(false);
     }
@@ -632,9 +653,9 @@ function FmdPipelineCanvasInner() {
       <section className="fmd-canvas-hero">
         <div className="fmd-canvas-hero__copy">
           <div className="fmd-canvas-kicker"><Workflow size={14} /> FMD governed canvas</div>
-          <h1>Build the pipeline path.</h1>
+          <h1>Design and launch governed runs.</h1>
           <p>
-            Start with the graph. Open node tools, inspection, and run review only when you need them.
+            Keep the graph simple: source, layer steps, and quality checks. Review the plan, start the run, then follow the live truth in Mission Control.
           </p>
         </div>
       </section>
@@ -646,8 +667,14 @@ function FmdPipelineCanvasInner() {
             <span />
           </div>
           <div>
-            <strong>Pipeline is running</strong>
-            <p>Run {activeRun.runId.slice(0, 8)} is animating through this canvas. Mission Control is the live operating view for source progress, failures, retries, and completion.</p>
+            <strong>Run accepted by FMD</strong>
+            <p>{activeRun.message}</p>
+            <div className="fmd-canvas-run-handoff__meta">
+              <span>Run {activeRun.runId.slice(0, 8)}</span>
+              <span>{activeRun.entityCount.toLocaleString()} scoped entities</span>
+              <span>{activeRun.layerCount} layers</span>
+              <span>{activeRunStep?.label ? `Canvas step: ${activeRunStep.label}` : "Canvas step: starting"}</span>
+            </div>
           </div>
           <button type="button" onClick={() => navigate(missionControlUrl)}>
             <SquareArrowOutUpRight size={14} /> View in Mission Control
@@ -663,11 +690,11 @@ function FmdPipelineCanvasInner() {
             <p>Drag in only the building blocks that this flow needs.</p>
           </div>
           <div className="fmd-canvas-palette__group">
-            {NODE_TEMPLATES.map((template, index) => <PaletteCard key={template.type} template={template} index={index} />)}
+            {NODE_TEMPLATES.filter((template) => !template.future).map((template, index) => <PaletteCard key={template.type} template={template} index={index} />)}
           </div>
           <div className="fmd-canvas-fabric-note">
             <ServerCog size={16} />
-            <span>Fabric compute nodes are available as modeled seams. Activating them later will map named pipelines/notebooks into this same run-plan contract.</span>
+            <span>Only production-ready FMD building blocks are shown here. Future compute patterns stay hidden until they can launch through the same managed run contract.</span>
           </div>
         </aside>
         )}
@@ -680,7 +707,7 @@ function FmdPipelineCanvasInner() {
             </div>
             <div className="fmd-canvas-actions">
               <button type="button" aria-pressed={isPaletteOpen} className={isPaletteOpen ? "is-active" : ""} onClick={() => setPaletteOpen((value) => !value)}>
-                <Layers size={14} /> Add nodes
+                <Layers size={14} /> Edit nodes
               </button>
               <button
                 type="button"
@@ -688,7 +715,7 @@ function FmdPipelineCanvasInner() {
                 className={rightPanelMode === "inspect" ? "is-active" : ""}
                 onClick={() => setRightPanelMode((mode) => mode === "inspect" ? null : "inspect")}
               >
-                <Workflow size={14} /> Inspect
+                <Workflow size={14} /> Inspect selected
               </button>
               <button
                 type="button"
@@ -696,16 +723,26 @@ function FmdPipelineCanvasInner() {
                 className={rightPanelMode === "review" ? "is-active" : ""}
                 onClick={() => setRightPanelMode((mode) => mode === "review" ? null : "review")}
               >
-                <ShieldCheck size={14} /> Review
+                <ShieldCheck size={14} /> Review plan
               </button>
               <button type="button" onClick={saveFlow} disabled={saving}>
                 {saving ? <Loader2 size={14} className="fmd-spin" /> : <Save size={14} />} Save
               </button>
               <button type="button" onClick={dryRun}>
-                <RefreshCw size={14} /> Dry run
+                <RefreshCw size={14} /> Validate plan
               </button>
-              <button type="button" className="fmd-canvas-actions__primary" onClick={launch} disabled={launching || !validation.ok}>
-                {launching ? <Loader2 size={14} className="fmd-spin" /> : <Play size={14} />} Start Pipeline
+              <button
+                type="button"
+                className="fmd-canvas-actions__primary"
+                onClick={activeRun ? () => navigate(missionControlUrl) : launch}
+                disabled={launching || (!activeRun && !validation.ok)}
+              >
+                {launching
+                  ? <Loader2 size={14} className="fmd-spin" />
+                  : activeRun
+                    ? <SquareArrowOutUpRight size={14} />
+                    : <Play size={14} />}
+                {launching ? "Starting..." : activeRun ? "Open Mission Control" : "Start Pipeline"}
               </button>
             </div>
           </div>
@@ -731,9 +768,9 @@ function FmdPipelineCanvasInner() {
                 setRightPanelMode("inspect");
               }}
               onPaneClick={() => setSelectedNodeId(null)}
-              defaultViewport={{ x: 80, y: 132, zoom: 0.88 }}
-              minZoom={0.65}
-              maxZoom={1.25}
+              defaultViewport={{ x: 48, y: 132, zoom: 1 }}
+              minZoom={0.75}
+              maxZoom={1.35}
               snapToGrid
               snapGrid={[24, 24]}
             >

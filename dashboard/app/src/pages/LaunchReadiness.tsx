@@ -202,7 +202,7 @@ function LaunchReadiness() {
         <CompactPageHeader
           eyebrow="Launch readiness"
           title="Handoff status and operating path"
-          summary="This page is the operator-facing bridge between the roadmap, source onboarding, real-load verification, Dagster execution, and the final handoff checklist."
+          summary="This page is the operator-facing bridge between the roadmap, source onboarding, real-load verification, managed execution, and the final handoff checklist."
           meta="Not handoff-certified until the real smoke receipt and source onboarding loop pass end-to-end."
           facts={[
             { label: "Roadmap", value: "Visible", tone: "positive" },
@@ -422,7 +422,7 @@ function LaunchReadiness() {
               style={{ border: "1px solid var(--bp-border)", color: "var(--bp-ink-secondary)" }}
             >
               <Route className="h-4 w-4" />
-              Dagster control room
+              Runtime diagnostics
             </Link>
           </div>
         </Section>

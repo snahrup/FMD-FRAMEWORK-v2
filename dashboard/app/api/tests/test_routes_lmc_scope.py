@@ -279,3 +279,28 @@ class TestPersistedScopeTruth:
         assert row[0] == "SourceA", f"SourceFilter should be 'SourceA', got {row[0]!r}"
         assert row[1] == 3, f"ResolvedEntityCount should be 3, got {row[1]!r}"
         assert row[2] == "1,2,3", f"EntityFilter should be '1,2,3', got {row[2]!r}"
+
+
+class TestMissionControlScopedProgressTruth:
+    """Regression coverage for the scoped-run numbers shown in Mission Control."""
+
+    def test_progress_prefers_resolved_scope_over_internal_total_entities(self, tmp_db):
+        """Scoped runs must not expose stale/internal TotalEntities to the UI."""
+        conn = sqlite3.connect(str(tmp_db))
+        conn.execute(
+            "INSERT INTO engine_runs (RunId, Mode, Status, Layers, TriggeredBy, EntityFilter, "
+            "SourceFilter, ResolvedEntityCount, TotalEntities, StartedAt) "
+            "VALUES (?, 'run', 'InProgress', ?, 'canvas', ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
+            ("scoped-run-123", "", "1,2,3", "SourceA", 3, 11),
+        )
+        conn.commit()
+        conn.close()
+
+        result = _call("GET", "/api/lmc/progress", {"run_id": "scoped-run-123"})
+
+        assert result["run"]["totalEntities"] == 3
+        assert result["run"]["resolvedEntityCount"] == 3
+        assert result["missionTruth"]["entityCount"] == 3
+        assert result["missionTruth"]["layerKeys"] == ["landing", "bronze", "silver"]
+        assert result["missionTruth"]["layerStepTotal"] == 9
+        assert result["missionTruth"]["layerStepsRemaining"] == 9

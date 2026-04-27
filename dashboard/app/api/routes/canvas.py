@@ -403,7 +403,7 @@ def compile_run_plan(flow: dict[str, Any]) -> dict[str, Any]:
                 adapter_steps.append({
                     **step,
                     "status": "modeled",
-                    "note": "Planned Fabric/external mirror only in this build. It does not create, sync, or run a Fabric artifact yet; execution remains routed through FMD/Dagster.",
+                    "note": "Planned Fabric/external mirror only in this build. It does not create, sync, or run a Fabric artifact yet; execution remains managed by FMD.",
                 })
 
     if not layers:
@@ -506,7 +506,7 @@ def _dispatch_engine_start(payload: dict[str, Any]) -> dict[str, Any]:
     status, _headers, body = dispatch("POST", "/api/engine/start", {}, payload)
     parsed = _json_loads(body, {})
     if status >= 400:
-        message = parsed.get("error") or parsed.get("message") or f"Engine start failed ({status})."
+        message = parsed.get("error") or parsed.get("message") or f"Pipeline launch failed ({status})."
         raise HttpError(message, status)
     return parsed
 

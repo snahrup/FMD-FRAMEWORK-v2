@@ -1662,13 +1662,13 @@ export default function SourceManager() {
                         {regConn && (
                           <div className="mt-4 pt-4 border-t border-border">
                             <div className="flex items-center gap-2 mb-2">
-                              <p className="text-muted-foreground text-xs uppercase tracking-wider">FMD Framework Name</p>
+                              <p className="text-muted-foreground text-xs uppercase tracking-wider">FMD Managed Name</p>
                               <div className="relative group">
                                 <Info className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help" />
                                 <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 p-3 bg-popover text-popover-foreground text-xs rounded-lg border border-border opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50">
                                   <p className="font-medium mb-1">Naming convention: CON_FMD_{'{SERVER}'}_{'{SOURCE}'}</p>
                                   <ul className="space-y-1 text-muted-foreground">
-                                    <li><span className="font-mono text-foreground">CON_FMD</span> — prefix for all framework connections</li>
+                                    <li><span className="font-mono text-foreground">CON_FMD</span> — prefix for all FMD-managed connections</li>
                                     <li><span className="font-mono text-foreground">{'{SERVER}'}</span> — the SQL Server hostname</li>
                                     <li><span className="font-mono text-foreground">{'{SOURCE}'}</span> — the Fabric display name (spaces removed)</li>
                                   </ul>
@@ -1704,7 +1704,7 @@ export default function SourceManager() {
 
                         {!regConn && (
                           <div className="mt-4 pt-4 border-t border-border">
-                            <p className="text-sm text-muted-foreground mb-3">This connection is available in the Fabric gateway but is not yet configured in the framework.</p>
+                            <p className="text-sm text-muted-foreground mb-3">This connection is available in the Fabric gateway but is not yet configured for FMD-managed loading.</p>
                             <div className="flex items-center gap-3">
                               <button
                                 onClick={() => registerConnection(conn)}

@@ -340,7 +340,7 @@ export function validateFlow(flow: FmdCanvasFlow): FmdValidationResult {
     if (["fabric_pipeline", "fabric_notebook", "external_adapter"].includes(node.type) && node.config.enabled !== true) {
       warnings.push({
         code: "adapter_modeled",
-        message: `${node.label} is modeled for the plan, but MVP launch delegates through the FMD/Dagster runtime.`,
+        message: `${node.label} is modeled for the plan, but this build only launches production-ready FMD steps.`,
       });
     }
   }
@@ -396,7 +396,7 @@ export function compileRunPlan(flow: FmdCanvasFlow): FmdRunPlan {
         adapterSteps.push({
           ...step,
           status: "modeled",
-          note: "Planned Fabric/external mirror only in this build. It does not create, sync, or run a Fabric artifact yet; execution remains routed through FMD/Dagster.",
+          note: "Planned mirror only in this build. It does not create, sync, or run an external artifact yet; execution remains managed by FMD.",
         });
       }
     }

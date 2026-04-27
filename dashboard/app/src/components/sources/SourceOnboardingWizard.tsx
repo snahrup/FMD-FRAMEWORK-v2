@@ -74,7 +74,7 @@ const DATA_SOURCE_TYPES = [
   { value: 'FTP_01', label: 'FTP', pipeline: 'PL_FMD_LDZ_COPY_FROM_FTP_01' },
   { value: 'SFTP_01', label: 'SFTP', pipeline: 'PL_FMD_LDZ_COPY_FROM_SFTP_01' },
   { value: 'ORACLE_01', label: 'Oracle', pipeline: 'PL_FMD_LDZ_COPY_FROM_ORACLE_01' },
-  { value: 'NOTEBOOK', label: 'Custom Notebook', pipeline: 'PL_FMD_LDZ_COPY_FROM_CUSTOM_NB' },
+  { value: 'NOTEBOOK', label: 'Custom Load Step', pipeline: 'PL_FMD_LDZ_COPY_FROM_CUSTOM_NB' },
 ];
 
 // 3 visual steps mapping to 4 internal DB steps
@@ -837,7 +837,7 @@ export function SourceOnboardingWizard({
           {selectedSource && (
             <button
               onClick={() => {
-                if (confirm(`Remove "${selectedSource}" and ALL of its configured framework data (connections, data sources, tables)?`))
+                if (confirm(`Remove "${selectedSource}" and ALL of its configured FMD data (connections, data sources, tables)?`))
                   purgeSource(selectedSource);
               }}
               className="p-2 text-muted-foreground/50 hover:text-destructive rounded-lg hover:bg-destructive/10 transition-colors ml-auto"
@@ -1512,7 +1512,7 @@ export function SourceOnboardingWizard({
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-xs font-bold text-primary bg-primary/10 rounded-full w-5 h-5 flex items-center justify-center">3</span>
-                    <h3 className="text-sm font-semibold text-foreground">Start Real Load</h3>
+                    <h3 className="text-sm font-semibold text-foreground">Run Pipeline</h3>
                   </div>
 
                   {isVisualStepComplete(2) ? (
@@ -1521,10 +1521,10 @@ export function SourceOnboardingWizard({
                       <div className="bg-[#E7F3EB] border border-[#3D7C4F]/30 rounded-lg p-4 mb-4">
                         <div className="flex items-center gap-2 text-sm text-[#3D7C4F] mb-2">
                           <CheckCircle2 className="h-5 w-5" />
-                          <span className="font-semibold">Source ready for a scoped real load</span>
+                          <span className="font-semibold">Source ready for a scoped pipeline run</span>
                         </div>
                         <p className="text-xs text-[#3D7C4F]/80">
-                          <strong>{selectedSource}</strong> is configured with {selectedSourceEntityCount} table{selectedSourceEntityCount !== 1 ? 's' : ''} in scope. The run will start only if framework-mode preflight passes.
+                          <strong>{selectedSource}</strong> is configured with {selectedSourceEntityCount} table{selectedSourceEntityCount !== 1 ? 's' : ''} in scope. The run will start only if managed launch checks pass.
                         </p>
                       </div>
 
@@ -1607,7 +1607,7 @@ export function SourceOnboardingWizard({
                               <div className="flex items-center gap-2 text-xs text-[#3D7C4F]">
                                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                                 <span className="font-medium">
-                                  Real load launched{importRunId ? ` as run ${importRunId.slice(0, 8)}` : ''}. Track physical Landing, Bronze, and Silver evidence in Mission Control.
+                                  Pipeline launched{importRunId ? ` as run ${importRunId.slice(0, 8)}` : ''}. Track Landing, Bronze, and Silver evidence in Mission Control.
                                 </span>
                               </div>
                             </div>
@@ -1624,11 +1624,11 @@ export function SourceOnboardingWizard({
                             className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm disabled:opacity-50 transition-colors"
                           >
                             <Rocket className="h-4 w-4" />
-                            Start Real Load for {selectedSourceEntityCount} Table{selectedSourceEntityCount !== 1 ? 's' : ''}
+                            Run Pipeline for {selectedSourceEntityCount} Table{selectedSourceEntityCount !== 1 ? 's' : ''}
                           </button>
                         ) : importComplete ? (
                           <a
-                            href={importRunId ? `/load-mission-control?run=${encodeURIComponent(importRunId)}` : '/load-mission-control'}
+                            href={importRunId ? `/load-mission-control?run_id=${encodeURIComponent(importRunId)}` : '/load-mission-control'}
                             className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm transition-colors"
                           >
                             <ExternalLink className="h-4 w-4" />
@@ -1646,7 +1646,7 @@ export function SourceOnboardingWizard({
 
                         {selectedSourceEntityCount === 0 && !importJobId && (
                           <div className="rounded-lg border border-[#B7791F]/30 bg-[#FFF7E6] p-3 text-xs text-[#8A5A12]">
-                            No active entities are resolved for this source yet. Add tables to scope before starting a real load.
+                            No active entities are resolved for this source yet. Add tables to scope before running the pipeline.
                           </div>
                         )}
 
@@ -1662,11 +1662,11 @@ export function SourceOnboardingWizard({
                       {/* Info box — what happens (user-facing, no false completion claims) */}
                       {!importJobId && !importStarting && (
                         <div className="mt-4 bg-muted/50 rounded-lg p-3 border border-border">
-                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">What happens when you start a real load</p>
+                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">What happens when you run the pipeline</p>
                           <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
                             <li>FMD resolves this source to a specific list of active entities</li>
-                            <li>Framework-mode preflight checks Python, dependencies, source scope, and write paths</li>
-                            <li>Dagster launches the real Landing, Bronze, and Silver engine path</li>
+                            <li>FMD checks source access, dependencies, selected scope, and write paths</li>
+                            <li>FMD starts the Landing, Bronze, and Silver load</li>
                             <li>Mission Control tracks the run and exposes physical artifact evidence</li>
                           </ol>
                           <p className="text-[10px] text-muted-foreground/70 mt-2">
